@@ -1530,15 +1530,17 @@ class Optimizer {
         this.logger.log(`Keeping temperature at ${currentTarget}°C: ${reason}`);
       }
 
-      // Get comfort profile information
-      const now = new Date();
-      const currentHour = now.getHours();
-      const localTimeString = now.toLocaleTimeString();
+      // Get comfort profile information using our time zone-aware function
+      const localTime = this.getLocalTime();
+      const currentHour = localTime.hour;
+      const localTimeString = localTime.timeString;
       const comfortFactor = this.calculateComfortFactor(currentHour);
       const dayStart = this.logger.homey?.settings?.get('day_start_hour') || 6;
       const dayEnd = this.logger.homey?.settings?.get('day_end_hour') || 22;
       const nightTempReduction = this.logger.homey?.settings?.get('night_temp_reduction') || 2;
       const preHeatHours = this.logger.homey?.settings?.get('pre_heat_hours') || 1;
+      const timeZoneOffset = this.logger.homey?.settings?.get('time_zone_offset') || 2;
+      const useDst = this.logger.homey?.settings?.get('use_dst') !== false;
 
       this.logger.log(`Comfort profile calculation using local time: ${localTimeString} (Hour: ${currentHour})`);
 
@@ -1566,6 +1568,10 @@ class Optimizer {
           dayEnd,
           nightTempReduction,
           preHeatHours,
+          timeZone: {
+            offset: timeZoneOffset,
+            useDst: useDst
+          },
           mode: comfortFactor >= 0.9 ? 'day' : comfortFactor <= 0.6 ? 'night' : 'transition'
         },
         // Include price forecast data
@@ -1724,6 +1730,47 @@ class Optimizer {
   }
 
   /**
+   * Get the current local time based on user's time zone settings
+   * @returns {Object} - Object with date, hour, and formatted time string
+   */
+  getLocalTime() {
+    // Get the current UTC time
+    const now = new Date();
+
+    // Get time zone settings
+    const timeZoneOffset = this.logger.homey?.settings?.get('time_zone_offset') || 2; // Default to UTC+2
+    const useDst = this.logger.homey?.settings?.get('use_dst') !== false; // Default to true
+
+    // Calculate the total offset in minutes
+    let totalOffsetMinutes = timeZoneOffset * 60;
+
+    // Add DST adjustment if enabled and currently in effect
+    if (useDst) {
+      // Simple DST detection (Northern Hemisphere): DST is typically in effect from March to October
+      const month = now.getUTCMonth(); // 0-11 (Jan-Dec)
+      if (month >= 2 && month <= 9) { // March to October
+        totalOffsetMinutes += 60; // Add 1 hour (60 minutes) for DST
+      }
+    }
+
+    // Create a new date with the adjusted time
+    const localTime = new Date(now.getTime() + totalOffsetMinutes * 60 * 1000);
+
+    // Extract hour and create formatted time string
+    const localHour = localTime.getUTCHours();
+    const localTimeString = localTime.toUTCString().replace('GMT', 'Local Time');
+
+    this.logger.log(`Time zone: UTC${timeZoneOffset >= 0 ? '+' : ''}${timeZoneOffset}${useDst ? ' with DST' : ''}`);
+    this.logger.log(`System time: ${now.toISOString()}, Local time: ${localTimeString}`);
+
+    return {
+      date: localTime,
+      hour: localHour,
+      timeString: localTimeString
+    };
+  }
+
+  /**
    * Calculate comfort factor based on time of day
    * @param {number} hour - Current hour (0-23)
    * @returns {number} - Comfort factor (0.5-1.0)
@@ -1738,15 +1785,14 @@ class Optimizer {
     const morningTransitionStart = (dayStart - preHeatHours + 24) % 24;
     const eveningTransitionStart = dayEnd - 1;
 
-    // Get the current date and time in the local timezone
-    const now = new Date();
-    const localHour = now.getHours();
+    // Get the current local time using our time zone-aware function
+    const localTime = this.getLocalTime();
 
     // Use the provided hour parameter if available, otherwise use local hour
-    const currentHour = (hour !== undefined) ? hour : localHour;
+    const currentHour = (hour !== undefined) ? hour : localTime.hour;
 
     // Log the comfort profile settings
-    this.logger.log(`Comfort profile: Day ${dayStart}:00-${dayEnd}:00, Pre-heat: ${preHeatHours}h, Current hour: ${currentHour}:00 (Local time: ${localHour}:00)`);
+    this.logger.log(`Comfort profile: Day ${dayStart}:00-${dayEnd}:00, Pre-heat: ${preHeatHours}h, Current hour: ${currentHour}:00 (Local time: ${localTime.timeString})`);
 
     if (currentHour >= dayStart && currentHour < eveningTransitionStart) {
       // Full day comfort
@@ -1776,11 +1822,11 @@ class Optimizer {
    * @returns {number} - Optimal temperature setting
    */
   calculateOptimalTemperature(currentPrice, avgPrice, minPrice, maxPrice, currentTemp, priceForecast = null) {
-    // Get current hour in local time zone
-    const now = new Date();
-    const currentHour = now.getHours();
+    // Get current hour in local time zone using our time zone-aware function
+    const localTime = this.getLocalTime();
+    const currentHour = localTime.hour;
 
-    this.logger.log(`Current local time: ${now.toLocaleTimeString()} (Hour: ${currentHour})`);
+    this.logger.log(`Current local time: ${localTime.timeString} (Hour: ${currentHour})`);
 
     // Calculate comfort factor (0.5-1.0)
     const comfortFactor = this.calculateComfortFactor(currentHour);

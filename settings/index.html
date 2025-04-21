@@ -137,6 +137,54 @@
           </div>
         </div>
       </div>
+
+      <div class="homey-form-group">
+        <label class="homey-form-label">Time Zone</label>
+        <div class="homey-form-row">
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="time_zone_offset">UTC Offset</label>
+            <select class="homey-form-input" id="time_zone_offset">
+              <option value="-12">UTC-12:00</option>
+              <option value="-11">UTC-11:00</option>
+              <option value="-10">UTC-10:00</option>
+              <option value="-9">UTC-09:00</option>
+              <option value="-8">UTC-08:00</option>
+              <option value="-7">UTC-07:00</option>
+              <option value="-6">UTC-06:00</option>
+              <option value="-5">UTC-05:00</option>
+              <option value="-4">UTC-04:00</option>
+              <option value="-3">UTC-03:00</option>
+              <option value="-2">UTC-02:00</option>
+              <option value="-1">UTC-01:00</option>
+              <option value="0">UTC+00:00</option>
+              <option value="1">UTC+01:00</option>
+              <option value="2" selected>UTC+02:00</option>
+              <option value="3">UTC+03:00</option>
+              <option value="4">UTC+04:00</option>
+              <option value="5">UTC+05:00</option>
+              <option value="5.5">UTC+05:30</option>
+              <option value="6">UTC+06:00</option>
+              <option value="7">UTC+07:00</option>
+              <option value="8">UTC+08:00</option>
+              <option value="9">UTC+09:00</option>
+              <option value="9.5">UTC+09:30</option>
+              <option value="10">UTC+10:00</option>
+              <option value="11">UTC+11:00</option>
+              <option value="12">UTC+12:00</option>
+              <option value="13">UTC+13:00</option>
+            </select>
+            <p class="homey-form-helper">Your local time zone offset from UTC</p>
+          </div>
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="use_dst">Daylight Saving Time</label>
+            <label class="homey-form-checkbox">
+              <input type="checkbox" id="use_dst" checked />
+              <span>Automatically adjust for DST</span>
+            </label>
+            <p class="homey-form-helper">Automatically adjust for daylight saving time changes</p>
+          </div>
+        </div>
+      </div>
     </fieldset>
 
     <fieldset class="homey-form-fieldset">
@@ -195,6 +243,8 @@
         const dayEndHourElement = document.getElementById("day_end_hour");
         const nightTempReductionElement = document.getElementById("night_temp_reduction");
         const preHeatHoursElement = document.getElementById("pre_heat_hours");
+        const timeZoneOffsetElement = document.getElementById("time_zone_offset");
+        const useDstElement = document.getElementById("use_dst");
         const logLevelElement = document.getElementById("log_level");
         const saveElement = document.getElementById("save");
         const runHourlyElement = document.getElementById("run_hourly");
@@ -292,6 +342,17 @@
         Homey.get("pre_heat_hours", function (err, value) {
           if (err) return Homey.alert(err);
           if (value !== undefined) preHeatHoursElement.value = value;
+        });
+
+        // Load time zone settings
+        Homey.get("time_zone_offset", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) timeZoneOffsetElement.value = value;
+        });
+
+        Homey.get("use_dst", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) useDstElement.checked = value;
         });
 
         // Add event listener for the detect location button
@@ -436,6 +497,18 @@
               if (err) return Homey.alert(err);
             });
           }
+
+          // Save time zone settings
+          const timeZoneOffset = parseFloat(timeZoneOffsetElement.value);
+          if (!isNaN(timeZoneOffset) && timeZoneOffset >= -12 && timeZoneOffset <= 14) {
+            Homey.set("time_zone_offset", timeZoneOffset, function (err) {
+              if (err) return Homey.alert(err);
+            });
+          }
+
+          Homey.set("use_dst", useDstElement.checked, function (err) {
+            if (err) return Homey.alert(err);
+          });
 
           // Show success message
           Homey.alert('Settings saved successfully!');
