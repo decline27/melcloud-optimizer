@@ -1,0 +1,28 @@
+[2025-04-21T07:50:48.700Z] Starting trigger test
+[2025-04-21T07:50:48.707Z] MockSettings initialized
+[2025-04-21T07:50:48.707Z] MockApp initialized
+[2025-04-21T07:50:48.707Z] Registering event listeners
+[2025-04-21T07:50:48.707Z] Testing hourly optimization trigger
+[2025-04-21T07:50:48.707Z] Settings.set called for key: trigger_hourly_optimization, value: true
+[2025-04-21T07:50:48.707Z] Emitting 'set' event for key: trigger_hourly_optimization
+[2025-04-21T07:50:48.707Z] onSettingsChanged listener called for key: trigger_hourly_optimization
+[2025-04-21T07:50:48.708Z] Manual trigger listener called for key: trigger_hourly_optimization
+[2025-04-21T07:50:48.708Z] Settings.get called for key: trigger_hourly_optimization
+[2025-04-21T07:50:48.708Z] trigger_hourly_optimization value: true
+[2025-04-21T07:50:48.708Z] MANUAL HOURLY OPTIMIZATION TRIGGERED
+[2025-04-21T07:50:48.708Z] Running hourly optimization...
+[2025-04-21T07:50:48.708Z] Test script running...
+[2025-04-21T07:50:49.710Z] MANUAL HOURLY OPTIMIZATION COMPLETED
+[2025-04-21T07:50:49.710Z] Settings.unset called for key: trigger_hourly_optimization
+[2025-04-21T07:50:50.710Z] Testing weekly calibration trigger
+[2025-04-21T07:50:50.710Z] Settings.set called for key: trigger_weekly_calibration, value: true
+[2025-04-21T07:50:50.711Z] Emitting 'set' event for key: trigger_weekly_calibration
+[2025-04-21T07:50:50.711Z] onSettingsChanged listener called for key: trigger_weekly_calibration
+[2025-04-21T07:50:50.711Z] Manual trigger listener called for key: trigger_weekly_calibration
+[2025-04-21T07:50:50.711Z] Settings.get called for key: trigger_weekly_calibration
+[2025-04-21T07:50:50.711Z] trigger_weekly_calibration value: true
+[2025-04-21T07:50:50.711Z] MANUAL WEEKLY CALIBRATION TRIGGERED
+[2025-04-21T07:50:50.711Z] Running weekly calibration...
+[2025-04-21T07:50:51.713Z] MANUAL WEEKLY CALIBRATION COMPLETED
+[2025-04-21T07:50:51.714Z] Settings.unset called for key: trigger_weekly_calibration
+[2025-04-21T07:50:52.713Z] Trigger test completed

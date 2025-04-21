@@ -1,0 +1,74 @@
+{
+  "id": "temperature",
+  "title": {
+    "en": "Temperature Settings"
+  },
+  "hint": {
+    "en": "Configure temperature limits and optimization parameters."
+  },
+  "children": [
+    {
+      "id": "temp_limits",
+      "type": "group",
+      "label": {
+        "en": "Temperature Limits"
+      },
+      "children": [
+        {
+          "id": "min_temp",
+          "type": "number",
+          "label": {
+            "en": "Minimum Temperature (°C)"
+          },
+          "min": 16,
+          "max": 22,
+          "value": 18
+        },
+        {
+          "id": "max_temp",
+          "type": "number",
+          "label": {
+            "en": "Maximum Temperature (°C)"
+          },
+          "min": 20,
+          "max": 26,
+          "value": 24
+        },
+        {
+          "id": "temp_step_max",
+          "type": "number",
+          "label": {
+            "en": "Maximum Temperature Step (°C)"
+          },
+          "min": 0.1,
+          "max": 2.0,
+          "step": 0.1,
+          "value": 0.5
+        }
+      ]
+    },
+    {
+      "id": "model_params",
+      "type": "group",
+      "label": {
+        "en": "Model Parameters"
+      },
+      "children": [
+        {
+          "id": "initial_k",
+          "type": "number",
+          "label": {
+            "en": "Initial K Factor"
+          },
+          "hint": {
+            "en": "Initial thermal response factor. Will be automatically calibrated over time."
+          },
+          "min": 0.1,
+          "max": 1.0,
+          "step": 0.05,
+          "value": 0.3
+        }
+      ]
+    }
+  ]
+}

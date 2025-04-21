@@ -1,0 +1,17 @@
+(node:68317) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[32m✓ Pre-processing app...[39m
+[32m✓ Typescript detected. Compiling...[39m
+[32m✓ Typescript compilation successful[39m
+[32m✓ Validating app...[39m
+[32m✓ App validated successfully against level `debug`[39m
+[32m✓ Packing Homey App...[39m
+[90m — App archive size: 5.12 MB, 149 files[39m
+[32m✓ Installing Homey App on `Kjetil's Homey` (https://192-168-110-153.homey.homeylocal.com)...[39m
+[32m✓ Homey App `com.melcloud.optimize` successfully installed[39m
+[32m✓ Running `com.melcloud.optimize`, press CTRL+C to quit[39m
+[90m — Profile your app's performance at https://go.athom.com/app-profiling?homey=5c5058b400da390dacc9764e&app=com.melcloud.optimize[39m
+─────────────── Logging stdout & stderr ───────────────
+───────────────────────────────────────────────────────
+[32m✓ Uninstalling `com.melcloud.optimize`...[39m
+[32m✓ Homey App `com.melcloud.optimize` successfully uninstalled[39m

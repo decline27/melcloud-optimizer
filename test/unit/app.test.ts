@@ -1,0 +1,231 @@
+import HeatOptimizerApp from '../../src/app';
+import { App } from 'homey';
+import { Logger } from '../../src/util/logger';
+
+// Mock fetch globally
+global.fetch = jest.fn();
+
+describe('HeatOptimizerApp', () => {
+  let app: HeatOptimizerApp;
+  let mockSettings: any;
+  let mockNotifications: any;
+  let mockFlow: any;
+
+  beforeEach(() => {
+    // Reset all mocks
+    jest.clearAllMocks();
+
+    // Mock fetch response
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({})
+    });
+
+    // Create mock settings
+    mockSettings = {
+      get: jest.fn(),
+      set: jest.fn().mockResolvedValue(undefined),
+      on: jest.fn(),
+    };
+
+    // Create mock notifications
+    mockNotifications = {
+      createNotification: jest.fn().mockResolvedValue(undefined),
+    };
+
+    // Create mock flow
+    mockFlow = {
+      runFlowCardAction: jest.fn().mockResolvedValue(undefined),
+    };
+
+    // Create app instance
+    app = new HeatOptimizerApp();
+
+    // Mock app.homey
+    (app as any).homey = {
+      settings: mockSettings,
+      notifications: mockNotifications,
+      flow: mockFlow,
+      setInterval: jest.fn(),
+    };
+
+    // Mock app.log and app.error
+    (app as any).log = jest.fn();
+    (app as any).error = jest.fn();
+  });
+
+  describe('onInit', () => {
+    it('should initialize the app and set up intervals', async () => {
+      // Mock settings.get for log_level
+      mockSettings.get.mockImplementation((key: string) => {
+        if (key === 'log_level') return 1; // INFO level
+        return undefined;
+      });
+
+      await app.onInit();
+
+      // Check if intervals are set up
+      expect((app as any).homey.setInterval).toHaveBeenCalledTimes(2);
+
+      // Check if settings change listener is registered
+      expect(mockSettings.on).toHaveBeenCalledWith('set', expect.any(Function));
+    });
+
+    it('should trigger hourly optimizer at the top of the hour', async () => {
+      // Mock Date.prototype.getMinutes to return 0 (top of the hour)
+      const originalGetMinutes = Date.prototype.getMinutes;
+      Date.prototype.getMinutes = jest.fn().mockReturnValue(0);
+
+      // Mock settings.get for log_level
+      mockSettings.get.mockImplementation((key: string) => {
+        if (key === 'log_level') return 1; // INFO level
+        return undefined;
+      });
+
+      // Mock runHourlyOptimizer
+      (app as any).runHourlyOptimizer = jest.fn();
+
+      await app.onInit();
+
+      // Get the interval callback
+      const intervalCallback = (app as any).homey.setInterval.mock.calls[0][0];
+
+      // Call the interval callback
+      intervalCallback();
+
+      // Check if runHourlyOptimizer was called
+      expect((app as any).runHourlyOptimizer).toHaveBeenCalled();
+
+      // Restore original method
+      Date.prototype.getMinutes = originalGetMinutes;
+    });
+
+    it('should trigger weekly calibration on Monday at 3:00 AM', async () => {
+      // Mock Date methods to return Monday at 3:00 AM
+      const originalGetDay = Date.prototype.getDay;
+      const originalGetHours = Date.prototype.getHours;
+      const originalGetMinutes = Date.prototype.getMinutes;
+
+      Date.prototype.getDay = jest.fn().mockReturnValue(1); // Monday
+      Date.prototype.getHours = jest.fn().mockReturnValue(3); // 3 AM
+      Date.prototype.getMinutes = jest.fn().mockReturnValue(0); // 0 minutes
+
+      // Mock settings.get for log_level
+      mockSettings.get.mockImplementation((key: string) => {
+        if (key === 'log_level') return 1; // INFO level
+        return undefined;
+      });
+
+      // Mock runWeeklyCalibration
+      (app as any).runWeeklyCalibration = jest.fn();
+
+      await app.onInit();
+
+      // Get the interval callback
+      const intervalCallback = (app as any).homey.setInterval.mock.calls[1][0];
+
+      // Call the interval callback
+      intervalCallback();
+
+      // Check if runWeeklyCalibration was called
+      expect((app as any).runWeeklyCalibration).toHaveBeenCalled();
+
+      // Restore original methods
+      Date.prototype.getDay = originalGetDay;
+      Date.prototype.getHours = originalGetHours;
+      Date.prototype.getMinutes = originalGetMinutes;
+    });
+  });
+
+  describe('validateSettings', () => {
+    beforeEach(async () => {
+      // Initialize the app to set up the logger
+      mockSettings.get.mockImplementation((key: string) => {
+        if (key === 'log_level') return 1; // INFO level
+        return undefined;
+      });
+      await app.onInit();
+    });
+
+    it('should notify if required settings are missing', async () => {
+      // Mock settings.get to return undefined for required settings
+      mockSettings.get.mockImplementation((key: string) => {
+        if (['melcloud_user', 'melcloud_pass', 'tibber_token'].includes(key)) {
+          return undefined;
+        }
+        return 'some-value';
+      });
+
+      // Call validateSettings
+      await (app as any).validateSettings();
+
+      // Check if notification was created
+      expect(mockNotifications.createNotification).toHaveBeenCalledWith({
+        excerpt: expect.stringContaining('Please configure the required settings'),
+      });
+    });
+
+    it('should not notify if all required settings are present', async () => {
+      // Mock settings.get to return values for required settings
+      mockSettings.get.mockImplementation((key: string) => {
+        return 'some-value';
+      });
+
+      // Reset the mock before calling validateSettings
+      mockNotifications.createNotification.mockClear();
+
+      // Call validateSettings
+      await (app as any).validateSettings();
+
+      // Check that no notification was created
+      expect(mockNotifications.createNotification).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('onSettingsChanged', () => {
+    beforeEach(async () => {
+      // Initialize the app to set up the logger
+      mockSettings.get.mockImplementation((key: string) => {
+        if (key === 'log_level') return 1; // INFO level
+        return undefined;
+      });
+      await app.onInit();
+
+      // Spy on validateSettings
+      jest.spyOn(app as any, 'validateSettings');
+    });
+
+    it('should update log level when log_level setting changes', () => {
+      // Mock settings.get to return a log level
+      mockSettings.get.mockImplementation((key: string) => {
+        if (key === 'log_level') return 2; // WARN level
+        return undefined;
+      });
+
+      // Mock the logger's setLogLevel method
+      (app as any).logger.setLogLevel = jest.fn();
+
+      // Call onSettingsChanged with log_level
+      (app as any).onSettingsChanged('log_level');
+
+      // Check if log level was updated
+      expect((app as any).logger.setLogLevel).toHaveBeenCalledWith(2);
+    });
+
+    it('should validate settings when credential settings change', () => {
+      // Call onSettingsChanged with a credential setting
+      (app as any).onSettingsChanged('melcloud_user');
+
+      // Check if validateSettings was called
+      expect((app as any).validateSettings).toHaveBeenCalled();
+    });
+
+    it('should not validate settings when non-credential settings change', () => {
+      // Call onSettingsChanged with a non-credential setting
+      (app as any).onSettingsChanged('min_temp');
+
+      // Check that validateSettings was not called
+      expect((app as any).validateSettings).not.toHaveBeenCalled();
+    });
+  });
+});
