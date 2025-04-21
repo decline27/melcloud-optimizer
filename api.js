@@ -4,64 +4,121 @@
 // Import the HTTPS module
 const https = require('https');
 
-// Helper function for making HTTP requests
-function httpRequest(options, data = null) {
-  return new Promise((resolve, reject) => {
-    console.log(`Making ${options.method} request to ${options.hostname}${options.path}`);
+// Helper function for making HTTP requests with retry capability
+async function httpRequest(options, data = null, maxRetries = 3, retryDelay = 1000) {
+  let lastError = null;
 
-    const req = https.request(options, (res) => {
-      let responseData = '';
+  for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+    try {
+      // If this is a retry, log it
+      if (attempt > 1) {
+        console.log(`Retry attempt ${attempt - 1}/${maxRetries} for ${options.method} request to ${options.hostname}${options.path}`);
+      } else {
+        console.log(`Making ${options.method} request to ${options.hostname}${options.path}`);
+      }
 
-      // Log response status
-      console.log(`Response status: ${res.statusCode} ${res.statusMessage}`);
+      // Create a new promise for this attempt
+      const result = await new Promise((resolve, reject) => {
+        const req = https.request(options, (res) => {
+          let responseData = '';
 
-      res.on('data', (chunk) => {
-        responseData += chunk;
+          // Log response status
+          console.log(`Response status: ${res.statusCode} ${res.statusMessage}`);
+
+          res.on('data', (chunk) => {
+            responseData += chunk;
+          });
+
+          res.on('end', () => {
+            // Check if we got a redirect
+            if (res.statusCode >= 300 && res.statusCode < 400) {
+              const location = res.headers.location;
+              console.log(`Received redirect to: ${location}`);
+              reject(new Error(`Received redirect to: ${location}`));
+              return;
+            }
+
+            // Check if we got an error
+            if (res.statusCode >= 400) {
+              console.log(`Error response: ${responseData.substring(0, 200)}...`);
+              reject(new Error(`HTTP error ${res.statusCode}: ${res.statusMessage}`));
+              return;
+            }
+
+            // Try to parse as JSON
+            try {
+              // Log first 100 chars of response for debugging
+              console.log(`Response data (first 100 chars): ${responseData.substring(0, 100)}...`);
+
+              const parsedData = JSON.parse(responseData);
+              resolve(parsedData);
+            } catch (error) {
+              console.log(`Failed to parse response as JSON. First 200 chars: ${responseData.substring(0, 200)}...`);
+              reject(new Error(`Failed to parse response: ${error.message}`));
+            }
+          });
+        });
+
+        req.on('error', (error) => {
+          console.log(`Request error: ${error.message}`);
+          reject(error);
+        });
+
+        // Set a timeout to prevent hanging requests
+        req.setTimeout(30000, () => {
+          req.destroy();
+          reject(new Error('Request timeout after 30 seconds'));
+        });
+
+        if (data) {
+          const dataStr = JSON.stringify(data);
+          console.log(`Request data: ${dataStr.substring(0, 100)}...`);
+          req.write(dataStr);
+        }
+
+        req.end();
       });
 
-      res.on('end', () => {
-        // Check if we got a redirect
-        if (res.statusCode >= 300 && res.statusCode < 400) {
-          const location = res.headers.location;
-          console.log(`Received redirect to: ${location}`);
-          reject(new Error(`Received redirect to: ${location}`));
-          return;
-        }
+      // If we get here, the request was successful
+      return result;
 
-        // Check if we got an error
-        if (res.statusCode >= 400) {
-          console.log(`Error response: ${responseData.substring(0, 200)}...`);
-          reject(new Error(`HTTP error ${res.statusCode}: ${res.statusMessage}`));
-          return;
-        }
+    } catch (error) {
+      lastError = error;
 
-        // Try to parse as JSON
-        try {
-          // Log first 100 chars of response for debugging
-          console.log(`Response data (first 100 chars): ${responseData.substring(0, 100)}...`);
+      // Determine if we should retry based on the error
+      const isRetryable = (
+        // Network errors are retryable
+        error.code === 'ECONNRESET' ||
+        error.code === 'ETIMEDOUT' ||
+        error.code === 'ECONNREFUSED' ||
+        error.code === 'ENETUNREACH' ||
+        // Timeout errors are retryable
+        error.message.includes('timeout') ||
+        // Some HTTP errors are retryable (e.g., 500, 502, 503, 504)
+        (error.message.includes('HTTP error') &&
+         (error.message.includes('500') ||
+          error.message.includes('502') ||
+          error.message.includes('503') ||
+          error.message.includes('504')))
+      );
 
-          const parsedData = JSON.parse(responseData);
-          resolve(parsedData);
-        } catch (error) {
-          console.log(`Failed to parse response as JSON. First 200 chars: ${responseData.substring(0, 200)}...`);
-          reject(new Error(`Failed to parse response: ${error.message}`));
-        }
-      });
-    });
+      // If this error is not retryable, or we've used all our retries, throw the error
+      if (!isRetryable || attempt > maxRetries) {
+        console.log(`Request failed after ${attempt} attempt(s): ${error.message}`);
+        throw error;
+      }
 
-    req.on('error', (error) => {
-      console.log(`Request error: ${error.message}`);
-      reject(error);
-    });
+      // Wait before retrying
+      console.log(`Waiting ${retryDelay}ms before retry...`);
+      await new Promise(resolve => setTimeout(resolve, retryDelay));
 
-    if (data) {
-      const dataStr = JSON.stringify(data);
-      console.log(`Request data: ${dataStr.substring(0, 100)}...`);
-      req.write(dataStr);
+      // Increase the delay for the next retry (exponential backoff)
+      retryDelay *= 2;
     }
+  }
 
-    req.end();
-  });
+  // This should never happen, but just in case
+  throw lastError || new Error('Request failed for unknown reason');
 }
 
 // MELCloud API Service
@@ -256,38 +313,69 @@ class MelCloudApi {
     return devices;
   }
 
+  /**
+   * Find a device by name or ID
+   * @param {string|number} deviceIdentifier - Device name or ID
+   * @param {number} [buildingId] - Optional building ID to filter by
+   * @returns {Object} - Device object with id, name, buildingId, and data properties
+   */
+  findDevice(deviceIdentifier, buildingId = null) {
+    // Make sure we have devices
+    if (this.devices.length === 0) {
+      throw new Error('No devices found in MELCloud account. Please check your MELCloud credentials.');
+    }
+
+    let device = null;
+
+    // First try to find by exact ID match
+    if (!isNaN(parseInt(deviceIdentifier))) {
+      device = this.devices.find(d => d.id.toString() === deviceIdentifier.toString());
+      if (device) {
+        console.log(`Found device with ID ${deviceIdentifier}: ${device.name} (Building ID: ${device.buildingId})`);
+        return device;
+      }
+    }
+
+    // Then try to find by name (case-insensitive)
+    if (typeof deviceIdentifier === 'string') {
+      device = this.devices.find(d =>
+        d.name.toLowerCase() === deviceIdentifier.toLowerCase() &&
+        (buildingId === null || d.buildingId.toString() === buildingId.toString())
+      );
+      if (device) {
+        console.log(`Found device with name ${deviceIdentifier}: ID=${device.id}, BuildingID=${device.buildingId}`);
+        return device;
+      }
+    }
+
+    // If we have a building ID, try to find any device in that building
+    if (buildingId !== null) {
+      device = this.devices.find(d => d.buildingId.toString() === buildingId.toString());
+      if (device) {
+        console.log(`No exact match found. Using device from building ${buildingId}: ${device.name} (ID: ${device.id})`);
+        return device;
+      }
+    }
+
+    // If all else fails, use the first device
+    device = this.devices[0];
+    console.log(`No matching device found. Using first available device: ${device.name} (ID: ${device.id}, Building ID: ${device.buildingId})`);
+    return device;
+  }
+
   async getDeviceState(deviceId, buildingId) {
     try {
       if (!this.contextKey) {
         throw new Error('Not logged in to MELCloud');
       }
 
-      // Check if deviceId is a valid number
-      if (isNaN(parseInt(deviceId))) {
-        // If deviceId is a string (like 'Boiler'), try to find the actual device ID
-        if (this.devices.length === 0) {
-          // If no devices were found, throw an error
-          throw new Error(`No devices found in MELCloud account. Please check your MELCloud credentials and device ID.`);
-        }
-
-        // Try to find a device with a matching name
-        const matchingDevice = this.devices.find(device => device.name.toLowerCase() === deviceId.toLowerCase());
-
-        if (matchingDevice) {
-          console.log(`Found device with name ${deviceId}: ID=${matchingDevice.id}, BuildingID=${matchingDevice.buildingId}`);
-          deviceId = matchingDevice.id;
-          buildingId = matchingDevice.buildingId;
-        } else {
-          // If no matching device was found, use the first device
-          console.log(`No device found with name ${deviceId}. Using first device: ID=${this.devices[0].id}, BuildingID=${this.devices[0].buildingId}`);
-          deviceId = this.devices[0].id;
-          buildingId = this.devices[0].buildingId;
-        }
-      }
+      // Find the device using our new helper method
+      const device = this.findDevice(deviceId, buildingId);
+      deviceId = device.id;
+      buildingId = device.buildingId;
 
       // Check if this is a dummy device
-      const device = this.devices.find(d => d.id.toString() === deviceId.toString());
-      if (device && device.isDummy) {
+      if (device.isDummy) {
         console.log(`Using dummy device data for device ${deviceId}`);
         return device.data;
       }
@@ -326,7 +414,15 @@ class MelCloudApi {
     }
   }
 
-  async setDeviceTemperature(deviceId, buildingId, temperature) {
+  /**
+   * Set the temperature for a device
+   * @param {string|number} deviceId - Device name or ID
+   * @param {number} [buildingId] - Optional building ID
+   * @param {number} temperature - The temperature to set
+   * @param {number} [maxRetries=2] - Maximum number of retries for setting temperature
+   * @returns {Promise<boolean>} - True if successful, false otherwise
+   */
+  async setDeviceTemperature(deviceId, buildingId, temperature, maxRetries = 2) {
     try {
       if (!this.contextKey) {
         throw new Error('Not logged in to MELCloud');
@@ -334,16 +430,20 @@ class MelCloudApi {
 
       console.log(`Setting temperature for device ${deviceId} to ${temperature}°C...`);
 
-      // First get current state (this will handle device ID resolution)
+      // First find the device
+      const device = this.findDevice(deviceId, buildingId);
+      deviceId = device.id;
+      buildingId = device.buildingId;
+
+      // Then get current state
       const currentState = await this.getDeviceState(deviceId, buildingId);
 
       // Check if this is a dummy device
-      const device = this.devices.find(d => d.id.toString() === currentState.DeviceID?.toString());
-      if (device && device.isDummy) {
-        console.log(`Using dummy device - simulating temperature change for device ${currentState.DeviceID}`);
+      if (device.isDummy) {
+        console.log(`Using dummy device - simulating temperature change for device ${deviceId}`);
         // Update the dummy device data
         device.data.SetTemperature = temperature;
-        console.log(`Successfully set temperature for dummy device ${currentState.DeviceID} to ${temperature}°C`);
+        console.log(`Successfully set temperature for dummy device ${deviceId} to ${temperature}°C`);
         return true;
       }
 
@@ -423,8 +523,9 @@ class MelCloudApi {
         // Log the request body for debugging (truncated to avoid huge logs)
         console.log('SetAtw request body (truncated):', JSON.stringify(completeRequestBody).substring(0, 200) + '...');
 
-        // Use the complete request body for the HTTP request
-        const data = await httpRequest(options, completeRequestBody);
+        // Use the complete request body for the HTTP request with retry
+        // Pass the maxRetries parameter to the httpRequest function
+        const data = await httpRequest(options, completeRequestBody, maxRetries);
 
         // Verify that the temperature was actually set by checking the response
         console.log('Response from SetAtw:', JSON.stringify(data).substring(0, 500));
@@ -480,9 +581,23 @@ class MelCloudApi {
         // Log the request body for debugging
         console.log('SetAta request body:', JSON.stringify(requestBody));
 
-        const data = await httpRequest(options, requestBody);
+        // Use the retry mechanism for this request as well
+        const data = await httpRequest(options, requestBody, maxRetries);
 
-        console.log(`Successfully set temperature for device ${requestBody.DeviceID || deviceId} to ${temperature}°C`);
+        // Verify the response
+        if (data && data.SetTemperature !== undefined) {
+          const actualTemp = data.SetTemperature;
+          if (Math.round(actualTemp) === Math.round(parseFloat(temperature))) {
+            console.log(`Successfully set temperature for device ${requestBody.DeviceID || deviceId} to ${temperature}°C`);
+          } else {
+            console.log(`WARNING: Attempted to set temperature to ${temperature}°C but API returned ${actualTemp}°C`);
+            console.log('Full response data:', JSON.stringify(data).substring(0, 500));
+          }
+        } else {
+          console.log(`Temperature change request accepted, but could not verify the new temperature in the response`);
+          console.log('Response data:', JSON.stringify(data).substring(0, 500));
+        }
+
         return data !== null;
       }
     } catch (error) {
@@ -546,7 +661,8 @@ class TibberApi {
         }
       };
 
-      const data = await httpRequest(options, { query });
+      // Use retry mechanism for Tibber API calls (3 retries with 2000ms initial delay)
+      const data = await httpRequest(options, { query }, 3, 2000);
 
       if (data.errors) {
         throw new Error(`Tibber API error: ${data.errors[0].message}`);
@@ -635,7 +751,9 @@ class OpenAiApi {
         }
       };
 
-      const result = await httpRequest(options, body);
+      // Use retry mechanism for OpenAI API calls (2 retries with 3000ms initial delay)
+      // OpenAI API can sometimes be slow or have rate limits
+      const result = await httpRequest(options, body, 2, 3000);
 
       if (!result.choices || result.choices.length === 0) {
         throw new Error('OpenAI API returned no choices');
