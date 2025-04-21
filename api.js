@@ -822,17 +822,29 @@ Please format your response with clear sections and include a specific recommend
 
 // Optimizer Service
 class Optimizer {
-  constructor(melCloud, tibber, deviceId, buildingId, logger, openai) {
+  constructor(melCloud, tibber, deviceId, buildingId, logger, openai, weather = null) {
     this.melCloud = melCloud;
     this.tibber = tibber;
     this.deviceId = deviceId;
     this.buildingId = buildingId;
     this.logger = logger;
     this.openai = openai;
+    this.weather = weather; // Weather API instance
     this.thermalModel = { K: 0.5 };
     this.minTemp = 18;
     this.maxTemp = 22;
     this.tempStep = 0.5;
+    this.useWeatherData = weather !== null;
+  }
+
+  /**
+   * Set the Weather API instance
+   * @param {Object} weatherApi - Weather API instance
+   */
+  setWeatherApi(weatherApi) {
+    this.weather = weatherApi;
+    this.useWeatherData = weatherApi !== null;
+    this.logger.log('Weather API integration ' + (this.useWeatherData ? 'enabled' : 'disabled'));
   }
 
   setThermalModel(K, S) {
@@ -856,17 +868,18 @@ class Optimizer {
       // Handle different device types
       let currentTemp;
       let currentTarget;
+      let outdoorTemp = deviceState.OutdoorTemperature;
 
       if (deviceState.SetTemperatureZone1 !== undefined) {
         // This is an ATW device (like a boiler)
         currentTemp = deviceState.RoomTemperatureZone1 || 21; // Default to 21 if not available
         currentTarget = deviceState.SetTemperatureZone1;
-        this.logger.log(`ATW device detected: Zone1 temp ${currentTarget}°C`);
+        this.logger.log(`ATW device detected: Zone1 temp ${currentTarget}°C, Outdoor temp ${outdoorTemp || 'N/A'}°C`);
       } else {
         // This is a regular device
         currentTemp = deviceState.RoomTemperature || 21; // Default to 21 if not available
         currentTarget = deviceState.SetTemperature;
-        this.logger.log(`Regular device detected: Set temp ${currentTarget}°C`);
+        this.logger.log(`Regular device detected: Set temp ${currentTarget}°C, Outdoor temp ${outdoorTemp || 'N/A'}°C`);
       }
 
       // Get electricity prices
@@ -879,8 +892,57 @@ class Optimizer {
       const priceMin = Math.min(...prices);
       const priceMax = Math.max(...prices);
 
+      // Get weather data if available
+      let weatherData = null;
+      let weatherAdjustment = { adjustment: 0, reason: 'Weather data not used' };
+      let weatherTrend = { trend: 'unknown', details: 'Weather data not available' };
+
+      if (this.useWeatherData && this.weather) {
+        try {
+          // Get device location (using default values if not available)
+          const location = {
+            latitude: deviceState.Latitude || 59.9, // Default to Oslo, Norway
+            longitude: deviceState.Longitude || 10.7,
+            altitude: deviceState.Altitude || 0
+          };
+
+          this.logger.log(`Getting weather data for location: ${location.latitude}, ${location.longitude}`);
+
+          // Fetch weather forecast
+          weatherData = await this.weather.getForecast(
+            location.latitude,
+            location.longitude,
+            location.altitude
+          );
+
+          // Calculate weather-based adjustment
+          weatherAdjustment = this.weather.calculateWeatherBasedAdjustment(
+            weatherData,
+            currentTemp,
+            currentTarget,
+            currentPrice,
+            priceAvg
+          );
+
+          // Get weather trend
+          weatherTrend = this.weather.getWeatherTrend(weatherData);
+
+          this.logger.log(`Weather adjustment: ${weatherAdjustment.adjustment.toFixed(2)}°C (${weatherAdjustment.reason})`);
+          this.logger.log(`Weather trend: ${weatherTrend.trend} - ${weatherTrend.details}`);
+        } catch (weatherError) {
+          this.logger.error('Error getting weather data:', weatherError);
+          // Continue without weather data
+        }
+      }
+
       // Calculate optimal temperature based on price
       let newTarget = this.calculateOptimalTemperature(currentPrice, priceAvg, priceMin, priceMax, currentTemp);
+
+      // Apply weather adjustment if available
+      if (weatherData && weatherAdjustment) {
+        newTarget += weatherAdjustment.adjustment;
+        this.logger.log(`Applied weather adjustment: ${weatherAdjustment.adjustment.toFixed(2)}°C, new target: ${newTarget.toFixed(1)}°C`);
+      }
 
       // Apply constraints
       newTarget = Math.max(this.minTemp, Math.min(this.maxTemp, newTarget));
@@ -901,9 +963,13 @@ class Optimizer {
       // Determine reason for change
       let reason = 'No change needed';
       if (newTarget < currentTarget) {
-        reason = 'Price is above average, reducing temperature';
+        reason = weatherAdjustment.adjustment < -0.2 ?
+          `Price is above average and ${weatherAdjustment.reason.toLowerCase()}, reducing temperature` :
+          'Price is above average, reducing temperature';
       } else if (newTarget > currentTarget) {
-        reason = 'Price is below average, increasing temperature';
+        reason = weatherAdjustment.adjustment > 0.2 ?
+          `Price is below average and ${weatherAdjustment.reason.toLowerCase()}, increasing temperature` :
+          'Price is below average, increasing temperature';
       }
 
       // Set new temperature if different
@@ -940,7 +1006,21 @@ class Optimizer {
         savings,
         comfort,
         timestamp: new Date().toISOString(),
-        kFactor: this.thermalModel.K
+        kFactor: this.thermalModel.K,
+        // Include weather data if available
+        weather: weatherData ? {
+          current: {
+            temperature: weatherData.current.temperature,
+            humidity: weatherData.current.humidity,
+            windSpeed: weatherData.current.windSpeed,
+            cloudCover: weatherData.current.cloudCover,
+            symbol: weatherData.current.symbol
+          },
+          adjustment: weatherAdjustment.adjustment,
+          reason: weatherAdjustment.reason,
+          trend: weatherTrend.trend,
+          trendDetails: weatherTrend.details
+        } : null
       };
 
       // Store the result in historical data for weekly calibration
@@ -989,7 +1069,9 @@ class Optimizer {
             minTemp: this.minTemp,
             maxTemp: this.maxTemp,
             tempStep: this.tempStep
-          }
+          },
+          // Include weather data analysis if available
+          weatherAnalysis: this.analyzeWeatherImpact(historicalData.optimizations)
         };
 
         // Get analysis from OpenAI
@@ -1120,12 +1202,156 @@ class Optimizer {
     // Positive means improved comfort, negative means reduced comfort
     return oldDeviation - newDeviation;
   }
+
+  /**
+   * Analyze the impact of weather on optimization results
+   * @param {Array} optimizations - Historical optimization data
+   * @returns {Object} - Weather impact analysis
+   */
+  analyzeWeatherImpact(optimizations) {
+    if (!optimizations || optimizations.length === 0) {
+      return { available: false, reason: 'No historical data available' };
+    }
+
+    // Count optimizations with weather data
+    const withWeatherData = optimizations.filter(opt => opt.weather !== null && opt.weather !== undefined);
+
+    if (withWeatherData.length === 0) {
+      return { available: false, reason: 'No weather data in historical optimizations' };
+    }
+
+    // Analyze correlations between weather and temperature adjustments
+    const correlations = {
+      outdoorTemp: [],
+      windSpeed: [],
+      cloudCover: []
+    };
+
+    // Calculate correlations
+    withWeatherData.forEach(opt => {
+      const tempChange = opt.targetTemp - opt.targetOriginal;
+
+      if (opt.outdoorTemp !== undefined) {
+        correlations.outdoorTemp.push({
+          outdoorTemp: opt.outdoorTemp,
+          tempChange: tempChange
+        });
+      }
+
+      if (opt.weather && opt.weather.current) {
+        if (opt.weather.current.windSpeed !== undefined) {
+          correlations.windSpeed.push({
+            windSpeed: opt.weather.current.windSpeed,
+            tempChange: tempChange
+          });
+        }
+
+        if (opt.weather.current.cloudCover !== undefined) {
+          correlations.cloudCover.push({
+            cloudCover: opt.weather.current.cloudCover,
+            tempChange: tempChange
+          });
+        }
+      }
+    });
+
+    // Calculate average impact
+    const calculateAvgImpact = (data, key) => {
+      if (data.length === 0) return { correlation: 0, confidence: 0 };
+
+      // Group by ranges
+      const groups = {};
+      data.forEach(item => {
+        const value = item[key];
+        const range = Math.floor(value / 5) * 5; // Group in 5-unit ranges
+        if (!groups[range]) groups[range] = [];
+        groups[range].push(item.tempChange);
+      });
+
+      // Calculate average change per range
+      const rangeImpacts = Object.entries(groups).map(([range, changes]) => {
+        const avgChange = changes.reduce((sum, change) => sum + change, 0) / changes.length;
+        return { range: parseInt(range), avgChange, count: changes.length };
+      });
+
+      // Calculate correlation (simplified)
+      let correlation = 0;
+      if (rangeImpacts.length > 1) {
+        // Sort by range
+        rangeImpacts.sort((a, b) => a.range - b.range);
+
+        // Calculate if higher values tend to correlate with higher or lower temperature changes
+        let sumXY = 0, sumX = 0, sumY = 0, sumX2 = 0, sumY2 = 0;
+        const n = rangeImpacts.length;
+
+        rangeImpacts.forEach(impact => {
+          const x = impact.range;
+          const y = impact.avgChange;
+          sumXY += x * y;
+          sumX += x;
+          sumY += y;
+          sumX2 += x * x;
+          sumY2 += y * y;
+        });
+
+        const numerator = n * sumXY - sumX * sumY;
+        const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+
+        if (denominator !== 0) {
+          correlation = numerator / denominator;
+        }
+      }
+
+      // Calculate confidence based on data points and consistency
+      const totalPoints = data.length;
+      const confidence = Math.min(1, totalPoints / 50); // Max confidence at 50+ data points
+
+      return {
+        correlation: correlation,
+        confidence: confidence,
+        dataPoints: totalPoints,
+        rangeImpacts: rangeImpacts
+      };
+    };
+
+    // Generate analysis
+    const analysis = {
+      available: true,
+      dataPoints: withWeatherData.length,
+      outdoorTemperature: calculateAvgImpact(correlations.outdoorTemp, 'outdoorTemp'),
+      windSpeed: calculateAvgImpact(correlations.windSpeed, 'windSpeed'),
+      cloudCover: calculateAvgImpact(correlations.cloudCover, 'cloudCover'),
+      summary: ''
+    };
+
+    // Generate summary
+    let summary = `Analysis based on ${withWeatherData.length} data points with weather information. `;
+
+    if (analysis.outdoorTemperature.correlation !== 0) {
+      const direction = analysis.outdoorTemperature.correlation > 0 ? 'higher' : 'lower';
+      summary += `Outdoor temperature shows a ${Math.abs(analysis.outdoorTemperature.correlation).toFixed(2)} correlation with ${direction} indoor temperature settings. `;
+    }
+
+    if (analysis.windSpeed.correlation !== 0) {
+      const direction = analysis.windSpeed.correlation > 0 ? 'higher' : 'lower';
+      summary += `Wind speed shows a ${Math.abs(analysis.windSpeed.correlation).toFixed(2)} correlation with ${direction} indoor temperature settings. `;
+    }
+
+    if (analysis.cloudCover.correlation !== 0) {
+      const direction = analysis.cloudCover.correlation > 0 ? 'higher' : 'lower';
+      summary += `Cloud cover shows a ${Math.abs(analysis.cloudCover.correlation).toFixed(2)} correlation with ${direction} indoor temperature settings. `;
+    }
+
+    analysis.summary = summary;
+    return analysis;
+  }
 }
 
 // Create instances of services
 let melCloud = null;
 let tibber = null;
 let openai = null;
+let weather = null;
 let optimizer = null;
 
 // Store historical data for weekly calibration
@@ -1148,6 +1374,7 @@ async function initializeServices(homey) {
     const openaiApiKey = homey.settings.get('openai_api_key') || homey.settings.get('openaiApiKey');
     const deviceId = homey.settings.get('device_id') || homey.settings.get('deviceId') || 'Boiler';
     const buildingId = parseInt(homey.settings.get('building_id') || homey.settings.get('buildingId') || '456');
+    const useWeatherData = homey.settings.get('use_weather_data') !== false; // Default to true
 
     // Validate required settings
     if (!melcloudUser || !melcloudPass) {
@@ -1176,6 +1403,7 @@ async function initializeServices(homey) {
     homey.app.log('- OpenAI API Key:', openaiApiKey ? '✓ Set' : '✗ Not set');
     homey.app.log('- Device ID:', deviceId, '(Will be resolved after login)');
     homey.app.log('- Building ID:', buildingId, '(Will be resolved after login)');
+    homey.app.log('- Weather Data:', useWeatherData ? '✓ Enabled' : '✗ Disabled');
 
     // Create MELCloud API instance
     melCloud = new MelCloudApi();
@@ -1219,8 +1447,30 @@ async function initializeServices(homey) {
       homey.app.log('OpenAI API key not provided, weekly calibration will use simple algorithm');
     }
 
+    // Create Weather API instance if enabled
+    if (useWeatherData) {
+      try {
+        // Import the WeatherApi class
+        const WeatherApi = require('./weather');
+
+        // Create the Weather API instance with a custom user agent
+        weather = new WeatherApi(
+          'MELCloudOptimizer/1.0 github.com/decline27/melcloud-optimizer',
+          homey.app
+        );
+        homey.app.log('Weather API initialized');
+      } catch (weatherError) {
+        homey.app.error('Failed to initialize Weather API:', weatherError);
+        homey.app.log('Continuing without weather data');
+        weather = null;
+      }
+    } else {
+      homey.app.log('Weather data disabled in settings');
+      weather = null;
+    }
+
     // Create Optimizer instance
-    optimizer = new Optimizer(melCloud, tibber, deviceId, buildingId, homey.app, openai);
+    optimizer = new Optimizer(melCloud, tibber, deviceId, buildingId, homey.app, openai, weather);
 
     // Configure optimizer with initial settings
     await updateOptimizerSettings(homey);

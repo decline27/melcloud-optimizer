@@ -75,6 +75,18 @@
     </fieldset>
 
     <fieldset class="homey-form-fieldset">
+      <legend class="homey-form-legend">Weather Integration</legend>
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="use_weather_data">Use Weather Data</label>
+        <label class="homey-form-checkbox">
+          <input type="checkbox" id="use_weather_data" checked />
+          <span>Enable weather data integration (Met.no API)</span>
+        </label>
+        <p class="homey-form-helper">Uses weather data to improve temperature optimization based on outdoor conditions</p>
+      </div>
+    </fieldset>
+
+    <fieldset class="homey-form-fieldset">
       <legend class="homey-form-legend">Advanced Settings</legend>
       <div class="homey-form-group">
         <label class="homey-form-label" for="log_level">Log Level</label>
@@ -122,6 +134,7 @@
         const maxTempElement = document.getElementById("max_temp");
         const tempStepMaxElement = document.getElementById("temp_step_max");
         const initialKElement = document.getElementById("initial_k");
+        const useWeatherDataElement = document.getElementById("use_weather_data");
         const logLevelElement = document.getElementById("log_level");
         const saveElement = document.getElementById("save");
         const runHourlyElement = document.getElementById("run_hourly");
@@ -185,6 +198,11 @@
           if (value !== undefined) logLevelElement.value = value;
         });
 
+        Homey.get("use_weather_data", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) useWeatherDataElement.checked = value;
+        });
+
         // Save settings
         saveElement.addEventListener("click", function (e) {
           // Save all settings
@@ -229,6 +247,10 @@
           });
 
           Homey.set("log_level", parseInt(logLevelElement.value), function (err) {
+            if (err) return Homey.alert(err);
+          });
+
+          Homey.set("use_weather_data", useWeatherDataElement.checked, function (err) {
             if (err) return Homey.alert(err);
           });
 
