@@ -612,11 +612,78 @@ class TibberApi {
   constructor(token) {
     this.token = token;
     this.apiEndpoint = 'https://api.tibber.com/v1-beta/gql';
+    this.cachedPrices = null;
+    this.lastFetchTime = null;
+    this.priceUpdateTime = null; // Time when prices were last updated by Tibber
+    this.nextPriceUpdateTime = null; // Next time when prices will be updated (13:00)
   }
 
-  async getPrices() {
+  /**
+   * Check if we should fetch new prices from Tibber
+   * @returns {boolean} - True if we should fetch new prices
+   */
+  shouldFetchNewPrices() {
+    // If we've never fetched prices, we should fetch them
+    if (!this.lastFetchTime) return true;
+
+    const now = new Date();
+
+    // If it's been more than 1 hour since last fetch, fetch again
+    if ((now - this.lastFetchTime) > 60 * 60 * 1000) return true;
+
+    // If we're approaching the next price update time (13:00), fetch again
+    // Check if it's between 12:45 and 13:15
+    if (this.nextPriceUpdateTime) {
+      const timeDiff = Math.abs(now - this.nextPriceUpdateTime);
+      if (timeDiff < 15 * 60 * 1000) return true; // Within 15 minutes of price update
+    }
+
+    // If we have cached prices but they don't include the current hour, fetch again
+    if (this.cachedPrices && this.cachedPrices.current) {
+      const currentPriceTime = new Date(this.cachedPrices.current.time);
+      const currentHour = new Date(now);
+      currentHour.setMinutes(0, 0, 0);
+
+      if (currentPriceTime < currentHour) return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Calculate the next price update time (13:00 today or tomorrow)
+   * @returns {Date} - Next price update time
+   */
+  calculateNextPriceUpdateTime() {
+    const now = new Date();
+    const today13 = new Date(now);
+    today13.setHours(13, 0, 0, 0);
+
+    // If it's already past 13:00 today, the next update is tomorrow at 13:00
+    if (now > today13) {
+      const tomorrow13 = new Date(today13);
+      tomorrow13.setDate(tomorrow13.getDate() + 1);
+      return tomorrow13;
+    }
+
+    // Otherwise, the next update is today at 13:00
+    return today13;
+  }
+
+  /**
+   * Get electricity prices from Tibber
+   * @param {boolean} [forceRefresh=false] - Force a refresh of prices even if we have cached data
+   * @returns {Promise<Object>} - Price data
+   */
+  async getPrices(forceRefresh = false) {
     try {
-      console.log('Getting prices from Tibber...');
+      // Check if we should use cached prices
+      if (!forceRefresh && this.cachedPrices && !this.shouldFetchNewPrices()) {
+        console.log('Using cached price data');
+        return this.cachedPrices;
+      }
+
+      console.log('Fetching fresh prices from Tibber...');
 
       // Define the GraphQL query
       const query = `{
@@ -671,13 +738,66 @@ class TibberApi {
       // Format the price data
       const result = this.formatPriceData(data);
       console.log(`Got current price: ${result.current.price} and ${result.prices.length} future prices`);
+
+      // Update cache and timestamps
+      this.cachedPrices = result;
+      this.lastFetchTime = new Date();
+      this.nextPriceUpdateTime = this.calculateNextPriceUpdateTime();
+
+      // Determine when these prices were last updated by Tibber
+      this.determinePriceUpdateTime(result);
+
       return result;
     } catch (error) {
       console.error('Tibber API error:', error);
+
+      // If we have cached prices, return them as a fallback
+      if (this.cachedPrices) {
+        console.log('Using cached prices as fallback due to API error');
+        return this.cachedPrices;
+      }
+
       throw error;
     }
   }
 
+  /**
+   * Determine when the prices were last updated by Tibber
+   * @param {Object} priceData - Price data from Tibber
+   */
+  determinePriceUpdateTime(priceData) {
+    if (!priceData || !priceData.prices || priceData.prices.length === 0) return;
+
+    // Find the earliest price for tomorrow
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0);
+
+    const tomorrowPrices = priceData.prices.filter(p => new Date(p.time) >= tomorrow);
+
+    if (tomorrowPrices.length > 0) {
+      // If we have prices for tomorrow, they were updated today at 13:00
+      const today13 = new Date(now);
+      today13.setHours(13, 0, 0, 0);
+      this.priceUpdateTime = today13;
+    } else {
+      // If we don't have prices for tomorrow, they were updated yesterday at 13:00
+      const yesterday13 = new Date(now);
+      yesterday13.setDate(yesterday13.getDate() - 1);
+      yesterday13.setHours(13, 0, 0, 0);
+      this.priceUpdateTime = yesterday13;
+    }
+
+    console.log(`Prices were last updated at: ${this.priceUpdateTime.toISOString()}`);
+    console.log(`Next price update expected at: ${this.nextPriceUpdateTime.toISOString()}`);
+  }
+
+  /**
+   * Format and analyze price data from Tibber API
+   * @param {Object} data - Raw data from Tibber API
+   * @returns {Object} - Formatted and analyzed price data
+   */
   formatPriceData(data) {
     const homes = data.data.viewer.homes;
     if (!homes || homes.length === 0) {
@@ -698,13 +818,397 @@ class TibberApi {
       price: price.total,
     }));
 
+    // Sort prices by time
+    prices.sort((a, b) => new Date(a.time) - new Date(b.time));
+
+    // Get current price
+    const current = priceInfo.current ? {
+      time: priceInfo.current.startsAt,
+      price: priceInfo.current.total,
+    } : null;
+
+    // Calculate price statistics
+    const priceValues = prices.map(p => p.price);
+    const priceStats = this.calculatePriceStatistics(priceValues);
+
+    // Identify price peaks and valleys
+    const pricePatterns = this.identifyPricePatterns(prices);
+
+    // Group prices by day
+    const pricesByDay = this.groupPricesByDay(prices);
+
+    // Create the final result object
     return {
-      current: priceInfo.current ? {
-        time: priceInfo.current.startsAt,
-        price: priceInfo.current.total,
-      } : null,
+      current,
       prices,
+      statistics: priceStats,
+      patterns: pricePatterns,
+      byDay: pricesByDay,
+      forecast: this.createPriceForecast(prices, current)
     };
+  }
+
+  /**
+   * Calculate statistics for price data
+   * @param {Array<number>} prices - Array of price values
+   * @returns {Object} - Price statistics
+   */
+  calculatePriceStatistics(prices) {
+    if (!prices || prices.length === 0) {
+      return {
+        min: 0,
+        max: 0,
+        avg: 0,
+        median: 0,
+        stdDev: 0
+      };
+    }
+
+    // Sort prices for percentile calculations
+    const sortedPrices = [...prices].sort((a, b) => a - b);
+
+    // Calculate basic statistics
+    const min = sortedPrices[0];
+    const max = sortedPrices[sortedPrices.length - 1];
+    const sum = sortedPrices.reduce((acc, price) => acc + price, 0);
+    const avg = sum / sortedPrices.length;
+
+    // Calculate median
+    const mid = Math.floor(sortedPrices.length / 2);
+    const median = sortedPrices.length % 2 === 0 ?
+      (sortedPrices[mid - 1] + sortedPrices[mid]) / 2 :
+      sortedPrices[mid];
+
+    // Calculate standard deviation
+    const squaredDiffs = sortedPrices.map(price => Math.pow(price - avg, 2));
+    const variance = squaredDiffs.reduce((acc, val) => acc + val, 0) / sortedPrices.length;
+    const stdDev = Math.sqrt(variance);
+
+    // Calculate percentiles
+    const p25 = sortedPrices[Math.floor(sortedPrices.length * 0.25)];
+    const p75 = sortedPrices[Math.floor(sortedPrices.length * 0.75)];
+
+    return {
+      min,
+      max,
+      avg,
+      median,
+      stdDev,
+      p25,
+      p75,
+      range: max - min,
+      volatility: stdDev / avg // Coefficient of variation as volatility measure
+    };
+  }
+
+  /**
+   * Identify price patterns (peaks and valleys)
+   * @param {Array<Object>} prices - Array of price objects with time and price
+   * @returns {Object} - Price patterns
+   */
+  identifyPricePatterns(prices) {
+    if (!prices || prices.length < 3) {
+      return { peaks: [], valleys: [], trends: [] };
+    }
+
+    const peaks = [];
+    const valleys = [];
+    const trends = [];
+
+    // Find local peaks and valleys
+    for (let i = 1; i < prices.length - 1; i++) {
+      const prev = prices[i-1].price;
+      const curr = prices[i].price;
+      const next = prices[i+1].price;
+
+      // Local peak
+      if (curr > prev && curr > next) {
+        peaks.push({
+          time: prices[i].time,
+          price: curr,
+          index: i
+        });
+      }
+
+      // Local valley
+      if (curr < prev && curr < next) {
+        valleys.push({
+          time: prices[i].time,
+          price: curr,
+          index: i
+        });
+      }
+    }
+
+    // Identify significant trends (consecutive increases or decreases)
+    let currentTrend = { direction: null, start: 0, count: 0, startPrice: prices[0].price };
+
+    for (let i = 1; i < prices.length; i++) {
+      const priceDiff = prices[i].price - prices[i-1].price;
+      const direction = priceDiff > 0 ? 'up' : priceDiff < 0 ? 'down' : 'flat';
+
+      if (currentTrend.direction === null) {
+        // Start a new trend
+        currentTrend = {
+          direction,
+          start: i-1,
+          count: 1,
+          startPrice: prices[i-1].price,
+          startTime: prices[i-1].time
+        };
+      } else if (direction === currentTrend.direction || direction === 'flat') {
+        // Continue the current trend
+        currentTrend.count++;
+      } else {
+        // End the current trend if it's significant (3+ hours)
+        if (currentTrend.count >= 2) {
+          trends.push({
+            direction: currentTrend.direction,
+            startIndex: currentTrend.start,
+            endIndex: i-1,
+            startTime: currentTrend.startTime,
+            endTime: prices[i-1].time,
+            startPrice: currentTrend.startPrice,
+            endPrice: prices[i-1].price,
+            duration: currentTrend.count + 1,
+            priceChange: prices[i-1].price - currentTrend.startPrice,
+            percentChange: ((prices[i-1].price - currentTrend.startPrice) / currentTrend.startPrice) * 100
+          });
+        }
+
+        // Start a new trend
+        currentTrend = {
+          direction,
+          start: i-1,
+          count: 1,
+          startPrice: prices[i-1].price,
+          startTime: prices[i-1].time
+        };
+      }
+    }
+
+    // Add the final trend if it's significant
+    if (currentTrend.count >= 2) {
+      const lastIndex = prices.length - 1;
+      trends.push({
+        direction: currentTrend.direction,
+        startIndex: currentTrend.start,
+        endIndex: lastIndex,
+        startTime: currentTrend.startTime,
+        endTime: prices[lastIndex].time,
+        startPrice: currentTrend.startPrice,
+        endPrice: prices[lastIndex].price,
+        duration: currentTrend.count + 1,
+        priceChange: prices[lastIndex].price - currentTrend.startPrice,
+        percentChange: ((prices[lastIndex].price - currentTrend.startPrice) / currentTrend.startPrice) * 100
+      });
+    }
+
+    return { peaks, valleys, trends };
+  }
+
+  /**
+   * Group prices by day
+   * @param {Array<Object>} prices - Array of price objects with time and price
+   * @returns {Object} - Prices grouped by day
+   */
+  groupPricesByDay(prices) {
+    if (!prices || prices.length === 0) return {};
+
+    const pricesByDay = {};
+
+    prices.forEach(price => {
+      const date = new Date(price.time);
+      const dateKey = date.toISOString().split('T')[0]; // YYYY-MM-DD
+
+      if (!pricesByDay[dateKey]) {
+        pricesByDay[dateKey] = [];
+      }
+
+      pricesByDay[dateKey].push(price);
+    });
+
+    // Calculate statistics for each day
+    Object.keys(pricesByDay).forEach(day => {
+      const dayPrices = pricesByDay[day];
+      const priceValues = dayPrices.map(p => p.price);
+
+      pricesByDay[day] = {
+        prices: dayPrices,
+        statistics: this.calculatePriceStatistics(priceValues),
+        patterns: this.identifyPricePatterns(dayPrices)
+      };
+    });
+
+    return pricesByDay;
+  }
+
+  /**
+   * Create a price forecast with recommendations
+   * @param {Array<Object>} prices - Array of price objects
+   * @param {Object} currentPrice - Current price object
+   * @returns {Object} - Price forecast with recommendations
+   */
+  createPriceForecast(prices, currentPrice) {
+    if (!prices || prices.length === 0 || !currentPrice) {
+      return { recommendation: 'No price data available for forecasting' };
+    }
+
+    // Get current time and price
+    const now = new Date();
+    const currentTime = new Date(currentPrice.time);
+    const currentPriceValue = currentPrice.price;
+
+    // Filter future prices (from current hour onwards)
+    const futurePrices = prices.filter(p => new Date(p.time) >= currentTime);
+
+    if (futurePrices.length === 0) {
+      return { recommendation: 'No future price data available' };
+    }
+
+    // Calculate statistics for future prices
+    const futurePriceValues = futurePrices.map(p => p.price);
+    const futureStats = this.calculatePriceStatistics(futurePriceValues);
+
+    // Determine if current price is high, medium, or low compared to future
+    const pricePosition = this.determinePricePosition(currentPriceValue, futureStats);
+
+    // Find upcoming significant price changes
+    const upcomingChanges = this.findUpcomingPriceChanges(futurePrices, currentPriceValue);
+
+    // Find best and worst times to use electricity in next 24 hours
+    const next24Hours = futurePrices.filter(p => {
+      const time = new Date(p.time);
+      return (time - now) <= 24 * 60 * 60 * 1000;
+    });
+
+    const bestTimes = this.findBestTimes(next24Hours, 3);
+    const worstTimes = this.findWorstTimes(next24Hours, 3);
+
+    // Generate recommendation
+    let recommendation = '';
+
+    if (pricePosition === 'low') {
+      recommendation = 'Current price is low compared to upcoming prices. Consider increasing energy usage now.';
+    } else if (pricePosition === 'high') {
+      recommendation = 'Current price is high compared to upcoming prices. Consider reducing energy usage now.';
+    } else {
+      recommendation = 'Current price is average compared to upcoming prices. Normal energy usage recommended.';
+    }
+
+    if (upcomingChanges.significant) {
+      recommendation += ` ${upcomingChanges.message}`;
+    }
+
+    return {
+      currentPosition: pricePosition,
+      recommendation,
+      upcomingChanges,
+      bestTimes,
+      worstTimes,
+      futureStats
+    };
+  }
+
+  /**
+   * Determine if current price is high, medium, or low compared to future prices
+   * @param {number} currentPrice - Current price
+   * @param {Object} stats - Price statistics
+   * @returns {string} - Price position ('high', 'medium', or 'low')
+   */
+  determinePricePosition(currentPrice, stats) {
+    const { p25, p75 } = stats;
+
+    if (currentPrice <= p25) return 'low';
+    if (currentPrice >= p75) return 'high';
+    return 'medium';
+  }
+
+  /**
+   * Find upcoming significant price changes
+   * @param {Array<Object>} prices - Array of price objects
+   * @param {number} currentPrice - Current price
+   * @returns {Object} - Information about upcoming price changes
+   */
+  findUpcomingPriceChanges(prices, currentPrice) {
+    if (prices.length < 2) return { significant: false };
+
+    // Look at the next few hours
+    const nextFewHours = prices.slice(0, Math.min(6, prices.length));
+
+    // Calculate the maximum price change in the next few hours
+    let maxChange = 0;
+    let maxChangeTime = null;
+    let maxChangePercent = 0;
+
+    for (let i = 0; i < nextFewHours.length; i++) {
+      const change = nextFewHours[i].price - currentPrice;
+      const changePercent = (change / currentPrice) * 100;
+
+      if (Math.abs(change) > Math.abs(maxChange)) {
+        maxChange = change;
+        maxChangeTime = nextFewHours[i].time;
+        maxChangePercent = changePercent;
+      }
+    }
+
+    // Determine if the change is significant (more than 15%)
+    const isSignificant = Math.abs(maxChangePercent) >= 15;
+
+    let message = '';
+    if (isSignificant) {
+      const direction = maxChange > 0 ? 'increase' : 'decrease';
+      const timeStr = new Date(maxChangeTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      message = `Significant price ${direction} of ${Math.abs(maxChangePercent).toFixed(1)}% expected at ${timeStr}.`;
+    }
+
+    return {
+      significant: isSignificant,
+      change: maxChange,
+      changePercent: maxChangePercent,
+      time: maxChangeTime,
+      message
+    };
+  }
+
+  /**
+   * Find the best times (lowest prices) in the given period
+   * @param {Array<Object>} prices - Array of price objects
+   * @param {number} count - Number of times to return
+   * @returns {Array<Object>} - Best times to use electricity
+   */
+  findBestTimes(prices, count) {
+    if (!prices || prices.length === 0) return [];
+
+    // Sort by price (ascending)
+    const sorted = [...prices].sort((a, b) => a.price - b.price);
+
+    // Take the top 'count' entries
+    return sorted.slice(0, count).map(p => ({
+      time: p.time,
+      price: p.price,
+      timeFormatted: new Date(p.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }));
+  }
+
+  /**
+   * Find the worst times (highest prices) in the given period
+   * @param {Array<Object>} prices - Array of price objects
+   * @param {number} count - Number of times to return
+   * @returns {Array<Object>} - Worst times to use electricity
+   */
+  findWorstTimes(prices, count) {
+    if (!prices || prices.length === 0) return [];
+
+    // Sort by price (descending)
+    const sorted = [...prices].sort((a, b) => b.price - a.price);
+
+    // Take the top 'count' entries
+    return sorted.slice(0, count).map(p => ({
+      time: p.time,
+      price: p.price,
+      timeFormatted: new Date(p.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }));
   }
 }
 
@@ -882,15 +1386,35 @@ class Optimizer {
         this.logger.log(`Regular device detected: Set temp ${currentTarget}°C, Outdoor temp ${outdoorTemp || 'N/A'}°C`);
       }
 
-      // Get electricity prices
+      // Get electricity prices with enhanced forecasting
       const priceData = await this.tibber.getPrices();
       const currentPrice = priceData.current.price;
 
-      // Calculate price statistics
-      const prices = priceData.prices.map(p => p.price);
-      const priceAvg = prices.reduce((sum, price) => sum + price, 0) / prices.length;
-      const priceMin = Math.min(...prices);
-      const priceMax = Math.max(...prices);
+      // Use the enhanced price statistics
+      const priceStats = priceData.statistics;
+      const priceAvg = priceStats.avg;
+      const priceMin = priceStats.min;
+      const priceMax = priceStats.max;
+
+      // Get price forecast
+      const priceForecast = priceData.forecast;
+      // Price patterns are available in priceData.patterns if needed in the future
+
+      this.logger.log(`Price position: ${priceForecast.currentPosition}, Recommendation: ${priceForecast.recommendation}`);
+
+      // Log best and worst times
+      if (priceForecast.bestTimes && priceForecast.bestTimes.length > 0) {
+        this.logger.log(`Best times to use electricity in next 24h: ${priceForecast.bestTimes.map(t => t.timeFormatted).join(', ')}`);
+      }
+
+      if (priceForecast.worstTimes && priceForecast.worstTimes.length > 0) {
+        this.logger.log(`Worst times to use electricity in next 24h: ${priceForecast.worstTimes.map(t => t.timeFormatted).join(', ')}`);
+      }
+
+      // Log upcoming price changes if significant
+      if (priceForecast.upcomingChanges && priceForecast.upcomingChanges.significant) {
+        this.logger.log(`Upcoming price change: ${priceForecast.upcomingChanges.message}`);
+      }
 
       // Get weather data if available
       let weatherData = null;
@@ -935,8 +1459,8 @@ class Optimizer {
         }
       }
 
-      // Calculate optimal temperature based on price
-      let newTarget = this.calculateOptimalTemperature(currentPrice, priceAvg, priceMin, priceMax, currentTemp);
+      // Calculate optimal temperature based on price and forecast
+      let newTarget = this.calculateOptimalTemperature(currentPrice, priceAvg, priceMin, priceMax, currentTemp, priceForecast);
 
       // Apply weather adjustment if available
       if (weatherData && weatherAdjustment) {
@@ -1007,6 +1531,14 @@ class Optimizer {
         comfort,
         timestamp: new Date().toISOString(),
         kFactor: this.thermalModel.K,
+        // Include price forecast data
+        priceForecast: priceForecast ? {
+          position: priceForecast.currentPosition,
+          recommendation: priceForecast.recommendation,
+          upcomingChanges: priceForecast.upcomingChanges,
+          bestTimes: priceForecast.bestTimes,
+          worstTimes: priceForecast.worstTimes
+        } : null,
         // Include weather data if available
         weather: weatherData ? {
           current: {
@@ -1071,7 +1603,9 @@ class Optimizer {
             tempStep: this.tempStep
           },
           // Include weather data analysis if available
-          weatherAnalysis: this.analyzeWeatherImpact(historicalData.optimizations)
+          weatherAnalysis: this.analyzeWeatherImpact(historicalData.optimizations),
+          // Include price forecast analysis
+          priceAnalysis: this.analyzePriceForecastImpact(historicalData.optimizations)
         };
 
         // Get analysis from OpenAI
@@ -1152,7 +1686,17 @@ class Optimizer {
     }
   }
 
-  calculateOptimalTemperature(currentPrice, avgPrice, minPrice, maxPrice, currentTemp) {
+  /**
+   * Calculate the optimal temperature based on price data and forecasts
+   * @param {number} currentPrice - Current electricity price
+   * @param {number} avgPrice - Average electricity price
+   * @param {number} minPrice - Minimum electricity price
+   * @param {number} maxPrice - Maximum electricity price
+   * @param {number} currentTemp - Current room temperature
+   * @param {Object} [priceForecast] - Price forecast data (optional)
+   * @returns {number} - Optimal temperature setting
+   */
+  calculateOptimalTemperature(currentPrice, avgPrice, minPrice, maxPrice, currentTemp, priceForecast = null) {
     // Normalize price between 0 and 1
     const priceRange = maxPrice - minPrice;
     const normalizedPrice = priceRange > 0
@@ -1163,15 +1707,51 @@ class Optimizer {
     const invertedPrice = 1 - normalizedPrice;
 
     // Calculate temperature offset based on price
-    // Range from -tempStep to +tempStep
     const tempRange = this.maxTemp - this.minTemp;
     const midTemp = (this.maxTemp + this.minTemp) / 2;
 
-    // Calculate target based on price
-    // When price is average, target is midTemp
-    // When price is minimum, target is maxTemp
-    // When price is maximum, target is minTemp
-    const targetTemp = midTemp + (invertedPrice - 0.5) * tempRange;
+    // Base target temperature calculation
+    let targetTemp = midTemp + (invertedPrice - 0.5) * tempRange;
+
+    // Apply forecast-based adjustments if available
+    if (priceForecast) {
+      // If price is going to increase significantly soon, pre-heat a bit more
+      if (priceForecast.upcomingChanges && priceForecast.upcomingChanges.significant) {
+        const change = priceForecast.upcomingChanges.change;
+        const changeTime = new Date(priceForecast.upcomingChanges.time);
+        const now = new Date();
+        const hoursUntilChange = (changeTime - now) / (1000 * 60 * 60);
+
+        // Only apply pre-heating if price will increase within next 3 hours
+        if (change > 0 && hoursUntilChange <= 3) {
+          // Calculate adjustment based on how soon and how much the price will increase
+          const priceChangePercent = priceForecast.upcomingChanges.changePercent;
+          const adjustment = Math.min(1, (priceChangePercent / 100) * (3 - hoursUntilChange) / 3);
+
+          targetTemp += adjustment;
+          this.logger.log(`Applied pre-heating adjustment of +${adjustment.toFixed(2)}°C due to upcoming price increase of ${priceChangePercent.toFixed(1)}% in ${hoursUntilChange.toFixed(1)} hours`);
+        }
+        // If price will decrease soon, reduce temperature a bit
+        else if (change < 0 && hoursUntilChange <= 2) {
+          const priceChangePercent = Math.abs(priceForecast.upcomingChanges.changePercent);
+          const adjustment = Math.min(1, (priceChangePercent / 100) * (2 - hoursUntilChange) / 2);
+
+          targetTemp -= adjustment;
+          this.logger.log(`Applied pre-cooling adjustment of -${adjustment.toFixed(2)}°C due to upcoming price decrease of ${priceChangePercent.toFixed(1)}% in ${hoursUntilChange.toFixed(1)} hours`);
+        }
+      }
+
+      // Consider price position in forecast
+      if (priceForecast.currentPosition === 'low' && currentPrice < avgPrice * 0.8) {
+        // If current price is very low, heat a bit more
+        targetTemp += 0.5;
+        this.logger.log('Applied +0.5°C adjustment due to very low current price');
+      } else if (priceForecast.currentPosition === 'high' && currentPrice > avgPrice * 1.2) {
+        // If current price is very high, reduce temperature a bit more
+        targetTemp -= 0.5;
+        this.logger.log('Applied -0.5°C adjustment due to very high current price');
+      }
+    }
 
     this.logger.log(`Price analysis: current=${currentPrice.toFixed(2)}, avg=${avgPrice.toFixed(2)}, min=${minPrice.toFixed(2)}, max=${maxPrice.toFixed(2)}`);
     this.logger.log(`Temperature calculation: normalized=${normalizedPrice.toFixed(2)}, inverted=${invertedPrice.toFixed(2)}, target=${targetTemp.toFixed(1)}°C`);
@@ -1340,6 +1920,106 @@ class Optimizer {
     if (analysis.cloudCover.correlation !== 0) {
       const direction = analysis.cloudCover.correlation > 0 ? 'higher' : 'lower';
       summary += `Cloud cover shows a ${Math.abs(analysis.cloudCover.correlation).toFixed(2)} correlation with ${direction} indoor temperature settings. `;
+    }
+
+    analysis.summary = summary;
+    return analysis;
+  }
+
+  /**
+   * Analyze the impact of price forecasts on optimization results
+   * @param {Array} optimizations - Historical optimization data
+   * @returns {Object} - Price forecast impact analysis
+   */
+  analyzePriceForecastImpact(optimizations) {
+    if (!optimizations || optimizations.length === 0) {
+      return { available: false, reason: 'No historical data available' };
+    }
+
+    // Count optimizations with price forecast data
+    const withPriceForecast = optimizations.filter(opt => opt.priceForecast !== null && opt.priceForecast !== undefined);
+
+    if (withPriceForecast.length === 0) {
+      return { available: false, reason: 'No price forecast data in historical optimizations' };
+    }
+
+    // Analyze effectiveness of price position predictions
+    const positionEffectiveness = {
+      low: { correct: 0, total: 0 },
+      medium: { correct: 0, total: 0 },
+      high: { correct: 0, total: 0 }
+    };
+
+    // Track pre-heating/cooling effectiveness in future versions
+
+    // Analyze price change predictions
+    const priceChangePredictions = [];
+
+    // Calculate effectiveness metrics
+    withPriceForecast.forEach(opt => {
+      const forecast = opt.priceForecast;
+      const position = forecast.position;
+      const tempChange = opt.targetTemp - opt.targetOriginal;
+
+      // Analyze position effectiveness
+      if (position) {
+        positionEffectiveness[position].total++;
+
+        // Check if the temperature change matched the expected direction based on price position
+        const expectedDirection = position === 'low' ? 1 : position === 'high' ? -1 : 0;
+        const actualDirection = Math.sign(tempChange);
+
+        if (expectedDirection === actualDirection) {
+          positionEffectiveness[position].correct++;
+        }
+      }
+
+      // Analyze pre-heating/cooling effectiveness
+      if (forecast.upcomingChanges && forecast.upcomingChanges.significant) {
+        const change = forecast.upcomingChanges;
+
+        priceChangePredictions.push({
+          predictedChange: change.change,
+          predictedTime: change.time,
+          tempAdjustment: tempChange,
+          timestamp: opt.timestamp
+        });
+      }
+    });
+
+    // Calculate position accuracy
+    const positionAccuracy = {};
+    Object.keys(positionEffectiveness).forEach(pos => {
+      const data = positionEffectiveness[pos];
+      positionAccuracy[pos] = data.total > 0 ? (data.correct / data.total) * 100 : 0;
+    });
+
+    // Analyze best/worst time recommendations
+    const timeRecommendations = {
+      bestTimesUsed: 0,
+      worstTimesAvoided: 0,
+      total: withPriceForecast.length
+    };
+
+    // Generate analysis
+    const analysis = {
+      available: true,
+      dataPoints: withPriceForecast.length,
+      positionAccuracy,
+      priceChangePredictions: priceChangePredictions.length,
+      timeRecommendations,
+      summary: ''
+    };
+
+    // Generate summary
+    let summary = `Analysis based on ${withPriceForecast.length} data points with price forecast information. `;
+
+    // Add position accuracy to summary
+    summary += `Price position prediction accuracy: Low=${positionAccuracy.low.toFixed(1)}%, Medium=${positionAccuracy.medium.toFixed(1)}%, High=${positionAccuracy.high.toFixed(1)}%. `;
+
+    // Add price change predictions to summary
+    if (priceChangePredictions.length > 0) {
+      summary += `Made ${priceChangePredictions.length} significant price change predictions. `;
     }
 
     analysis.summary = summary;
