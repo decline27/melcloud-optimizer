@@ -84,6 +84,24 @@
         </label>
         <p class="homey-form-helper">Uses weather data to improve temperature optimization based on outdoor conditions</p>
       </div>
+
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="weather_location">Your Location</label>
+        <div class="homey-form-row">
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="latitude">Latitude</label>
+            <input class="homey-form-input" id="latitude" type="number" step="0.000001" placeholder="e.g., 51.5074" />
+            <p class="homey-form-helper">Decimal degrees (e.g., 51.5074 for London)</p>
+          </div>
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="longitude">Longitude</label>
+            <input class="homey-form-input" id="longitude" type="number" step="0.000001" placeholder="e.g., -0.1278" />
+            <p class="homey-form-helper">Decimal degrees (e.g., -0.1278 for London)</p>
+          </div>
+        </div>
+        <button id="detect-location" class="homey-button-primary">Detect My Location</button>
+        <p class="homey-form-helper">You can find your coordinates using <a href="https://www.latlong.net/" target="_blank">LatLong.net</a> or similar services</p>
+      </div>
     </fieldset>
 
     <fieldset class="homey-form-fieldset">
@@ -135,6 +153,9 @@
         const tempStepMaxElement = document.getElementById("temp_step_max");
         const initialKElement = document.getElementById("initial_k");
         const useWeatherDataElement = document.getElementById("use_weather_data");
+        const latitudeElement = document.getElementById("latitude");
+        const longitudeElement = document.getElementById("longitude");
+        const detectLocationButton = document.getElementById("detect-location");
         const logLevelElement = document.getElementById("log_level");
         const saveElement = document.getElementById("save");
         const runHourlyElement = document.getElementById("run_hourly");
@@ -203,6 +224,57 @@
           if (value !== undefined) useWeatherDataElement.checked = value;
         });
 
+        Homey.get("latitude", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) latitudeElement.value = value;
+        });
+
+        Homey.get("longitude", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) longitudeElement.value = value;
+        });
+
+        // Add event listener for the detect location button
+        detectLocationButton.addEventListener('click', function(e) {
+          e.preventDefault();
+
+          // Show a message that this is a browser-based feature
+          Homey.alert('This feature uses your browser\'s location. Please allow location access when prompted.');
+
+          // Use browser geolocation API
+          if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+              function(position) {
+                // Success callback
+                latitudeElement.value = position.coords.latitude;
+                longitudeElement.value = position.coords.longitude;
+                Homey.alert('Location detected successfully! Please save your settings.');
+              },
+              function(error) {
+                // Error callback
+                let errorMessage = 'Could not detect your location. ';
+                switch(error.code) {
+                  case error.PERMISSION_DENIED:
+                    errorMessage += 'Location permission was denied.';
+                    break;
+                  case error.POSITION_UNAVAILABLE:
+                    errorMessage += 'Location information is unavailable.';
+                    break;
+                  case error.TIMEOUT:
+                    errorMessage += 'The request to get location timed out.';
+                    break;
+                  default:
+                    errorMessage += 'An unknown error occurred.';
+                    break;
+                }
+                Homey.alert(errorMessage);
+              }
+            );
+          } else {
+            Homey.alert('Geolocation is not supported by your browser. Please enter coordinates manually.');
+          }
+        });
+
         // Save settings
         saveElement.addEventListener("click", function (e) {
           // Save all settings
@@ -253,6 +325,28 @@
           Homey.set("use_weather_data", useWeatherDataElement.checked, function (err) {
             if (err) return Homey.alert(err);
           });
+
+          // Save location settings
+          const latitude = parseFloat(latitudeElement.value);
+          const longitude = parseFloat(longitudeElement.value);
+
+          if (!isNaN(latitude) && latitude >= -90 && latitude <= 90) {
+            Homey.set("latitude", latitude, function (err) {
+              if (err) return Homey.alert(err);
+            });
+          } else if (latitudeElement.value) {
+            Homey.alert('Invalid latitude value. Must be between -90 and 90.');
+            return;
+          }
+
+          if (!isNaN(longitude) && longitude >= -180 && longitude <= 180) {
+            Homey.set("longitude", longitude, function (err) {
+              if (err) return Homey.alert(err);
+            });
+          } else if (longitudeElement.value) {
+            Homey.alert('Invalid longitude value. Must be between -180 and 180.');
+            return;
+          }
 
           // Show success message
           Homey.alert('Settings saved successfully!');

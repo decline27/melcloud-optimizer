@@ -1423,12 +1423,25 @@ class Optimizer {
 
       if (this.useWeatherData && this.weather) {
         try {
-          // Get device location (using default values if not available)
+          // Get location from settings or device state or default to Oslo, Norway
+          const userLatitude = homey.settings.get('latitude');
+          const userLongitude = homey.settings.get('longitude');
+
           const location = {
-            latitude: deviceState.Latitude || 59.9, // Default to Oslo, Norway
-            longitude: deviceState.Longitude || 10.7,
+            latitude: userLatitude || deviceState.Latitude || 59.9, // Default to Oslo, Norway if not set
+            longitude: userLongitude || deviceState.Longitude || 10.7,
             altitude: deviceState.Altitude || 0
           };
+
+          // Log the location being used
+          if (userLatitude && userLongitude) {
+            this.logger.log(`Using user-defined location: ${location.latitude}, ${location.longitude}`);
+          } else if (deviceState.Latitude && deviceState.Longitude) {
+            this.logger.log(`Using device location: ${location.latitude}, ${location.longitude}`);
+          } else {
+            this.logger.log(`Using default location (Oslo, Norway): ${location.latitude}, ${location.longitude}`);
+            this.logger.log('Please set your location in the app settings for more accurate weather data.');
+          }
 
           this.logger.log(`Getting weather data for location: ${location.latitude}, ${location.longitude}`);
 
