@@ -1424,8 +1424,9 @@ class Optimizer {
       if (this.useWeatherData && this.weather) {
         try {
           // Get location from settings or device state or default to Oslo, Norway
-          const userLatitude = homey.settings.get('latitude');
-          const userLongitude = homey.settings.get('longitude');
+          // The logger is homey.app, which has access to homey.settings
+          const userLatitude = this.logger.homey?.settings?.get('latitude');
+          const userLongitude = this.logger.homey?.settings?.get('longitude');
 
           const location = {
             latitude: userLatitude || deviceState.Latitude || 59.9, // Default to Oslo, Norway if not set
