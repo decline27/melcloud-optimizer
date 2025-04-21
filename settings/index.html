@@ -105,6 +105,41 @@
     </fieldset>
 
     <fieldset class="homey-form-fieldset">
+      <legend class="homey-form-legend">Comfort Profiles</legend>
+      <div class="homey-form-group">
+        <label class="homey-form-label">Day Profile (Higher Comfort)</label>
+        <div class="homey-form-row">
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="day_start_hour">Start Hour</label>
+            <input class="homey-form-input" id="day_start_hour" type="number" min="0" max="23" step="1" value="6" />
+            <p class="homey-form-helper">Hour when day profile begins (0-23)</p>
+          </div>
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="day_end_hour">End Hour</label>
+            <input class="homey-form-input" id="day_end_hour" type="number" min="0" max="23" step="1" value="22" />
+            <p class="homey-form-helper">Hour when day profile ends (0-23)</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="homey-form-group">
+        <label class="homey-form-label">Temperature Adjustments</label>
+        <div class="homey-form-row">
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="night_temp_reduction">Night Reduction</label>
+            <input class="homey-form-input" id="night_temp_reduction" type="number" min="0" max="5" step="0.5" value="2" />
+            <p class="homey-form-helper">Temperature reduction during night (°C)</p>
+          </div>
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="pre_heat_hours">Pre-heat Hours</label>
+            <input class="homey-form-input" id="pre_heat_hours" type="number" min="0" max="3" step="0.5" value="1" />
+            <p class="homey-form-helper">Hours before day start to begin pre-heating</p>
+          </div>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset class="homey-form-fieldset">
       <legend class="homey-form-legend">Advanced Settings</legend>
       <div class="homey-form-group">
         <label class="homey-form-label" for="log_level">Log Level</label>
@@ -156,6 +191,10 @@
         const latitudeElement = document.getElementById("latitude");
         const longitudeElement = document.getElementById("longitude");
         const detectLocationButton = document.getElementById("detect-location");
+        const dayStartHourElement = document.getElementById("day_start_hour");
+        const dayEndHourElement = document.getElementById("day_end_hour");
+        const nightTempReductionElement = document.getElementById("night_temp_reduction");
+        const preHeatHoursElement = document.getElementById("pre_heat_hours");
         const logLevelElement = document.getElementById("log_level");
         const saveElement = document.getElementById("save");
         const runHourlyElement = document.getElementById("run_hourly");
@@ -232,6 +271,27 @@
         Homey.get("longitude", function (err, value) {
           if (err) return Homey.alert(err);
           if (value !== undefined) longitudeElement.value = value;
+        });
+
+        // Load comfort profile settings
+        Homey.get("day_start_hour", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) dayStartHourElement.value = value;
+        });
+
+        Homey.get("day_end_hour", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) dayEndHourElement.value = value;
+        });
+
+        Homey.get("night_temp_reduction", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) nightTempReductionElement.value = value;
+        });
+
+        Homey.get("pre_heat_hours", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) preHeatHoursElement.value = value;
         });
 
         // Add event listener for the detect location button
@@ -346,6 +406,35 @@
           } else if (longitudeElement.value) {
             Homey.alert('Invalid longitude value. Must be between -180 and 180.');
             return;
+          }
+
+          // Save comfort profile settings
+          const dayStartHour = parseInt(dayStartHourElement.value);
+          if (!isNaN(dayStartHour) && dayStartHour >= 0 && dayStartHour <= 23) {
+            Homey.set("day_start_hour", dayStartHour, function (err) {
+              if (err) return Homey.alert(err);
+            });
+          }
+
+          const dayEndHour = parseInt(dayEndHourElement.value);
+          if (!isNaN(dayEndHour) && dayEndHour >= 0 && dayEndHour <= 23) {
+            Homey.set("day_end_hour", dayEndHour, function (err) {
+              if (err) return Homey.alert(err);
+            });
+          }
+
+          const nightTempReduction = parseFloat(nightTempReductionElement.value);
+          if (!isNaN(nightTempReduction) && nightTempReduction >= 0 && nightTempReduction <= 5) {
+            Homey.set("night_temp_reduction", nightTempReduction, function (err) {
+              if (err) return Homey.alert(err);
+            });
+          }
+
+          const preHeatHours = parseFloat(preHeatHoursElement.value);
+          if (!isNaN(preHeatHours) && preHeatHours >= 0 && preHeatHours <= 3) {
+            Homey.set("pre_heat_hours", preHeatHours, function (err) {
+              if (err) return Homey.alert(err);
+            });
           }
 
           // Show success message

@@ -1530,6 +1530,15 @@ class Optimizer {
         this.logger.log(`Keeping temperature at ${currentTarget}°C: ${reason}`);
       }
 
+      // Get comfort profile information
+      const now = new Date();
+      const currentHour = now.getHours();
+      const comfortFactor = this.calculateComfortFactor(currentHour);
+      const dayStart = this.logger.homey?.settings?.get('day_start_hour') || 6;
+      const dayEnd = this.logger.homey?.settings?.get('day_end_hour') || 22;
+      const nightTempReduction = this.logger.homey?.settings?.get('night_temp_reduction') || 2;
+      const preHeatHours = this.logger.homey?.settings?.get('pre_heat_hours') || 1;
+
       // Create result object
       const result = {
         targetTemp: newTarget,
@@ -1545,6 +1554,16 @@ class Optimizer {
         comfort,
         timestamp: new Date().toISOString(),
         kFactor: this.thermalModel.K,
+        // Include comfort profile information
+        comfortProfile: {
+          factor: comfortFactor,
+          currentHour,
+          dayStart,
+          dayEnd,
+          nightTempReduction,
+          preHeatHours,
+          mode: comfortFactor >= 0.9 ? 'day' : comfortFactor <= 0.6 ? 'night' : 'transition'
+        },
         // Include price forecast data
         priceForecast: priceForecast ? {
           position: priceForecast.currentPosition,
@@ -1701,6 +1720,41 @@ class Optimizer {
   }
 
   /**
+   * Calculate comfort factor based on time of day
+   * @param {number} hour - Current hour (0-23)
+   * @returns {number} - Comfort factor (0.5-1.0)
+   */
+  calculateComfortFactor(hour) {
+    // Get comfort profiles from settings
+    const dayStart = this.logger.homey?.settings?.get('day_start_hour') || 6;  // Default: 6 AM
+    const dayEnd = this.logger.homey?.settings?.get('day_end_hour') || 22;     // Default: 10 PM
+    const preHeatHours = this.logger.homey?.settings?.get('pre_heat_hours') || 1; // Default: 1 hour
+
+    // Calculate transition periods
+    const morningTransitionStart = (dayStart - preHeatHours + 24) % 24;
+    const eveningTransitionStart = dayEnd - 1;
+
+    // Log the comfort profile settings
+    this.logger.log(`Comfort profile: Day ${dayStart}:00-${dayEnd}:00, Pre-heat: ${preHeatHours}h, Current hour: ${hour}:00`);
+
+    if (hour >= dayStart && hour < eveningTransitionStart) {
+      // Full day comfort
+      return 1.0;
+    } else if (hour >= eveningTransitionStart && hour < dayEnd) {
+      // Evening transition (gradually reducing comfort)
+      const transitionProgress = (hour - eveningTransitionStart) / (dayEnd - eveningTransitionStart);
+      return 1.0 - (transitionProgress * 0.5); // Reduce to 0.5 at end of day
+    } else if ((hour >= dayEnd) || (hour < morningTransitionStart)) {
+      // Night (lower comfort priority)
+      return 0.5;
+    } else {
+      // Morning transition (gradually increasing comfort)
+      const transitionProgress = (hour - morningTransitionStart) / preHeatHours;
+      return 0.5 + (transitionProgress * 0.5); // Increase from 0.5 to 1.0
+    }
+  }
+
+  /**
    * Calculate the optimal temperature based on price data and forecasts
    * @param {number} currentPrice - Current electricity price
    * @param {number} avgPrice - Average electricity price
@@ -1711,6 +1765,24 @@ class Optimizer {
    * @returns {number} - Optimal temperature setting
    */
   calculateOptimalTemperature(currentPrice, avgPrice, minPrice, maxPrice, currentTemp, priceForecast = null) {
+    // Get current hour
+    const now = new Date();
+    const currentHour = now.getHours();
+
+    // Calculate comfort factor (0.5-1.0)
+    const comfortFactor = this.calculateComfortFactor(currentHour);
+
+    // Get night temperature reduction setting
+    const nightTempReduction = this.logger.homey?.settings?.get('night_temp_reduction') || 2; // Default: 2°C
+
+    // Adjust temperature range based on comfort factor
+    const comfortAdjustedMinTemp = this.minTemp + ((1 - comfortFactor) * nightTempReduction);
+    const comfortAdjustedMaxTemp = this.maxTemp - ((1 - comfortFactor) * nightTempReduction);
+
+    // Log the comfort adjustments
+    this.logger.log(`Comfort factor: ${comfortFactor.toFixed(2)} (Hour: ${currentHour}:00)`);
+    this.logger.log(`Comfort-adjusted temperature range: ${comfortAdjustedMinTemp.toFixed(1)}°C - ${comfortAdjustedMaxTemp.toFixed(1)}°C`);
+
     // Normalize price between 0 and 1
     const priceRange = maxPrice - minPrice;
     const normalizedPrice = priceRange > 0
@@ -1720,9 +1792,9 @@ class Optimizer {
     // Invert (lower price = higher temperature)
     const invertedPrice = 1 - normalizedPrice;
 
-    // Calculate temperature offset based on price
-    const tempRange = this.maxTemp - this.minTemp;
-    const midTemp = (this.maxTemp + this.minTemp) / 2;
+    // Calculate temperature offset based on price with comfort adjustment
+    const tempRange = comfortAdjustedMaxTemp - comfortAdjustedMinTemp;
+    const midTemp = (comfortAdjustedMaxTemp + comfortAdjustedMinTemp) / 2;
 
     // Base target temperature calculation
     let targetTemp = midTemp + (invertedPrice - 0.5) * tempRange;
@@ -1764,6 +1836,36 @@ class Optimizer {
         // If current price is very high, reduce temperature a bit more
         targetTemp -= 0.5;
         this.logger.log('Applied -0.5°C adjustment due to very high current price');
+      }
+
+      // Check if we're approaching wake-up time
+      const dayStart = this.logger.homey?.settings?.get('day_start_hour') || 6;
+      const preHeatHours = this.logger.homey?.settings?.get('pre_heat_hours') || 1;
+      const hoursUntilWakeUp = (dayStart - currentHour + 24) % 24;
+
+      // If we're within the pre-heat window before wake-up
+      if (hoursUntilWakeUp > 0 && hoursUntilWakeUp <= preHeatHours) {
+        // Check if prices are favorable for pre-heating
+        const currentPricePosition = priceForecast.currentPosition || 'medium';
+        const upcomingPrices = priceForecast.worstTimes || [];
+
+        // Check if morning hours have high prices
+        const morningHasPriceSpike = upcomingPrices.some(time => {
+          const timeHour = new Date(time.time).getHours();
+          return Math.abs(timeHour - dayStart) <= 2; // Within 2 hours of wake-up
+        });
+
+        if (currentPricePosition === 'low' && morningHasPriceSpike) {
+          // Current price is low and morning has price spikes, pre-heat more aggressively
+          const preHeatingAdjustment = 1.0 * (preHeatHours - hoursUntilWakeUp) / preHeatHours;
+          targetTemp += preHeatingAdjustment;
+          this.logger.log(`Applied wake-up pre-heating of +${preHeatingAdjustment.toFixed(2)}°C (${hoursUntilWakeUp.toFixed(1)} hours until wake-up at ${dayStart}:00)`);
+        } else {
+          // Standard pre-heating as we approach wake-up time
+          const preHeatingAdjustment = 0.5 * (preHeatHours - hoursUntilWakeUp) / preHeatHours;
+          targetTemp += preHeatingAdjustment;
+          this.logger.log(`Applied standard wake-up pre-heating of +${preHeatingAdjustment.toFixed(2)}°C (${hoursUntilWakeUp.toFixed(1)} hours until wake-up at ${dayStart}:00)`);
+        }
       }
     }
 
