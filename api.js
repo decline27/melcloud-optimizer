@@ -1533,11 +1533,14 @@ class Optimizer {
       // Get comfort profile information
       const now = new Date();
       const currentHour = now.getHours();
+      const localTimeString = now.toLocaleTimeString();
       const comfortFactor = this.calculateComfortFactor(currentHour);
       const dayStart = this.logger.homey?.settings?.get('day_start_hour') || 6;
       const dayEnd = this.logger.homey?.settings?.get('day_end_hour') || 22;
       const nightTempReduction = this.logger.homey?.settings?.get('night_temp_reduction') || 2;
       const preHeatHours = this.logger.homey?.settings?.get('pre_heat_hours') || 1;
+
+      this.logger.log(`Comfort profile calculation using local time: ${localTimeString} (Hour: ${currentHour})`);
 
       // Create result object
       const result = {
@@ -1558,6 +1561,7 @@ class Optimizer {
         comfortProfile: {
           factor: comfortFactor,
           currentHour,
+          localTime: localTimeString,
           dayStart,
           dayEnd,
           nightTempReduction,
@@ -1734,22 +1738,29 @@ class Optimizer {
     const morningTransitionStart = (dayStart - preHeatHours + 24) % 24;
     const eveningTransitionStart = dayEnd - 1;
 
-    // Log the comfort profile settings
-    this.logger.log(`Comfort profile: Day ${dayStart}:00-${dayEnd}:00, Pre-heat: ${preHeatHours}h, Current hour: ${hour}:00`);
+    // Get the current date and time in the local timezone
+    const now = new Date();
+    const localHour = now.getHours();
 
-    if (hour >= dayStart && hour < eveningTransitionStart) {
+    // Use the provided hour parameter if available, otherwise use local hour
+    const currentHour = (hour !== undefined) ? hour : localHour;
+
+    // Log the comfort profile settings
+    this.logger.log(`Comfort profile: Day ${dayStart}:00-${dayEnd}:00, Pre-heat: ${preHeatHours}h, Current hour: ${currentHour}:00 (Local time: ${localHour}:00)`);
+
+    if (currentHour >= dayStart && currentHour < eveningTransitionStart) {
       // Full day comfort
       return 1.0;
-    } else if (hour >= eveningTransitionStart && hour < dayEnd) {
+    } else if (currentHour >= eveningTransitionStart && currentHour < dayEnd) {
       // Evening transition (gradually reducing comfort)
-      const transitionProgress = (hour - eveningTransitionStart) / (dayEnd - eveningTransitionStart);
+      const transitionProgress = (currentHour - eveningTransitionStart) / (dayEnd - eveningTransitionStart);
       return 1.0 - (transitionProgress * 0.5); // Reduce to 0.5 at end of day
-    } else if ((hour >= dayEnd) || (hour < morningTransitionStart)) {
+    } else if ((currentHour >= dayEnd) || (currentHour < morningTransitionStart)) {
       // Night (lower comfort priority)
       return 0.5;
     } else {
       // Morning transition (gradually increasing comfort)
-      const transitionProgress = (hour - morningTransitionStart) / preHeatHours;
+      const transitionProgress = (currentHour - morningTransitionStart) / preHeatHours;
       return 0.5 + (transitionProgress * 0.5); // Increase from 0.5 to 1.0
     }
   }
@@ -1765,9 +1776,11 @@ class Optimizer {
    * @returns {number} - Optimal temperature setting
    */
   calculateOptimalTemperature(currentPrice, avgPrice, minPrice, maxPrice, currentTemp, priceForecast = null) {
-    // Get current hour
+    // Get current hour in local time zone
     const now = new Date();
     const currentHour = now.getHours();
+
+    this.logger.log(`Current local time: ${now.toLocaleTimeString()} (Hour: ${currentHour})`);
 
     // Calculate comfort factor (0.5-1.0)
     const comfortFactor = this.calculateComfortFactor(currentHour);
@@ -1842,6 +1855,8 @@ class Optimizer {
       const dayStart = this.logger.homey?.settings?.get('day_start_hour') || 6;
       const preHeatHours = this.logger.homey?.settings?.get('pre_heat_hours') || 1;
       const hoursUntilWakeUp = (dayStart - currentHour + 24) % 24;
+
+      this.logger.log(`Wake-up time: ${dayStart}:00, Hours until wake-up: ${hoursUntilWakeUp}`);
 
       // If we're within the pre-heat window before wake-up
       if (hoursUntilWakeUp > 0 && hoursUntilWakeUp <= preHeatHours) {
