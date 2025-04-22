@@ -6,6 +6,18 @@
       src="/homey.js"
       data-origin="settings"
     ></script>
+    <style>
+      .button-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 10px;
+      }
+      .result-message {
+        margin-top: 10px;
+        font-style: italic;
+      }
+    </style>
   </head>
   <body>
     <header class="homey-header">
@@ -66,6 +78,7 @@
       <div class="homey-form-group">
         <label class="homey-form-label" for="temp_step_max">Maximum Temperature Step (°C)</label>
         <input class="homey-form-input" id="temp_step_max" type="number" min="0.1" max="2.0" step="0.1" value="0.5" />
+        <p class="homey-form-helper">Controls how much the temperature can change in one step. MELCloud supports 0.5°C increments for temperature settings.</p>
       </div>
       <div class="homey-form-group">
         <label class="homey-form-label" for="initial_k">Initial K Factor</label>
@@ -204,21 +217,156 @@
     <fieldset class="homey-form-fieldset">
       <legend class="homey-form-legend">Manual Triggers</legend>
       <div class="homey-form-group">
-        <p class="homey-form-helper">Use these buttons to manually trigger operations for testing purposes.</p>
-        <div style="display: flex; gap: 10px; margin-top: 10px;">
-          <button id="run_hourly" class="homey-button">Run Hourly Optimization</button>
-          <button id="run_weekly" class="homey-button">Run Weekly Calibration</button>
-          <button id="test_log" class="homey-button">Test Logging</button>
+        <p class="homey-form-helper">Use these buttons to manually trigger operations.</p>
+        <div class="button-container">
+          <button id="run_hourly" class="homey-button-primary" onclick="runHourlyOptimization()">Run Hourly Optimization</button>
+          <button id="run_weekly" class="homey-button-primary" onclick="runWeeklyCalibration()">Run Weekly Calibration</button>
+          <button id="manage_cron" class="homey-button" onclick="manageScheduledJobs()">Manage Scheduled Jobs</button>
         </div>
-        <p id="trigger_result" style="margin-top: 10px; font-style: italic;"></p>
+        <p id="trigger_result" class="result-message"></p>
       </div>
     </fieldset>
 
     <button id="save" class="homey-button-primary-full">Save changes</button>
 
     <script type="text/javascript">
+      // Global Homey object
+      let HomeyInstance;
+
+      // Function to run hourly optimization
+      function runHourlyOptimization() {
+        console.log('Hourly optimization button clicked');
+
+        // Disable button and show loading state
+        document.getElementById('run_hourly').disabled = true;
+        document.getElementById('trigger_result').textContent = "Running hourly optimization...";
+
+        // Call the API
+        HomeyInstance.api('GET', '/runHourlyOptimizer', {}, function(err, result) {
+          if (err) {
+            console.error('Error calling /runHourlyOptimizer:', err);
+            document.getElementById('run_hourly').disabled = false;
+            document.getElementById('trigger_result').textContent = "Error: " + err.message;
+            return HomeyInstance.alert(err.message);
+          }
+
+          console.log('/runHourlyOptimizer called successfully:', result);
+
+          // Show success message
+          document.getElementById('run_hourly').disabled = false;
+          document.getElementById('trigger_result').textContent = "Hourly optimization completed successfully! Check the timeline for details.";
+        });
+      }
+
+      // Function to run weekly calibration
+      function runWeeklyCalibration() {
+        console.log('Weekly calibration button clicked');
+
+        // Disable button and show loading state
+        document.getElementById('run_weekly').disabled = true;
+        document.getElementById('trigger_result').textContent = "Running weekly calibration...";
+
+        // Call the API
+        HomeyInstance.api('GET', '/runWeeklyCalibration', {}, function(err, result) {
+          if (err) {
+            console.error('Error calling /runWeeklyCalibration:', err);
+            document.getElementById('run_weekly').disabled = false;
+            document.getElementById('trigger_result').textContent = "Error: " + err.message;
+            return HomeyInstance.alert(err.message);
+          }
+
+          console.log('/runWeeklyCalibration called successfully:', result);
+
+          // Show success message
+          document.getElementById('run_weekly').disabled = false;
+          document.getElementById('trigger_result').textContent = "Weekly calibration completed successfully! Check the timeline for details.";
+        });
+      }
+
+      // Function to manage scheduled jobs
+      function manageScheduledJobs() {
+        console.log('Manage scheduled jobs button clicked');
+
+        // Disable button and show loading state
+        document.getElementById('manage_cron').disabled = true;
+        document.getElementById('trigger_result').textContent = "Checking scheduled jobs status...";
+
+        // First check the current status
+        HomeyInstance.api('GET', '/getCheckCronStatus', {}, function(err, result) {
+          if (err) {
+            console.error('Error checking cron status:', err);
+            document.getElementById('manage_cron').disabled = false;
+            document.getElementById('trigger_result').textContent = "Error: " + err.message;
+            return HomeyInstance.alert(err.message);
+          }
+
+          console.log('Cron status check successful:', result);
+
+          // Format the result for display
+          const hourlyStatus = result.hourlyJob.running ? 'Running' : 'Not running';
+          const weeklyStatus = result.weeklyJob.running ? 'Running' : 'Not running';
+          const hourlyNextRun = new Date(result.hourlyJob.nextRun).toLocaleString();
+          const weeklyNextRun = new Date(result.weeklyJob.nextRun).toLocaleString();
+          const lastHourlyRun = result.lastHourlyRun ? new Date(result.lastHourlyRun).toLocaleString() : 'Never';
+          const lastWeeklyRun = result.lastWeeklyRun ? new Date(result.lastWeeklyRun).toLocaleString() : 'Never';
+
+          // Create a formatted message
+          const statusMessage = `
+            Current time: ${new Date(result.currentTime).toLocaleString()}
+
+            Hourly job: ${hourlyStatus}
+            Next run: ${hourlyNextRun}
+            Last run: ${lastHourlyRun}
+
+            Weekly job: ${weeklyStatus}
+            Next run: ${weeklyNextRun}
+            Last run: ${lastWeeklyRun}
+          `;
+
+          // Ask the user what they want to do
+          if (confirm(statusMessage + '\n\nDo you want to restart the scheduled jobs?')) {
+            // User clicked OK, start/restart the jobs
+            document.getElementById('trigger_result').textContent = "Starting scheduled jobs...";
+
+            // Call the API to start cron jobs
+            HomeyInstance.api('GET', '/getStartCronJobs', {}, function(startErr, startResult) {
+              if (startErr) {
+                console.error('Error starting cron jobs:', startErr);
+                document.getElementById('manage_cron').disabled = false;
+                document.getElementById('trigger_result').textContent = "Error: " + startErr.message;
+                return HomeyInstance.alert(startErr.message);
+              }
+
+              console.log('Cron jobs started successfully:', startResult);
+
+              // Create a formatted message
+              const startMessage = `
+                Scheduled jobs started successfully!
+
+                Hourly job running: ${startResult.hourlyJobRunning ? 'Yes' : 'No'}
+                Weekly job running: ${startResult.weeklyJobRunning ? 'Yes' : 'No'}
+              `;
+
+              // Show the status in an alert
+              HomeyInstance.alert(startMessage);
+
+              // Enable the button and update the result text
+              document.getElementById('manage_cron').disabled = false;
+              document.getElementById('trigger_result').textContent = "Scheduled jobs started successfully!";
+            });
+          } else {
+            // User clicked Cancel, just enable the button
+            document.getElementById('manage_cron').disabled = false;
+            document.getElementById('trigger_result').textContent = "Scheduled jobs status checked successfully!";
+          }
+        });
+      }
+
       function onHomeyReady(Homey) {
         console.log('onHomeyReady called - Settings page initialized');
+
+        // Store Homey instance globally
+        HomeyInstance = Homey;
 
         // Tell Homey we're ready to be displayed
         Homey.ready();
@@ -247,10 +395,7 @@
         const useDstElement = document.getElementById("use_dst");
         const logLevelElement = document.getElementById("log_level");
         const saveElement = document.getElementById("save");
-        const runHourlyElement = document.getElementById("run_hourly");
-        const runWeeklyElement = document.getElementById("run_weekly");
-        const testLogElement = document.getElementById("test_log");
-        const triggerResultElement = document.getElementById("trigger_result");
+        // Buttons now use onclick attributes with global functions
 
         // Load current settings
         Homey.get("melcloud_user", function (err, value) {
@@ -514,98 +659,7 @@
           Homey.alert('Settings saved successfully!');
         });
 
-        // Run hourly optimization button
-        // When clicked, this directly calls the runHourlyOptimizer method on the app
-        runHourlyElement.addEventListener("click", function (e) {
-          // Log to console for debugging
-          console.log('Hourly optimization button clicked');
-          alert('Hourly optimization button clicked - Will directly call runHourlyOptimizer()');
-
-          // Disable button and show loading state
-          runHourlyElement.disabled = true;
-          triggerResultElement.textContent = "Running hourly optimization...";
-
-          // Call the API to directly execute the runHourlyOptimizer method
-          console.log('Calling API.getRunHourlyOptimizer() directly');
-          Homey.api('GET', '/runHourlyOptimizer', {}, function(err, result) {
-            if (err) {
-              console.error('Error calling runHourlyOptimizer:', err);
-              alert('Error calling runHourlyOptimizer: ' + err.message);
-              runHourlyElement.disabled = false;
-              triggerResultElement.textContent = "Error: " + err.message;
-              return Homey.alert(err.message);
-            }
-
-            console.log('runHourlyOptimizer called successfully:', result);
-            alert('runHourlyOptimizer called successfully');
-
-            // Show success message
-            runHourlyElement.disabled = false;
-            triggerResultElement.textContent = "Hourly optimization completed successfully! Check the timeline for details.";
-          });
-        });
-
-        // Run weekly calibration button
-        // When clicked, this directly calls the runWeeklyCalibration method on the app
-        runWeeklyElement.addEventListener("click", function (e) {
-          // Log to console for debugging
-          console.log('Weekly calibration button clicked');
-          alert('Weekly calibration button clicked - Will directly call runWeeklyCalibration()');
-
-          // Disable button and show loading state
-          runWeeklyElement.disabled = true;
-          triggerResultElement.textContent = "Running weekly calibration...";
-
-          // Call the API to directly execute the runWeeklyCalibration method
-          console.log('Calling API.getRunWeeklyCalibration() directly');
-          Homey.api('GET', '/runWeeklyCalibration', {}, function(err, result) {
-            if (err) {
-              console.error('Error calling runWeeklyCalibration:', err);
-              alert('Error calling runWeeklyCalibration: ' + err.message);
-              runWeeklyElement.disabled = false;
-              triggerResultElement.textContent = "Error: " + err.message;
-              return Homey.alert(err.message);
-            }
-
-            console.log('runWeeklyCalibration called successfully:', result);
-            alert('runWeeklyCalibration called successfully');
-
-            // Show success message
-            runWeeklyElement.disabled = false;
-            triggerResultElement.textContent = "Weekly calibration completed successfully! Check the timeline for details.";
-          });
-        });
-
-        // Test logging button
-        // When clicked, this directly calls the testLogging method on the app
-        testLogElement.addEventListener("click", function (e) {
-          // Log to console for debugging
-          console.log('Test logging button clicked');
-          alert('Test logging button clicked - Will directly call testLogging()');
-
-          // Disable button and show loading state
-          testLogElement.disabled = true;
-          triggerResultElement.textContent = "Testing logging...";
-
-          // Call the API to directly execute the testLogging method
-          console.log('Calling API.getTestLogging() directly');
-          Homey.api('GET', '/testLogging', {}, function(err, result) {
-            if (err) {
-              console.error('Error calling testLogging:', err);
-              alert('Error calling testLogging: ' + err.message);
-              testLogElement.disabled = false;
-              triggerResultElement.textContent = "Error: " + err.message;
-              return Homey.alert(err.message);
-            }
-
-            console.log('testLogging called successfully:', result);
-            alert('testLogging called successfully');
-
-            // Show success message
-            testLogElement.disabled = false;
-            triggerResultElement.textContent = "Test logging completed successfully! Check the terminal for details.";
-          });
-        });
+        // Button event handlers are now defined as global functions and attached via onclick attributes
       }
     </script>
   </body>

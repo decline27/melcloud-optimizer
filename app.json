@@ -8,10 +8,10 @@
     "local"
   ],
   "name": {
-    "en": "melcloude optimizer"
+    "en": "MELCloud Optimizer"
   },
   "description": {
-    "en": "melcloud"
+    "en": "Optimize your MELCloud heat pump based on electricity prices and weather"
   },
   "category": [
     "climate"
@@ -28,7 +28,7 @@
     "small": "/assets/images/small.png"
   },
   "brandColor": "#1E88E5",
-  "support": "https://github.com/yourusername/com.melcloud.optimize/issues",
+  "support": "https://github.com/decline27/melcloud-optimizer/issues",
   "api": {
     "getTestLogging": {
       "method": "GET",
@@ -41,6 +41,18 @@
     "getRunWeeklyCalibration": {
       "method": "GET",
       "path": "/runWeeklyCalibration"
+    },
+    "getCheckCronStatus": {
+      "method": "GET",
+      "path": "/getCheckCronStatus"
+    },
+    "getUpdateCronStatus": {
+      "method": "GET",
+      "path": "/getUpdateCronStatus"
+    },
+    "getStartCronJobs": {
+      "method": "GET",
+      "path": "/getStartCronJobs"
     }
   }
 }

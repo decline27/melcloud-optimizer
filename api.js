@@ -464,7 +464,7 @@ class MelCloudApi {
         const requestBody = {
           DeviceID: currentState.DeviceID,
           BuildingID: currentState.BuildingID || buildingId,
-          SetTemperatureZone1: Math.round(parseFloat(temperature)),
+          SetTemperatureZone1: parseFloat(temperature), // Using exact value without rounding
           // Keep the original Zone2 temperature
           SetTemperatureZone2: currentState.SetTemperatureZone2,
           // Keep the original room temperatures
@@ -507,8 +507,9 @@ class MelCloudApi {
         // Create a complete copy of the current state
         const completeRequestBody = JSON.parse(JSON.stringify(currentState));
 
-        // Only modify the Zone1 temperature
-        completeRequestBody.SetTemperatureZone1 = Math.round(parseFloat(temperature));
+        // Only modify the Zone1 temperature - using exact value without rounding
+        // MELCloud API can accept 0.5°C increments
+        completeRequestBody.SetTemperatureZone1 = parseFloat(temperature);
 
         // Ensure these critical fields are set
         completeRequestBody.HasPendingCommand = true;
@@ -559,7 +560,7 @@ class MelCloudApi {
         // For regular devices, set the main temperature
         const requestBody = {
           DeviceID: currentState.DeviceID,
-          SetTemperature: Math.round(parseFloat(temperature)),
+          SetTemperature: parseFloat(temperature), // Using exact value without rounding
           Power: true,
           EffectiveFlags: 1,
           HasPendingCommand: true
@@ -655,6 +656,7 @@ class TibberApi {
    * @returns {Date} - Next price update time
    */
   calculateNextPriceUpdateTime() {
+    // Use the local time directly
     const now = new Date();
     const today13 = new Date(now);
     today13.setHours(13, 0, 0, 0);
@@ -696,18 +698,21 @@ class TibberApi {
                   energy
                   tax
                   startsAt
+                  level
                 }
                 today {
                   total
                   energy
                   tax
                   startsAt
+                  level
                 }
                 tomorrow {
                   total
                   energy
                   tax
                   startsAt
+                  level
                 }
               }
             }
@@ -816,6 +821,7 @@ class TibberApi {
     ].map(price => ({
       time: price.startsAt,
       price: price.total,
+      level: price.level || 'NORMAL', // Default to NORMAL if level is not provided
     }));
 
     // Sort prices by time
@@ -825,7 +831,13 @@ class TibberApi {
     const current = priceInfo.current ? {
       time: priceInfo.current.startsAt,
       price: priceInfo.current.total,
+      level: priceInfo.current.level || 'NORMAL', // Default to NORMAL if level is not provided
     } : null;
+
+    // Log the price level from Tibber
+    if (current && current.level) {
+      console.log(`Current Tibber price level: ${current.level}`);
+    }
 
     // Calculate price statistics
     const priceValues = prices.map(p => p.price);
@@ -1054,13 +1066,26 @@ class TibberApi {
       return { recommendation: 'No price data available for forecasting' };
     }
 
-    // Get current time and price
+    // Get current time and price using local time
     const now = new Date();
+    // Use the current hour from local time to find the current price period
+    const currentHour = now.getHours();
+    const currentMinute = now.getMinutes();
+
+    // Find the price that matches the current hour
     const currentTime = new Date(currentPrice.time);
     const currentPriceValue = currentPrice.price;
 
+    console.log(`Using local time for price forecast: ${now.toString()} (Hour: ${currentHour}:${currentMinute < 10 ? '0' + currentMinute : currentMinute})`);
+    console.log(`Current price time from Tibber: ${currentTime.toString()}`);
+
     // Filter future prices (from current hour onwards)
-    const futurePrices = prices.filter(p => new Date(p.time) >= currentTime);
+    const futurePrices = prices.filter(p => {
+      const priceTime = new Date(p.time);
+      // Compare using local time hours
+      return priceTime.getHours() > currentHour ||
+             (priceTime.getHours() === currentHour && priceTime.getDate() > now.getDate());
+    });
 
     if (futurePrices.length === 0) {
       return { recommendation: 'No future price data available' };
@@ -1070,8 +1095,8 @@ class TibberApi {
     const futurePriceValues = futurePrices.map(p => p.price);
     const futureStats = this.calculatePriceStatistics(futurePriceValues);
 
-    // Determine if current price is high, medium, or low compared to future
-    const pricePosition = this.determinePricePosition(currentPriceValue, futureStats);
+    // Determine if current price is high, medium, or low using Tibber's price level
+    const pricePosition = this.determinePricePosition(currentPriceValue, futureStats, currentPrice.level);
 
     // Find upcoming significant price changes
     const upcomingChanges = this.findUpcomingPriceChanges(futurePrices, currentPriceValue);
@@ -1111,12 +1136,34 @@ class TibberApi {
   }
 
   /**
-   * Determine if current price is high, medium, or low compared to future prices
-   * @param {number} currentPrice - Current price
-   * @param {Object} stats - Price statistics
-   * @returns {string} - Price position ('high', 'medium', or 'low')
+   * Determine if current price is high, medium, or low based on Tibber's price level
+   * @param {number} currentPrice - Current price (not used if level is provided)
+   * @param {Object} stats - Price statistics (not used if level is provided)
+   * @param {string} [level] - Tibber price level (VERY_CHEAP, CHEAP, NORMAL, EXPENSIVE, VERY_EXPENSIVE)
+   * @returns {string} - Price position ('low', 'medium', or 'high')
    */
-  determinePricePosition(currentPrice, stats) {
+  determinePricePosition(currentPrice, stats, level) {
+    // If Tibber price level is provided, use it
+    if (level) {
+      console.log(`Using Tibber price level: ${level} to determine price position`);
+
+      // Map Tibber price levels to our price positions
+      switch (level) {
+        case 'VERY_CHEAP':
+        case 'CHEAP':
+          return 'low';
+        case 'NORMAL':
+          return 'medium';
+        case 'EXPENSIVE':
+        case 'VERY_EXPENSIVE':
+          return 'high';
+        default:
+          console.log(`Unknown Tibber price level: ${level}, falling back to relative calculation`);
+          // Fall back to relative calculation if level is unknown
+      }
+    }
+
+    // Fall back to our original calculation if no level is provided or it's unknown
     const { p25, p75 } = stats;
 
     if (currentPrice <= p25) return 'low';
@@ -1158,7 +1205,9 @@ class TibberApi {
     let message = '';
     if (isSignificant) {
       const direction = maxChange > 0 ? 'increase' : 'decrease';
-      const timeStr = new Date(maxChangeTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      // Use local time formatting
+      const changeTimeDate = new Date(maxChangeTime);
+      const timeStr = changeTimeDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       message = `Significant price ${direction} of ${Math.abs(maxChangePercent).toFixed(1)}% expected at ${timeStr}.`;
     }
 
@@ -1184,11 +1233,14 @@ class TibberApi {
     const sorted = [...prices].sort((a, b) => a.price - b.price);
 
     // Take the top 'count' entries
-    return sorted.slice(0, count).map(p => ({
-      time: p.time,
-      price: p.price,
-      timeFormatted: new Date(p.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    }));
+    return sorted.slice(0, count).map(p => {
+      const priceTime = new Date(p.time);
+      return {
+        time: p.time,
+        price: p.price,
+        timeFormatted: priceTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+    });
   }
 
   /**
@@ -1204,11 +1256,14 @@ class TibberApi {
     const sorted = [...prices].sort((a, b) => b.price - a.price);
 
     // Take the top 'count' entries
-    return sorted.slice(0, count).map(p => ({
-      time: p.time,
-      price: p.price,
-      timeFormatted: new Date(p.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    }));
+    return sorted.slice(0, count).map(p => {
+      const priceTime = new Date(p.time);
+      return {
+        time: p.time,
+        price: p.price,
+        timeFormatted: priceTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+    });
   }
 }
 
@@ -1358,8 +1413,10 @@ class Optimizer {
   setTemperatureConstraints(minTemp, maxTemp, tempStep) {
     this.minTemp = minTemp;
     this.maxTemp = maxTemp;
-    // Use the provided tempStep, but ensure it's at least 1 for MELCloud (which only accepts whole numbers)
-    this.tempStep = Math.max(1, tempStep || 1);
+    // Use the provided tempStep from settings without enforcing a minimum
+    // MELCloud can accept 0.5°C increments
+    this.tempStep = tempStep || 0.5;
+    this.logger.log(`Temperature constraints set: min=${minTemp}°C, max=${maxTemp}°C, step=${this.tempStep}°C`);
   }
 
   async runHourlyOptimization() {
@@ -1491,23 +1548,26 @@ class Optimizer {
         newTarget = currentTarget + (newTarget > currentTarget ? maxChange : -maxChange);
       }
 
-      // Round to nearest whole number (MELCloud only accepts whole numbers for ATW devices)
-      newTarget = Math.round(newTarget);
+      // Round to nearest 0.5°C (MELCloud can accept 0.5°C increments)
+      newTarget = Math.round(newTarget * 2) / 2;
+      this.logger.log(`Rounding temperature to nearest 0.5°C: ${newTarget}°C`);
 
       // Calculate savings and comfort impact
       const savings = this.calculateSavings(currentTarget, newTarget, currentPrice);
       const comfort = this.calculateComfortImpact(currentTarget, newTarget);
 
-      // Determine reason for change
+      // Determine reason for change, including Tibber price level
       let reason = 'No change needed';
+      const priceLevel = priceData.current.level || 'NORMAL';
+
       if (newTarget < currentTarget) {
         reason = weatherAdjustment.adjustment < -0.2 ?
-          `Price is above average and ${weatherAdjustment.reason.toLowerCase()}, reducing temperature` :
-          'Price is above average, reducing temperature';
+          `Tibber price level is ${priceLevel} and ${weatherAdjustment.reason.toLowerCase()}, reducing temperature` :
+          `Tibber price level is ${priceLevel}, reducing temperature`;
       } else if (newTarget > currentTarget) {
         reason = weatherAdjustment.adjustment > 0.2 ?
-          `Price is below average and ${weatherAdjustment.reason.toLowerCase()}, increasing temperature` :
-          'Price is below average, increasing temperature';
+          `Tibber price level is ${priceLevel} and ${weatherAdjustment.reason.toLowerCase()}, increasing temperature` :
+          `Tibber price level is ${priceLevel}, increasing temperature`;
       }
 
       // Set new temperature if different
@@ -1734,37 +1794,23 @@ class Optimizer {
    * @returns {Object} - Object with date, hour, and formatted time string
    */
   getLocalTime() {
-    // Get the current UTC time
+    // IMPORTANT: Use the local system time directly instead of UTC conversion
+    // This ensures we use the correct time regardless of system time zone settings
     const now = new Date();
 
-    // Get time zone settings
-    const timeZoneOffset = this.logger.homey?.settings?.get('time_zone_offset') || 2; // Default to UTC+2
+    // Get the local hour directly from the system
+    const localHour = now.getHours();
+    const localTimeString = now.toString();
+
+    // Get time zone settings for logging purposes only
+    const timeZoneOffset = this.logger.homey?.settings?.get('time_zone_offset') || 1; // Default to UTC+1
     const useDst = this.logger.homey?.settings?.get('use_dst') !== false; // Default to true
-
-    // Calculate the total offset in minutes
-    let totalOffsetMinutes = timeZoneOffset * 60;
-
-    // Add DST adjustment if enabled and currently in effect
-    if (useDst) {
-      // Simple DST detection (Northern Hemisphere): DST is typically in effect from March to October
-      const month = now.getUTCMonth(); // 0-11 (Jan-Dec)
-      if (month >= 2 && month <= 9) { // March to October
-        totalOffsetMinutes += 60; // Add 1 hour (60 minutes) for DST
-      }
-    }
-
-    // Create a new date with the adjusted time
-    const localTime = new Date(now.getTime() + totalOffsetMinutes * 60 * 1000);
-
-    // Extract hour and create formatted time string
-    const localHour = localTime.getUTCHours();
-    const localTimeString = localTime.toUTCString().replace('GMT', 'Local Time');
 
     this.logger.log(`Time zone: UTC${timeZoneOffset >= 0 ? '+' : ''}${timeZoneOffset}${useDst ? ' with DST' : ''}`);
     this.logger.log(`System time: ${now.toISOString()}, Local time: ${localTimeString}`);
 
     return {
-      date: localTime,
+      date: now,
       hour: localHour,
       timeString: localTimeString
     };
@@ -1886,15 +1932,19 @@ class Optimizer {
         }
       }
 
-      // Consider price position in forecast
-      if (priceForecast.currentPosition === 'low' && currentPrice < avgPrice * 0.8) {
-        // If current price is very low, heat a bit more
-        targetTemp += 0.5;
-        this.logger.log('Applied +0.5°C adjustment due to very low current price');
-      } else if (priceForecast.currentPosition === 'high' && currentPrice > avgPrice * 1.2) {
-        // If current price is very high, reduce temperature a bit more
+      // Consider price position in forecast based on Tibber's price level
+      if (priceForecast.currentPosition === 'low') {
+        // If Tibber says price is CHEAP or VERY_CHEAP, heat more
+        targetTemp += 1.0;
+        this.logger.log('Applied +1.0°C adjustment due to CHEAP or VERY_CHEAP price level from Tibber');
+      } else if (priceForecast.currentPosition === 'high') {
+        // If Tibber says price is EXPENSIVE or VERY_EXPENSIVE, reduce temperature more
+        targetTemp -= 2.0;
+        this.logger.log('Applied -2.0°C adjustment due to EXPENSIVE or VERY_EXPENSIVE price level from Tibber');
+      } else {
+        // If price is NORMAL, make a smaller adjustment
         targetTemp -= 0.5;
-        this.logger.log('Applied -0.5°C adjustment due to very high current price');
+        this.logger.log('Applied -0.5°C adjustment due to NORMAL price level from Tibber');
       }
 
       // Check if we're approaching wake-up time
@@ -2353,9 +2403,9 @@ async function updateOptimizerSettings(homey) {
 
   // Log the current settings
   homey.app.log('Optimizer settings:');
-  homey.app.log('- Min Temp:', minTemp);
-  homey.app.log('- Max Temp:', maxTemp);
-  homey.app.log('- Temp Step:', tempStep);
+  homey.app.log('- Min Temp:', minTemp, '°C');
+  homey.app.log('- Max Temp:', maxTemp, '°C');
+  homey.app.log('- Temp Step:', tempStep, '°C (MELCloud supports 0.5°C increments)');
   homey.app.log('- K Factor:', kFactor);
 
   // Update the optimizer with the latest settings
@@ -2522,8 +2572,8 @@ module.exports = {
             homey.app.log('Timeline entry created using notifications API');
           }
           // Finally try the flow API as a last resort
-          else if (typeof homey.flow === 'object' && typeof homey.flow.runFlowCardAction === 'function') {
-            await homey.flow.runFlowCardAction({
+          else if (homey.app && homey.app.flow && typeof homey.app.flow.runFlowCardAction === 'function') {
+            await homey.app.flow.runFlowCardAction({
               uri: 'homey:manager:timeline',
               id: 'createEntry',
               args: {
@@ -2673,8 +2723,8 @@ module.exports = {
             }
           }
           // Finally try the flow API as a last resort
-          else if (typeof homey.flow === 'object' && typeof homey.flow.runFlowCardAction === 'function') {
-            await homey.flow.runFlowCardAction({
+          else if (homey.app && homey.app.flow && typeof homey.app.flow.runFlowCardAction === 'function') {
+            await homey.app.flow.runFlowCardAction({
               uri: 'homey:manager:timeline',
               id: 'createEntry',
               args: {
@@ -2692,7 +2742,7 @@ module.exports = {
                 ? result.analysis.substring(0, maxLength) + '...'
                 : result.analysis;
 
-              await homey.flow.runFlowCardAction({
+              await homey.app.flow.runFlowCardAction({
                 uri: 'homey:manager:timeline',
                 id: 'createEntry',
                 args: {
@@ -2740,6 +2790,338 @@ module.exports = {
       }
     } catch (err) {
       console.error('Error in getRunWeeklyCalibration:', err);
+      return { success: false, error: err.message };
+    }
+  },
+
+  async getStartCronJobs({ homey }) {
+    try {
+      console.log('API method getStartCronJobs called');
+      homey.app.log('API method getStartCronJobs called');
+
+      // Try to initialize the cron jobs directly in the API
+      try {
+        homey.app.log('Initializing cron jobs directly in the API');
+
+        // Import the cron library
+        const { CronJob } = require('cron');
+
+        // Create hourly job - runs at minute 5 of every hour
+        homey.app.log('Creating hourly cron job with pattern: 0 5 * * * *');
+        const hourlyJob = new CronJob('0 5 * * * *', async () => {
+          // Log the trigger
+          const currentTime = new Date().toISOString();
+          homey.app.log('===== AUTOMATIC HOURLY CRON JOB TRIGGERED =====');
+          homey.app.log(`Current time: ${currentTime}`);
+
+          // Store the last run time in settings
+          homey.settings.set('last_hourly_run', currentTime);
+
+          // Add a timeline entry for the automatic trigger
+          try {
+            homey.app.log('Creating timeline entry for hourly job');
+            await homey.flow.runFlowCardAction({
+              uri: 'homey:flowcardaction:homey:manager:timeline:log',
+              args: { text: '🕒 Automatic hourly optimization triggered' }
+            });
+            homey.app.log('Timeline entry created successfully');
+          } catch (err) {
+            homey.app.error('Failed to create timeline entry for automatic trigger', err);
+
+            // Try an alternative method if the first one fails
+            try {
+              homey.app.log('Trying alternative method for timeline entry');
+              await homey.notifications.createNotification({ excerpt: '🕒 Automatic hourly optimization triggered' });
+              homey.app.log('Notification created successfully');
+            } catch (notifyErr) {
+              homey.app.error('Failed to create notification', notifyErr);
+            }
+          }
+
+          // Call the hourly optimizer
+          try {
+            await this.getRunHourlyOptimizer({ homey });
+          } catch (err) {
+            homey.app.error('Error in hourly cron job', err);
+          }
+        });
+
+        // Create weekly job - runs at 2:05 AM on Sundays
+        homey.app.log('Creating weekly cron job with pattern: 0 5 2 * * 0');
+        const weeklyJob = new CronJob('0 5 2 * * 0', async () => {
+          // Log the trigger
+          const currentTime = new Date().toISOString();
+          homey.app.log('===== AUTOMATIC WEEKLY CRON JOB TRIGGERED =====');
+          homey.app.log(`Current time: ${currentTime}`);
+
+          // Store the last run time in settings
+          homey.settings.set('last_weekly_run', currentTime);
+
+          // Add a timeline entry for the automatic trigger
+          try {
+            homey.app.log('Creating timeline entry for weekly job');
+            await homey.flow.runFlowCardAction({
+              uri: 'homey:flowcardaction:homey:manager:timeline:log',
+              args: { text: '📊 Automatic weekly calibration triggered' }
+            });
+            homey.app.log('Timeline entry created successfully');
+          } catch (err) {
+            homey.app.error('Failed to create timeline entry for automatic trigger', err);
+
+            // Try an alternative method if the first one fails
+            try {
+              homey.app.log('Trying alternative method for timeline entry');
+              await homey.notifications.createNotification({ excerpt: '📊 Automatic weekly calibration triggered' });
+              homey.app.log('Notification created successfully');
+            } catch (notifyErr) {
+              homey.app.error('Failed to create notification', notifyErr);
+            }
+          }
+
+          // Call the weekly calibration
+          try {
+            await this.getRunWeeklyCalibration({ homey });
+          } catch (err) {
+            homey.app.error('Error in weekly cron job', err);
+          }
+        });
+
+        // Start the cron jobs
+        homey.app.log('Starting hourly cron job...');
+        hourlyJob.start();
+        homey.app.log('Hourly cron job started');
+
+        homey.app.log('Starting weekly cron job...');
+        weeklyJob.start();
+        homey.app.log('Weekly cron job started');
+
+        // Store the jobs in settings for future reference
+        homey.settings.set('cron_status', {
+          hourlyJob: {
+            running: hourlyJob.running,
+            nextRun: hourlyJob.nextDate().toString(),
+            cronTime: hourlyJob.cronTime.source
+          },
+          weeklyJob: {
+            running: weeklyJob.running,
+            nextRun: weeklyJob.nextDate().toString(),
+            cronTime: weeklyJob.cronTime.source
+          },
+          lastHourlyRun: homey.settings.get('last_hourly_run') || 'Never',
+          lastWeeklyRun: homey.settings.get('last_weekly_run') || 'Never',
+          lastUpdated: new Date().toISOString()
+        });
+
+        // Store the jobs in global variables for future access
+        global.hourlyJob = hourlyJob;
+        global.weeklyJob = weeklyJob;
+
+        // Add a timeline entry for the cron job initialization
+        try {
+          homey.app.log('Creating timeline entry for cron job initialization');
+          await homey.flow.runFlowCardAction({
+            uri: 'homey:flowcardaction:homey:manager:timeline:log',
+            args: { text: '🕓 Scheduled jobs initialized' }
+          });
+          homey.app.log('Timeline entry created successfully');
+        } catch (err) {
+          homey.app.error('Failed to create timeline entry for cron job initialization', err);
+
+          // Try an alternative method if the first one fails
+          try {
+            homey.app.log('Trying alternative method for timeline entry');
+            await homey.notifications.createNotification({ excerpt: '🕓 Scheduled jobs initialized' });
+            homey.app.log('Notification created successfully');
+          } catch (notifyErr) {
+            homey.app.error('Failed to create notification', notifyErr);
+          }
+        }
+
+        // Update the cron status in settings
+        await this.getUpdateCronStatus({ homey });
+
+        return {
+          success: true,
+          message: 'Cron jobs initialized directly in the API',
+          hourlyJobRunning: hourlyJob.running,
+          weeklyJobRunning: weeklyJob.running
+        };
+      } catch (err) {
+        homey.app.error('Error initializing cron jobs directly in the API:', err);
+        return {
+          success: false,
+          error: err.message || 'Unknown error'
+        };
+      }
+    } catch (err) {
+      console.error('Error in getStartCronJobs:', err);
+      return { success: false, error: err.message };
+    }
+  },
+
+  async getUpdateCronStatus({ homey }) {
+    try {
+      console.log('API method getUpdateCronStatus called');
+      homey.app.log('API method getUpdateCronStatus called');
+
+      // Manually update the cron status in settings
+      try {
+        // Get the hourly and weekly jobs from the app instance if possible
+        let hourlyJob = null;
+        let weeklyJob = null;
+
+        try {
+          // First try to access the global cron jobs
+          if (global.hourlyJob && global.weeklyJob) {
+            hourlyJob = global.hourlyJob;
+            weeklyJob = global.weeklyJob;
+            homey.app.log('Successfully accessed cron jobs from global variables');
+          }
+          // If not found in global, try to access from app instance
+          else if (homey.app && typeof homey.app === 'object') {
+            hourlyJob = homey.app.hourlyJob;
+            weeklyJob = homey.app.weeklyJob;
+
+            if (hourlyJob && weeklyJob) {
+              homey.app.log('Successfully accessed cron jobs from app instance');
+            } else {
+              homey.app.log('Cron jobs not found in app instance');
+              homey.app.log('hourlyJob:', hourlyJob ? 'found' : 'not found');
+              homey.app.log('weeklyJob:', weeklyJob ? 'found' : 'not found');
+            }
+          } else {
+            homey.app.log('homey.app is not accessible or not an object');
+          }
+        } catch (err) {
+          homey.app.log('Could not access cron jobs from app instance:', err.message);
+        }
+
+        // Create a status object with the available information
+        const status = {
+          hourlyJob: hourlyJob ? {
+            running: hourlyJob.running,
+            nextRun: hourlyJob.nextDate().toString(),
+            cronTime: hourlyJob.cronTime.source
+          } : { running: false, error: 'Could not access hourly job' },
+
+          weeklyJob: weeklyJob ? {
+            running: weeklyJob.running,
+            nextRun: weeklyJob.nextDate().toString(),
+            cronTime: weeklyJob.cronTime.source
+          } : { running: false, error: 'Could not access weekly job' },
+
+          lastHourlyRun: homey.settings.get('last_hourly_run') || 'Never',
+          lastWeeklyRun: homey.settings.get('last_weekly_run') || 'Never',
+          lastUpdated: new Date().toISOString()
+        };
+
+        // Save the status to settings
+        homey.settings.set('cron_status', status);
+        homey.app.log('Manually updated cron status in settings');
+
+        return {
+          success: true,
+          message: 'Cron status updated successfully',
+          cronStatus: status
+        };
+      } catch (err) {
+        homey.app.error('Error updating cron status:', err);
+        return {
+          success: false,
+          error: err.message || 'Unknown error'
+        };
+      }
+    } catch (err) {
+      console.error('Error in getUpdateCronStatus:', err);
+      return { success: false, error: err.message };
+    }
+  },
+
+  async getCheckCronStatus({ homey }) {
+    try {
+      console.log('API method getCheckCronStatus called');
+      homey.app.log('API method getCheckCronStatus called');
+
+      // Check if the global cron jobs exist
+      if (!global.hourlyJob || !global.weeklyJob) {
+        homey.app.log('Global cron jobs not found, attempting to start them');
+
+        // Try to start the cron jobs
+        try {
+          const startResult = await this.getStartCronJobs({ homey });
+          if (startResult.success) {
+            homey.app.log('Successfully started cron jobs via API');
+          } else {
+            homey.app.log('Failed to start cron jobs via API:', startResult.error);
+          }
+        } catch (err) {
+          homey.app.error('Error calling getStartCronJobs:', err);
+        }
+      }
+
+      // Try to get the latest cron status by calling the update endpoint
+      try {
+        // Call the update endpoint to get the latest status
+        const updateResult = await this.getUpdateCronStatus({ homey });
+        if (updateResult.success) {
+          homey.app.log('Successfully updated cron status via API');
+        } else {
+          homey.app.log('Failed to update cron status via API:', updateResult.error);
+        }
+      } catch (err) {
+        homey.app.error('Error calling getUpdateCronStatus:', err);
+      }
+
+      // Get information about the cron jobs from settings
+      const cronStatus = homey.settings.get('cron_status') || {
+        hourlyJob: { running: false, error: 'Cron status not available in settings' },
+        weeklyJob: { running: false, error: 'Cron status not available in settings' },
+        lastHourlyRun: homey.settings.get('last_hourly_run') || 'Never',
+        lastWeeklyRun: homey.settings.get('last_weekly_run') || 'Never',
+        lastUpdated: new Date().toISOString()
+      };
+
+      // Add last run times if not present in cronStatus
+      if (!cronStatus.lastHourlyRun) {
+        cronStatus.lastHourlyRun = homey.settings.get('last_hourly_run') || 'Never';
+      }
+
+      if (!cronStatus.lastWeeklyRun) {
+        cronStatus.lastWeeklyRun = homey.settings.get('last_weekly_run') || 'Never';
+      }
+
+      // Get the current time for reference
+      const currentTime = new Date().toISOString();
+
+      // Log the cron status for debugging
+      homey.app.log('Cron status:', JSON.stringify(cronStatus, null, 2));
+
+      // Create a timeline entry to show the cron status
+      try {
+        // Use homey.app.flow instead of homey.flow
+        if (homey.app && homey.app.flow && typeof homey.app.flow.runFlowCardAction === 'function') {
+          await homey.app.flow.runFlowCardAction({
+            uri: 'homey:flowcardaction:homey:manager:timeline:log',
+            args: { text: '⏱️ Cron job status checked' }
+          });
+          homey.app.log('Timeline entry created for cron status check');
+        } else {
+          homey.app.log('Timeline API not available, using log only');
+        }
+      } catch (err) {
+        homey.app.error('Failed to create timeline entry for cron status check', err);
+      }
+
+      return {
+        success: true,
+        currentTime,
+        hourlyJob: cronStatus.hourlyJob,
+        weeklyJob: cronStatus.weeklyJob,
+        lastHourlyRun: cronStatus.lastHourlyRun,
+        lastWeeklyRun: cronStatus.lastWeeklyRun
+      };
+    } catch (err) {
+      console.error('Error in getCheckCronStatus:', err);
       return { success: false, error: err.message };
     }
   }
