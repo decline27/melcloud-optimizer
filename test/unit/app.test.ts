@@ -1,6 +1,4 @@
 import HeatOptimizerApp from '../../src/app';
-import { App } from 'homey';
-import { Logger } from '../../src/util/logger';
 
 // Mock fetch globally
 global.fetch = jest.fn();
