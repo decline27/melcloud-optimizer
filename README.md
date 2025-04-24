@@ -11,6 +11,7 @@ This app connects your Mitsubishi Electric heat pump (via MELCloud) with Homey a
 - **Notifications**: Keeps you informed about temperature changes and price levels
 - **Manual Triggers**: Buttons in the settings page to manually trigger hourly optimization and weekly calibration for testing
 - **Console Logging**: Detailed logs in the terminal for debugging and monitoring
+- **API Integration**: Exposes API endpoints for integration with other apps and services
 
 ## Requirements
 
@@ -70,7 +71,9 @@ The app runs on two schedules:
 
 ## Manual Triggers
 
-The app provides buttons in the settings page to manually trigger operations for testing:
+The app provides multiple ways to manually trigger operations for testing:
+
+### Settings Page Buttons
 
 1. **Run Hourly Optimization**: Manually triggers the hourly optimization process
    - Use this to test temperature adjustments without waiting for the scheduled time
@@ -81,6 +84,51 @@ The app provides buttons in the settings page to manually trigger operations for
    - Use this to test the thermal model calibration without waiting for Monday
    - Click the button in the "Manual Triggers" section of the settings page
    - The operation will run in the background and show a success message when complete
+
+### API Endpoints
+
+You can also trigger operations programmatically using the app's API endpoints:
+
+1. **Hourly Optimization API**: `GET /api/runHourlyOptimizer`
+   - Returns detailed JSON data about the optimization result
+   - Example response:
+   ```json
+   {
+     "success": true,
+     "message": "Hourly optimization completed",
+     "data": {
+       "targetTemp": 20.5,
+       "reason": "Price is high",
+       "priceNow": 1.2,
+       "priceAvg": 1.0,
+       "indoorTemp": 21.5,
+       "outdoorTemp": 10,
+       "targetOriginal": 21.0,
+       "savings": 0.1,
+       "comfort": 0.9,
+       "timestamp": "2023-05-01T12:00:00.000Z",
+       "kFactor": 0.3
+     }
+   }
+   ```
+
+2. **Weekly Calibration API**: `GET /api/runWeeklyCalibration`
+   - Returns detailed JSON data about the calibration result
+   - Example response:
+   ```json
+   {
+     "success": true,
+     "message": "Weekly calibration completed",
+     "data": {
+       "model": {
+         "K": 0.35,
+         "S": 0.12
+       },
+       "dataPoints": 168,
+       "avgError": 0.2
+     }
+   }
+   ```
 
 ## Logging and Timeline
 
@@ -142,6 +190,18 @@ If you encounter any issues or have questions, please create an issue on the [Gi
 This app stores your MELCloud, Tibber, and OpenAI credentials locally on your Homey. No data is shared with third parties except when making API calls to the respective services.
 
 ## Recent Updates
+
+### API Integration
+
+The app now exposes API endpoints that can be used by other Homey apps or flows:
+
+- **GET /api/runHourlyOptimizer**: Manually triggers the hourly optimization process
+  - Returns detailed information about the optimization result
+  - Can be used in Homey flows or by other apps
+
+- **GET /api/runWeeklyCalibration**: Manually triggers the weekly calibration process
+  - Returns detailed information about the calibration result
+  - Can be used in Homey flows or by other apps
 
 ### MELCloud API Integration Improvements
 
