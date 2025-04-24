@@ -91,7 +91,7 @@ describe('HeatOptimizerApp', () => {
       (app as any).runWeeklyCalibration = jest.fn().mockResolvedValue(undefined);
 
       // Mock the setInterval method to actually call the callback
-      (app as any).homey.setInterval.mockImplementation((callback, interval) => {
+      (app as any).homey.setInterval.mockImplementation((callback: Function, interval: number) => {
         // Store the callback for later use
         if (interval === 60000) {
           (app as any)._hourlyCallback = callback;
