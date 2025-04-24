@@ -84,10 +84,24 @@ describe('HeatOptimizerApp', () => {
       // Mock the validateSettings method
       (app as any).validateSettings = jest.fn().mockResolvedValue(true);
 
-      await app.onInit();
+      // Mock the runHourlyOptimizer method
+      (app as any).runHourlyOptimizer = jest.fn().mockResolvedValue(undefined);
 
-      // Check if intervals are set up
-      expect((app as any).homey.setInterval).toHaveBeenCalledTimes(2);
+      // Mock the runWeeklyCalibration method
+      (app as any).runWeeklyCalibration = jest.fn().mockResolvedValue(undefined);
+
+      // Mock the setInterval method to actually call the callback
+      (app as any).homey.setInterval.mockImplementation((callback, interval) => {
+        // Store the callback for later use
+        if (interval === 60000) {
+          (app as any)._hourlyCallback = callback;
+        } else if (interval === 3600000) {
+          (app as any)._weeklyCallback = callback;
+        }
+        return 123; // Return a mock interval ID
+      });
+
+      await app.onInit();
 
       // Check if settings change listener is registered
       expect(mockSettings.on).toHaveBeenCalledWith('set', expect.any(Function));
@@ -97,6 +111,9 @@ describe('HeatOptimizerApp', () => {
 
       // Check if validateSettings was called
       expect((app as any).validateSettings).toHaveBeenCalled();
+
+      // Check if intervals are set up
+      expect((app as any).homey.setInterval).toHaveBeenCalledTimes(2);
     });
 
     it('should trigger hourly optimizer at the top of the hour', async () => {
@@ -125,13 +142,21 @@ describe('HeatOptimizerApp', () => {
       // Mock runHourlyOptimizer
       (app as any).runHourlyOptimizer = jest.fn();
 
+      // Mock the setInterval method to store the callback
+      (app as any).homey.setInterval.mockImplementation((callback: Function, interval: number) => {
+        // Store the callback for later use
+        if (interval === 60000) {
+          (app as any)._hourlyCallback = callback;
+        } else if (interval === 3600000) {
+          (app as any)._weeklyCallback = callback;
+        }
+        return 123; // Return a mock interval ID
+      });
+
       await app.onInit();
 
-      // Get the interval callback
-      const intervalCallback = (app as any).homey.setInterval.mock.calls[0][0];
-
-      // Call the interval callback
-      intervalCallback();
+      // Call the stored hourly callback
+      (app as any)._hourlyCallback();
 
       // Check if runHourlyOptimizer was called
       expect((app as any).runHourlyOptimizer).toHaveBeenCalled();
@@ -171,13 +196,21 @@ describe('HeatOptimizerApp', () => {
       // Mock runWeeklyCalibration
       (app as any).runWeeklyCalibration = jest.fn();
 
+      // Mock the setInterval method to store the callback
+      (app as any).homey.setInterval.mockImplementation((callback: Function, interval: number) => {
+        // Store the callback for later use
+        if (interval === 60000) {
+          (app as any)._hourlyCallback = callback;
+        } else if (interval === 3600000) {
+          (app as any)._weeklyCallback = callback;
+        }
+        return 123; // Return a mock interval ID
+      });
+
       await app.onInit();
 
-      // Get the interval callback
-      const intervalCallback = (app as any).homey.setInterval.mock.calls[1][0];
-
-      // Call the interval callback
-      intervalCallback();
+      // Call the stored weekly callback
+      (app as any)._weeklyCallback();
 
       // Check if runWeeklyCalibration was called
       expect((app as any).runWeeklyCalibration).toHaveBeenCalled();
@@ -196,6 +229,31 @@ describe('HeatOptimizerApp', () => {
         if (key === 'log_level') return 1; // INFO level
         return undefined;
       });
+
+      // Mock the initializeServices method
+      (app as any).initializeServices = jest.fn().mockResolvedValue(undefined);
+
+      // Mock the setInterval method to store the callback
+      (app as any).homey.setInterval.mockImplementation((callback: Function, interval: number) => {
+        // Store the callback for later use
+        if (interval === 60000) {
+          (app as any)._hourlyCallback = callback;
+        } else if (interval === 3600000) {
+          (app as any)._weeklyCallback = callback;
+        }
+        return 123; // Return a mock interval ID
+      });
+
+      // Create a logger instance
+      (app as any).logger = {
+        debug: jest.fn(),
+        info: jest.fn(),
+        warn: jest.fn(),
+        error: jest.fn(),
+        notify: jest.fn().mockResolvedValue(undefined),
+        setLogLevel: jest.fn()
+      };
+
       await app.onInit();
     });
 
@@ -208,13 +266,19 @@ describe('HeatOptimizerApp', () => {
         return 'some-value';
       });
 
-      // Call validateSettings
-      await (app as any).validateSettings();
+      // Reset the notification mock
+      mockNotifications.createNotification.mockClear();
+
+      // Call validateSettings directly
+      const result = await (app as any).validateSettings();
 
       // Check if notification was created
       expect(mockNotifications.createNotification).toHaveBeenCalledWith({
         excerpt: expect.stringContaining('Please configure the required settings'),
       });
+
+      // Check if the function returned false
+      expect(result).toBe(false);
     });
 
     it('should not notify if all required settings are present', async () => {
