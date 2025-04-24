@@ -46,6 +46,12 @@ The buttons in the settings page don't directly call functions in the app. Inste
 - Triggers the `runWeeklyCalibration()` function in the app
 - Calibrates the thermal model of your home
 
+### Refresh Device List Button
+- Calls the `getDeviceList` API endpoint directly
+- Retrieves available devices and buildings from MELCloud
+- Populates the device and building dropdowns in the settings page
+- Automatically selects the saved device and building IDs if they exist
+
 ## Troubleshooting
 
 If the buttons don't seem to be triggering functionality:
@@ -77,7 +83,7 @@ testLogElement.addEventListener("click", function (e) {
       console.error('Error triggering test logging:', err);
       return Homey.alert(err.message);
     }
-    
+
     console.log('Test logging trigger set successfully');
   });
 });
@@ -91,11 +97,11 @@ this.homey.settings.on('set', this.onSettingsChanged.bind(this));
 // Handle settings changes
 private async onSettingsChanged(key: string) {
   this.log(`Setting changed: ${key}`);
-  
+
   // Handle test logging trigger
   if (key === 'test_logging') {
     const trigger = this.homey.settings.get('test_logging') as boolean;
-    
+
     if (trigger === true) {
       try {
         // Run the test logging

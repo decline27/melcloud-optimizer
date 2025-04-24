@@ -40,6 +40,12 @@ The app now exposes API endpoints that can be called directly from the settings 
 - **Description**: Runs the weekly calibration function
 - **Response**: `{ success: true, message: 'Weekly calibration completed' }`
 
+### Get Device List
+- **Endpoint**: `/getDeviceList`
+- **Method**: GET
+- **Description**: Retrieves a list of available devices and buildings from MELCloud
+- **Response**: `{ success: true, devices: [...], buildings: [...] }`
+
 ## Example Code
 
 ### Settings Page (index.html):

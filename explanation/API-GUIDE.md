@@ -45,6 +45,13 @@ In Homey SDK 3.0, API endpoints are exposed by:
 - **Description**: Runs the weekly calibration function
 - **Response**: `{ success: true, message: 'Weekly calibration completed' }`
 
+### Get Device List
+- **Endpoint**: `/getDeviceList`
+- **Method**: GET
+- **API Method**: `getDeviceList`
+- **Description**: Retrieves a list of available devices and buildings from MELCloud
+- **Response**: `{ success: true, devices: [...], buildings: [...] }`
+
 ## Example Code
 
 ### Settings Page (index.html):
