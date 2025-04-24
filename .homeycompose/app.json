@@ -1,6 +1,6 @@
 {
   "id": "com.melcloud.optimize",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "compatibility": ">=5.0.0",
   "sdk": 3,
   "platforms": [
@@ -63,5 +63,4 @@
       "path": "/getDeviceList"
     }
   }
-
 }
