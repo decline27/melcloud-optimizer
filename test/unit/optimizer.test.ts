@@ -1,6 +1,14 @@
 import HeatOptimizerApp from '../../src/app';
 import { Logger } from '../../src/util/logger';
 
+// Declare global API type
+declare global {
+  var api: {
+    getRunHourlyOptimizer: jest.Mock;
+    getRunWeeklyCalibration: jest.Mock;
+  };
+}
+
 // Mock fetch globally
 global.fetch = jest.fn();
 
