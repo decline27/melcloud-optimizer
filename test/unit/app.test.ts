@@ -47,7 +47,17 @@ describe('HeatOptimizerApp', () => {
       notifications: mockNotifications,
       flow: mockFlow,
       setInterval: jest.fn(),
+      version: '1.0.0',
+      platform: 'test'
     };
+
+    // Mock app.manifest
+    (app as any).manifest = {
+      version: '1.0.0'
+    };
+
+    // Mock app.id
+    (app as any).id = 'com.melcloud.optimize';
 
     // Mock app.log and app.error
     (app as any).log = jest.fn();
@@ -180,6 +190,96 @@ describe('HeatOptimizerApp', () => {
       // Check that no notification was created
       expect(mockNotifications.createNotification).not.toHaveBeenCalled();
     });
+
+    it('should validate temperature settings correctly', async () => {
+      // Mock settings.get to return invalid temperature settings
+      mockSettings.get.mockImplementation((key: string) => {
+        if (key === 'min_temp') return 22;
+        if (key === 'max_temp') return 20;
+        return 'some-value';
+      });
+
+      // Reset the error mock
+      (app as any).error.mockClear();
+
+      // Call validateSettings
+      const result = await (app as any).validateSettings();
+
+      // Check if error was logged and function returned false
+      expect((app as any).error).toHaveBeenCalledWith(
+        expect.stringContaining('Min temperature must be less than max temperature')
+      );
+      expect(result).toBe(false);
+    });
+
+    it('should validate Zone2 settings correctly when enabled', async () => {
+      // Mock settings.get to return invalid Zone2 settings
+      mockSettings.get.mockImplementation((key: string) => {
+        if (key === 'enable_zone2') return true;
+        if (key === 'min_temp_zone2') return 23;
+        if (key === 'max_temp_zone2') return 21;
+        return 'some-value';
+      });
+
+      // Reset the error mock
+      (app as any).error.mockClear();
+
+      // Call validateSettings
+      const result = await (app as any).validateSettings();
+
+      // Check if error was logged and function returned false
+      expect((app as any).error).toHaveBeenCalledWith(
+        expect.stringContaining('Min Zone2 temperature must be less than max Zone2 temperature')
+      );
+      expect(result).toBe(false);
+    });
+
+    it('should validate tank temperature settings correctly when enabled', async () => {
+      // Mock settings.get to return invalid tank settings
+      mockSettings.get.mockImplementation((key: string) => {
+        if (key === 'enable_tank_control') return true;
+        if (key === 'min_tank_temp') return 55;
+        if (key === 'max_tank_temp') return 50;
+        return 'some-value';
+      });
+
+      // Reset the error mock
+      (app as any).error.mockClear();
+
+      // Call validateSettings
+      const result = await (app as any).validateSettings();
+
+      // Check if error was logged and function returned false
+      expect((app as any).error).toHaveBeenCalledWith(
+        expect.stringContaining('Min tank temperature must be less than max tank temperature')
+      );
+      expect(result).toBe(false);
+    });
+
+    it('should validate all settings correctly when valid', async () => {
+      // Mock settings.get to return valid settings
+      mockSettings.get.mockImplementation((key: string) => {
+        if (key === 'min_temp') return 18;
+        if (key === 'max_temp') return 22;
+        if (key === 'enable_zone2') return true;
+        if (key === 'min_temp_zone2') return 19;
+        if (key === 'max_temp_zone2') return 23;
+        if (key === 'enable_tank_control') return true;
+        if (key === 'min_tank_temp') return 40;
+        if (key === 'max_tank_temp') return 50;
+        return 'some-value';
+      });
+
+      // Reset the error mock
+      (app as any).error.mockClear();
+
+      // Call validateSettings
+      const result = await (app as any).validateSettings();
+
+      // Check if function returned true and no errors were logged
+      expect(result).toBe(true);
+      expect((app as any).error).not.toHaveBeenCalled();
+    });
   });
 
   describe('onSettingsChanged', () => {
@@ -220,9 +320,56 @@ describe('HeatOptimizerApp', () => {
       expect((app as any).validateSettings).toHaveBeenCalled();
     });
 
-    it('should not validate settings when non-credential settings change', () => {
-      // Call onSettingsChanged with a non-credential setting
+    it('should validate settings when temperature settings change', () => {
+      // Reset the validateSettings spy
+      (app as any).validateSettings.mockClear();
+
+      // Call onSettingsChanged with a temperature setting
       (app as any).onSettingsChanged('min_temp');
+
+      // Check if validateSettings was called
+      expect((app as any).validateSettings).toHaveBeenCalled();
+    });
+
+    it('should validate settings when Zone2 settings change', () => {
+      // Reset the validateSettings spy
+      (app as any).validateSettings.mockClear();
+
+      // Call onSettingsChanged with a Zone2 setting
+      (app as any).onSettingsChanged('min_temp_zone2');
+
+      // Check if validateSettings was called
+      expect((app as any).validateSettings).toHaveBeenCalled();
+    });
+
+    it('should validate settings when Zone2 is enabled or disabled', () => {
+      // Reset the validateSettings spy
+      (app as any).validateSettings.mockClear();
+
+      // Call onSettingsChanged with enable_zone2
+      (app as any).onSettingsChanged('enable_zone2');
+
+      // Check if validateSettings was called
+      expect((app as any).validateSettings).toHaveBeenCalled();
+    });
+
+    it('should validate settings when tank settings change', () => {
+      // Reset the validateSettings spy
+      (app as any).validateSettings.mockClear();
+
+      // Call onSettingsChanged with a tank setting
+      (app as any).onSettingsChanged('min_tank_temp');
+
+      // Check if validateSettings was called
+      expect((app as any).validateSettings).toHaveBeenCalled();
+    });
+
+    it('should not validate settings when other non-critical settings change', () => {
+      // Reset the validateSettings spy
+      (app as any).validateSettings.mockClear();
+
+      // Call onSettingsChanged with a non-critical setting
+      (app as any).onSettingsChanged('some_other_setting');
 
       // Check that validateSettings was not called
       expect((app as any).validateSettings).not.toHaveBeenCalled();

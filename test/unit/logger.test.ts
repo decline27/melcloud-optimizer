@@ -73,6 +73,9 @@ describe('Logger', () => {
     });
 
     it('should not log info messages when level is higher than INFO', () => {
+      // Clear previous calls
+      mockApp.log.mockClear();
+
       logger.setLogLevel(LogLevel.WARN);
       logger.info('Test info message');
       expect(mockApp.log).not.toHaveBeenCalled();
@@ -114,6 +117,9 @@ describe('Logger', () => {
     });
 
     it('should not log warning messages when level is higher than WARN', () => {
+      // Clear previous calls
+      mockApp.log.mockClear();
+
       logger.setLogLevel(LogLevel.ERROR);
       logger.warn('Test warning message');
       expect(mockApp.log).not.toHaveBeenCalled();
