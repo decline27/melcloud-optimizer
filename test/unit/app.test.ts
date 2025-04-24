@@ -81,9 +81,8 @@ describe('HeatOptimizerApp', () => {
       // Mock the initializeServices method
       (app as any).initializeServices = jest.fn().mockResolvedValue(undefined);
 
-      // Create a spy for the validateSettings method
-      const validateSettingsSpy = jest.spyOn(app as any, 'validateSettings')
-        .mockImplementation(() => Promise.resolve(true));
+      // Mock the validateSettings method
+      (app as any).validateSettings = jest.fn().mockResolvedValue(true);
 
       // Mock the runHourlyOptimizer method
       (app as any).runHourlyOptimizer = jest.fn().mockResolvedValue(undefined);
@@ -115,7 +114,7 @@ describe('HeatOptimizerApp', () => {
       expect((app as any).initializeServices).toHaveBeenCalled();
 
       // Check if validateSettings was called
-      expect(validateSettingsSpy).toHaveBeenCalled();
+      expect((app as any).validateSettings).toHaveBeenCalled();
 
       // Check if intervals are set up
       expect(setIntervalSpy).toHaveBeenCalledTimes(2);
@@ -141,13 +140,11 @@ describe('HeatOptimizerApp', () => {
       // Mock the initializeServices method
       (app as any).initializeServices = jest.fn().mockResolvedValue(undefined);
 
-      // Create a spy for the validateSettings method
-      jest.spyOn(app as any, 'validateSettings')
-        .mockImplementation(() => Promise.resolve(true));
+      // Mock the validateSettings method
+      (app as any).validateSettings = jest.fn().mockResolvedValue(true);
 
       // Mock runHourlyOptimizer
-      const runHourlyOptimizerSpy = jest.spyOn(app as any, 'runHourlyOptimizer')
-        .mockImplementation(() => Promise.resolve());
+      (app as any).runHourlyOptimizer = jest.fn().mockResolvedValue(undefined);
 
       // No need to create a separate mock function for the hourly callback
 
@@ -168,7 +165,7 @@ describe('HeatOptimizerApp', () => {
       await app.onInit();
 
       // Check if runHourlyOptimizer was called
-      expect(runHourlyOptimizerSpy).toHaveBeenCalled();
+      expect((app as any).runHourlyOptimizer).toHaveBeenCalled();
 
       // Restore original method
       Date.prototype.getMinutes = originalGetMinutes;
@@ -199,13 +196,11 @@ describe('HeatOptimizerApp', () => {
       // Mock the initializeServices method
       (app as any).initializeServices = jest.fn().mockResolvedValue(undefined);
 
-      // Create a spy for the validateSettings method
-      jest.spyOn(app as any, 'validateSettings')
-        .mockImplementation(() => Promise.resolve(true));
+      // Mock the validateSettings method
+      (app as any).validateSettings = jest.fn().mockResolvedValue(true);
 
       // Mock runWeeklyCalibration
-      const runWeeklyCalibrationSpy = jest.spyOn(app as any, 'runWeeklyCalibration')
-        .mockImplementation(() => Promise.resolve());
+      (app as any).runWeeklyCalibration = jest.fn().mockResolvedValue(undefined);
 
       // Create a spy for the setInterval method
       jest.spyOn((app as any).homey, 'setInterval')
@@ -224,7 +219,7 @@ describe('HeatOptimizerApp', () => {
       await app.onInit();
 
       // Check if runWeeklyCalibration was called
-      expect(runWeeklyCalibrationSpy).toHaveBeenCalled();
+      expect((app as any).runWeeklyCalibration).toHaveBeenCalled();
 
       // Restore original methods
       Date.prototype.getDay = originalGetDay;
