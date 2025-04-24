@@ -1,74 +1,20 @@
-import HeatOptimizerApp from '../../src/app';
-import { App } from 'homey';
+import { MelCloudApi } from '../../src/services/melcloud-api';
 
 // Mock fetch globally
 global.fetch = jest.fn();
 
 describe('MELCloud API', () => {
-  let app: HeatOptimizerApp;
-  let mockSettings: any;
-  let mockNotifications: any;
-  let mockFlow: any;
-  let melCloudApi: any;
+  let melCloudApi: MelCloudApi;
 
   beforeEach(() => {
     // Reset all mocks
     jest.clearAllMocks();
 
-    // Create app instance
-    app = new HeatOptimizerApp();
-
-    // Mock settings
-    mockSettings = {
-      get: jest.fn(),
-      set: jest.fn().mockResolvedValue(undefined),
-      on: jest.fn(),
-    };
-
-    // Mock notifications
-    mockNotifications = {
-      createNotification: jest.fn().mockResolvedValue(undefined),
-    };
-
-    // Mock flow
-    mockFlow = {
-      runFlowCardAction: jest.fn().mockResolvedValue(undefined),
-    };
-
-    // Mock app.homey
-    (app as any).homey = {
-      settings: mockSettings,
-      notifications: mockNotifications,
-      flow: mockFlow,
-      setInterval: jest.fn(),
-    };
-
-    // Mock app.log and app.error
-    (app as any).log = jest.fn();
-    (app as any).error = jest.fn();
-
-    // Mock logger
-    (app as any).logger = {
-      debug: jest.fn(),
-      info: jest.fn(),
-      warn: jest.fn(),
-      error: jest.fn(),
-      notify: jest.fn().mockResolvedValue(undefined),
-    };
-
-    // Mock settings.get for required settings
-    mockSettings.get.mockImplementation((key: string) => {
-      switch (key) {
-        case 'melcloud_user': return 'test@example.com';
-        case 'melcloud_pass': return 'password';
-        case 'device_id': return '123';
-        case 'building_id': return '456';
-        default: return undefined;
-      }
-    });
+    // Create a new instance of MelCloudApi
+    melCloudApi = new MelCloudApi('test@example.com', 'password');
 
     // Mock successful MELCloud API responses
-    (global.fetch as jest.Mock).mockImplementation((url: string) => {
+    (global.fetch as jest.Mock).mockImplementation((url: string, options: any) => {
       if (url.includes('melcloud.com/Mitsubishi.Wifi.Client/Login/ClientLogin')) {
         return Promise.resolve({
           ok: true,
@@ -125,6 +71,18 @@ describe('MELCloud API', () => {
           })
         });
       } else if (url.includes('melcloud.com/Mitsubishi.Wifi.Client/Device/SetAtw')) {
+        // Check the effective flags in the request body
+        const body = JSON.parse(options.body);
+        let responseTemp = 21.0;
+
+        if (body.EffectiveFlags === 8589934720) { // Zone1 flag
+          responseTemp = body.SetTemperatureZone1;
+        } else if (body.EffectiveFlags === 34359738880) { // Zone2 flag
+          responseTemp = body.SetTemperatureZone2;
+        } else if (body.EffectiveFlags === 17592186044448) { // Tank flag
+          responseTemp = body.SetTankWaterTemperature;
+        }
+
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({
@@ -132,9 +90,9 @@ describe('MELCloud API', () => {
             BuildingID: 456,
             RoomTemperatureZone1: 21.5,
             RoomTemperatureZone2: 22.0,
-            SetTemperatureZone1: 20.5, // Changed temperature
-            SetTemperatureZone2: 21.5, // Changed temperature
-            SetTankWaterTemperature: 42.0, // Changed temperature
+            SetTemperatureZone1: body.EffectiveFlags === 8589934720 ? responseTemp : 21.0,
+            SetTemperatureZone2: body.EffectiveFlags === 34359738880 ? responseTemp : 22.0,
+            SetTankWaterTemperature: body.EffectiveFlags === 17592186044448 ? responseTemp : 45.0,
             TankWaterTemperature: 43.5,
             OperationMode: 0,
             OperationModeZone1: 1,
@@ -146,133 +104,134 @@ describe('MELCloud API', () => {
       }
       return Promise.reject(new Error('Unknown URL'));
     });
-
-    // Initialize the MELCloud API
-    melCloudApi = (app as any).melCloudApi;
   });
 
-  describe('getDeviceList', () => {
-    // Mock the API module
-    const mockGetDeviceList = jest.fn().mockImplementation(async () => {
-      return {
-        success: true,
-        devices: [
-          {
-            id: 123,
-            name: 'Boiler',
-            buildingId: 456,
-            hasZone1: true,
-            hasZone2: true
-          }
-        ],
-        buildings: [
-          {
-            id: 456,
-            name: 'Home'
-          }
-        ]
-      };
+  describe('login', () => {
+    it('should login successfully', async () => {
+      const result = await melCloudApi.login();
+
+      expect(result).toBe(true);
+      expect(melCloudApi.contextKey).toBe('test-session-key');
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://app.melcloud.com/Mitsubishi.Wifi.Client/Login/ClientLogin',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('test@example.com')
+        })
+      );
     });
 
-    // Replace the actual API function with our mock
-    jest.mock('../../api', () => ({
-      getDeviceList: mockGetDeviceList
-    }));
+    it('should handle login errors', async () => {
+      // Mock a failed login
+      (global.fetch as jest.Mock).mockImplementationOnce(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            ErrorId: 1,
+            ErrorMessage: 'Invalid credentials'
+          })
+        })
+      );
 
-    it('should retrieve a list of devices and buildings', async () => {
-      // Call the mocked function
-      const result = await mockGetDeviceList();
+      await expect(melCloudApi.login()).rejects.toThrow('MELCloud login failed: Invalid credentials');
+    });
+  });
 
-      // Check if the result contains devices and buildings
-      expect(result).toHaveProperty('success', true);
-      expect(result).toHaveProperty('devices');
-      expect(result).toHaveProperty('buildings');
-      expect(result.devices).toHaveLength(1);
-      expect(result.devices[0]).toHaveProperty('id', 123);
-      expect(result.devices[0]).toHaveProperty('hasZone2', true);
+  describe('getDevices', () => {
+    it('should retrieve devices', async () => {
+      // Login first
+      await melCloudApi.login();
+
+      const devices = await melCloudApi.getDevices();
+
+      expect(devices).toHaveLength(1);
+      expect(devices[0]).toHaveProperty('id', 123);
+      expect(devices[0]).toHaveProperty('name', 'Boiler');
+      expect(devices[0]).toHaveProperty('buildingId', 456);
+      expect(devices[0]).toHaveProperty('hasZone2', true);
     });
 
-    it('should handle errors gracefully', async () => {
-      // Override the mock implementation for this test
-      mockGetDeviceList.mockImplementationOnce(async () => {
-        return {
-          success: false,
-          error: 'Login failed'
-        };
-      });
+    it('should throw error if not logged in', async () => {
+      await expect(melCloudApi.getDevices()).rejects.toThrow('Not logged in to MELCloud');
+    });
+  });
 
-      // Call the mocked function
-      const result = await mockGetDeviceList();
+  describe('getDeviceState', () => {
+    it('should get device state', async () => {
+      // Login first
+      await melCloudApi.login();
 
-      // Check if the result contains an error
-      expect(result).toHaveProperty('success', false);
-      expect(result).toHaveProperty('error');
-      expect(result.error).toBe('Login failed');
+      const state = await melCloudApi.getDeviceState(123, 456);
+
+      expect(state).toHaveProperty('DeviceID', 123);
+      expect(state).toHaveProperty('BuildingID', 456);
+      expect(state).toHaveProperty('SetTemperatureZone1', 21.0);
+      expect(state).toHaveProperty('SetTemperatureZone2', 22.0);
+      expect(state).toHaveProperty('SetTankWaterTemperature', 45.0);
+    });
+
+    it('should throw error if not logged in', async () => {
+      await expect(melCloudApi.getDeviceState(123, 456)).rejects.toThrow('Not logged in to MELCloud');
     });
   });
 
   describe('setDeviceTemperature', () => {
-    // Mock the setDeviceTemperature function
-    const mockSetDeviceTemperature = jest.fn().mockImplementation(async () => {
-      return true;
-    });
+    it('should set Zone1 temperature with correct effective flag', async () => {
+      // Login first
+      await melCloudApi.login();
 
-    // Replace the actual API function with our mock
-    jest.mock('../../api', () => ({
-      ...jest.requireActual('../../api'),
-      setDeviceTemperature: mockSetDeviceTemperature
-    }));
+      const result = await melCloudApi.setDeviceTemperature(123, 456, 20.5, 1);
 
-    it('should set Zone1 temperature with the correct effective flag', async () => {
-      // Call the mocked function
-      const result = await mockSetDeviceTemperature(123, 456, 20.5, 0.5, 1);
-
-      // Check if the function returned success
       expect(result).toBe(true);
-
-      // Verify the function was called with the correct parameters
-      expect(mockSetDeviceTemperature).toHaveBeenCalledWith(
-        123, 456, 20.5, 0.5, 1
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://app.melcloud.com/Mitsubishi.Wifi.Client/Device/SetAtw',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('"EffectiveFlags":8589934720')
+        })
       );
     });
 
-    it('should set Zone2 temperature with the correct effective flag', async () => {
-      // Call the mocked function
-      const result = await mockSetDeviceTemperature(123, 456, 21.5, 0.5, 2);
+    it('should set Zone2 temperature with correct effective flag', async () => {
+      // Login first
+      await melCloudApi.login();
 
-      // Check if the function returned success
+      const result = await melCloudApi.setDeviceTemperature(123, 456, 21.5, 2);
+
       expect(result).toBe(true);
-
-      // Verify the function was called with the correct parameters
-      expect(mockSetDeviceTemperature).toHaveBeenCalledWith(
-        123, 456, 21.5, 0.5, 2
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://app.melcloud.com/Mitsubishi.Wifi.Client/Device/SetAtw',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('"EffectiveFlags":34359738880')
+        })
       );
+    });
+
+    it('should throw error if not logged in', async () => {
+      await expect(melCloudApi.setDeviceTemperature(123, 456, 20.5, 1)).rejects.toThrow('Not logged in to MELCloud');
     });
   });
 
   describe('setDeviceTankTemperature', () => {
-    // Mock the setDeviceTankTemperature function
-    const mockSetDeviceTankTemperature = jest.fn().mockImplementation(async () => {
-      return true;
+    it('should set tank temperature with correct effective flag', async () => {
+      // Login first
+      await melCloudApi.login();
+
+      const result = await melCloudApi.setDeviceTankTemperature(123, 456, 42.0);
+
+      expect(result).toBe(true);
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://app.melcloud.com/Mitsubishi.Wifi.Client/Device/SetAtw',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('"EffectiveFlags":17592186044448')
+        })
+      );
     });
 
-    // Replace the actual API function with our mock
-    jest.mock('../../api', () => ({
-      ...jest.requireActual('../../api'),
-      setDeviceTankTemperature: mockSetDeviceTankTemperature
-    }));
-
-    it('should set tank temperature with the correct effective flag', async () => {
-      // Call the mocked function
-      const result = await mockSetDeviceTankTemperature(123, 456, 42.0, 1.0);
-
-      // Check if the function returned success
-      expect(result).toBe(true);
-
-      // Verify the function was called with the correct parameters
-      expect(mockSetDeviceTankTemperature).toHaveBeenCalledWith(
-        123, 456, 42.0, 1.0
-      );
+    it('should throw error if not logged in', async () => {
+      await expect(melCloudApi.setDeviceTankTemperature(123, 456, 42.0)).rejects.toThrow('Not logged in to MELCloud');
     });
   });
 });

@@ -66,11 +66,23 @@ describe('HeatOptimizerApp', () => {
 
   describe('onInit', () => {
     it('should initialize the app and set up intervals', async () => {
-      // Mock settings.get for log_level
+      // Mock settings.get for log_level and required settings
       mockSettings.get.mockImplementation((key: string) => {
         if (key === 'log_level') return 1; // INFO level
+        if (key === 'melcloud_user') return 'test@example.com';
+        if (key === 'melcloud_pass') return 'password';
+        if (key === 'tibber_token') return 'token';
+        if (key === 'openai_api_key') return 'key';
+        if (key === 'device_id') return '123';
+        if (key === 'building_id') return '456';
         return undefined;
       });
+
+      // Mock the initializeServices method
+      (app as any).initializeServices = jest.fn().mockResolvedValue(undefined);
+
+      // Mock the validateSettings method
+      (app as any).validateSettings = jest.fn().mockResolvedValue(true);
 
       await app.onInit();
 
@@ -79,6 +91,12 @@ describe('HeatOptimizerApp', () => {
 
       // Check if settings change listener is registered
       expect(mockSettings.on).toHaveBeenCalledWith('set', expect.any(Function));
+
+      // Check if services were initialized
+      expect((app as any).initializeServices).toHaveBeenCalled();
+
+      // Check if validateSettings was called
+      expect((app as any).validateSettings).toHaveBeenCalled();
     });
 
     it('should trigger hourly optimizer at the top of the hour', async () => {
@@ -86,11 +104,23 @@ describe('HeatOptimizerApp', () => {
       const originalGetMinutes = Date.prototype.getMinutes;
       Date.prototype.getMinutes = jest.fn().mockReturnValue(0);
 
-      // Mock settings.get for log_level
+      // Mock settings.get for log_level and required settings
       mockSettings.get.mockImplementation((key: string) => {
         if (key === 'log_level') return 1; // INFO level
+        if (key === 'melcloud_user') return 'test@example.com';
+        if (key === 'melcloud_pass') return 'password';
+        if (key === 'tibber_token') return 'token';
+        if (key === 'openai_api_key') return 'key';
+        if (key === 'device_id') return '123';
+        if (key === 'building_id') return '456';
         return undefined;
       });
+
+      // Mock the initializeServices method
+      (app as any).initializeServices = jest.fn().mockResolvedValue(undefined);
+
+      // Mock the validateSettings method
+      (app as any).validateSettings = jest.fn().mockResolvedValue(true);
 
       // Mock runHourlyOptimizer
       (app as any).runHourlyOptimizer = jest.fn();
@@ -120,11 +150,23 @@ describe('HeatOptimizerApp', () => {
       Date.prototype.getHours = jest.fn().mockReturnValue(3); // 3 AM
       Date.prototype.getMinutes = jest.fn().mockReturnValue(0); // 0 minutes
 
-      // Mock settings.get for log_level
+      // Mock settings.get for log_level and required settings
       mockSettings.get.mockImplementation((key: string) => {
         if (key === 'log_level') return 1; // INFO level
+        if (key === 'melcloud_user') return 'test@example.com';
+        if (key === 'melcloud_pass') return 'password';
+        if (key === 'tibber_token') return 'token';
+        if (key === 'openai_api_key') return 'key';
+        if (key === 'device_id') return '123';
+        if (key === 'building_id') return '456';
         return undefined;
       });
+
+      // Mock the initializeServices method
+      (app as any).initializeServices = jest.fn().mockResolvedValue(undefined);
+
+      // Mock the validateSettings method
+      (app as any).validateSettings = jest.fn().mockResolvedValue(true);
 
       // Mock runWeeklyCalibration
       (app as any).runWeeklyCalibration = jest.fn();
@@ -177,9 +219,7 @@ describe('HeatOptimizerApp', () => {
 
     it('should not notify if all required settings are present', async () => {
       // Mock settings.get to return values for required settings
-      mockSettings.get.mockImplementation((key: string) => {
-        return 'some-value';
-      });
+      mockSettings.get.mockImplementation(() => 'some-value');
 
       // Reset the mock before calling validateSettings
       mockNotifications.createNotification.mockClear();

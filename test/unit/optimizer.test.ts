@@ -85,6 +85,9 @@ describe('Temperature Optimization', () => {
           case 'melcloud_user': return 'test@example.com';
           case 'melcloud_pass': return 'password';
           case 'tibber_token': return 'token';
+          case 'openai_api_key': return 'key';
+          case 'device_id': return '123';
+          case 'building_id': return '456';
           case 'temp_step_max': return 0.5;
           case 'min_temp': return 18;
           case 'max_temp': return 24;
@@ -99,6 +102,15 @@ describe('Temperature Optimization', () => {
           case 'min_tank_temp': return 40;
           case 'max_tank_temp': return 50;
           case 'tank_temp_step': return 1.0;
+          // Comfort profile settings
+          case 'day_start_hour': return 7;
+          case 'day_end_hour': return 23;
+          case 'night_temp_reduction': return 3;
+          case 'preheat_hours': return 2;
+          // Weather settings
+          case 'enable_weather': return true;
+          case 'location_lat': return '55.578697114527856';
+          case 'location_lon': return '12.95119604834545';
           case 'heatPumpOptimizerMem': return {
             model: { K: 0.3 },
             lastIndoor: 21,
@@ -108,6 +120,79 @@ describe('Temperature Optimization', () => {
           default: return undefined;
         }
       });
+
+      // Mock the initializeServices method
+      (app as any).initializeServices = jest.fn().mockResolvedValue(undefined);
+
+      // Mock the validateSettings method
+      (app as any).validateSettings = jest.fn().mockResolvedValue(true);
+
+      // Mock the services
+      (app as any).melCloudApi = {
+        login: jest.fn().mockResolvedValue(true),
+        getDevices: jest.fn().mockResolvedValue([
+          {
+            id: 123,
+            name: 'Boiler',
+            buildingId: 456,
+            hasZone1: true,
+            hasZone2: true
+          }
+        ]),
+        getDeviceState: jest.fn().mockResolvedValue({
+          DeviceID: 123,
+          BuildingID: 456,
+          RoomTemperatureZone1: 21.5,
+          RoomTemperatureZone2: 22.0,
+          SetTemperatureZone1: 21.0,
+          SetTemperatureZone2: 22.0,
+          SetTankWaterTemperature: 45.0,
+          TankWaterTemperature: 43.5,
+          OperationMode: 0,
+          OperationModeZone1: 1,
+          OperationModeZone2: 1,
+          Power: true,
+          HasZone2: true
+        }),
+        setDeviceTemperature: jest.fn().mockResolvedValue(true),
+        setDeviceTankTemperature: jest.fn().mockResolvedValue(true),
+        contextKey: 'test-session-key'
+      };
+
+      (app as any).tibberApi = {
+        getPrices: jest.fn().mockResolvedValue({
+          current: {
+            total: 1.2,
+            level: 'NORMAL'
+          },
+          today: [
+            { startsAt: '2023-01-01T00:00:00Z', total: 1.0, level: 'NORMAL' },
+            { startsAt: '2023-01-01T01:00:00Z', total: 1.2, level: 'NORMAL' },
+            { startsAt: '2023-01-01T02:00:00Z', total: 1.5, level: 'EXPENSIVE' }
+          ],
+          tomorrow: [
+            { startsAt: '2023-01-02T00:00:00Z', total: 0.8, level: 'CHEAP' },
+            { startsAt: '2023-01-02T01:00:00Z', total: 0.9, level: 'CHEAP' },
+            { startsAt: '2023-01-02T02:00:00Z', total: 1.1, level: 'NORMAL' }
+          ]
+        })
+      };
+
+      (app as any).weatherApi = {
+        getWeatherData: jest.fn().mockResolvedValue({
+          current: {
+            temperature: 10,
+            humidity: 80,
+            windSpeed: 5,
+            cloudCover: 50,
+            symbol: 'cloudy'
+          },
+          forecast: [
+            { time: '2023-01-01T01:00:00Z', temperature: 9.5, humidity: 82, windSpeed: 5.5, cloudCover: 60 },
+            { time: '2023-01-01T02:00:00Z', temperature: 9.0, humidity: 84, windSpeed: 6.0, cloudCover: 70 }
+          ]
+        })
+      };
 
       // Mock successful Tibber API response
       (global.fetch as jest.Mock).mockImplementation((url: string) => {
