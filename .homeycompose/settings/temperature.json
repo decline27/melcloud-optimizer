@@ -11,7 +11,7 @@
       "id": "temp_limits",
       "type": "group",
       "label": {
-        "en": "Temperature Limits"
+        "en": "Heating Temperature Limits"
       },
       "children": [
         {
@@ -44,6 +44,66 @@
           "max": 2.0,
           "step": 0.1,
           "value": 0.5
+        }
+      ]
+    },
+    {
+      "id": "hot_water_tank",
+      "type": "group",
+      "label": {
+        "en": "Hot Water Tank Settings"
+      },
+      "children": [
+        {
+          "id": "enable_tank_control",
+          "type": "checkbox",
+          "label": {
+            "en": "Enable Hot Water Tank Control"
+          },
+          "value": false,
+          "hint": {
+            "en": "Enable optimization of hot water tank temperature based on electricity prices."
+          }
+        },
+        {
+          "id": "min_tank_temp",
+          "type": "number",
+          "label": {
+            "en": "Minimum Tank Temperature (°C)"
+          },
+          "min": 30,
+          "max": 45,
+          "value": 40,
+          "hint": {
+            "en": "Minimum allowed temperature for the hot water tank."
+          }
+        },
+        {
+          "id": "max_tank_temp",
+          "type": "number",
+          "label": {
+            "en": "Maximum Tank Temperature (°C)"
+          },
+          "min": 40,
+          "max": 60,
+          "value": 50,
+          "hint": {
+            "en": "Maximum allowed temperature for the hot water tank."
+          }
+        },
+        {
+          "id": "tank_temp_step",
+          "type": "number",
+          "label": {
+            "en": "Tank Temperature Step (°C)"
+          },
+          "min": 0.5,
+          "max": 5.0,
+          "step": 0.5,
+          "value": 1.0,
+          "hint": {
+            "en": "Maximum change in tank temperature per optimization cycle."
+          }
         }
       ]
     },

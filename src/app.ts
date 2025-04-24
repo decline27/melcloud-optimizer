@@ -504,6 +504,23 @@ export default class HeatOptimizerApp extends App {
       }
     }
 
+    // Check hot water tank settings if enabled
+    const enableTankControl = this.homey.settings.get('enable_tank_control');
+    if (enableTankControl) {
+      const minTankTemp = this.homey.settings.get('min_tank_temp');
+      const maxTankTemp = this.homey.settings.get('max_tank_temp');
+
+      if (minTankTemp !== undefined && maxTankTemp !== undefined) {
+        if (minTankTemp >= maxTankTemp) {
+          this.error('Min tank temperature must be less than max tank temperature');
+          return false;
+        }
+      } else {
+        this.error('Tank temperature limits are not set but tank control is enabled');
+        return false;
+      }
+    }
+
     // Check location settings if weather data is enabled
     const useWeatherData = this.homey.settings.get('use_weather_data');
     if (useWeatherData) {

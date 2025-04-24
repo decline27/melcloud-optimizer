@@ -606,6 +606,121 @@ class MelCloudApi {
       throw error; // Re-throw the error to be handled by the caller
     }
   }
+
+  /**
+   * Set the tank water temperature for a device
+   * @param {string|number} deviceId - Device name or ID
+   * @param {number} [buildingId] - Optional building ID
+   * @param {number} temperature - The temperature to set
+   * @param {number} [maxRetries=2] - Maximum number of retries for setting temperature
+   * @returns {Promise<boolean>} - True if successful, false otherwise
+   */
+  async setDeviceTankTemperature(deviceId, buildingId, temperature, maxRetries = 2) {
+    try {
+      if (!this.contextKey) {
+        throw new Error('Not logged in to MELCloud');
+      }
+
+      console.log(`Setting tank water temperature for device ${deviceId} to ${temperature}°C...`);
+
+      // First find the device
+      const device = this.findDevice(deviceId, buildingId);
+      deviceId = device.id;
+      buildingId = device.buildingId;
+
+      // Then get current state
+      const currentState = await this.getDeviceState(deviceId, buildingId);
+
+      // Check if this is a dummy device
+      if (device.isDummy) {
+        console.log(`Using dummy device - simulating tank temperature change for device ${deviceId}`);
+        // Update the dummy device data
+        device.data.SetTankWaterTemperature = temperature;
+        console.log(`Successfully set tank temperature for dummy device ${deviceId} to ${temperature}°C`);
+        return true;
+      }
+
+      // Only ATW devices have tank water temperature
+      if (currentState.SetTankWaterTemperature === undefined) {
+        throw new Error('Device does not support tank water temperature');
+      }
+
+      console.log('Setting tank water temperature for ATW device');
+
+      // Log the current operation modes and other important settings
+      console.log(`Current device state:`);
+      console.log(`- Power: ${currentState.Power}`);
+      console.log(`- OperationMode: ${currentState.OperationMode}`);
+      console.log(`- Current tank water temp: ${currentState.SetTankWaterTemperature}°C`);
+
+      // Create a complete copy of the current state
+      const completeRequestBody = JSON.parse(JSON.stringify(currentState));
+
+      // Only modify the tank water temperature - using exact value without rounding
+      // MELCloud API can accept 0.5°C increments
+      completeRequestBody.SetTankWaterTemperature = parseFloat(temperature);
+
+      // Ensure these critical fields are set
+      completeRequestBody.HasPendingCommand = true;
+      // Set the correct effective flags for tank water temperature change
+      // This is the flag value for tank water temperature
+      completeRequestBody.EffectiveFlags = 0x200000100; // Different flag for tank temperature
+      completeRequestBody.Power = true;
+
+      console.log('Using Device/SetAtw endpoint with complete device state for tank temperature');
+
+      // Log the request body for debugging (truncated to avoid huge logs)
+      console.log('SetAtw request body (truncated):', JSON.stringify(completeRequestBody).substring(0, 200) + '...');
+
+      // Make the actual API call to MELCloud
+      const baseUrlObj = new URL(this.baseUrl);
+      const options = {
+        hostname: baseUrlObj.hostname,
+        path: '/Mitsubishi.Wifi.Client/Device/SetAtw',  // Using the SetAtw endpoint
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-MitsContextKey': this.contextKey,
+        }
+      };
+
+      // Use the complete request body for the HTTP request with retry
+      const data = await httpRequest(options, completeRequestBody, maxRetries);
+
+      // Verify that the temperature was actually set by checking the response
+      console.log('Response from SetAtw:', JSON.stringify(data).substring(0, 500));
+
+      // Check if the response indicates success
+      if (data) {
+        // The response might contain different fields, so we'll check a few possibilities
+        const actualTemp = data.SetTankWaterTemperature;
+
+        if (actualTemp !== undefined) {
+          if (Math.round(actualTemp) === Math.round(parseFloat(temperature))) {
+            console.log(`Successfully set tank water temperature for device ${completeRequestBody.DeviceID || deviceId} to ${temperature}°C`);
+            return true;
+          } else {
+            console.log(`WARNING: Attempted to set tank water temperature to ${temperature}°C but API returned ${actualTemp}°C`);
+            console.log('Full response data:', JSON.stringify(data).substring(0, 500));
+            // Return true anyway since the API accepted the request
+            return true;
+          }
+        } else {
+          // If we can't find the temperature in the response, assume success if the API didn't return an error
+          console.log(`Tank temperature change request accepted, but could not verify the new temperature in the response`);
+          console.log('Full response data:', JSON.stringify(data).substring(0, 500));
+          return true;
+        }
+      } else {
+        console.log(`WARNING: API returned null or undefined response`);
+        return false;
+      }
+    } catch (error) {
+      console.error(`MELCloud set tank temperature error for device ${deviceId}:`, error);
+      throw error; // Re-throw the error to be handled by the caller
+    }
+  }
 }
 
 // Tibber API Service
@@ -1390,9 +1505,18 @@ class Optimizer {
     this.openai = openai;
     this.weather = weather; // Weather API instance
     this.thermalModel = { K: 0.5 };
+
+    // Heating temperature settings
     this.minTemp = 18;
     this.maxTemp = 22;
     this.tempStep = 0.5;
+
+    // Hot water tank temperature settings
+    this.enableTankControl = false;
+    this.minTankTemp = 40;
+    this.maxTankTemp = 50;
+    this.tankTempStep = 1.0;
+
     this.useWeatherData = weather !== null;
   }
 
@@ -1419,6 +1543,24 @@ class Optimizer {
     this.logger.log(`Temperature constraints set: min=${minTemp}°C, max=${maxTemp}°C, step=${this.tempStep}°C`);
   }
 
+  /**
+   * Set the tank temperature constraints
+   * @param {boolean} enableTankControl - Whether to enable tank temperature control
+   * @param {number} minTankTemp - Minimum tank temperature
+   * @param {number} maxTankTemp - Maximum tank temperature
+   * @param {number} tankTempStep - Maximum tank temperature step
+   */
+  setTankTemperatureConstraints(enableTankControl, minTankTemp, maxTankTemp, tankTempStep) {
+    this.enableTankControl = enableTankControl;
+    this.minTankTemp = minTankTemp;
+    this.maxTankTemp = maxTankTemp;
+    this.tankTempStep = tankTempStep || 1.0;
+    this.logger.log(`Tank temperature control: ${enableTankControl ? 'enabled' : 'disabled'}`);
+    if (enableTankControl) {
+      this.logger.log(`Tank temperature constraints set: min=${minTankTemp}°C, max=${maxTankTemp}°C, step=${this.tankTempStep}°C`);
+    }
+  }
+
   async runHourlyOptimization() {
     this.logger.log('Starting hourly optimization');
 
@@ -1429,6 +1571,8 @@ class Optimizer {
       // Handle different device types
       let currentTemp;
       let currentTarget;
+      let currentTankTemp;
+      let currentTankTarget;
       let outdoorTemp = deviceState.OutdoorTemperature;
 
       if (deviceState.SetTemperatureZone1 !== undefined) {
@@ -1436,6 +1580,15 @@ class Optimizer {
         currentTemp = deviceState.RoomTemperatureZone1 || 21; // Default to 21 if not available
         currentTarget = deviceState.SetTemperatureZone1;
         this.logger.log(`ATW device detected: Zone1 temp ${currentTarget}°C, Outdoor temp ${outdoorTemp || 'N/A'}°C`);
+
+        // Check if tank water temperature is available
+        if (deviceState.SetTankWaterTemperature !== undefined) {
+          currentTankTemp = deviceState.TankWaterTemperature || 45; // Default to 45 if not available
+          currentTankTarget = deviceState.SetTankWaterTemperature;
+          this.logger.log(`Tank water temperature: Current ${currentTankTemp}°C, Target ${currentTankTarget}°C`);
+        } else {
+          this.logger.log('Tank water temperature not available for this device');
+        }
       } else {
         // This is a regular device
         currentTemp = deviceState.RoomTemperature || 21; // Default to 21 if not available
@@ -1590,6 +1743,76 @@ class Optimizer {
         this.logger.log(`Keeping temperature at ${currentTarget}°C: ${reason}`);
       }
 
+      // Handle tank water temperature optimization if enabled
+      let tankResult = null;
+      if (this.enableTankControl && currentTankTarget !== undefined) {
+        this.logger.log('Tank water temperature optimization enabled');
+
+        try {
+          // Calculate optimal tank temperature based on price
+          // For tank water, we use a simpler algorithm - higher temperature when electricity is cheap
+          // and lower temperature when electricity is expensive
+          let newTankTarget;
+          let tankReason;
+
+          // Use Tibber price level for tank temperature optimization
+          const priceLevel = priceData.current.level || 'NORMAL';
+
+          if (priceLevel === 'VERY_CHEAP' || priceLevel === 'CHEAP') {
+            // When electricity is cheap, heat the tank to maximum temperature
+            newTankTarget = this.maxTankTemp;
+            tankReason = `Tibber price level is ${priceLevel}, increasing tank temperature to maximum`;
+          } else if (priceLevel === 'EXPENSIVE' || priceLevel === 'VERY_EXPENSIVE') {
+            // When electricity is expensive, reduce tank temperature to minimum
+            newTankTarget = this.minTankTemp;
+            tankReason = `Tibber price level is ${priceLevel}, reducing tank temperature to minimum`;
+          } else {
+            // For normal prices, use a middle temperature
+            newTankTarget = (this.minTankTemp + this.maxTankTemp) / 2;
+            tankReason = `Tibber price level is ${priceLevel}, setting tank temperature to middle value`;
+          }
+
+          // Apply step constraint (don't change by more than tankTempStep)
+          const maxTankChange = this.tankTempStep;
+          if (Math.abs(newTankTarget - currentTankTarget) > maxTankChange) {
+            newTankTarget = currentTankTarget + (newTankTarget > currentTankTarget ? maxTankChange : -maxTankChange);
+          }
+
+          // Round to nearest 0.5°C (MELCloud can accept 0.5°C increments)
+          newTankTarget = Math.round(newTankTarget * 2) / 2;
+          this.logger.log(`Rounding tank temperature to nearest 0.5°C: ${newTankTarget}°C`);
+
+          // Set new tank temperature if different
+          if (newTankTarget !== currentTankTarget) {
+            try {
+              const tankSuccess = await this.melCloud.setDeviceTankTemperature(this.deviceId, this.buildingId, newTankTarget);
+
+              if (tankSuccess) {
+                this.logger.log(`Changed tank temperature from ${currentTankTarget}°C to ${newTankTarget}°C: ${tankReason}`);
+              } else {
+                this.logger.log(`WARNING: Failed to change tank temperature from ${currentTankTarget}°C to ${newTankTarget}°C - API returned success but temperature was not updated`);
+                this.logger.log(`Will try again in the next hourly optimization`);
+              }
+            } catch (tankError) {
+              this.logger.log(`Failed to change tank temperature from ${currentTankTarget}°C to ${newTankTarget}°C: ${tankError.message}`);
+              // Don't throw an error for tank temperature, just log the warning
+            }
+          } else {
+            this.logger.log(`Keeping tank temperature at ${currentTankTarget}°C: ${tankReason}`);
+          }
+
+          // Store tank optimization result
+          tankResult = {
+            targetTemp: newTankTarget,
+            reason: tankReason,
+            targetOriginal: currentTankTarget
+          };
+        } catch (tankOptError) {
+          this.logger.error('Error in tank temperature optimization', tankOptError);
+          // Don't throw an error for tank temperature, just log the error
+        }
+      }
+
       // Get comfort profile information using our time zone-aware function
       const localTime = this.getLocalTime();
       const currentHour = localTime.hour;
@@ -1619,6 +1842,12 @@ class Optimizer {
         comfort,
         timestamp: new Date().toISOString(),
         kFactor: this.thermalModel.K,
+        // Include tank temperature optimization result if available
+        tankTemperature: tankResult ? {
+          targetTemp: tankResult.targetTemp,
+          reason: tankResult.reason,
+          targetOriginal: tankResult.targetOriginal
+        } : null,
         // Include comfort profile information
         comfortProfile: {
           factor: comfortFactor,
@@ -2395,11 +2624,17 @@ async function updateOptimizerSettings(homey) {
     return; // Optimizer not initialized yet
   }
 
-  // Get the latest settings
+  // Get the latest heating temperature settings
   const minTemp = homey.settings.get('min_temp') || 18;
   const maxTemp = homey.settings.get('max_temp') || 22;
   const tempStep = homey.settings.get('temp_step_max') || 0.5;
   const kFactor = homey.settings.get('initial_k') || 0.5;
+
+  // Get the latest hot water tank settings
+  const enableTankControl = homey.settings.get('enable_tank_control') === true;
+  const minTankTemp = homey.settings.get('min_tank_temp') || 40;
+  const maxTankTemp = homey.settings.get('max_tank_temp') || 50;
+  const tankTempStep = homey.settings.get('tank_temp_step') || 1.0;
 
   // Log the current settings
   homey.app.log('Optimizer settings:');
@@ -2408,8 +2643,18 @@ async function updateOptimizerSettings(homey) {
   homey.app.log('- Temp Step:', tempStep, '°C (MELCloud supports 0.5°C increments)');
   homey.app.log('- K Factor:', kFactor);
 
+  // Log tank settings
+  homey.app.log('Hot Water Tank settings:');
+  homey.app.log('- Tank Control:', enableTankControl ? 'Enabled' : 'Disabled');
+  if (enableTankControl) {
+    homey.app.log('- Min Tank Temp:', minTankTemp, '°C');
+    homey.app.log('- Max Tank Temp:', maxTankTemp, '°C');
+    homey.app.log('- Tank Temp Step:', tankTempStep, '°C');
+  }
+
   // Update the optimizer with the latest settings
   optimizer.setTemperatureConstraints(minTemp, maxTemp, tempStep);
+  optimizer.setTankTemperatureConstraints(enableTankControl, minTankTemp, maxTankTemp, tankTempStep);
   optimizer.setThermalModel(kFactor);
 }
 
@@ -2446,7 +2691,12 @@ module.exports = {
         min_temp: homey.settings.get('min_temp'),
         max_temp: homey.settings.get('max_temp'),
         temp_step_max: homey.settings.get('temp_step_max'),
-        initial_k: homey.settings.get('initial_k')
+        initial_k: homey.settings.get('initial_k'),
+        // Hot water tank settings
+        enable_tank_control: homey.settings.get('enable_tank_control'),
+        min_tank_temp: homey.settings.get('min_tank_temp'),
+        max_tank_temp: homey.settings.get('max_tank_temp'),
+        tank_temp_step: homey.settings.get('tank_temp_step')
       };
 
       homey.app.log('Settings:', JSON.stringify(settings, null, 2));
@@ -2473,12 +2723,20 @@ module.exports = {
             homey.app.log(`- Operation Mode: ${deviceState.OperationMode}`);
             homey.app.log(`- Operation Mode Zone1: ${deviceState.OperationModeZone1}`);
 
+            // Check if tank water temperature is available
+            if (deviceState.SetTankWaterTemperature !== undefined) {
+              homey.app.log(`- Tank Water Temperature: ${deviceState.TankWaterTemperature || 'N/A'}°C`);
+              homey.app.log(`- Set Tank Water Temperature: ${deviceState.SetTankWaterTemperature}°C`);
+            }
+
             settings.device_state = {
               room_temp_zone1: deviceState.RoomTemperatureZone1,
               set_temp_zone1: deviceState.SetTemperatureZone1,
               power: deviceState.Power,
               mode: deviceState.OperationMode,
-              mode_zone1: deviceState.OperationModeZone1
+              mode_zone1: deviceState.OperationModeZone1,
+              tank_water_temp: deviceState.TankWaterTemperature,
+              set_tank_water_temp: deviceState.SetTankWaterTemperature
             };
           } else {
             // This is a regular device
@@ -2553,13 +2811,24 @@ module.exports = {
         // Log to timeline (using app.log for now)
         homey.app.log(`🔄 TIMELINE: Optimized temperature to ${result.targetTemp}°C (was ${result.targetOriginal}°C)`);
 
+        // Log tank temperature changes if available
+        if (result.tankTemperature) {
+          homey.app.log(`💧 TIMELINE: Optimized tank temperature to ${result.tankTemperature.targetTemp}°C (was ${result.tankTemperature.targetOriginal}°C)`);
+        }
+
         // Send to timeline using the Homey SDK 3.0 API
         try {
+          // Prepare message including both heating and tank temperature if available
+          let message = `Optimized temperature to ${result.targetTemp}°C (was ${result.targetOriginal}°C)`;
+          if (result.tankTemperature) {
+            message += `. Tank temperature to ${result.tankTemperature.targetTemp}°C (was ${result.tankTemperature.targetOriginal}°C)`;
+          }
+
           // First try the direct timeline API if available
           if (typeof homey.timeline === 'object' && typeof homey.timeline.createEntry === 'function') {
             await homey.timeline.createEntry({
               title: 'MELCloud Optimizer',
-              body: `Optimized temperature to ${result.targetTemp}°C (was ${result.targetOriginal}°C)`,
+              body: message,
               icon: 'flow:device_changed'
             });
             homey.app.log('Timeline entry created using timeline API');
@@ -2567,7 +2836,7 @@ module.exports = {
           // Then try the notifications API as a fallback
           else if (typeof homey.notifications === 'object' && typeof homey.notifications.createNotification === 'function') {
             await homey.notifications.createNotification({
-              excerpt: `MELCloud Optimizer: Temperature set to ${result.targetTemp}°C (was ${result.targetOriginal}°C)`,
+              excerpt: `MELCloud Optimizer: ${message}`,
             });
             homey.app.log('Timeline entry created using notifications API');
           }
@@ -2578,7 +2847,7 @@ module.exports = {
               id: 'createEntry',
               args: {
                 title: 'MELCloud Optimizer',
-                message: `Optimized temperature to ${result.targetTemp}°C (was ${result.targetOriginal}°C)`,
+                message: message,
                 icon: 'flow:device_changed'
               }
             });

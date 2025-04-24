@@ -66,7 +66,7 @@
     </fieldset>
 
     <fieldset class="homey-form-fieldset">
-      <legend class="homey-form-legend">Temperature Settings</legend>
+      <legend class="homey-form-legend">Heating Temperature Settings</legend>
       <div class="homey-form-group">
         <label class="homey-form-label" for="min_temp">Minimum Temperature (°C)</label>
         <input class="homey-form-input" id="min_temp" type="number" min="16" max="22" step="0.5" value="18" />
@@ -84,6 +84,33 @@
         <label class="homey-form-label" for="initial_k">Initial K Factor</label>
         <input class="homey-form-input" id="initial_k" type="number" min="0.1" max="1.0" step="0.05" value="0.3" />
         <p class="homey-form-helper">Initial thermal response factor. Will be automatically calibrated over time.</p>
+      </div>
+    </fieldset>
+
+    <fieldset class="homey-form-fieldset">
+      <legend class="homey-form-legend">Hot Water Tank Settings</legend>
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="enable_tank_control">Enable Hot Water Tank Control</label>
+        <label class="homey-form-checkbox">
+          <input type="checkbox" id="enable_tank_control" />
+          <span>Enable optimization of hot water tank temperature</span>
+        </label>
+        <p class="homey-form-helper">Enable optimization of hot water tank temperature based on electricity prices.</p>
+      </div>
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="min_tank_temp">Minimum Tank Temperature (°C)</label>
+        <input class="homey-form-input" id="min_tank_temp" type="number" min="30" max="45" step="0.5" value="40" />
+        <p class="homey-form-helper">Minimum allowed temperature for the hot water tank.</p>
+      </div>
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="max_tank_temp">Maximum Tank Temperature (°C)</label>
+        <input class="homey-form-input" id="max_tank_temp" type="number" min="40" max="60" step="0.5" value="50" />
+        <p class="homey-form-helper">Maximum allowed temperature for the hot water tank.</p>
+      </div>
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="tank_temp_step">Tank Temperature Step (°C)</label>
+        <input class="homey-form-input" id="tank_temp_step" type="number" min="0.5" max="5.0" step="0.5" value="1.0" />
+        <p class="homey-form-helper">Maximum change in tank temperature per optimization cycle.</p>
       </div>
     </fieldset>
 
@@ -395,6 +422,12 @@
         const useDstElement = document.getElementById("use_dst");
         const logLevelElement = document.getElementById("log_level");
         const saveElement = document.getElementById("save");
+
+        // Hot water tank elements
+        const enableTankControlElement = document.getElementById("enable_tank_control");
+        const minTankTempElement = document.getElementById("min_tank_temp");
+        const maxTankTempElement = document.getElementById("max_tank_temp");
+        const tankTempStepElement = document.getElementById("tank_temp_step");
         // Buttons now use onclick attributes with global functions
 
         // Load current settings
@@ -498,6 +531,27 @@
         Homey.get("use_dst", function (err, value) {
           if (err) return Homey.alert(err);
           if (value !== undefined) useDstElement.checked = value;
+        });
+
+        // Load hot water tank settings
+        Homey.get("enable_tank_control", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) enableTankControlElement.checked = value;
+        });
+
+        Homey.get("min_tank_temp", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) minTankTempElement.value = value;
+        });
+
+        Homey.get("max_tank_temp", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) maxTankTempElement.value = value;
+        });
+
+        Homey.get("tank_temp_step", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) tankTempStepElement.value = value;
         });
 
         // Add event listener for the detect location button
@@ -654,6 +708,47 @@
           Homey.set("use_dst", useDstElement.checked, function (err) {
             if (err) return Homey.alert(err);
           });
+
+          // Save hot water tank settings
+          Homey.set("enable_tank_control", enableTankControlElement.checked, function (err) {
+            if (err) return Homey.alert(err);
+          });
+
+          const minTankTemp = parseFloat(minTankTempElement.value);
+          if (!isNaN(minTankTemp) && minTankTemp >= 30 && minTankTemp <= 45) {
+            Homey.set("min_tank_temp", minTankTemp, function (err) {
+              if (err) return Homey.alert(err);
+            });
+          } else if (minTankTempElement.value) {
+            Homey.alert('Invalid minimum tank temperature value. Must be between 30 and 45.');
+            return;
+          }
+
+          const maxTankTemp = parseFloat(maxTankTempElement.value);
+          if (!isNaN(maxTankTemp) && maxTankTemp >= 40 && maxTankTemp <= 60) {
+            Homey.set("max_tank_temp", maxTankTemp, function (err) {
+              if (err) return Homey.alert(err);
+            });
+          } else if (maxTankTempElement.value) {
+            Homey.alert('Invalid maximum tank temperature value. Must be between 40 and 60.');
+            return;
+          }
+
+          // Validate min < max for tank temperature
+          if (minTankTemp >= maxTankTemp) {
+            Homey.alert('Minimum tank temperature must be less than maximum tank temperature.');
+            return;
+          }
+
+          const tankTempStep = parseFloat(tankTempStepElement.value);
+          if (!isNaN(tankTempStep) && tankTempStep >= 0.5 && tankTempStep <= 5.0) {
+            Homey.set("tank_temp_step", tankTempStep, function (err) {
+              if (err) return Homey.alert(err);
+            });
+          } else if (tankTempStepElement.value) {
+            Homey.alert('Invalid tank temperature step value. Must be between 0.5 and 5.0.');
+            return;
+          }
 
           // Show success message
           Homey.alert('Settings saved successfully!');
