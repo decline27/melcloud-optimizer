@@ -35,15 +35,46 @@
         <label class="homey-form-label" for="melcloud_pass">Password</label>
         <input class="homey-form-input" id="melcloud_pass" type="password" value="" />
       </div>
+
       <div class="homey-form-group">
-        <label class="homey-form-label" for="device_id">Device ID</label>
-        <input class="homey-form-input" id="device_id" type="text" value="" />
-        <p class="homey-form-helper">The ID of your heat pump device in MELCloud</p>
+        <button id="refresh_devices" class="homey-button-primary">Refresh Device List</button>
+        <span id="device_refresh_status"></span>
       </div>
+
       <div class="homey-form-group">
-        <label class="homey-form-label" for="building_id">Building ID</label>
-        <input class="homey-form-input" id="building_id" type="text" value="" />
-        <p class="homey-form-helper">The ID of the building where your heat pump is located</p>
+        <label class="homey-form-label" for="building_id">Building</label>
+        <select class="homey-form-input" id="building_id">
+          <option value="">Select a building</option>
+        </select>
+        <p class="homey-form-helper">Select your building from the dropdown or enter ID manually below</p>
+      </div>
+
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="device_id">Device</label>
+        <select class="homey-form-input" id="device_id">
+          <option value="">Select a device</option>
+        </select>
+        <p class="homey-form-helper">Select your device from the dropdown or enter ID manually below</p>
+      </div>
+
+      <div class="homey-form-group">
+        <label class="homey-form-checkbox">
+          <input type="checkbox" id="show_manual_entry" />
+          <span>Show manual ID entry fields</span>
+        </label>
+      </div>
+
+      <div id="manual_id_entry" style="display: none;">
+        <div class="homey-form-group">
+          <label class="homey-form-label" for="manual_device_id">Manual Device ID</label>
+          <input class="homey-form-input" id="manual_device_id" type="text" value="" />
+          <p class="homey-form-helper">The ID of your heat pump device in MELCloud</p>
+        </div>
+        <div class="homey-form-group">
+          <label class="homey-form-label" for="manual_building_id">Manual Building ID</label>
+          <input class="homey-form-input" id="manual_building_id" type="text" value="" />
+          <p class="homey-form-helper">The ID of the building where your heat pump is located</p>
+        </div>
       </div>
     </fieldset>
 
@@ -84,6 +115,34 @@
         <label class="homey-form-label" for="initial_k">Initial K Factor</label>
         <input class="homey-form-input" id="initial_k" type="number" min="0.1" max="1.0" step="0.05" value="0.3" />
         <p class="homey-form-helper">Initial thermal response factor. Will be automatically calibrated over time.</p>
+      </div>
+    </fieldset>
+
+    <fieldset class="homey-form-fieldset">
+      <legend class="homey-form-legend">Zone 2 Temperature Settings</legend>
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="enable_zone2">Enable Zone 2 Control</label>
+        <label class="homey-form-checkbox">
+          <input type="checkbox" id="enable_zone2" />
+          <span>Enable optimization of Zone 2 temperature</span>
+        </label>
+        <p class="homey-form-helper">Enable separate temperature control for Zone 2 (if your device supports it)</p>
+      </div>
+
+      <div id="zone2_settings" style="display: none;">
+        <div class="homey-form-group">
+          <label class="homey-form-label" for="min_temp_zone2">Minimum Temperature Zone 2 (°C)</label>
+          <input class="homey-form-input" id="min_temp_zone2" type="number" min="16" max="22" step="0.5" value="18" />
+        </div>
+        <div class="homey-form-group">
+          <label class="homey-form-label" for="max_temp_zone2">Maximum Temperature Zone 2 (°C)</label>
+          <input class="homey-form-input" id="max_temp_zone2" type="number" min="20" max="26" step="0.5" value="24" />
+        </div>
+        <div class="homey-form-group">
+          <label class="homey-form-label" for="temp_step_zone2">Maximum Temperature Step Zone 2 (°C)</label>
+          <input class="homey-form-input" id="temp_step_zone2" type="number" min="0.1" max="2.0" step="0.1" value="0.5" />
+          <p class="homey-form-helper">Controls how much the Zone 2 temperature can change in one step.</p>
+        </div>
       </div>
     </fieldset>
 
@@ -404,6 +463,12 @@
         const melcloudPassElement = document.getElementById("melcloud_pass");
         const deviceIdElement = document.getElementById("device_id");
         const buildingIdElement = document.getElementById("building_id");
+        const refreshDevicesButton = document.getElementById("refresh_devices");
+        const deviceRefreshStatus = document.getElementById("device_refresh_status");
+        const showManualEntryElement = document.getElementById("show_manual_entry");
+        const manualIdEntryDiv = document.getElementById("manual_id_entry");
+        const manualDeviceIdElement = document.getElementById("manual_device_id");
+        const manualBuildingIdElement = document.getElementById("manual_building_id");
         const tibberTokenElement = document.getElementById("tibber_token");
         const openaiApiKeyElement = document.getElementById("openai_api_key");
         const minTempElement = document.getElementById("min_temp");
@@ -423,6 +488,13 @@
         const logLevelElement = document.getElementById("log_level");
         const saveElement = document.getElementById("save");
 
+        // Zone2 elements
+        const enableZone2Element = document.getElementById("enable_zone2");
+        const zone2SettingsDiv = document.getElementById("zone2_settings");
+        const minTempZone2Element = document.getElementById("min_temp_zone2");
+        const maxTempZone2Element = document.getElementById("max_temp_zone2");
+        const tempStepZone2Element = document.getElementById("temp_step_zone2");
+
         // Hot water tank elements
         const enableTankControlElement = document.getElementById("enable_tank_control");
         const minTankTempElement = document.getElementById("min_tank_temp");
@@ -441,14 +513,31 @@
           if (value) melcloudPassElement.value = value;
         });
 
+        // Store the saved device and building IDs to use after loading the device list
+        let savedDeviceId = null;
+        let savedBuildingId = null;
+
+        // Get the saved device ID
         Homey.get("device_id", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value) deviceIdElement.value = value;
+          if (value) {
+            savedDeviceId = value;
+            // Also set it in the manual entry field
+            manualDeviceIdElement.value = value;
+          }
         });
 
+        // Get the saved building ID
         Homey.get("building_id", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value) buildingIdElement.value = value;
+          if (value) {
+            savedBuildingId = value;
+            // Also set it in the manual entry field
+            manualBuildingIdElement.value = value;
+
+            // After getting both saved IDs, try to load the device list
+            loadDeviceList(savedDeviceId, savedBuildingId);
+          }
         });
 
         Homey.get("tibber_token", function (err, value) {
@@ -533,6 +622,49 @@
           if (value !== undefined) useDstElement.checked = value;
         });
 
+        // Load Zone2 settings
+        Homey.get("enable_zone2", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) {
+            enableZone2Element.checked = value;
+            zone2SettingsDiv.style.display = value ? 'block' : 'none';
+          }
+        });
+
+        Homey.get("min_temp_zone2", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) minTempZone2Element.value = value;
+        });
+
+        Homey.get("max_temp_zone2", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) maxTempZone2Element.value = value;
+        });
+
+        Homey.get("temp_step_zone2", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) tempStepZone2Element.value = value;
+        });
+
+        // Load manual entry settings
+        Homey.get("show_manual_entry", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) {
+            showManualEntryElement.checked = value;
+            manualIdEntryDiv.style.display = value ? 'block' : 'none';
+          }
+        });
+
+        Homey.get("manual_device_id", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) manualDeviceIdElement.value = value;
+        });
+
+        Homey.get("manual_building_id", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) manualBuildingIdElement.value = value;
+        });
+
         // Load hot water tank settings
         Homey.get("enable_tank_control", function (err, value) {
           if (err) return Homey.alert(err);
@@ -552,6 +684,147 @@
         Homey.get("tank_temp_step", function (err, value) {
           if (err) return Homey.alert(err);
           if (value !== undefined) tankTempStepElement.value = value;
+        });
+
+        // Function to load the device list and select the saved device and building IDs
+        function loadDeviceList(savedDeviceId, savedBuildingId) {
+          console.log('Loading device list with saved IDs:', { savedDeviceId, savedBuildingId });
+
+          // Show loading state
+          deviceRefreshStatus.textContent = "Loading devices...";
+
+          // Call the API to get the device list
+          HomeyInstance.api('GET', '/getDeviceList', {}, function(err, result) {
+            if (err) {
+              console.error('Error getting device list:', err);
+              deviceRefreshStatus.textContent = "Error: " + err.message;
+
+              // If we can't load the device list but have saved IDs, show the manual entry fields
+              if (savedDeviceId || savedBuildingId) {
+                showManualEntryElement.checked = true;
+                manualIdEntryDiv.style.display = 'block';
+              }
+
+              return;
+            }
+
+            console.log('Device list retrieved successfully:', result);
+
+            // Clear existing options
+            while (buildingIdElement.options.length > 1) {
+              buildingIdElement.remove(1);
+            }
+
+            while (deviceIdElement.options.length > 1) {
+              deviceIdElement.remove(1);
+            }
+
+            // Add buildings to the dropdown
+            let foundSavedBuilding = false;
+            if (result.buildings && result.buildings.length > 0) {
+              result.buildings.forEach(building => {
+                const option = document.createElement('option');
+                option.value = building.id;
+                option.text = building.name || `Building ${building.id}`;
+                buildingIdElement.add(option);
+
+                // Check if this is the saved building ID
+                if (savedBuildingId && building.id == savedBuildingId) {
+                  foundSavedBuilding = true;
+                }
+              });
+            }
+
+            // Add devices to the dropdown
+            let foundSavedDevice = false;
+            if (result.devices && result.devices.length > 0) {
+              result.devices.forEach(device => {
+                const option = document.createElement('option');
+                option.value = device.id;
+                option.text = device.name || `Device ${device.id}`;
+                option.dataset.buildingId = device.buildingId;
+                option.dataset.hasZone1 = device.hasZone1;
+                option.dataset.hasZone2 = device.hasZone2;
+                deviceIdElement.add(option);
+
+                // Check if this is the saved device ID
+                if (savedDeviceId && device.id == savedDeviceId) {
+                  foundSavedDevice = true;
+                  deviceIdElement.value = device.id;
+
+                  // Also select the building ID
+                  buildingIdElement.value = device.buildingId;
+
+                  // Check if the device has Zone2 and enable/disable the Zone2 settings accordingly
+                  if (device.hasZone2) {
+                    enableZone2Element.disabled = false;
+                    document.querySelector('label[for="enable_zone2"]').style.opacity = 1;
+                  } else {
+                    enableZone2Element.disabled = true;
+                    document.querySelector('label[for="enable_zone2"]').style.opacity = 0.5;
+                  }
+                }
+              });
+
+              deviceRefreshStatus.textContent = `Found ${result.devices.length} devices`;
+            } else {
+              deviceRefreshStatus.textContent = "No devices found";
+            }
+
+            // If we couldn't find the saved device or building ID in the list, show the manual entry fields
+            if ((savedDeviceId && !foundSavedDevice) || (savedBuildingId && !foundSavedBuilding)) {
+              showManualEntryElement.checked = true;
+              manualIdEntryDiv.style.display = 'block';
+            }
+          });
+        }
+
+        // Add event listener for the refresh devices button
+        refreshDevicesButton.addEventListener('click', function(e) {
+          e.preventDefault();
+
+          // Disable the button and show loading state
+          refreshDevicesButton.disabled = true;
+          deviceRefreshStatus.textContent = "Loading devices...";
+
+          // Get the current saved IDs
+          const currentDeviceId = deviceIdElement.value || manualDeviceIdElement.value;
+          const currentBuildingId = buildingIdElement.value || manualBuildingIdElement.value;
+
+          // Call the loadDeviceList function
+          loadDeviceList(currentDeviceId, currentBuildingId);
+
+          refreshDevicesButton.disabled = false;
+        });
+
+        // Add event listener for the device selection to update building selection
+        deviceIdElement.addEventListener('change', function() {
+          const selectedOption = deviceIdElement.options[deviceIdElement.selectedIndex];
+
+          if (selectedOption && selectedOption.dataset.buildingId) {
+            buildingIdElement.value = selectedOption.dataset.buildingId;
+
+            // Check if the device has Zone2 and enable/disable the Zone2 settings accordingly
+            if (selectedOption.dataset.hasZone2 === "true") {
+              enableZone2Element.disabled = false;
+              document.querySelector('label[for="enable_zone2"]').style.opacity = 1;
+            } else {
+              enableZone2Element.disabled = true;
+              enableZone2Element.checked = false;
+              zone2SettingsDiv.style.display = 'none';
+              document.querySelector('label[for="enable_zone2"]').style.opacity = 0.5;
+            }
+          }
+        });
+
+        // Add event listener for the show manual entry checkbox
+        showManualEntryElement.addEventListener('change', function() {
+          manualIdEntryDiv.style.display = this.checked ? 'block' : 'none';
+        });
+
+        // Add event listener for the enable Zone2 checkbox
+        enableZone2Element.addEventListener('change', function() {
+          zone2SettingsDiv.style.display = this.checked ? 'block' : 'none';
         });
 
         // Add event listener for the detect location button
@@ -606,11 +879,35 @@
             if (err) return Homey.alert(err);
           });
 
-          Homey.set("device_id", deviceIdElement.value, function (err) {
+          // Save device and building IDs based on selection or manual entry
+          if (showManualEntryElement.checked && manualDeviceIdElement.value) {
+            Homey.set("device_id", manualDeviceIdElement.value, function (err) {
+              if (err) return Homey.alert(err);
+            });
+
+            Homey.set("building_id", parseInt(manualBuildingIdElement.value) || 0, function (err) {
+              if (err) return Homey.alert(err);
+            });
+          } else {
+            Homey.set("device_id", deviceIdElement.value, function (err) {
+              if (err) return Homey.alert(err);
+            });
+
+            Homey.set("building_id", parseInt(buildingIdElement.value) || 0, function (err) {
+              if (err) return Homey.alert(err);
+            });
+          }
+
+          // Save manual entry settings
+          Homey.set("show_manual_entry", showManualEntryElement.checked, function (err) {
             if (err) return Homey.alert(err);
           });
 
-          Homey.set("building_id", parseInt(buildingIdElement.value) || 0, function (err) {
+          Homey.set("manual_device_id", manualDeviceIdElement.value, function (err) {
+            if (err) return Homey.alert(err);
+          });
+
+          Homey.set("manual_building_id", parseInt(manualBuildingIdElement.value) || 0, function (err) {
             if (err) return Homey.alert(err);
           });
 
@@ -747,6 +1044,47 @@
             });
           } else if (tankTempStepElement.value) {
             Homey.alert('Invalid tank temperature step value. Must be between 0.5 and 5.0.');
+            return;
+          }
+
+          // Save Zone2 settings
+          Homey.set("enable_zone2", enableZone2Element.checked, function (err) {
+            if (err) return Homey.alert(err);
+          });
+
+          const minTempZone2 = parseFloat(minTempZone2Element.value);
+          if (!isNaN(minTempZone2) && minTempZone2 >= 16 && minTempZone2 <= 22) {
+            Homey.set("min_temp_zone2", minTempZone2, function (err) {
+              if (err) return Homey.alert(err);
+            });
+          } else if (minTempZone2Element.value) {
+            Homey.alert('Invalid minimum Zone2 temperature value. Must be between 16 and 22.');
+            return;
+          }
+
+          const maxTempZone2 = parseFloat(maxTempZone2Element.value);
+          if (!isNaN(maxTempZone2) && maxTempZone2 >= 20 && maxTempZone2 <= 26) {
+            Homey.set("max_temp_zone2", maxTempZone2, function (err) {
+              if (err) return Homey.alert(err);
+            });
+          } else if (maxTempZone2Element.value) {
+            Homey.alert('Invalid maximum Zone2 temperature value. Must be between 20 and 26.');
+            return;
+          }
+
+          // Validate min < max for Zone2 temperature
+          if (minTempZone2 >= maxTempZone2) {
+            Homey.alert('Minimum Zone2 temperature must be less than maximum Zone2 temperature.');
+            return;
+          }
+
+          const tempStepZone2 = parseFloat(tempStepZone2Element.value);
+          if (!isNaN(tempStepZone2) && tempStepZone2 >= 0.1 && tempStepZone2 <= 2.0) {
+            Homey.set("temp_step_zone2", tempStepZone2, function (err) {
+              if (err) return Homey.alert(err);
+            });
+          } else if (tempStepZone2Element.value) {
+            Homey.alert('Invalid Zone2 temperature step value. Must be between 0.1 and 2.0.');
             return;
           }
 

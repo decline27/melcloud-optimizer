@@ -282,7 +282,7 @@ export default class HeatOptimizerApp extends App {
       this.validateSettings();
     }
     // If temperature settings changed, re-validate
-    else if (['min_temp', 'max_temp'].includes(key)) {
+    else if (['min_temp', 'max_temp', 'min_temp_zone2', 'max_temp_zone2', 'enable_zone2'].includes(key)) {
       this.log(`Temperature setting '${key}' changed, re-validating settings`);
       this.validateSettings();
     }
@@ -500,6 +500,23 @@ export default class HeatOptimizerApp extends App {
     if (minTemp !== undefined && maxTemp !== undefined) {
       if (minTemp >= maxTemp) {
         this.error('Min temperature must be less than max temperature');
+        return false;
+      }
+    }
+
+    // Check Zone2 settings if enabled
+    const enableZone2 = this.homey.settings.get('enable_zone2');
+    if (enableZone2) {
+      const minTempZone2 = this.homey.settings.get('min_temp_zone2');
+      const maxTempZone2 = this.homey.settings.get('max_temp_zone2');
+
+      if (minTempZone2 !== undefined && maxTempZone2 !== undefined) {
+        if (minTempZone2 >= maxTempZone2) {
+          this.error('Min Zone2 temperature must be less than max Zone2 temperature');
+          return false;
+        }
+      } else {
+        this.error('Zone2 temperature limits are not set but Zone2 control is enabled');
         return false;
       }
     }

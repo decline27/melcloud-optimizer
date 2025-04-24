@@ -422,13 +422,13 @@ class MelCloudApi {
    * @param {number} [maxRetries=2] - Maximum number of retries for setting temperature
    * @returns {Promise<boolean>} - True if successful, false otherwise
    */
-  async setDeviceTemperature(deviceId, buildingId, temperature, maxRetries = 2) {
+  async setDeviceTemperature(deviceId, buildingId, temperature, maxRetries = 2, zone = 1) {
     try {
       if (!this.contextKey) {
         throw new Error('Not logged in to MELCloud');
       }
 
-      console.log(`Setting temperature for device ${deviceId} to ${temperature}°C...`);
+      console.log(`Setting temperature for device ${deviceId} to ${temperature}°C for Zone${zone}...`);
 
       // First find the device
       const device = this.findDevice(deviceId, buildingId);
@@ -442,56 +442,68 @@ class MelCloudApi {
       if (device.isDummy) {
         console.log(`Using dummy device - simulating temperature change for device ${deviceId}`);
         // Update the dummy device data
-        device.data.SetTemperature = temperature;
-        console.log(`Successfully set temperature for dummy device ${deviceId} to ${temperature}°C`);
+        if (zone === 2 && currentState.SetTemperatureZone2 !== undefined) {
+          device.data.SetTemperatureZone2 = temperature;
+          console.log(`Successfully set Zone2 temperature for dummy device ${deviceId} to ${temperature}°C`);
+        } else {
+          // Default to Zone1 or main temperature
+          if (currentState.SetTemperatureZone1 !== undefined) {
+            device.data.SetTemperatureZone1 = temperature;
+            console.log(`Successfully set Zone1 temperature for dummy device ${deviceId} to ${temperature}°C`);
+          } else {
+            device.data.SetTemperature = temperature;
+            console.log(`Successfully set temperature for dummy device ${deviceId} to ${temperature}°C`);
+          }
+        }
         return true;
       }
 
-      // For ATW (Air to Water) devices, we need to set the zone temperature (only Zone1 is used)
+      // For ATW (Air to Water) devices, we need to set the zone temperature
       if (currentState.SetTemperatureZone1 !== undefined) {
-        console.log('Detected ATW (Air to Water) device, setting Zone1 temperature only');
+        console.log(`Detected ATW (Air to Water) device, setting Zone${zone} temperature`);
 
         // Log the current operation modes and other important settings
         console.log(`Current device state:`);
         console.log(`- Power: ${currentState.Power}`);
         console.log(`- OperationMode: ${currentState.OperationMode}`);
         console.log(`- OperationModeZone1: ${currentState.OperationModeZone1}`);
+        console.log(`- OperationModeZone2: ${currentState.OperationModeZone2 || 'N/A'}`);
         console.log(`- IdleZone1: ${currentState.IdleZone1}`);
+        console.log(`- IdleZone2: ${currentState.IdleZone2 || 'N/A'}`);
         console.log(`- Current Zone1 temp: ${currentState.SetTemperatureZone1}°C`);
+        console.log(`- Current Zone2 temp: ${currentState.SetTemperatureZone2 || 'N/A'}°C`);
 
-        // Try a more minimal approach - only send the essential fields
-        // Create a new minimal request body with only the necessary fields
-        const requestBody = {
-          DeviceID: currentState.DeviceID,
-          BuildingID: currentState.BuildingID || buildingId,
-          SetTemperatureZone1: parseFloat(temperature), // Using exact value without rounding
-          // Keep the original Zone2 temperature
-          SetTemperatureZone2: currentState.SetTemperatureZone2,
-          // Keep the original room temperatures
-          RoomTemperatureZone1: currentState.RoomTemperatureZone1,
-          RoomTemperatureZone2: currentState.RoomTemperatureZone2,
-          Power: true,
-          EffectiveFlags: 1,
-          HasPendingCommand: true,
-          OperationMode: currentState.OperationMode,
-          OperationModeZone1: currentState.OperationModeZone1, // Keep the original operation mode
-          OperationModeZone2: currentState.OperationModeZone2, // Keep the original Zone2 operation mode
-          IdleZone1: false,
-          IdleZone2: currentState.IdleZone2, // Keep the original Zone2 idle state
-          // Include device type information
-          DeviceType: currentState.DeviceType,
-          // Include heat flow temperatures
-          SetHeatFlowTemperatureZone1: currentState.SetHeatFlowTemperatureZone1,
-          SetHeatFlowTemperatureZone2: currentState.SetHeatFlowTemperatureZone2
-        };
+        // Create a complete copy of the current state
+        const completeRequestBody = JSON.parse(JSON.stringify(currentState));
 
-        console.log('Using minimal request body approach');
+        // Set the temperature for the specified zone
+        if (zone === 2 && currentState.SetTemperatureZone2 !== undefined) {
+          // Set Zone2 temperature
+          completeRequestBody.SetTemperatureZone2 = parseFloat(temperature);
+          // Set the correct effective flags for Zone2 temperature change
+          // Using the correct flag from pymelcloud: 0x800000200 (34359738880 in decimal)
+          completeRequestBody.EffectiveFlags = 0x800000200;
+          completeRequestBody.IdleZone2 = false; // Make sure Zone2 is not idle
+          console.log(`Setting Zone2 temperature to ${temperature}°C`);
+        } else {
+          // Set Zone1 temperature (default)
+          completeRequestBody.SetTemperatureZone1 = parseFloat(temperature);
+          // Set the correct effective flags for Zone1 temperature change
+          completeRequestBody.EffectiveFlags = 0x200000080;
+          completeRequestBody.IdleZone1 = false; // Make sure Zone1 is not idle
+          console.log(`Setting Zone1 temperature to ${temperature}°C`);
+        }
 
-        // Log the changes we're making
-        console.log(`Current state before change: Zone1=${currentState.SetTemperatureZone1}°C, Zone2=${currentState.SetTemperatureZone2 || 'N/A'}°C`);
-        console.log(`Setting new temperature: Zone1=${requestBody.SetTemperatureZone1}°C`);
+        // Ensure these critical fields are set
+        completeRequestBody.HasPendingCommand = true;
+        completeRequestBody.Power = true;
 
-        // Go back to the original SetAtw endpoint but with a more complete request body
+        console.log('Using Device/SetAtw endpoint with complete device state');
+
+        // Log the request body for debugging (truncated to avoid huge logs)
+        console.log('SetAtw request body (truncated):', JSON.stringify(completeRequestBody).substring(0, 200) + '...');
+
+        // Make the actual API call to MELCloud
         const baseUrlObj = new URL(this.baseUrl);
         const options = {
           hostname: baseUrlObj.hostname,
@@ -504,28 +516,7 @@ class MelCloudApi {
           }
         };
 
-        // Create a complete copy of the current state
-        const completeRequestBody = JSON.parse(JSON.stringify(currentState));
-
-        // Only modify the Zone1 temperature - using exact value without rounding
-        // MELCloud API can accept 0.5°C increments
-        completeRequestBody.SetTemperatureZone1 = parseFloat(temperature);
-
-        // Ensure these critical fields are set
-        completeRequestBody.HasPendingCommand = true;
-        // Set the correct effective flags for Zone1 temperature change
-        // This is the flag value used by the pymelcloud library for Zone1 temperature
-        completeRequestBody.EffectiveFlags = 0x200000080;
-        completeRequestBody.Power = true;
-        completeRequestBody.IdleZone1 = false; // Make sure Zone1 is not idle
-
-        console.log('Using Device/SetAtw endpoint with complete device state');
-
-        // Log the request body for debugging (truncated to avoid huge logs)
-        console.log('SetAtw request body (truncated):', JSON.stringify(completeRequestBody).substring(0, 200) + '...');
-
         // Use the complete request body for the HTTP request with retry
-        // Pass the maxRetries parameter to the httpRequest function
         const data = await httpRequest(options, completeRequestBody, maxRetries);
 
         // Verify that the temperature was actually set by checking the response
@@ -534,14 +525,14 @@ class MelCloudApi {
         // Check if the response indicates success
         if (data) {
           // The response might contain different fields, so we'll check a few possibilities
-          const actualTemp = data.SetTemperatureZone1 || data.SetTemperature;
+          const actualTemp = zone === 2 ? data.SetTemperatureZone2 : data.SetTemperatureZone1;
 
           if (actualTemp !== undefined) {
             if (Math.round(actualTemp) === Math.round(parseFloat(temperature))) {
-              console.log(`Successfully set Zone1 temperature for device ${completeRequestBody.DeviceID || deviceId} to ${temperature}°C`);
+              console.log(`Successfully set Zone${zone} temperature for device ${completeRequestBody.DeviceID || deviceId} to ${temperature}°C`);
               return true;
             } else {
-              console.log(`WARNING: Attempted to set Zone1 temperature to ${temperature}°C but API returned ${actualTemp}°C`);
+              console.log(`WARNING: Attempted to set Zone${zone} temperature to ${temperature}°C but API returned ${actualTemp}°C`);
               console.log('Full response data:', JSON.stringify(data).substring(0, 500));
               // Return true anyway since the API accepted the request
               return true;
@@ -663,8 +654,8 @@ class MelCloudApi {
       // Ensure these critical fields are set
       completeRequestBody.HasPendingCommand = true;
       // Set the correct effective flags for tank water temperature change
-      // This is the flag value for tank water temperature
-      completeRequestBody.EffectiveFlags = 0x200000100; // Different flag for tank temperature
+      // Using the correct flag from pymelcloud: 0x1000000000020 (17592186044448 in decimal)
+      completeRequestBody.EffectiveFlags = 0x1000000000020; // Correct flag for tank temperature
       completeRequestBody.Power = true;
 
       console.log('Using Device/SetAtw endpoint with complete device state for tank temperature');
@@ -1506,10 +1497,16 @@ class Optimizer {
     this.weather = weather; // Weather API instance
     this.thermalModel = { K: 0.5 };
 
-    // Heating temperature settings
+    // Heating temperature settings for Zone1
     this.minTemp = 18;
     this.maxTemp = 22;
     this.tempStep = 0.5;
+
+    // Heating temperature settings for Zone2
+    this.enableZone2 = false;
+    this.minTempZone2 = 18;
+    this.maxTempZone2 = 22;
+    this.tempStepZone2 = 0.5;
 
     // Hot water tank temperature settings
     this.enableTankControl = false;
@@ -1541,6 +1538,24 @@ class Optimizer {
     // MELCloud can accept 0.5°C increments
     this.tempStep = tempStep || 0.5;
     this.logger.log(`Temperature constraints set: min=${minTemp}°C, max=${maxTemp}°C, step=${this.tempStep}°C`);
+  }
+
+  /**
+   * Set the Zone2 temperature constraints
+   * @param {boolean} enableZone2 - Whether to enable Zone2 temperature control
+   * @param {number} minTempZone2 - Minimum Zone2 temperature
+   * @param {number} maxTempZone2 - Maximum Zone2 temperature
+   * @param {number} tempStepZone2 - Maximum Zone2 temperature step
+   */
+  setZone2TemperatureConstraints(enableZone2, minTempZone2, maxTempZone2, tempStepZone2) {
+    this.enableZone2 = enableZone2;
+    this.minTempZone2 = minTempZone2;
+    this.maxTempZone2 = maxTempZone2;
+    this.tempStepZone2 = tempStepZone2 || 0.5;
+    this.logger.log(`Zone2 temperature control: ${enableZone2 ? 'enabled' : 'disabled'}`);
+    if (enableZone2) {
+      this.logger.log(`Zone2 temperature constraints set: min=${minTempZone2}°C, max=${maxTempZone2}°C, step=${this.tempStepZone2}°C`);
+    }
   }
 
   /**
@@ -1723,24 +1738,104 @@ class Optimizer {
           `Tibber price level is ${priceLevel}, increasing temperature`;
       }
 
-      // Set new temperature if different
+      // Set new temperature for Zone1 if different
       if (newTarget !== currentTarget) {
         try {
-          const success = await this.melCloud.setDeviceTemperature(this.deviceId, this.buildingId, newTarget);
+          const success = await this.melCloud.setDeviceTemperature(this.deviceId, this.buildingId, newTarget, 2, 1); // Zone1
 
           if (success) {
-            this.logger.log(`Changed temperature from ${currentTarget}°C to ${newTarget}°C: ${reason}`);
+            this.logger.log(`Changed Zone1 temperature from ${currentTarget}°C to ${newTarget}°C: ${reason}`);
           } else {
-            this.logger.log(`WARNING: Failed to change temperature from ${currentTarget}°C to ${newTarget}°C - API returned success but temperature was not updated`);
+            this.logger.log(`WARNING: Failed to change Zone1 temperature from ${currentTarget}°C to ${newTarget}°C - API returned success but temperature was not updated`);
             this.logger.log(`Will try again in the next hourly optimization`);
             // Don't throw an error, just log the warning
           }
         } catch (error) {
-          this.logger.log(`Failed to change temperature from ${currentTarget}°C to ${newTarget}°C: ${error.message}`);
-          throw new Error(`Failed to set temperature: ${error.message}`);
+          this.logger.log(`Failed to change Zone1 temperature from ${currentTarget}°C to ${newTarget}°C: ${error.message}`);
+          throw new Error(`Failed to set Zone1 temperature: ${error.message}`);
         }
       } else {
-        this.logger.log(`Keeping temperature at ${currentTarget}°C: ${reason}`);
+        this.logger.log(`Keeping Zone1 temperature at ${currentTarget}°C: ${reason}`);
+      }
+
+      // Handle Zone2 temperature optimization if enabled
+      let zone2Result = null;
+      if (this.enableZone2 && deviceState.SetTemperatureZone2 !== undefined) {
+        this.logger.log('Zone2 temperature optimization enabled');
+
+        try {
+          // Get current Zone2 temperature
+          const currentTempZone2 = deviceState.RoomTemperatureZone2 || 21; // Default to 21 if not available
+          const currentTargetZone2 = deviceState.SetTemperatureZone2;
+
+          this.logger.log(`Current Zone2 temperature: ${currentTempZone2}°C, Target: ${currentTargetZone2}°C`);
+
+          // Calculate optimal Zone2 temperature based on price and forecast
+          // We'll use the same algorithm as Zone1 but with Zone2 constraints
+          let newTargetZone2 = this.calculateOptimalTemperature(currentPrice, priceAvg, priceMin, priceMax, currentTempZone2, priceForecast);
+
+          // Apply weather adjustment if available
+          if (weatherData && weatherAdjustment) {
+            newTargetZone2 += weatherAdjustment.adjustment;
+            this.logger.log(`Applied weather adjustment to Zone2: ${weatherAdjustment.adjustment.toFixed(2)}°C, new target: ${newTargetZone2.toFixed(1)}°C`);
+          }
+
+          // Apply Zone2 constraints
+          newTargetZone2 = Math.max(this.minTempZone2, Math.min(this.maxTempZone2, newTargetZone2));
+
+          // Apply step constraint (don't change by more than tempStepZone2)
+          const maxChangeZone2 = this.tempStepZone2;
+          if (Math.abs(newTargetZone2 - currentTargetZone2) > maxChangeZone2) {
+            newTargetZone2 = currentTargetZone2 + (newTargetZone2 > currentTargetZone2 ? maxChangeZone2 : -maxChangeZone2);
+          }
+
+          // Round to nearest 0.5°C (MELCloud can accept 0.5°C increments)
+          newTargetZone2 = Math.round(newTargetZone2 * 2) / 2;
+          this.logger.log(`Rounding Zone2 temperature to nearest 0.5°C: ${newTargetZone2}°C`);
+
+          // Determine reason for Zone2 change
+          let zone2Reason = 'No change needed';
+
+          if (newTargetZone2 < currentTargetZone2) {
+            zone2Reason = weatherAdjustment.adjustment < -0.2 ?
+              `Tibber price level is ${priceLevel} and ${weatherAdjustment.reason.toLowerCase()}, reducing Zone2 temperature` :
+              `Tibber price level is ${priceLevel}, reducing Zone2 temperature`;
+          } else if (newTargetZone2 > currentTargetZone2) {
+            zone2Reason = weatherAdjustment.adjustment > 0.2 ?
+              `Tibber price level is ${priceLevel} and ${weatherAdjustment.reason.toLowerCase()}, increasing Zone2 temperature` :
+              `Tibber price level is ${priceLevel}, increasing Zone2 temperature`;
+          }
+
+          // Set new Zone2 temperature if different
+          if (newTargetZone2 !== currentTargetZone2) {
+            try {
+              const zone2Success = await this.melCloud.setDeviceTemperature(this.deviceId, this.buildingId, newTargetZone2, 2, 2); // Zone2
+
+              if (zone2Success) {
+                this.logger.log(`Changed Zone2 temperature from ${currentTargetZone2}°C to ${newTargetZone2}°C: ${zone2Reason}`);
+              } else {
+                this.logger.log(`WARNING: Failed to change Zone2 temperature from ${currentTargetZone2}°C to ${newTargetZone2}°C - API returned success but temperature was not updated`);
+                this.logger.log(`Will try again in the next hourly optimization`);
+              }
+            } catch (zone2Error) {
+              this.logger.log(`Failed to change Zone2 temperature from ${currentTargetZone2}°C to ${newTargetZone2}°C: ${zone2Error.message}`);
+              // Don't throw an error for Zone2 temperature, just log the warning
+            }
+          } else {
+            this.logger.log(`Keeping Zone2 temperature at ${currentTargetZone2}°C: ${zone2Reason}`);
+          }
+
+          // Store Zone2 optimization result
+          zone2Result = {
+            targetTemp: newTargetZone2,
+            reason: zone2Reason,
+            targetOriginal: currentTargetZone2,
+            indoorTemp: currentTempZone2
+          };
+        } catch (zone2OptError) {
+          this.logger.error('Error in Zone2 temperature optimization', zone2OptError);
+          // Don't throw an error for Zone2 temperature, just log the error
+        }
       }
 
       // Handle tank water temperature optimization if enabled
@@ -1842,6 +1937,13 @@ class Optimizer {
         comfort,
         timestamp: new Date().toISOString(),
         kFactor: this.thermalModel.K,
+        // Include Zone2 temperature optimization result if available
+        zone2Temperature: zone2Result ? {
+          targetTemp: zone2Result.targetTemp,
+          reason: zone2Result.reason,
+          targetOriginal: zone2Result.targetOriginal,
+          indoorTemp: zone2Result.indoorTemp
+        } : null,
         // Include tank temperature optimization result if available
         tankTemperature: tankResult ? {
           targetTemp: tankResult.targetTemp,
@@ -2630,6 +2732,12 @@ async function updateOptimizerSettings(homey) {
   const tempStep = homey.settings.get('temp_step_max') || 0.5;
   const kFactor = homey.settings.get('initial_k') || 0.5;
 
+  // Get the latest Zone2 settings
+  const enableZone2 = homey.settings.get('enable_zone2') === true;
+  const minTempZone2 = homey.settings.get('min_temp_zone2') || 18;
+  const maxTempZone2 = homey.settings.get('max_temp_zone2') || 22;
+  const tempStepZone2 = homey.settings.get('temp_step_zone2') || 0.5;
+
   // Get the latest hot water tank settings
   const enableTankControl = homey.settings.get('enable_tank_control') === true;
   const minTankTemp = homey.settings.get('min_tank_temp') || 40;
@@ -2643,6 +2751,15 @@ async function updateOptimizerSettings(homey) {
   homey.app.log('- Temp Step:', tempStep, '°C (MELCloud supports 0.5°C increments)');
   homey.app.log('- K Factor:', kFactor);
 
+  // Log Zone2 settings
+  homey.app.log('Zone2 settings:');
+  homey.app.log('- Zone2 Control:', enableZone2 ? 'Enabled' : 'Disabled');
+  if (enableZone2) {
+    homey.app.log('- Min Temp Zone2:', minTempZone2, '°C');
+    homey.app.log('- Max Temp Zone2:', maxTempZone2, '°C');
+    homey.app.log('- Temp Step Zone2:', tempStepZone2, '°C');
+  }
+
   // Log tank settings
   homey.app.log('Hot Water Tank settings:');
   homey.app.log('- Tank Control:', enableTankControl ? 'Enabled' : 'Disabled');
@@ -2654,11 +2771,84 @@ async function updateOptimizerSettings(homey) {
 
   // Update the optimizer with the latest settings
   optimizer.setTemperatureConstraints(minTemp, maxTemp, tempStep);
+  optimizer.setZone2TemperatureConstraints(enableZone2, minTempZone2, maxTempZone2, tempStepZone2);
   optimizer.setTankTemperatureConstraints(enableTankControl, minTankTemp, maxTankTemp, tankTempStep);
   optimizer.setThermalModel(kFactor);
 }
 
 module.exports = {
+  async getDeviceList({ homey }) {
+    try {
+      console.log('API method getDeviceList called');
+      homey.app.log('API method getDeviceList called');
+
+      // Initialize services if needed
+      try {
+        await initializeServices(homey);
+      } catch (initErr) {
+        return {
+          success: false,
+          error: `Failed to initialize services: ${initErr.message}`,
+          needsConfiguration: true
+        };
+      }
+
+      // Get the list of devices
+      try {
+        // Refresh the device list to ensure we have the latest data
+        const devices = await melCloud.getDevices();
+        homey.app.log(`Found ${devices.length} devices in MELCloud account`);
+
+        // Format the devices for the dropdown
+        const formattedDevices = devices.map(device => ({
+          id: device.id,
+          name: device.name,
+          buildingId: device.buildingId,
+          type: device.type,
+          // Include information about zones if available
+          hasZone1: device.data && device.data.SetTemperatureZone1 !== undefined,
+          hasZone2: device.data && device.data.SetTemperatureZone2 !== undefined,
+          // Include current temperatures if available
+          currentTemperatureZone1: device.data && device.data.RoomTemperatureZone1,
+          currentTemperatureZone2: device.data && device.data.RoomTemperatureZone2,
+          currentSetTemperatureZone1: device.data && device.data.SetTemperatureZone1,
+          currentSetTemperatureZone2: device.data && device.data.SetTemperatureZone2
+        }));
+
+        // Group devices by building
+        const buildings = {};
+        devices.forEach(device => {
+          if (!buildings[device.buildingId]) {
+            buildings[device.buildingId] = {
+              id: device.buildingId,
+              name: `Building ${device.buildingId}`,
+              devices: []
+            };
+          }
+          buildings[device.buildingId].devices.push(device.id);
+        });
+
+        // Format buildings for the dropdown
+        const formattedBuildings = Object.values(buildings);
+
+        return {
+          success: true,
+          devices: formattedDevices,
+          buildings: formattedBuildings
+        };
+      } catch (deviceErr) {
+        homey.app.error('Error getting device list:', deviceErr);
+        return {
+          success: false,
+          error: `Failed to get device list: ${deviceErr.message}`
+        };
+      }
+    } catch (err) {
+      console.error('Error in getDeviceList:', err);
+      return { success: false, error: err.message };
+    }
+  },
+
   async getTestLogging({ homey }) {
     try {
       console.log('API method getTestLogging called');
@@ -2692,6 +2882,11 @@ module.exports = {
         max_temp: homey.settings.get('max_temp'),
         temp_step_max: homey.settings.get('temp_step_max'),
         initial_k: homey.settings.get('initial_k'),
+        // Zone2 settings
+        enable_zone2: homey.settings.get('enable_zone2'),
+        min_temp_zone2: homey.settings.get('min_temp_zone2'),
+        max_temp_zone2: homey.settings.get('max_temp_zone2'),
+        temp_step_zone2: homey.settings.get('temp_step_zone2'),
         // Hot water tank settings
         enable_tank_control: homey.settings.get('enable_tank_control'),
         min_tank_temp: homey.settings.get('min_tank_temp'),
@@ -2809,7 +3004,12 @@ module.exports = {
         homey.app.log('Optimization result:', JSON.stringify(result, null, 2));
 
         // Log to timeline (using app.log for now)
-        homey.app.log(`🔄 TIMELINE: Optimized temperature to ${result.targetTemp}°C (was ${result.targetOriginal}°C)`);
+        homey.app.log(`🔄 TIMELINE: Optimized Zone1 temperature to ${result.targetTemp}°C (was ${result.targetOriginal}°C)`);
+
+        // Log Zone2 temperature changes if available
+        if (result.zone2Temperature) {
+          homey.app.log(`🔄 TIMELINE: Optimized Zone2 temperature to ${result.zone2Temperature.targetTemp}°C (was ${result.zone2Temperature.targetOriginal}°C)`);
+        }
 
         // Log tank temperature changes if available
         if (result.tankTemperature) {
@@ -2818,8 +3018,13 @@ module.exports = {
 
         // Send to timeline using the Homey SDK 3.0 API
         try {
-          // Prepare message including both heating and tank temperature if available
-          let message = `Optimized temperature to ${result.targetTemp}°C (was ${result.targetOriginal}°C)`;
+          // Prepare message including Zone1, Zone2, and tank temperature if available
+          let message = `Optimized Zone1 temperature to ${result.targetTemp}°C (was ${result.targetOriginal}°C)`;
+
+          if (result.zone2Temperature) {
+            message += `. Zone2 temperature to ${result.zone2Temperature.targetTemp}°C (was ${result.zone2Temperature.targetOriginal}°C)`;
+          }
+
           if (result.tankTemperature) {
             message += `. Tank temperature to ${result.tankTemperature.targetTemp}°C (was ${result.tankTemperature.targetOriginal}°C)`;
           }

@@ -53,6 +53,10 @@
     "getStartCronJobs": {
       "method": "GET",
       "path": "/getStartCronJobs"
+    },
+    "getDeviceList": {
+      "method": "GET",
+      "path": "/getDeviceList"
     }
   }
 }
