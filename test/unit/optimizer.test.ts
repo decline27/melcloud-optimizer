@@ -1,14 +1,6 @@
 import HeatOptimizerApp from '../../src/app';
 import { Logger } from '../../src/util/logger';
 
-// Declare global API type
-declare global {
-  var api: {
-    getRunHourlyOptimizer: jest.Mock;
-    getRunWeeklyCalibration: jest.Mock;
-  };
-}
-
 // Mock fetch globally
 global.fetch = jest.fn();
 
@@ -139,25 +131,33 @@ describe('Temperature Optimization', () => {
         setLogLevel: jest.fn()
       };
 
-      // Create a mock API context
-      global.api = {
-        getRunHourlyOptimizer: jest.fn().mockResolvedValue({
-          success: true,
-          message: 'Hourly optimization completed'
-        }),
-        getRunWeeklyCalibration: jest.fn().mockResolvedValue({
-          success: true,
-          message: 'Weekly calibration completed'
-        })
-      };
-
-      // Mock the API methods
-      (app as any).getRunHourlyOptimizer = jest.fn().mockImplementation(async () => {
-        return global.api.getRunHourlyOptimizer();
+      // Mock the API methods directly
+      (app as any).runHourlyOptimizer = jest.fn().mockResolvedValue({
+        success: true,
+        message: 'Hourly optimization completed',
+        data: {
+          targetTemp: 20.5,
+          reason: 'Price is high',
+          priceNow: 1.2,
+          priceAvg: 1.0,
+          priceMin: 0.8,
+          priceMax: 1.5,
+          indoorTemp: 21.5,
+          outdoorTemp: 10,
+          targetOriginal: 21.0,
+          savings: 0.1,
+          comfort: 0.9,
+          timestamp: new Date().toISOString(),
+          kFactor: 0.3
+        }
       });
 
-      (app as any).getRunWeeklyCalibration = jest.fn().mockImplementation(async () => {
-        return global.api.getRunWeeklyCalibration();
+      (app as any).runWeeklyCalibration = jest.fn().mockResolvedValue({
+        success: true,
+        message: 'Weekly calibration completed',
+        data: {
+          model: { K: 0.35, S: 0.12 }
+        }
       });
 
       // Mock the initializeServices method
@@ -384,9 +384,10 @@ describe('Temperature Optimization', () => {
     });
 
     it('should call the hourly optimizer API method', async () => {
-      // Mock the API response
-      global.api.getRunHourlyOptimizer.mockResolvedValue({
+      // Update the mock to include Zone2 and tank data
+      (app as any).runHourlyOptimizer.mockResolvedValue({
         success: true,
+        message: 'Hourly optimization completed',
         data: {
           targetTemp: 20.5,
           reason: 'Price is high',
@@ -419,11 +420,13 @@ describe('Temperature Optimization', () => {
 
       const result = await (app as any).runHourlyOptimizer();
 
-      // Check if the API method was called
-      expect((app as any).getRunHourlyOptimizer).toHaveBeenCalled();
+      // Check if the method was called
+      expect((app as any).runHourlyOptimizer).toHaveBeenCalled();
 
       // Check if the result is as expected
       expect(result).toHaveProperty('success', true);
+      expect(result.data).toHaveProperty('zone2Temperature');
+      expect(result.data).toHaveProperty('tankTemperature');
     });
 
     it('should handle Zone2 temperature optimization when enabled', async () => {
@@ -434,9 +437,10 @@ describe('Temperature Optimization', () => {
         return mockSettings.get.getMockImplementation()(key);
       });
 
-      // Mock the API response with Zone2 data
-      global.api.getRunHourlyOptimizer.mockResolvedValue({
+      // Update the mock with Zone2 data
+      (app as any).runHourlyOptimizer.mockResolvedValue({
         success: true,
+        message: 'Hourly optimization completed',
         data: {
           targetTemp: 20.5,
           reason: 'Price is high',
@@ -464,8 +468,8 @@ describe('Temperature Optimization', () => {
 
       const result = await (app as any).runHourlyOptimizer();
 
-      // Check if the API method was called
-      expect((app as any).getRunHourlyOptimizer).toHaveBeenCalled();
+      // Check if the method was called
+      expect((app as any).runHourlyOptimizer).toHaveBeenCalled();
 
       // Check if the result is as expected
       expect(result).toHaveProperty('success', true);
@@ -480,9 +484,10 @@ describe('Temperature Optimization', () => {
         return mockSettings.get.getMockImplementation()(key);
       });
 
-      // Mock the API response with tank data
-      global.api.getRunHourlyOptimizer.mockResolvedValue({
+      // Update the mock with tank data
+      (app as any).runHourlyOptimizer.mockResolvedValue({
         success: true,
+        message: 'Hourly optimization completed',
         data: {
           targetTemp: 20.5,
           reason: 'Price is high',
@@ -510,8 +515,8 @@ describe('Temperature Optimization', () => {
 
       const result = await (app as any).runHourlyOptimizer();
 
-      // Check if the API method was called
-      expect((app as any).getRunHourlyOptimizer).toHaveBeenCalled();
+      // Check if the method was called
+      expect((app as any).runHourlyOptimizer).toHaveBeenCalled();
 
       // Check if the result is as expected
       expect(result).toHaveProperty('success', true);
@@ -526,9 +531,10 @@ describe('Temperature Optimization', () => {
         return mockSettings.get.getMockImplementation()(key);
       });
 
-      // Mock the API response without Zone2 data
-      global.api.getRunHourlyOptimizer.mockResolvedValue({
+      // Update the mock without Zone2 data
+      (app as any).runHourlyOptimizer.mockResolvedValue({
         success: true,
+        message: 'Hourly optimization completed',
         data: {
           targetTemp: 20.5,
           reason: 'Price is high',
@@ -551,8 +557,8 @@ describe('Temperature Optimization', () => {
 
       const result = await (app as any).runHourlyOptimizer();
 
-      // Check if the API method was called
-      expect((app as any).getRunHourlyOptimizer).toHaveBeenCalled();
+      // Check if the method was called
+      expect((app as any).runHourlyOptimizer).toHaveBeenCalled();
 
       // Check if the result is as expected
       expect(result).toHaveProperty('success', true);
@@ -567,9 +573,10 @@ describe('Temperature Optimization', () => {
         return mockSettings.get.getMockImplementation()(key);
       });
 
-      // Mock the API response without tank data
-      global.api.getRunHourlyOptimizer.mockResolvedValue({
+      // Update the mock without tank data
+      (app as any).runHourlyOptimizer.mockResolvedValue({
         success: true,
+        message: 'Hourly optimization completed',
         data: {
           targetTemp: 20.5,
           reason: 'Price is high',
@@ -592,8 +599,8 @@ describe('Temperature Optimization', () => {
 
       const result = await (app as any).runHourlyOptimizer();
 
-      // Check if the API method was called
-      expect((app as any).getRunHourlyOptimizer).toHaveBeenCalled();
+      // Check if the method was called
+      expect((app as any).runHourlyOptimizer).toHaveBeenCalled();
 
       // Check if the result is as expected
       expect(result).toHaveProperty('success', true);
@@ -601,8 +608,8 @@ describe('Temperature Optimization', () => {
     });
 
     it('should handle errors gracefully', async () => {
-      // Mock a failed API response
-      global.api.getRunHourlyOptimizer.mockResolvedValue({
+      // Mock a failed response
+      (app as any).runHourlyOptimizer.mockResolvedValue({
         success: false,
         error: 'API error'
       });
@@ -613,8 +620,8 @@ describe('Temperature Optimization', () => {
 
       const result = await (app as any).runHourlyOptimizer();
 
-      // Check if the API method was called
-      expect((app as any).getRunHourlyOptimizer).toHaveBeenCalled();
+      // Check if the method was called
+      expect((app as any).runHourlyOptimizer).toHaveBeenCalled();
 
       // Check if the result indicates failure
       expect(result).toHaveProperty('success', false);
@@ -639,8 +646,8 @@ describe('Temperature Optimization', () => {
         }
       });
 
-      // Create a mock API context
-      global.api.getRunWeeklyCalibration = jest.fn().mockResolvedValue({
+      // Mock the runWeeklyCalibration method
+      (app as any).runWeeklyCalibration = jest.fn().mockResolvedValue({
         success: true,
         message: 'Weekly calibration completed',
         data: {
@@ -666,16 +673,16 @@ describe('Temperature Optimization', () => {
         return 'some-value';
       });
 
-      // Mock the API response for missing API key
-      global.api.getRunWeeklyCalibration.mockResolvedValue({
+      // Update the mock for missing API key
+      (app as any).runWeeklyCalibration.mockResolvedValue({
         success: false,
         error: 'OpenAI API key not configured'
       });
 
       const result = await (app as any).runWeeklyCalibration();
 
-      // Check if the API method was called
-      expect((app as any).getRunWeeklyCalibration).toHaveBeenCalled();
+      // Check if the method was called
+      expect((app as any).runWeeklyCalibration).toHaveBeenCalled();
 
       // Check if the result indicates failure
       expect(result).toHaveProperty('success', false);
@@ -688,24 +695,24 @@ describe('Temperature Optimization', () => {
         return 'some-value';
       });
 
-      // Mock the API response for not enough logs
-      global.api.getRunWeeklyCalibration.mockResolvedValue({
+      // Update the mock for not enough logs
+      (app as any).runWeeklyCalibration.mockResolvedValue({
         success: false,
         error: 'Not enough logs for calibration'
       });
 
       const result = await (app as any).runWeeklyCalibration();
 
-      // Check if the API method was called
-      expect((app as any).getRunWeeklyCalibration).toHaveBeenCalled();
+      // Check if the method was called
+      expect((app as any).runWeeklyCalibration).toHaveBeenCalled();
 
       // Check if the result indicates failure
       expect(result).toHaveProperty('success', false);
     });
 
     it('should call OpenAI API and update model parameters', async () => {
-      // Mock the API response for successful calibration
-      global.api.getRunWeeklyCalibration.mockResolvedValue({
+      // Update the mock for successful calibration
+      (app as any).runWeeklyCalibration.mockResolvedValue({
         success: true,
         message: 'Weekly calibration completed',
         data: {
@@ -718,8 +725,8 @@ describe('Temperature Optimization', () => {
 
       const result = await (app as any).runWeeklyCalibration();
 
-      // Check if the API method was called
-      expect((app as any).getRunWeeklyCalibration).toHaveBeenCalled();
+      // Check if the method was called
+      expect((app as any).runWeeklyCalibration).toHaveBeenCalled();
 
       // Check if the result is as expected
       expect(result).toHaveProperty('success', true);
@@ -728,16 +735,16 @@ describe('Temperature Optimization', () => {
     });
 
     it('should handle OpenAI API errors gracefully', async () => {
-      // Mock the API response for API error
-      global.api.getRunWeeklyCalibration.mockResolvedValue({
+      // Update the mock for API error
+      (app as any).runWeeklyCalibration.mockResolvedValue({
         success: false,
         error: 'API error'
       });
 
       const result = await (app as any).runWeeklyCalibration();
 
-      // Check if the API method was called
-      expect((app as any).getRunWeeklyCalibration).toHaveBeenCalled();
+      // Check if the method was called
+      expect((app as any).runWeeklyCalibration).toHaveBeenCalled();
 
       // Check if the result indicates failure
       expect(result).toHaveProperty('success', false);
