@@ -78,9 +78,8 @@ describe('HeatOptimizerApp', () => {
         return undefined;
       });
 
-      // Create a spy for the initializeServices method
-      const initializeServicesSpy = jest.spyOn(app as any, 'initializeServices')
-        .mockImplementation(() => Promise.resolve());
+      // Mock the initializeServices method
+      (app as any).initializeServices = jest.fn().mockResolvedValue(undefined);
 
       // Create a spy for the validateSettings method
       const validateSettingsSpy = jest.spyOn(app as any, 'validateSettings')
@@ -113,7 +112,7 @@ describe('HeatOptimizerApp', () => {
       expect(mockSettings.on).toHaveBeenCalledWith('set', expect.any(Function));
 
       // Check if services were initialized
-      expect(initializeServicesSpy).toHaveBeenCalled();
+      expect((app as any).initializeServices).toHaveBeenCalled();
 
       // Check if validateSettings was called
       expect(validateSettingsSpy).toHaveBeenCalled();
@@ -139,9 +138,8 @@ describe('HeatOptimizerApp', () => {
         return undefined;
       });
 
-      // Create a spy for the initializeServices method
-      jest.spyOn(app as any, 'initializeServices')
-        .mockImplementation(() => Promise.resolve());
+      // Mock the initializeServices method
+      (app as any).initializeServices = jest.fn().mockResolvedValue(undefined);
 
       // Create a spy for the validateSettings method
       jest.spyOn(app as any, 'validateSettings')
@@ -198,9 +196,8 @@ describe('HeatOptimizerApp', () => {
         return undefined;
       });
 
-      // Create a spy for the initializeServices method
-      jest.spyOn(app as any, 'initializeServices')
-        .mockImplementation(() => Promise.resolve());
+      // Mock the initializeServices method
+      (app as any).initializeServices = jest.fn().mockResolvedValue(undefined);
 
       // Create a spy for the validateSettings method
       jest.spyOn(app as any, 'validateSettings')
@@ -477,14 +474,14 @@ describe('HeatOptimizerApp', () => {
         return undefined;
       });
 
-      // Create a spy for the logger.setLogLevel method
-      const setLogLevelSpy = jest.spyOn((app as any).logger, 'setLogLevel');
+      // Reset the logger.setLogLevel mock
+      (app as any).logger.setLogLevel.mockClear();
 
       // Call onSettingsChanged with log_level
       (app as any).onSettingsChanged('log_level');
 
       // Check if log level was updated
-      expect(setLogLevelSpy).toHaveBeenCalledWith(2);
+      expect((app as any).logger.setLogLevel).toHaveBeenCalledWith(2);
     });
 
     it('should validate settings when credential settings change', () => {
@@ -529,17 +526,14 @@ describe('HeatOptimizerApp', () => {
     });
 
     it('should validate settings when tank settings change', () => {
-      // Reset the validateSettings spy
+      // Reset the validateSettings mock
       (app as any).validateSettings.mockClear();
-
-      // Create a spy for the validateSettings method
-      const validateSettingsSpy = jest.spyOn(app as any, 'validateSettings');
 
       // Call onSettingsChanged with a tank setting
       (app as any).onSettingsChanged('min_tank_temp');
 
       // Check if validateSettings was called
-      expect(validateSettingsSpy).toHaveBeenCalled();
+      expect((app as any).validateSettings).toHaveBeenCalled();
     });
 
     it('should not validate settings when other non-critical settings change', () => {
