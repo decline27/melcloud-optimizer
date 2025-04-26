@@ -1,6 +1,6 @@
 /**
  * Thermal Model Tests
- * 
+ *
  * This file contains tests for the thermal model functionality.
  */
 
@@ -13,6 +13,10 @@ const mockHomey = {
   error: jest.fn(),
   env: {
     userDataPath: './test-data'
+  },
+  settings: {
+    get: jest.fn().mockReturnValue(null),
+    set: jest.fn()
   }
 };
 
@@ -110,29 +114,37 @@ describe('Thermal Model', () => {
 
     beforeEach(() => {
       jest.clearAllMocks();
-      
-      // Mock MELCloud API
-      mockHomey.melcloudApi = {
-        getDeviceState: jest.fn().mockResolvedValue({
-          RoomTemperatureZone1: 21.5,
-          SetTemperatureZone1: 22.0,
-          OutdoorTemperature: 5.0,
-          IdleZone1: false
-        })
-      };
-      
-      // Mock Weather API
-      mockHomey.weatherApi = {
-        getCurrentWeather: jest.fn().mockResolvedValue({
-          temperature: 5.0,
-          windSpeed: 3.0,
-          humidity: 70,
-          cloudCover: 80,
-          precipitation: 0
-        })
-      };
-      
+
+      // Add required properties to mockHomey
+      Object.assign(mockHomey, {
+        // Mock MELCloud API
+        melcloudApi: {
+          getDeviceState: jest.fn().mockResolvedValue({
+            RoomTemperatureZone1: 21.5,
+            SetTemperatureZone1: 22.0,
+            OutdoorTemperature: 5.0,
+            IdleZone1: false
+          })
+        },
+
+        // Mock Weather API
+        weatherApi: {
+          getCurrentWeather: jest.fn().mockResolvedValue({
+            temperature: 5.0,
+            windSpeed: 3.0,
+            humidity: 70,
+            cloudCover: 80,
+            precipitation: 0
+          })
+        }
+      });
+
+      // Create service with mocked Homey
       service = new ThermalModelService(mockHomey);
+
+      // Mock the intervals to prevent memory leaks in tests
+      jest.spyOn(global, 'setInterval').mockReturnValue(123 as any);
+      jest.spyOn(global, 'setTimeout').mockReturnValue(456 as any);
     });
 
     test('should initialize correctly', () => {
@@ -147,7 +159,7 @@ describe('Thermal Model', () => {
         { time: DateTime.now().plus({ hours: 1 }).toISO(), price: 0.8 },
         { time: DateTime.now().plus({ hours: 2 }).toISO(), price: 1.2 }
       ];
-      
+
       const recommendation = service.getHeatingRecommendation(
         priceForecasts,
         22.0, // target temp
@@ -156,7 +168,7 @@ describe('Thermal Model', () => {
         { temperature: 5.0, windSpeed: 3.0, humidity: 70, cloudCover: 80 },
         { dayStart: 7, dayEnd: 23, nightTempReduction: 2, preHeatHours: 2 }
       );
-      
+
       expect(recommendation).toBeDefined();
       expect(recommendation.recommendedTemperature).toBeDefined();
       expect(recommendation.explanation).toBeDefined();
@@ -164,7 +176,7 @@ describe('Thermal Model', () => {
 
     test('should calculate optimal preheating time', () => {
       const targetTime = DateTime.now().plus({ hours: 3 }).toISO();
-      
+
       const optimalTime = service.getOptimalPreheatingTime(
         22.0, // target temp
         targetTime,
@@ -172,11 +184,22 @@ describe('Thermal Model', () => {
         5.0,  // outdoor temp
         { temperature: 5.0, windSpeed: 3.0, humidity: 70, cloudCover: 80 }
       );
-      
+
       expect(optimalTime).toBeDefined();
-      
+
       // The optimal time should be before the target time
       expect(DateTime.fromISO(optimalTime) < DateTime.fromISO(targetTime)).toBe(true);
+    });
+
+    // Clean up after tests
+    afterEach(() => {
+      // Stop the service to clean up intervals
+      if (service && typeof service.stop === 'function') {
+        service.stop();
+      }
+
+      // Restore mocked functions
+      jest.restoreAllMocks();
     });
   });
 });
