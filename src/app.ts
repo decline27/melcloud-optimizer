@@ -19,6 +19,13 @@ interface OptimizationResult {
   savings: number;
   comfort: number;
   timestamp: string;
+  kFactor?: number;
+  thermalModel?: {
+    characteristics: any;
+    timeToTarget: number;
+    confidence: number;
+    recommendation: any;
+  };
 }
 
 /**
