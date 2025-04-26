@@ -1,22 +1,25 @@
-The weekly calibration algorithm uses AI to improve the thermal model:
+The weekly calibration algorithm uses a thermal learning model to improve temperature optimization:
 
-1. Data Analysis:
-   - Collects past week's optimization data (168 hourly records)
-   - Includes temperature changes, price levels, and actual outcomes
+1. Data Collection:
+   - Collects optimization data points (minimum 24 data points required)
+   - Stores data persistently to survive app reinstallations
+   - Includes temperature changes, price levels, and weather conditions
 
-2. AI Processing (via OpenAI):
-   - Analyzes effectiveness of temperature adjustments
-   - Evaluates energy savings vs comfort impact
+2. Thermal Model Analysis:
+   - Analyzes relationship between temperature changes and price changes
+   - Calculates average temperature change per price change
    - Considers outdoor temperature influence
    - Determines optimal K-factor (thermal responsiveness)
-   - Optionally adjusts S-factor (seasonal adjustment)
+   - Adapts to your home's specific thermal characteristics
 
 3. Model Update:
-   - Updates thermal model parameters (K and S values)
+   - Updates thermal model K-factor based on observed data
    - K-factor influences how aggressively temperature changes with price
-   - S-factor adjusts for seasonal effectiveness
+   - Higher K-factor = more aggressive temperature changes
+   - Lower K-factor = more conservative temperature changes
 
 4. Integration:
-   - New parameters immediately affect hourly optimization
-   - Provides analysis of model performance
-   - Logs AI insights for future reference
+   - New K-factor immediately affects hourly optimization
+   - Provides detailed analysis of model performance
+   - Creates timeline entries with calibration results
+   - Logs thermal model insights for future reference
