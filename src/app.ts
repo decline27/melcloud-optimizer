@@ -283,7 +283,7 @@ export default class HeatOptimizerApp extends App {
       }
     }
     // If credentials changed, re-validate
-    else if (['melcloud_user', 'melcloud_pass', 'tibber_token', 'openai_api_key'].includes(key)) {
+    else if (['melcloud_user', 'melcloud_pass', 'tibber_token'].includes(key)) {
       this.log(`Credential setting '${key}' changed, re-validating settings`);
       // Re-run validation on credential change
       this.validateSettings();

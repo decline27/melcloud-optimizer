@@ -70,7 +70,6 @@ describe('HeatOptimizerApp', () => {
         if (key === 'melcloud_user') return 'test@example.com';
         if (key === 'melcloud_pass') return 'password';
         if (key === 'tibber_token') return 'token';
-        if (key === 'openai_api_key') return 'key';
         if (key === 'device_id') return '123';
         if (key === 'building_id') return '456';
         return undefined;
@@ -135,7 +134,6 @@ describe('HeatOptimizerApp', () => {
         if (key === 'melcloud_user') return 'test@example.com';
         if (key === 'melcloud_pass') return 'password';
         if (key === 'tibber_token') return 'token';
-        if (key === 'openai_api_key') return 'key';
         if (key === 'device_id') return '123';
         if (key === 'building_id') return '456';
         return undefined;
@@ -176,7 +174,6 @@ describe('HeatOptimizerApp', () => {
         if (key === 'melcloud_user') return 'test@example.com';
         if (key === 'melcloud_pass') return 'password';
         if (key === 'tibber_token') return 'token';
-        if (key === 'openai_api_key') return 'key';
         if (key === 'device_id') return '123';
         if (key === 'building_id') return '456';
         return undefined;

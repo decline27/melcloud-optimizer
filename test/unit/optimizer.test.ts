@@ -85,7 +85,6 @@ describe('Temperature Optimization', () => {
           case 'melcloud_user': return 'test@example.com';
           case 'melcloud_pass': return 'password';
           case 'tibber_token': return 'token';
-          case 'openai_api_key': return 'key';
           case 'device_id': return '123';
           case 'building_id': return '456';
           case 'temp_step_max': return 0.5;
@@ -596,7 +595,7 @@ describe('Temperature Optimization', () => {
       // Mock settings.get for required settings
       mockSettings.get.mockImplementation((key: string) => {
         switch (key) {
-          case 'openai_api_key': return 'test-api-key';
+          // No OpenAI API key needed anymore
           case 'heatPumpOptimizerMem': return {
             model: { K: 0.3 },
             logs: [
@@ -629,17 +628,27 @@ describe('Temperature Optimization', () => {
       };
     });
 
-    it('should skip calibration if OpenAI API key is missing', async () => {
-      // Mock missing API key
+    it('should proceed with calibration using thermal model', async () => {
+      // Mock settings for thermal model
       mockSettings.get.mockImplementation((key: string) => {
-        if (key === 'openai_api_key') return undefined;
+        if (key === 'heatPumpOptimizerMem') return {
+          model: { K: 0.3 },
+          logs: [
+            { ts: '2023-01-01T00:00:00Z', price: 0.5, indoor: 21, target: 21.5 },
+            { ts: '2023-01-01T01:00:00Z', price: 0.8, indoor: 21.2, target: 21.5 },
+            { ts: '2023-01-01T02:00:00Z', price: 1.2, indoor: 21.3, target: 21 },
+          ]
+        };
         return 'some-value';
       });
 
-      // Update the mock for missing API key
+      // Update the mock for successful calibration with thermal model
       (app as any).runWeeklyCalibration.mockResolvedValue({
-        success: false,
-        error: 'OpenAI API key not configured'
+        success: true,
+        message: 'Weekly calibration completed using thermal model',
+        oldK: 0.3,
+        newK: 0.35,
+        analysis: 'Thermal learning model calibration'
       });
 
       const result = await (app as any).runWeeklyCalibration();
@@ -647,8 +656,8 @@ describe('Temperature Optimization', () => {
       // Check if the method was called
       expect((app as any).runWeeklyCalibration).toHaveBeenCalled();
 
-      // Check if the result indicates failure
-      expect(result).toHaveProperty('success', false);
+      // Check if the result indicates success
+      expect(result).toHaveProperty('success', true);
     });
 
     it('should skip calibration if not enough logs', async () => {
@@ -673,14 +682,14 @@ describe('Temperature Optimization', () => {
       expect(result).toHaveProperty('success', false);
     });
 
-    it('should call OpenAI API and update model parameters', async () => {
+    it('should use thermal model and update K parameter', async () => {
       // Update the mock for successful calibration
       (app as any).runWeeklyCalibration.mockResolvedValue({
         success: true,
         message: 'Weekly calibration completed',
-        data: {
-          model: { K: 0.35, S: 0.12 }
-        }
+        oldK: 0.3,
+        newK: 0.35,
+        analysis: 'Thermal learning model calibration'
       });
 
       // Mock the settings.set method
@@ -693,15 +702,15 @@ describe('Temperature Optimization', () => {
 
       // Check if the result is as expected
       expect(result).toHaveProperty('success', true);
-      expect(result.data).toHaveProperty('model');
-      expect(result.data.model).toHaveProperty('K', 0.35);
+      expect(result).toHaveProperty('oldK', 0.3);
+      expect(result).toHaveProperty('newK', 0.35);
     });
 
-    it('should handle OpenAI API errors gracefully', async () => {
-      // Update the mock for API error
+    it('should handle thermal model errors gracefully', async () => {
+      // Update the mock for thermal model error
       (app as any).runWeeklyCalibration.mockResolvedValue({
         success: false,
-        error: 'API error'
+        error: 'Thermal model error'
       });
 
       const result = await (app as any).runWeeklyCalibration();
