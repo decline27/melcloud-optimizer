@@ -3019,12 +3019,54 @@ module.exports = {
       try {
         await initializeServices(homey);
       } catch (initErr) {
+        homey.app.error('Failed to initialize services:', initErr);
         return {
           success: false,
           error: `Failed to initialize services: ${initErr.message}`,
           needsConfiguration: true
         };
       }
+
+      // Log thermal model data to terminal
+      homey.app.log('===== THERMAL MODEL DATA =====');
+      homey.app.log(`Optimization Count: ${historicalData.optimizations.length} data points`);
+
+      if (optimizer) {
+        homey.app.log(`Current K-Factor: ${optimizer.thermalModel.K.toFixed(2)}`);
+      } else {
+        homey.app.log('Current K-Factor: Not available (optimizer not initialized)');
+      }
+
+      if (historicalData.lastCalibration) {
+        const calibDate = new Date(historicalData.lastCalibration.timestamp).toLocaleString();
+        homey.app.log(`Last Calibration: ${calibDate}`);
+        homey.app.log(`K-Factor Change: ${historicalData.lastCalibration.oldK.toFixed(2)} → ${historicalData.lastCalibration.newK.toFixed(2)}`);
+        homey.app.log(`Analysis: ${historicalData.lastCalibration.analysis}`);
+      } else {
+        homey.app.log('Last Calibration: Never performed');
+      }
+
+      if (historicalData.optimizations.length > 0) {
+        const lastOpt = historicalData.optimizations[historicalData.optimizations.length - 1];
+        const optDate = new Date(lastOpt.timestamp).toLocaleString();
+        homey.app.log(`Last Optimization: ${optDate}`);
+        homey.app.log(`Target Temperature: ${lastOpt.targetTemp}°C (was ${lastOpt.targetOriginal}°C)`);
+        homey.app.log(`Indoor Temperature: ${lastOpt.indoorTemp}°C`);
+        homey.app.log(`Outdoor Temperature: ${lastOpt.outdoorTemp}°C`);
+        homey.app.log(`Current Price: ${lastOpt.priceNow.toFixed(4)}`);
+      } else {
+        homey.app.log('No optimization data available yet');
+      }
+
+      homey.app.log('Recent data points:');
+      // Log the last 5 data points (or fewer if not available)
+      const recentPoints = historicalData.optimizations.slice(-5);
+      recentPoints.forEach((point, index) => {
+        const date = new Date(point.timestamp).toLocaleString();
+        homey.app.log(`[${index + 1}] ${date}: Indoor ${point.indoorTemp}°C, Outdoor ${point.outdoorTemp}°C, Target ${point.targetTemp}°C, Price ${point.priceNow.toFixed(4)}`);
+      });
+
+      homey.app.log('=============================');
 
       // Return the thermal model data
       return {
@@ -3046,6 +3088,7 @@ module.exports = {
       };
     } catch (err) {
       console.error('Error in getThermalModelData:', err);
+      homey.app.error('Error in getThermalModelData:', err);
       return { success: false, error: err.message };
     }
   },
