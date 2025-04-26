@@ -87,14 +87,7 @@
       </div>
     </fieldset>
 
-    <fieldset class="homey-form-fieldset">
-      <legend class="homey-form-legend">OpenAI API</legend>
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="openai_api_key">API Key</label>
-        <input class="homey-form-input" id="openai_api_key" type="password" value="" />
-        <p class="homey-form-helper">Used for weekly calibration. Get your key from <a href="https://platform.openai.com/api-keys" target="_blank">https://platform.openai.com/api-keys</a></p>
-      </div>
-    </fieldset>
+
 
     <fieldset class="homey-form-fieldset">
       <legend class="homey-form-legend">Heating Temperature Settings</legend>
@@ -470,7 +463,6 @@
         const manualDeviceIdElement = document.getElementById("manual_device_id");
         const manualBuildingIdElement = document.getElementById("manual_building_id");
         const tibberTokenElement = document.getElementById("tibber_token");
-        const openaiApiKeyElement = document.getElementById("openai_api_key");
         const minTempElement = document.getElementById("min_temp");
         const maxTempElement = document.getElementById("max_temp");
         const tempStepMaxElement = document.getElementById("temp_step_max");
@@ -545,10 +537,7 @@
           if (value) tibberTokenElement.value = value;
         });
 
-        Homey.get("openai_api_key", function (err, value) {
-          if (err) return Homey.alert(err);
-          if (value) openaiApiKeyElement.value = value;
-        });
+
 
         Homey.get("min_temp", function (err, value) {
           if (err) return Homey.alert(err);
@@ -915,9 +904,7 @@
             if (err) return Homey.alert(err);
           });
 
-          Homey.set("openai_api_key", openaiApiKeyElement.value, function (err) {
-            if (err) return Homey.alert(err);
-          });
+
 
           Homey.set("min_temp", parseFloat(minTempElement.value), function (err) {
             if (err) return Homey.alert(err);

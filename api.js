@@ -1373,127 +1373,16 @@ class TibberApi {
   }
 }
 
-// OpenAI API Service
-class OpenAiApi {
-  constructor(apiKey) {
-    this.apiKey = apiKey;
-    this.apiEndpoint = 'https://api.openai.com/v1/chat/completions';
-  }
 
-  async analyzeData(data) {
-    try {
-      console.log('Analyzing data with OpenAI...');
-
-      // Prepare the prompt with the data
-      const prompt = this.preparePrompt(data);
-
-      // Make the API call to OpenAI
-      const body = {
-        model: 'gpt-4o',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an AI assistant that helps optimize heating systems based on electricity prices and temperature data.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 1000
-      };
-
-      const urlObj = new URL(this.apiEndpoint);
-      const options = {
-        hostname: urlObj.hostname,
-        path: urlObj.pathname,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Authorization': `Bearer ${this.apiKey}`,
-        }
-      };
-
-      // Use retry mechanism for OpenAI API calls (2 retries with 3000ms initial delay)
-      // OpenAI API can sometimes be slow or have rate limits
-      const result = await httpRequest(options, body, 2, 3000);
-
-      if (!result.choices || result.choices.length === 0) {
-        throw new Error('OpenAI API returned no choices');
-      }
-
-      // Extract the analysis from the response
-      const analysis = result.choices[0].message.content;
-      console.log('OpenAI analysis:', analysis);
-
-      // Parse the analysis to extract the recommended K factor
-      const kFactor = this.extractKFactor(analysis);
-
-      return {
-        analysis,
-        kFactor
-      };
-    } catch (error) {
-      console.error('OpenAI API error:', error);
-      throw error;
-    }
-  }
-
-  preparePrompt(data) {
-    // Create a prompt with the data for OpenAI to analyze
-    return `
-I need help calibrating a heat pump optimization system. Here's the data from the past week:
-
-${JSON.stringify(data, null, 2)}
-
-Based on this data, please analyze:
-1. How well the current thermal model (K factor) is performing
-2. What adjustments should be made to the K factor
-3. Recommend a specific new K factor value (a number between 0.1 and 1.0)
-4. Any other insights or recommendations
-
-Please format your response with clear sections and include a specific recommended K factor value that I can extract programmatically.
-`;
-  }
-
-  extractKFactor(analysis) {
-    // Try to extract the K factor from the analysis
-    try {
-      // Look for patterns like "recommended K factor: 0.45" or "K factor: 0.45"
-      const kFactorRegex = /[Kk]\s*factor\s*:?\s*([0-9]\.[0-9]+)/;
-      const match = analysis.match(kFactorRegex);
-
-      if (match && match[1]) {
-        const kFactor = parseFloat(match[1]);
-
-        // Validate the K factor is in a reasonable range
-        if (kFactor >= 0.1 && kFactor <= 1.0) {
-          return kFactor;
-        }
-      }
-
-      // If we couldn't extract a valid K factor, return a default value
-      return 0.5;
-    } catch (error) {
-      console.error('Error extracting K factor:', error);
-      return 0.5; // Default value
-    }
-  }
-
-
-}
 
 // Optimizer Service
 class Optimizer {
-  constructor(melCloud, tibber, deviceId, buildingId, logger, openai, weather = null) {
+  constructor(melCloud, tibber, deviceId, buildingId, logger, weather = null) {
     this.melCloud = melCloud;
     this.tibber = tibber;
     this.deviceId = deviceId;
     this.buildingId = buildingId;
     this.logger = logger;
-    this.openai = openai;
     this.weather = weather; // Weather API instance
     this.thermalModel = { K: 0.5 };
 
@@ -2023,74 +1912,45 @@ class Optimizer {
       let newK;
       let analysis = '';
 
-      // Use OpenAI if available, otherwise use simple algorithm
-      if (this.openai) {
-        this.logger.log('Using OpenAI for thermal model calibration');
+      this.logger.log('Using thermal learning model for calibration');
 
-        // Prepare data for OpenAI
-        const dataForAnalysis = {
-          currentKFactor: this.thermalModel.K,
-          historicalData: historicalData.optimizations,
-          temperatureConstraints: {
-            minTemp: this.minTemp,
-            maxTemp: this.maxTemp,
-            tempStep: this.tempStep
-          },
-          // Include weather data analysis if available
-          weatherAnalysis: this.analyzeWeatherImpact(historicalData.optimizations),
-          // Include price forecast analysis
-          priceAnalysis: this.analyzePriceForecastImpact(historicalData.optimizations)
-        };
+      // Calculate average temperature change per price change
+      let totalTempChange = 0;
+      let totalPriceChange = 0;
+      let count = 0;
 
-        // Get analysis from OpenAI
-        const openaiResult = await this.openai.analyzeData(dataForAnalysis);
-        newK = openaiResult.kFactor;
-        analysis = openaiResult.analysis;
+      for (let i = 1; i < historicalData.optimizations.length; i++) {
+        const prev = historicalData.optimizations[i-1];
+        const curr = historicalData.optimizations[i];
 
-        this.logger.log('OpenAI analysis received');
-        this.logger.log(`Recommended K factor: ${newK}`);
-      } else {
-        this.logger.log('Using simple algorithm for thermal model calibration');
+        const tempChange = Math.abs(curr.targetTemp - prev.targetTemp);
+        const priceChange = Math.abs(curr.priceNow - prev.priceNow);
 
-        // Simple algorithm: analyze temperature changes vs price changes
-        // Calculate average temperature change per price change
-        let totalTempChange = 0;
-        let totalPriceChange = 0;
-        let count = 0;
-
-        for (let i = 1; i < historicalData.optimizations.length; i++) {
-          const prev = historicalData.optimizations[i-1];
-          const curr = historicalData.optimizations[i];
-
-          const tempChange = Math.abs(curr.targetTemp - prev.targetTemp);
-          const priceChange = Math.abs(curr.priceNow - prev.priceNow);
-
-          if (priceChange > 0) {
-            totalTempChange += tempChange;
-            totalPriceChange += priceChange;
-            count++;
-          }
+        if (priceChange > 0) {
+          totalTempChange += tempChange;
+          totalPriceChange += priceChange;
+          count++;
         }
-
-        // Calculate average response factor
-        const avgResponse = count > 0 ? totalTempChange / totalPriceChange : 0;
-
-        // Adjust K factor based on response
-        const currentK = this.thermalModel.K;
-        const targetResponse = 0.5; // Ideal response factor
-
-        if (avgResponse > 0) {
-          // Adjust K to move closer to target response
-          const adjustment = (targetResponse / avgResponse - 1) * 0.2; // 20% adjustment towards target
-          newK = Math.max(0.1, Math.min(1.0, currentK * (1 + adjustment)));
-        } else {
-          // No meaningful data, make small random adjustment
-          newK = currentK * (0.9 + Math.random() * 0.2);
-        }
-
-        analysis = `Simple calibration algorithm used. Average temperature change per price change: ${avgResponse.toFixed(4)}. Adjusted K factor from ${currentK.toFixed(2)} to ${newK.toFixed(2)}.`;
-        this.logger.log(analysis);
       }
+
+      // Calculate average response factor
+      const avgResponse = count > 0 ? totalTempChange / totalPriceChange : 0;
+
+      // Adjust K factor based on response
+      const currentK = this.thermalModel.K;
+      const targetResponse = 0.5; // Ideal response factor
+
+      if (avgResponse > 0) {
+        // Adjust K to move closer to target response
+        const adjustment = (targetResponse / avgResponse - 1) * 0.2; // 20% adjustment towards target
+        newK = Math.max(0.1, Math.min(1.0, currentK * (1 + adjustment)));
+      } else {
+        // No meaningful data, make small random adjustment
+        newK = currentK * (0.9 + Math.random() * 0.2);
+      }
+
+      analysis = `Thermal learning model calibration. Average temperature change per price change: ${avgResponse.toFixed(4)}. Adjusted K factor from ${currentK.toFixed(2)} to ${newK.toFixed(2)}.`;
+      this.logger.log(analysis);
 
       // Update thermal model
       this.setThermalModel(newK);
@@ -2588,7 +2448,6 @@ class Optimizer {
 // Create instances of services
 let melCloud = null;
 let tibber = null;
-let openai = null;
 let weather = null;
 let optimizer = null;
 
@@ -2609,7 +2468,6 @@ async function initializeServices(homey) {
     const melcloudUser = homey.settings.get('melcloud_user') || homey.settings.get('melcloudUser');
     const melcloudPass = homey.settings.get('melcloud_pass') || homey.settings.get('melcloudPass');
     const tibberToken = homey.settings.get('tibber_token') || homey.settings.get('tibberToken');
-    const openaiApiKey = homey.settings.get('openai_api_key') || homey.settings.get('openaiApiKey');
     const deviceId = homey.settings.get('device_id') || homey.settings.get('deviceId') || 'Boiler';
     const buildingId = parseInt(homey.settings.get('building_id') || homey.settings.get('buildingId') || '456');
     const useWeatherData = homey.settings.get('use_weather_data') !== false; // Default to true
@@ -2638,7 +2496,6 @@ async function initializeServices(homey) {
     homey.app.log('- MELCloud User:', melcloudUser ? '✓ Set' : '✗ Not set');
     homey.app.log('- MELCloud Pass:', melcloudPass ? '✓ Set' : '✗ Not set');
     homey.app.log('- Tibber Token:', tibberToken ? '✓ Set' : '✗ Not set');
-    homey.app.log('- OpenAI API Key:', openaiApiKey ? '✓ Set' : '✗ Not set');
     homey.app.log('- Device ID:', deviceId, '(Will be resolved after login)');
     homey.app.log('- Building ID:', buildingId, '(Will be resolved after login)');
     homey.app.log('- Weather Data:', useWeatherData ? '✓ Enabled' : '✗ Disabled');
@@ -2677,14 +2534,6 @@ async function initializeServices(homey) {
     // Create Tibber API instance
     tibber = new TibberApi(tibberToken);
 
-    // Create OpenAI API instance if API key is provided
-    if (openaiApiKey) {
-      openai = new OpenAiApi(openaiApiKey);
-      homey.app.log('OpenAI API initialized');
-    } else {
-      homey.app.log('OpenAI API key not provided, weekly calibration will use simple algorithm');
-    }
-
     // Create Weather API instance if enabled
     if (useWeatherData) {
       try {
@@ -2708,7 +2557,7 @@ async function initializeServices(homey) {
     }
 
     // Create Optimizer instance
-    optimizer = new Optimizer(melCloud, tibber, deviceId, buildingId, homey.app, openai, weather);
+    optimizer = new Optimizer(melCloud, tibber, deviceId, buildingId, homey.app, weather);
 
     // Configure optimizer with initial settings
     await updateOptimizerSettings(homey);
@@ -3141,7 +2990,7 @@ module.exports = {
         // Log to timeline (using app.log for now)
         homey.app.log(`📊 TIMELINE: Calibrated thermal model: K=${result.newK.toFixed(2)}`);
 
-        // If OpenAI was used, log the analysis
+        // Log the analysis
         if (result.analysis && result.analysis.length > 0) {
           // Truncate analysis if it's too long
           const maxLength = 200;
@@ -3149,7 +2998,7 @@ module.exports = {
             ? result.analysis.substring(0, maxLength) + '...'
             : result.analysis;
 
-          homey.app.log(`🤖 TIMELINE: AI Analysis: ${truncatedAnalysis}`);
+          homey.app.log(`📊 TIMELINE: Analysis: ${truncatedAnalysis}`);
         }
 
         // Send to timeline using the Homey SDK 3.0 API
@@ -3163,7 +3012,7 @@ module.exports = {
             });
             homey.app.log('Timeline entry created using timeline API');
 
-            // If OpenAI was used, add another entry
+            // Add analysis entry
             if (result.analysis && result.analysis.length > 0) {
               const maxLength = 200;
               const truncatedAnalysis = result.analysis.length > maxLength
@@ -3171,7 +3020,7 @@ module.exports = {
                 : result.analysis;
 
               await homey.timeline.createEntry({
-                title: 'MELCloud Optimizer AI Analysis',
+                title: 'MELCloud Optimizer Analysis',
                 body: truncatedAnalysis,
                 icon: 'flow:device_changed'
               });
@@ -3184,7 +3033,7 @@ module.exports = {
             });
             homey.app.log('Timeline entry created using notifications API');
 
-            // If OpenAI was used, add another notification
+            // Add analysis notification
             if (result.analysis && result.analysis.length > 0) {
               const maxLength = 200;
               const truncatedAnalysis = result.analysis.length > maxLength
@@ -3192,7 +3041,7 @@ module.exports = {
                 : result.analysis;
 
               await homey.notifications.createNotification({
-                excerpt: `MELCloud Optimizer AI Analysis: ${truncatedAnalysis}`,
+                excerpt: `MELCloud Optimizer Analysis: ${truncatedAnalysis}`,
               });
             }
           }
@@ -3209,7 +3058,7 @@ module.exports = {
             });
             homey.app.log('Timeline entry created using flow API');
 
-            // If OpenAI was used, add another entry
+            // Add analysis entry
             if (result.analysis && result.analysis.length > 0) {
               const maxLength = 200;
               const truncatedAnalysis = result.analysis.length > maxLength
@@ -3220,7 +3069,7 @@ module.exports = {
                 uri: 'homey:manager:timeline',
                 id: 'createEntry',
                 args: {
-                  title: 'MELCloud Optimizer AI Analysis',
+                  title: 'MELCloud Optimizer Analysis',
                   message: truncatedAnalysis,
                   icon: 'flow:device_changed'
                 }
