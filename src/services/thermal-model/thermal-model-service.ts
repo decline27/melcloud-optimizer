@@ -32,7 +32,6 @@ export class ThermalModelService {
   private analyzer: ThermalAnalyzer;
   private dataCollectionInterval: any;
   private modelUpdateInterval: any;
-  private lastDeviceState: any = null;
 
   constructor(private homey: any) {
     this.dataCollector = new ThermalDataCollector(homey);
@@ -90,7 +89,6 @@ export class ThermalModelService {
       }
 
       const deviceState = await melcloudApi.getDeviceState();
-      this.lastDeviceState = deviceState;
 
       // Get weather data
       const weatherApi = this.homey.weatherApi;
@@ -179,6 +177,8 @@ export class ThermalModelService {
     outdoorTemp: number,
     weatherForecast: any
   ): string {
+    // Prevent unused parameter warnings
+    void(outdoorTemp); void(weatherForecast);
     try {
       const targetDateTime = DateTime.fromISO(targetTime);
       const now = DateTime.now();
@@ -193,7 +193,9 @@ export class ThermalModelService {
       // If model confidence is too low, use a conservative estimate
       if (characteristics.modelConfidence < 0.3) {
         // Default to 2 hours before target time
-        return targetDateTime.minus({ hours: 2 }).toISO();
+        const result = targetDateTime.minus({ hours: 2 }).toISO();
+        // Ensure we never return null (TypeScript safety)
+        return result || now.toISO();
       }
 
       // Calculate heating rate based on thermal characteristics
@@ -215,7 +217,9 @@ export class ThermalModelService {
       const optimalStartTime = targetDateTime.minus({ hours: totalHoursNeeded });
 
       // Don't return a time in the past
-      return optimalStartTime < now ? now.toISO() : optimalStartTime.toISO();
+      const result = optimalStartTime < now ? now.toISO() : optimalStartTime.toISO();
+      // Ensure we never return null (TypeScript safety)
+      return result || now.toISO();
 
     } catch (error) {
       this.homey.error('Error calculating optimal preheating time:', error);
@@ -238,12 +242,15 @@ export class ThermalModelService {
     priceForecasts: any[],
     targetTemp: number,
     currentTemp: number,
-    outdoorTemp: number, // Used for future enhancements
-    weatherForecast: any, // Used for future enhancements
-    comfortProfile: any   // Used for future enhancements
+    outdoorTemp: number,
+    weatherForecast: any,
+    comfortProfile: any
   ): OptimizationRecommendation {
     // Note: outdoorTemp, weatherForecast, and comfortProfile parameters are currently not used
     // but are included for future enhancements and API consistency
+
+    // Prevent unused parameter warnings by referencing them
+    void(outdoorTemp); void(weatherForecast); void(comfortProfile);
     try {
       const characteristics = this.analyzer.getThermalCharacteristics();
       const now = DateTime.now();
@@ -331,9 +338,13 @@ export class ThermalModelService {
 
           if (upcomingExpensivePeriod && typeof upcomingExpensivePeriod.time === 'string') {
             try {
-              preHeatTime = DateTime.fromISO(upcomingExpensivePeriod.time)
+              const result = DateTime.fromISO(upcomingExpensivePeriod.time)
                 .minus({ hours: thermalInertiaHours })
                 .toISO();
+              // Ensure we never assign null (TypeScript safety)
+              if (result) {
+                preHeatTime = result;
+              }
             } catch (err) {
               this.homey.error('Error calculating preheat time:', err);
             }
