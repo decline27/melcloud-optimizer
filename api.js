@@ -1886,6 +1886,9 @@ class Optimizer {
         historicalData.optimizations.shift();
       }
 
+      // Save historical data to persistent storage
+      saveHistoricalData(this.logger.homey);
+
       return result;
     } catch (error) {
       this.logger.error('Error in hourly optimization', error);
@@ -1964,6 +1967,9 @@ class Optimizer {
         newK: newK,
         analysis: analysis
       };
+
+      // Save historical data to persistent storage
+      saveHistoricalData(this.logger.homey);
 
       // Return result
       return {
@@ -2457,6 +2463,63 @@ let historicalData = {
   lastCalibration: null
 };
 
+// Function to save historical data to persistent storage
+function saveHistoricalData(homey) {
+  try {
+    if (homey && homey.settings) {
+      homey.app.log('Saving thermal model historical data to persistent storage');
+      homey.settings.set('thermal_model_data', historicalData);
+      homey.app.log(`Saved ${historicalData.optimizations.length} optimization data points`);
+      return true;
+    }
+    return false;
+  } catch (error) {
+    if (homey && homey.app) {
+      homey.app.error('Error saving thermal model data:', error);
+    } else {
+      console.error('Error saving thermal model data:', error);
+    }
+    return false;
+  }
+}
+
+// Function to load historical data from persistent storage
+function loadHistoricalData(homey) {
+  try {
+    if (homey && homey.settings) {
+      const savedData = homey.settings.get('thermal_model_data');
+      if (savedData) {
+        homey.app.log('Loading thermal model historical data from persistent storage');
+
+        // Validate the data structure
+        if (savedData.optimizations && Array.isArray(savedData.optimizations)) {
+          historicalData = savedData;
+          homey.app.log(`Loaded ${historicalData.optimizations.length} optimization data points`);
+
+          // Log last calibration if available
+          if (historicalData.lastCalibration) {
+            homey.app.log(`Last calibration: ${new Date(historicalData.lastCalibration.timestamp).toLocaleString()}, K=${historicalData.lastCalibration.newK}`);
+          }
+
+          return true;
+        } else {
+          homey.app.log('Saved thermal model data has invalid format, using defaults');
+        }
+      } else {
+        homey.app.log('No saved thermal model data found, starting with empty dataset');
+      }
+    }
+    return false;
+  } catch (error) {
+    if (homey && homey.app) {
+      homey.app.error('Error loading thermal model data:', error);
+    } else {
+      console.error('Error loading thermal model data:', error);
+    }
+    return false;
+  }
+}
+
 // Initialize services
 async function initializeServices(homey) {
   if (melCloud && tibber && optimizer) {
@@ -2464,6 +2527,8 @@ async function initializeServices(homey) {
   }
 
   try {
+    // Load historical data from persistent storage
+    loadHistoricalData(homey);
     // Get credentials from settings (with fallbacks for different setting names)
     const melcloudUser = homey.settings.get('melcloud_user') || homey.settings.get('melcloudUser');
     const melcloudPass = homey.settings.get('melcloud_pass') || homey.settings.get('melcloudPass');
@@ -2941,6 +3006,46 @@ module.exports = {
       }
     } catch (err) {
       console.error('Error in getRunHourlyOptimizer:', err);
+      return { success: false, error: err.message };
+    }
+  },
+
+  async getThermalModelData({ homey }) {
+    try {
+      console.log('API method getThermalModelData called');
+      homey.app.log('API method getThermalModelData called');
+
+      // Initialize services if needed
+      try {
+        await initializeServices(homey);
+      } catch (initErr) {
+        return {
+          success: false,
+          error: `Failed to initialize services: ${initErr.message}`,
+          needsConfiguration: true
+        };
+      }
+
+      // Return the thermal model data
+      return {
+        success: true,
+        data: {
+          optimizationCount: historicalData.optimizations.length,
+          lastOptimization: historicalData.optimizations.length > 0 ?
+            historicalData.optimizations[historicalData.optimizations.length - 1] : null,
+          lastCalibration: historicalData.lastCalibration,
+          kFactor: optimizer ? optimizer.thermalModel.K : null,
+          dataPoints: historicalData.optimizations.map(opt => ({
+            timestamp: opt.timestamp,
+            targetTemp: opt.targetTemp,
+            indoorTemp: opt.indoorTemp,
+            outdoorTemp: opt.outdoorTemp,
+            priceNow: opt.priceNow
+          }))
+        }
+      };
+    } catch (err) {
+      console.error('Error in getThermalModelData:', err);
       return { success: false, error: err.message };
     }
   },
