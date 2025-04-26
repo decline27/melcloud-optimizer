@@ -61,6 +61,10 @@
     "getDeviceList": {
       "method": "GET",
       "path": "/getDeviceList"
+    },
+    "getThermalModelData": {
+      "method": "GET",
+      "path": "/getThermalModelData"
     }
   }
 }
