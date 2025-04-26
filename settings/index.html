@@ -301,6 +301,7 @@
           <button id="run_hourly" class="homey-button-primary" onclick="runHourlyOptimization()">Run Hourly Optimization</button>
           <button id="run_weekly" class="homey-button-primary" onclick="runWeeklyCalibration()">Run Weekly Calibration</button>
           <button id="manage_cron" class="homey-button" onclick="manageScheduledJobs()">Manage Scheduled Jobs</button>
+          <button id="view_thermal_data" class="homey-button" onclick="viewThermalModelData()">View Thermal Model Data</button>
         </div>
         <p id="trigger_result" class="result-message"></p>
       </div>
@@ -359,6 +360,63 @@
           // Show success message
           document.getElementById('run_weekly').disabled = false;
           document.getElementById('trigger_result').textContent = "Weekly calibration completed successfully! Check the timeline for details.";
+        });
+      }
+
+      // Function to view thermal model data
+      function viewThermalModelData() {
+        console.log('View thermal model data button clicked');
+
+        // Disable button and show loading state
+        document.getElementById('view_thermal_data').disabled = true;
+        document.getElementById('trigger_result').textContent = "Fetching thermal model data...";
+
+        // Call the API
+        HomeyInstance.api('GET', '/getThermalModelData', {}, function(err, result) {
+          if (err) {
+            console.error('Error fetching thermal model data:', err);
+            document.getElementById('view_thermal_data').disabled = false;
+            document.getElementById('trigger_result').textContent = "Error: " + err.message;
+            return HomeyInstance.alert(err.message);
+          }
+
+          console.log('Thermal model data fetched successfully:', result);
+
+          if (result.success && result.data) {
+            const data = result.data;
+
+            // Format the data for display
+            let message = `Thermal Model Data:\n\n`;
+            message += `Optimization Count: ${data.optimizationCount} data points\n`;
+            message += `Current K-Factor: ${data.kFactor !== null ? data.kFactor.toFixed(2) : 'Not set'}\n\n`;
+
+            if (data.lastCalibration) {
+              const calibDate = new Date(data.lastCalibration.timestamp).toLocaleString();
+              message += `Last Calibration: ${calibDate}\n`;
+              message += `K-Factor Change: ${data.lastCalibration.oldK.toFixed(2)} → ${data.lastCalibration.newK.toFixed(2)}\n`;
+              message += `Analysis: ${data.lastCalibration.analysis}\n\n`;
+            } else {
+              message += `Last Calibration: Never performed\n\n`;
+            }
+
+            if (data.lastOptimization) {
+              const optDate = new Date(data.lastOptimization.timestamp).toLocaleString();
+              message += `Last Optimization: ${optDate}\n`;
+              message += `Target Temperature: ${data.lastOptimization.targetTemp}°C (was ${data.lastOptimization.targetOriginal}°C)\n`;
+              message += `Indoor Temperature: ${data.lastOptimization.indoorTemp}°C\n`;
+              message += `Outdoor Temperature: ${data.lastOptimization.outdoorTemp}°C\n`;
+              message += `Current Price: ${data.lastOptimization.priceNow.toFixed(4)}\n`;
+            }
+
+            // Show the data in an alert
+            HomeyInstance.alert(message);
+          } else {
+            HomeyInstance.alert('No thermal model data available yet. Run hourly optimization to collect data.');
+          }
+
+          // Enable the button and update the result text
+          document.getElementById('view_thermal_data').disabled = false;
+          document.getElementById('trigger_result').textContent = "Thermal model data retrieved successfully!";
         });
       }
 
