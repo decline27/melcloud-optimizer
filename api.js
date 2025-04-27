@@ -1797,7 +1797,7 @@ class Optimizer {
         }
       }
 
-      // Get comfort profile information using our time zone-aware function
+      // Get comfort profile information using local time
       const localTime = this.getLocalTime();
       const currentHour = localTime.hour;
       const localTimeString = localTime.timeString;
@@ -1806,8 +1806,6 @@ class Optimizer {
       const dayEnd = this.logger.homey?.settings?.get('day_end_hour') || 22;
       const nightTempReduction = this.logger.homey?.settings?.get('night_temp_reduction') || 2;
       const preHeatHours = this.logger.homey?.settings?.get('pre_heat_hours') || 1;
-      const timeZoneOffset = this.logger.homey?.settings?.get('time_zone_offset') || 2;
-      const useDst = this.logger.homey?.settings?.get('use_dst') !== false;
 
       this.logger.log(`Comfort profile calculation using local time: ${localTimeString} (Hour: ${currentHour})`);
 
@@ -1848,10 +1846,6 @@ class Optimizer {
           dayEnd,
           nightTempReduction,
           preHeatHours,
-          timeZone: {
-            offset: timeZoneOffset,
-            useDst: useDst
-          },
           mode: comfortFactor >= 0.9 ? 'day' : comfortFactor <= 0.6 ? 'night' : 'transition'
         },
         // Include price forecast data
@@ -1987,23 +1981,18 @@ class Optimizer {
   }
 
   /**
-   * Get the current local time based on user's time zone settings
+   * Get the current local time
    * @returns {Object} - Object with date, hour, and formatted time string
    */
   getLocalTime() {
-    // IMPORTANT: Use the local system time directly instead of UTC conversion
-    // This ensures we use the correct time regardless of system time zone settings
+    // Use the system's local time directly
     const now = new Date();
 
     // Get the local hour directly from the system
     const localHour = now.getHours();
     const localTimeString = now.toString();
 
-    // Get time zone settings for logging purposes only
-    const timeZoneOffset = this.logger.homey?.settings?.get('time_zone_offset') || 1; // Default to UTC+1
-    const useDst = this.logger.homey?.settings?.get('use_dst') !== false; // Default to true
-
-    this.logger.log(`Time zone: UTC${timeZoneOffset >= 0 ? '+' : ''}${timeZoneOffset}${useDst ? ' with DST' : ''}`);
+    // Log time information for debugging
     this.logger.log(`System time: ${now.toISOString()}, Local time: ${localTimeString}`);
 
     return {
@@ -2036,6 +2025,9 @@ class Optimizer {
 
     // Log the comfort profile settings
     this.logger.log(`Comfort profile: Day ${dayStart}:00-${dayEnd}:00, Pre-heat: ${preHeatHours}h, Current hour: ${currentHour}:00 (Local time: ${localTime.timeString})`);
+
+    // Add additional log to help debug time-based issues
+    this.logger.log(`Comfort profile calculation using local time: ${localTime.timeString} (Hour: ${currentHour})`);
 
     if (currentHour >= dayStart && currentHour < eveningTransitionStart) {
       // Full day comfort
@@ -2150,6 +2142,9 @@ class Optimizer {
       const hoursUntilWakeUp = (dayStart - currentHour + 24) % 24;
 
       this.logger.log(`Wake-up time: ${dayStart}:00, Hours until wake-up: ${hoursUntilWakeUp}`);
+
+      // Log time information for debugging
+      this.logger.log(`System time: ${new Date().toISOString()}, Local time: ${localTime.timeString}`);
 
       // If we're within the pre-heat window before wake-up
       if (hoursUntilWakeUp > 0 && hoursUntilWakeUp <= preHeatHours) {
