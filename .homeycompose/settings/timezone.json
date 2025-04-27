@@ -1,0 +1,76 @@
+{
+  "id": "timezone",
+  "title": {
+    "en": "Comfort Profile Settings"
+  },
+  "hint": {
+    "en": "Configure your comfort preferences for time-based optimizations."
+  },
+  "children": [
+    {
+      "id": "comfort_profile",
+      "type": "group",
+      "label": {
+        "en": "Comfort Profile"
+      },
+      "children": [
+        {
+          "id": "day_start_hour",
+          "type": "number",
+          "label": {
+            "en": "Day Start Hour (0-23)"
+          },
+          "hint": {
+            "en": "Hour when day temperature should be used (e.g., 6 for 6:00 AM)."
+          },
+          "min": 0,
+          "max": 23,
+          "step": 1,
+          "value": 6
+        },
+        {
+          "id": "day_end_hour",
+          "type": "number",
+          "label": {
+            "en": "Day End Hour (0-23)"
+          },
+          "hint": {
+            "en": "Hour when night temperature should start (e.g., 22 for 10:00 PM)."
+          },
+          "min": 0,
+          "max": 23,
+          "step": 1,
+          "value": 22
+        },
+        {
+          "id": "night_temp_reduction",
+          "type": "number",
+          "label": {
+            "en": "Night Temperature Reduction (°C)"
+          },
+          "hint": {
+            "en": "How much to reduce temperature during night hours."
+          },
+          "min": 0,
+          "max": 5,
+          "step": 0.5,
+          "value": 2
+        },
+        {
+          "id": "pre_heat_hours",
+          "type": "number",
+          "label": {
+            "en": "Pre-heating Hours"
+          },
+          "hint": {
+            "en": "Hours before day start to begin pre-heating."
+          },
+          "min": 0,
+          "max": 4,
+          "step": 0.5,
+          "value": 1
+        }
+      ]
+    }
+  ]
+}
