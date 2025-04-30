@@ -150,25 +150,70 @@ export default class HeatOptimizerApp extends App {
    */
   public initializeCronJobs() {
     this.log('===== INITIALIZING CRON JOBS =====');
-    this.log('Current time:', new Date().toISOString());
-    this.log('Timezone offset:', new Date().getTimezoneOffset());
-    this.log('Local time string:', new Date().toString());
+
+    // Get the time zone offset from Homey settings - default to UTC+2 (Sweden/Denmark time zone)
+    const timeZoneOffset = this.homey.settings.get('time_zone_offset') || 2;
+
+    // Check if DST is enabled in settings
+    const useDST = this.homey.settings.get('use_dst') || false;
+
+    // Get the current time
+    const now = new Date();
+
+    // Create a local time object using the Homey time zone offset
+    const localTime = new Date(now.getTime());
+    localTime.setUTCHours(now.getUTCHours() + parseInt(timeZoneOffset));
+
+    // If DST is enabled, check if we're in DST period (simplified approach for Europe)
+    let effectiveOffset = parseInt(timeZoneOffset);
+    if (useDST) {
+      // Simple check for European DST (last Sunday in March to last Sunday in October)
+      const month = now.getUTCMonth(); // 0-11
+      if (month > 2 && month < 10) { // April (3) through October (9)
+        localTime.setUTCHours(localTime.getUTCHours() + 1);
+        effectiveOffset += 1;
+        this.log('DST is active, adding 1 hour to the time zone offset');
+      }
+    }
+
+    this.log('Current UTC time:', now.toISOString());
+    this.log('Homey local time:', localTime.toUTCString());
+    this.log(`Homey time zone offset: ${timeZoneOffset} hours${useDST ? ' (with DST enabled)' : ''}`);
+
+    // Determine the time zone name from the effective offset
+    const timeZoneString = `UTC${effectiveOffset >= 0 ? '+' : ''}${Math.abs(effectiveOffset)}`;
+
+    this.log(`Using Homey time zone: ${timeZoneString}`);
 
     // Hourly job - runs at minute 5 of every hour
     // Format: second minute hour day-of-month month day-of-week
-    this.log('Creating hourly cron job with pattern: 0 5 * * * *');
+    this.log(`Creating hourly cron job with pattern: 0 5 * * * * (Time zone: ${timeZoneString})`);
     this.hourlyJob = new CronJob('0 5 * * * *', async () => {
       // Add a more visible log message
-      const currentTime = new Date().toISOString();
+      const currentTime = new Date();
+
+      // Create a local time object using the Homey time zone offset
+      const localCurrentTime = new Date(currentTime.getTime());
+      localCurrentTime.setUTCHours(currentTime.getUTCHours() + parseInt(timeZoneOffset));
+
+      // Apply DST if enabled and in DST period
+      if (useDST) {
+        const month = currentTime.getUTCMonth(); // 0-11
+        if (month > 2 && month < 10) { // April (3) through October (9)
+          localCurrentTime.setUTCHours(localCurrentTime.getUTCHours() + 1);
+        }
+      }
+
       this.log('===== AUTOMATIC HOURLY CRON JOB TRIGGERED =====');
-      this.log(`Current time: ${currentTime}`);
+      this.log(`Current UTC time: ${currentTime.toISOString()}`);
+      this.log(`Homey local time: ${localCurrentTime.toUTCString()}`);
 
       // Store the last run time in settings
-      this.homey.settings.set('last_hourly_run', currentTime);
+      this.homey.settings.set('last_hourly_run', currentTime.toISOString());
 
       // Update cron status in settings
       const cronStatus = this.homey.settings.get('cron_status') || {};
-      cronStatus.lastHourlyRun = currentTime;
+      cronStatus.lastHourlyRun = currentTime.toISOString();
       cronStatus.lastUpdated = new Date().toISOString();
       this.homey.settings.set('cron_status', cronStatus);
 
@@ -187,22 +232,36 @@ export default class HeatOptimizerApp extends App {
       } catch (err) {
         this.error('Error in hourly cron job', err as Error);
       }
-    });
+    }, null, true, timeZoneString); // Pass the time zone string to the CronJob constructor
 
     // Weekly job - runs at 2:05 AM on Sundays
-    this.log('Creating weekly cron job with pattern: 0 5 2 * * 0');
+    this.log(`Creating weekly cron job with pattern: 0 5 2 * * 0 (Time zone: ${timeZoneString})`);
     this.weeklyJob = new CronJob('0 5 2 * * 0', async () => {
       // Add a more visible log message
-      const currentTime = new Date().toISOString();
+      const currentTime = new Date();
+
+      // Create a local time object using the Homey time zone offset
+      const localCurrentTime = new Date(currentTime.getTime());
+      localCurrentTime.setUTCHours(currentTime.getUTCHours() + parseInt(timeZoneOffset));
+
+      // Apply DST if enabled and in DST period
+      if (useDST) {
+        const month = currentTime.getUTCMonth(); // 0-11
+        if (month > 2 && month < 10) { // April (3) through October (9)
+          localCurrentTime.setUTCHours(localCurrentTime.getUTCHours() + 1);
+        }
+      }
+
       this.log('===== AUTOMATIC WEEKLY CRON JOB TRIGGERED =====');
-      this.log(`Current time: ${currentTime}`);
+      this.log(`Current UTC time: ${currentTime.toISOString()}`);
+      this.log(`Homey local time: ${localCurrentTime.toUTCString()}`);
 
       // Store the last run time in settings
-      this.homey.settings.set('last_weekly_run', currentTime);
+      this.homey.settings.set('last_weekly_run', currentTime.toISOString());
 
       // Update cron status in settings
       const cronStatus = this.homey.settings.get('cron_status') || {};
-      cronStatus.lastWeeklyRun = currentTime;
+      cronStatus.lastWeeklyRun = currentTime.toISOString();
       cronStatus.lastUpdated = new Date().toISOString();
       this.homey.settings.set('cron_status', cronStatus);
 
@@ -217,12 +276,12 @@ export default class HeatOptimizerApp extends App {
       }
 
       this.log('Weekly cron job triggered');
-   try {
+      try {
         await this.runWeeklyCalibration();
       } catch (err) {
         this.error('Error in weekly cron job', err as Error);
       }
-    });
+    }, null, true, timeZoneString); // Pass the time zone string to the CronJob constructor
 
     // Start the cron jobs
     this.log('Starting hourly cron job...');
@@ -246,14 +305,20 @@ export default class HeatOptimizerApp extends App {
       hourlyJob: {
         running: this.hourlyJob.running,
         nextRun: this.hourlyJob.nextDate().toString(),
-        cronTime: this.hourlyJob.cronTime.source
+        cronTime: this.hourlyJob.cronTime.source,
+        timeZone: timeZoneString
       },
       weeklyJob: {
         running: this.weeklyJob.running,
         nextRun: this.weeklyJob.nextDate().toString(),
-        cronTime: this.weeklyJob.cronTime.source
+        cronTime: this.weeklyJob.cronTime.source,
+        timeZone: timeZoneString
       },
-      lastUpdated: new Date().toISOString()
+      lastUpdated: new Date().toISOString(),
+      homeyTimeZone: timeZoneString,
+      homeyTimeZoneOffset: timeZoneOffset,
+      homeyDST: useDST,
+      homeyEffectiveOffset: effectiveOffset
     });
 
     this.log(`Hourly cron job started - next run at: ${nextHourlyRun.toString()}`);

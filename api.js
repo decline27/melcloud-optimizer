@@ -723,6 +723,63 @@ class TibberApi {
     this.lastFetchTime = null;
     this.priceUpdateTime = null; // Time when prices were last updated by Tibber
     this.nextPriceUpdateTime = null; // Next time when prices will be updated (13:00)
+    this.logger = console; // Default logger
+  }
+
+  /**
+   * Set the logger instance
+   * @param {Object} logger - Logger instance
+   */
+  setLogger(logger) {
+    this.logger = logger;
+  }
+
+  /**
+   * Get the current local time
+   * @returns {Object} - Object with date, hour, and formatted time string
+   */
+  getLocalTime() {
+    // Get the time zone offset from Homey settings - default to UTC+2 (Sweden/Denmark time zone)
+    const timeZoneOffset = this.logger?.homey?.settings?.get('time_zone_offset') || 2;
+
+    // Create a date object with the current UTC time
+    const now = new Date();
+
+    // Create a new date object for the local time
+    const localTime = new Date(now.getTime());
+
+    // Apply the time zone offset from Homey settings
+    localTime.setUTCHours(now.getUTCHours() + parseInt(timeZoneOffset));
+
+    // Check if DST is enabled in settings
+    const useDST = this.logger?.homey?.settings?.get('use_dst') || false;
+
+    // If DST is enabled, check if we're in DST period (simplified approach for Europe)
+    if (useDST) {
+      // Simple check for European DST (last Sunday in March to last Sunday in October)
+      const month = now.getUTCMonth(); // 0-11
+      if (month > 2 && month < 10) { // April (3) through October (9)
+        localTime.setUTCHours(localTime.getUTCHours() + 1);
+      }
+    }
+
+    // Get the local hour from the adjusted time
+    const localHour = localTime.getUTCHours();
+    const localTimeString = localTime.toUTCString();
+
+    // Log time information for debugging
+    if (this.logger && this.logger.log) {
+      this.logger.log(`System time: ${now.toISOString()}, Local time: ${localTimeString} (Homey time zone offset: ${timeZoneOffset} hours${useDST ? ', DST enabled' : ''})`);
+    } else {
+      console.log(`System time: ${now.toISOString()}, Local time: ${localTimeString} (Homey time zone offset: ${timeZoneOffset} hours${useDST ? ', DST enabled' : ''})`);
+    }
+
+    return {
+      date: localTime,
+      hour: localHour,
+      timeString: localTimeString,
+      timeZoneOffset: timeZoneOffset
+    };
   }
 
   /**
@@ -1172,22 +1229,25 @@ class TibberApi {
       return { recommendation: 'No price data available for forecasting' };
     }
 
-    // Get current time and price using local time
-    const now = new Date();
-    // Use the current hour from local time to find the current price period
-    const currentHour = now.getHours();
+    // Get current time and price using our time zone-aware function
+    const localTime = this.getLocalTime();
+    const now = localTime.date;
+    const currentHour = localTime.hour;
     const currentMinute = now.getMinutes();
 
     // Find the price that matches the current hour
     const currentTime = new Date(currentPrice.time);
     const currentPriceValue = currentPrice.price;
 
-    console.log(`Using local time for price forecast: ${now.toString()} (Hour: ${currentHour}:${currentMinute < 10 ? '0' + currentMinute : currentMinute})`);
+    console.log(`Using local time for price forecast: ${localTime.timeString} (Hour: ${currentHour}:${currentMinute < 10 ? '0' + currentMinute : currentMinute})`);
     console.log(`Current price time from Tibber: ${currentTime.toString()}`);
 
     // Filter future prices (from current hour onwards)
     const futurePrices = prices.filter(p => {
+      // Create a date object in the local time zone
       const priceTime = new Date(p.time);
+
+      // JavaScript's Date object automatically handles time zone conversion
       // Compare using local time hours
       return priceTime.getHours() > currentHour ||
              (priceTime.getHours() === currentHour && priceTime.getDate() > now.getDate());
@@ -1311,8 +1371,11 @@ class TibberApi {
     let message = '';
     if (isSignificant) {
       const direction = maxChange > 0 ? 'increase' : 'decrease';
-      // Use local time formatting
+
+      // Create a date object in the local time zone
       const changeTimeDate = new Date(maxChangeTime);
+
+      // JavaScript's Date object automatically handles time zone conversion
       const timeStr = changeTimeDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       message = `Significant price ${direction} of ${Math.abs(maxChangePercent).toFixed(1)}% expected at ${timeStr}.`;
     }
@@ -1340,7 +1403,10 @@ class TibberApi {
 
     // Take the top 'count' entries
     return sorted.slice(0, count).map(p => {
+      // Create a date object in the local time zone
       const priceTime = new Date(p.time);
+
+      // JavaScript's Date object automatically handles time zone conversion
       return {
         time: p.time,
         price: p.price,
@@ -1363,7 +1429,10 @@ class TibberApi {
 
     // Take the top 'count' entries
     return sorted.slice(0, count).map(p => {
+      // Create a date object in the local time zone
       const priceTime = new Date(p.time);
+
+      // JavaScript's Date object automatically handles time zone conversion
       return {
         time: p.time,
         price: p.price,
@@ -1985,20 +2054,42 @@ class Optimizer {
    * @returns {Object} - Object with date, hour, and formatted time string
    */
   getLocalTime() {
-    // Use the system's local time directly
+    // Get the time zone offset from Homey settings - default to UTC+2 (Sweden/Denmark time zone)
+    const timeZoneOffset = this.logger.homey?.settings?.get('time_zone_offset') || 2;
+
+    // Create a date object with the current UTC time
     const now = new Date();
 
-    // Get the local hour directly from the system
-    const localHour = now.getHours();
-    const localTimeString = now.toString();
+    // Create a new date object for the local time
+    const localTime = new Date(now.getTime());
+
+    // Apply the time zone offset from Homey settings
+    localTime.setUTCHours(now.getUTCHours() + parseInt(timeZoneOffset));
+
+    // Check if DST is enabled in settings
+    const useDST = this.logger.homey?.settings?.get('use_dst') || false;
+
+    // If DST is enabled, check if we're in DST period (simplified approach for Europe)
+    if (useDST) {
+      // Simple check for European DST (last Sunday in March to last Sunday in October)
+      const month = now.getUTCMonth(); // 0-11
+      if (month > 2 && month < 10) { // April (3) through October (9)
+        localTime.setUTCHours(localTime.getUTCHours() + 1);
+      }
+    }
+
+    // Get the local hour from the adjusted time
+    const localHour = localTime.getUTCHours();
+    const localTimeString = localTime.toUTCString();
 
     // Log time information for debugging
-    this.logger.log(`System time: ${now.toISOString()}, Local time: ${localTimeString}`);
+    this.logger.log(`System time: ${now.toISOString()}, Local time: ${localTimeString} (Homey time zone offset: ${timeZoneOffset} hours${useDST ? ', DST enabled' : ''})`);
 
     return {
-      date: now,
+      date: localTime,
       hour: localHour,
-      timeString: localTimeString
+      timeString: localTimeString,
+      timeZoneOffset: timeZoneOffset
     };
   }
 
@@ -2593,6 +2684,8 @@ async function initializeServices(homey) {
 
     // Create Tibber API instance
     tibber = new TibberApi(tibberToken);
+    // Set the logger for the Tibber API
+    tibber.setLogger(homey.app);
 
     // Create Weather API instance if enabled
     if (useWeatherData) {
