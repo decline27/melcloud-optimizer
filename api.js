@@ -4,6 +4,29 @@
 // Import the HTTPS module
 const https = require('https');
 
+/**
+ * Helper function to pretty-print JSON data
+ * @param {Object} data - The data to format
+ * @param {string} [label] - Optional label for the output
+ * @returns {string} - Formatted string
+ */
+function prettyPrintJson(data, label = '') {
+  try {
+    // Create a header with the label
+    const header = label ? `\n===== ${label} =====\n` : '\n';
+
+    // Format the JSON with indentation
+    const formatted = JSON.stringify(data, null, 2);
+
+    // Add some visual separation
+    const footer = '\n' + '='.repeat(40) + '\n';
+
+    return header + formatted + footer;
+  } catch (error) {
+    return `Error formatting JSON: ${error.message}`;
+  }
+}
+
 // Helper function for making HTTP requests with retry capability
 async function httpRequest(options, data = null, maxRetries = 3, retryDelay = 1000) {
   let lastError = null;
@@ -47,10 +70,14 @@ async function httpRequest(options, data = null, maxRetries = 3, retryDelay = 10
 
             // Try to parse as JSON
             try {
-              // Log first 100 chars of response for debugging
+              // Log first 100 chars of response for debugging (keep this for quick reference)
               console.log(`Response data (first 100 chars): ${responseData.substring(0, 100)}...`);
 
               const parsedData = JSON.parse(responseData);
+
+              // We'll let the calling function handle the pretty printing of the full response
+              // since it has more context about what the data represents
+
               resolve(parsedData);
             } catch (error) {
               console.log(`Failed to parse response as JSON. First 200 chars: ${responseData.substring(0, 200)}...`);
@@ -127,6 +154,75 @@ class MelCloudApi {
     this.baseUrl = 'https://app.melcloud.com/Mitsubishi.Wifi.Client/';
     this.contextKey = null;
     this.devices = [];
+    this.logger = console; // Default logger
+  }
+
+  /**
+   * Set the logger instance
+   * @param {Object} logger - Logger instance
+   */
+  setLogger(logger) {
+    this.logger = logger;
+  }
+
+  /**
+   * Get the current local time based on system settings
+   * @returns {Object} - Object with date, hour, and formatted time string
+   */
+  getLocalTime() {
+    // Get the time zone offset from Homey settings - default to system time zone
+    const timeZoneOffset = this.logger?.homey?.settings?.get('time_zone_offset');
+
+    // Create a date object with the current time
+    const now = new Date();
+
+    // If we have a time zone offset from settings, use it
+    if (timeZoneOffset !== undefined) {
+      // Create a new date object for the local time
+      const localTime = new Date(now.getTime());
+
+      // Apply the time zone offset from Homey settings
+      localTime.setUTCHours(now.getUTCHours() + parseInt(timeZoneOffset));
+
+      // Check if DST is enabled in settings
+      const useDST = this.logger?.homey?.settings?.get('use_dst') || false;
+
+      // If DST is enabled, check if we're in DST period (simplified approach for Europe)
+      if (useDST) {
+        // Simple check for European DST (last Sunday in March to last Sunday in October)
+        const month = now.getUTCMonth(); // 0-11
+        if (month > 2 && month < 10) { // April (3) through October (9)
+          localTime.setUTCHours(localTime.getUTCHours() + 1);
+        }
+      }
+
+      // Get the local hour from the adjusted time
+      const localHour = localTime.getUTCHours();
+      const localTimeString = localTime.toUTCString();
+
+      // Log time information for debugging
+      console.log(`System time: ${now.toISOString()}, Local time: ${localTimeString} (Homey time zone offset: ${timeZoneOffset} hours${useDST ? ', DST enabled' : ''})`);
+
+      return {
+        date: localTime,
+        hour: localHour,
+        timeString: localTimeString,
+        timeZoneOffset: timeZoneOffset
+      };
+    } else {
+      // If no time zone offset is set, use the system's local time
+      const localHour = now.getHours();
+      const localTimeString = now.toString();
+
+      console.log(`Using system local time: ${localTimeString}`);
+
+      return {
+        date: now,
+        hour: localHour,
+        timeString: localTimeString,
+        timeZoneOffset: -(now.getTimezoneOffset() / 60) // Convert minutes to hours and invert (getTimezoneOffset returns negative for east, positive for west)
+      };
+    }
   }
 
   async login(email, password) {
@@ -162,6 +258,25 @@ class MelCloudApi {
       }
 
       this.contextKey = response.LoginData.ContextKey;
+
+      // Create a sanitized version of the response for logging (remove sensitive data)
+      const sanitizedResponse = { ...response };
+      if (sanitizedResponse.LoginData) {
+        // Keep only non-sensitive fields from LoginData
+        sanitizedResponse.LoginData = {
+          ContextKey: '***REDACTED***', // Don't show the actual context key
+          Name: sanitizedResponse.LoginData.Name,
+          Expiry: sanitizedResponse.LoginData.Expiry,
+          Language: sanitizedResponse.LoginData.Language,
+          CountryName: sanitizedResponse.LoginData.CountryName,
+          CountryCode: sanitizedResponse.LoginData.CountryCode,
+          // Add other non-sensitive fields as needed
+        };
+      }
+
+      // Print the formatted response
+      console.log(prettyPrintJson(sanitizedResponse, 'MELCloud Login Response'));
+
       console.log('Successfully logged in to MELCloud');
       return true;
     } catch (error) {
@@ -192,7 +307,45 @@ class MelCloudApi {
 
       const data = await httpRequest(options);
 
+      // Print the raw API response in a nicely formatted way
+      console.log(prettyPrintJson(data, 'MELCloud API Raw Response'));
+
       this.devices = this.extractDevices(data);
+
+      // Print the extracted devices in a nicely formatted way
+      console.log(prettyPrintJson(this.devices, 'MELCloud Extracted Devices'));
+
+      // Print a summary of each device with building ID and device ID
+      console.log('\n===== MELCloud Device Summary =====');
+      this.devices.forEach((device, index) => {
+        console.log(`Device ${index + 1}:`);
+        console.log(`  Name: ${device.name}`);
+        console.log(`  Device ID: ${device.id}`);
+        console.log(`  Building ID: ${device.buildingId}`);
+        console.log(`  Type: ${device.type}`);
+        console.log(`  Is Dummy: ${device.isDummy ? 'Yes' : 'No'}`);
+
+        // Print some key device properties if available
+        if (device.data) {
+          if (device.data.SetTemperatureZone1 !== undefined) {
+            console.log(`  Zone1 Temperature: ${device.data.SetTemperatureZone1}°C`);
+          }
+          if (device.data.SetTemperatureZone2 !== undefined) {
+            console.log(`  Zone2 Temperature: ${device.data.SetTemperatureZone2}°C`);
+          }
+          if (device.data.SetTankWaterTemperature !== undefined) {
+            console.log(`  Tank Temperature: ${device.data.SetTankWaterTemperature}°C`);
+          }
+          if (device.data.RoomTemperature !== undefined) {
+            console.log(`  Room Temperature: ${device.data.RoomTemperature}°C`);
+          }
+          if (device.data.OutdoorTemperature !== undefined) {
+            console.log(`  Outdoor Temperature: ${device.data.OutdoorTemperature}°C`);
+          }
+        }
+        console.log(''); // Add a blank line between devices
+      });
+
       console.log(`Found ${this.devices.length} devices in MELCloud account`);
       return this.devices;
     } catch (error) {
@@ -253,7 +406,7 @@ class MelCloudApi {
   }
 
   // Helper method to recursively find devices in an object
-  findDevicesInObject(obj, buildingId, path = '') {
+  findDevicesInObject(obj, buildingId, path = '', foundDeviceIds = new Set()) {
     const devices = [];
 
     // If this is null or not an object, return empty array
@@ -264,7 +417,7 @@ class MelCloudApi {
     // If this is an array, search each item
     if (Array.isArray(obj)) {
       obj.forEach((item, index) => {
-        const foundDevices = this.findDevicesInObject(item, buildingId, `${path}[${index}]`);
+        const foundDevices = this.findDevicesInObject(item, buildingId, `${path}[${index}]`, foundDeviceIds);
         devices.push(...foundDevices);
       });
       return devices;
@@ -272,14 +425,20 @@ class MelCloudApi {
 
     // Check if this object looks like a device
     if (obj.DeviceID !== undefined && obj.DeviceName !== undefined) {
-      console.log(`Found device at ${path}: ${obj.DeviceName} (ID: ${obj.DeviceID})`);
-      devices.push({
-        id: obj.DeviceID,
-        name: obj.DeviceName || `Device ${obj.DeviceID}`,
-        buildingId: buildingId,
-        type: 'heat_pump',
-        data: obj,
-      });
+      // Only add the device if we haven't seen this ID before
+      if (!foundDeviceIds.has(obj.DeviceID)) {
+        console.log(`Found device at ${path}: ${obj.DeviceName} (ID: ${obj.DeviceID})`);
+        foundDeviceIds.add(obj.DeviceID);
+        devices.push({
+          id: obj.DeviceID,
+          name: obj.DeviceName || `Device ${obj.DeviceID}`,
+          buildingId: buildingId,
+          type: 'heat_pump',
+          data: obj,
+        });
+      } else {
+        console.log(`Skipping duplicate device at ${path}: ${obj.DeviceName} (ID: ${obj.DeviceID})`);
+      }
     }
 
     // Check if this is a device list
@@ -287,14 +446,20 @@ class MelCloudApi {
       console.log(`Found device list at ${path} with ${obj.Devices.length} devices`);
       obj.Devices.forEach(device => {
         if (device.DeviceID !== undefined) {
-          console.log(`  Device: ${device.DeviceName || 'Unknown'} (ID: ${device.DeviceID})`);
-          devices.push({
-            id: device.DeviceID,
-            name: device.DeviceName || `Device ${device.DeviceID}`,
-            buildingId: buildingId,
-            type: 'heat_pump',
-            data: device,
-          });
+          // Only add the device if we haven't seen this ID before
+          if (!foundDeviceIds.has(device.DeviceID)) {
+            console.log(`  Device: ${device.DeviceName || 'Unknown'} (ID: ${device.DeviceID})`);
+            foundDeviceIds.add(device.DeviceID);
+            devices.push({
+              id: device.DeviceID,
+              name: device.DeviceName || `Device ${device.DeviceID}`,
+              buildingId: buildingId,
+              type: 'heat_pump',
+              data: device,
+            });
+          } else {
+            console.log(`  Skipping duplicate device: ${device.DeviceName || 'Unknown'} (ID: ${device.DeviceID})`);
+          }
         }
       });
     }
@@ -306,7 +471,7 @@ class MelCloudApi {
         return;
       }
 
-      const foundDevices = this.findDevicesInObject(obj[key], buildingId, `${path}.${key}`);
+      const foundDevices = this.findDevicesInObject(obj[key], buildingId, `${path}.${key}`, foundDeviceIds);
       devices.push(...foundDevices);
     });
 
@@ -398,13 +563,41 @@ class MelCloudApi {
 
       const data = await httpRequest(options);
 
+      // Print the device state in a nicely formatted way
+      console.log(prettyPrintJson(data, `MELCloud Device State for ID: ${deviceId}`));
+
       // Handle different device types
       if (data.SetTemperatureZone1 !== undefined) {
         // This is an ATW device (like a boiler)
-        console.log(`Got state for ATW device ${deviceId}: Zone1 temp ${data.SetTemperatureZone1}°C`);
+        console.log(`\n===== ATW Device State Summary =====`);
+        console.log(`Device ID: ${deviceId}`);
+        console.log(`Building ID: ${buildingId}`);
+        console.log(`Zone1 Set Temperature: ${data.SetTemperatureZone1}°C`);
+        console.log(`Zone1 Room Temperature: ${data.RoomTemperatureZone1 || 'N/A'}°C`);
+
+        if (data.SetTemperatureZone2 !== undefined) {
+          console.log(`Zone2 Set Temperature: ${data.SetTemperatureZone2}°C`);
+          console.log(`Zone2 Room Temperature: ${data.RoomTemperatureZone2 || 'N/A'}°C`);
+        }
+
+        if (data.SetTankWaterTemperature !== undefined) {
+          console.log(`Tank Water Set Temperature: ${data.SetTankWaterTemperature}°C`);
+          console.log(`Tank Water Temperature: ${data.TankWaterTemperature || 'N/A'}°C`);
+        }
+
+        console.log(`Outdoor Temperature: ${data.OutdoorTemperature || 'N/A'}°C`);
+        console.log(`Power: ${data.Power ? 'On' : 'Off'}`);
+        console.log(`Operation Mode: ${data.OperationMode}`);
       } else {
         // This is a regular device
-        console.log(`Got state for device ${deviceId}: Room temp ${data.RoomTemperature || 'N/A'}°C, Set temp ${data.SetTemperature || 'N/A'}°C`);
+        console.log(`\n===== Regular Device State Summary =====`);
+        console.log(`Device ID: ${deviceId}`);
+        console.log(`Building ID: ${buildingId}`);
+        console.log(`Set Temperature: ${data.SetTemperature || 'N/A'}°C`);
+        console.log(`Room Temperature: ${data.RoomTemperature || 'N/A'}°C`);
+        console.log(`Outdoor Temperature: ${data.OutdoorTemperature || 'N/A'}°C`);
+        console.log(`Power: ${data.Power ? 'On' : 'Off'}`);
+        console.log(`Operation Mode: ${data.OperationMode}`);
       }
 
       return data;
@@ -1472,6 +1665,11 @@ class Optimizer {
     this.maxTankTemp = 50;
     this.tankTempStep = 1.0;
 
+    // COP settings
+    this.copWeight = 0.3;
+    this.autoSeasonalMode = true;
+    this.summerMode = false;
+
     this.useWeatherData = weather !== null;
   }
 
@@ -1517,6 +1715,144 @@ class Optimizer {
   }
 
   /**
+   * Get COP (Coefficient of Performance) data from MELCloud
+   * @param {string|number} deviceId - Device ID
+   * @param {number} buildingId - Building ID
+   * @returns {Promise<Object>} - COP data
+   */
+  async getCOPData(deviceId, buildingId) {
+    try {
+      if (!this.contextKey) {
+        throw new Error('Not logged in to MELCloud');
+      }
+
+      console.log(`Getting COP data for device ${deviceId} in building ${buildingId}...`);
+
+      // First get the device state to ensure we have the correct device ID and building ID
+      const deviceState = await this.getDeviceState(deviceId, buildingId);
+
+      // Extract the actual device ID and building ID from the device state
+      deviceId = deviceState.DeviceID;
+      buildingId = deviceState.BuildingID;
+
+      // Make the API call to get COP data
+      const baseUrlObj = new URL(this.baseUrl);
+      const path = `/Mitsubishi.Wifi.Client/Device/GetCOPData?deviceId=${deviceId}&buildingId=${buildingId}`;
+
+      const options = {
+        hostname: baseUrlObj.hostname,
+        path: path,
+        method: 'GET',
+        headers: {
+          'X-MitsContextKey': this.contextKey,
+          'Accept': 'application/json'
+        }
+      };
+
+      try {
+        const data = await httpRequest(options);
+
+        // Print the COP data in a nicely formatted way
+        console.log(prettyPrintJson(data, `MELCloud COP Data for Device ID: ${deviceId}`));
+
+        return data;
+      } catch (error) {
+        console.log(`Error getting COP data: ${error.message}. This might be normal if the device doesn't support COP data.`);
+        return { error: error.message, supported: false };
+      }
+    } catch (error) {
+      console.error(`MELCloud get COP data error for device ${deviceId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get weekly average COP data from MELCloud
+   * @param {string|number} deviceId - Device ID
+   * @param {number} buildingId - Building ID
+   * @returns {Promise<Object>} - Weekly average COP data
+   */
+  async getWeeklyAverageCOP(deviceId, buildingId) {
+    try {
+      if (!this.contextKey) {
+        throw new Error('Not logged in to MELCloud');
+      }
+
+      console.log(`Getting weekly average COP data for device ${deviceId} in building ${buildingId}...`);
+
+      // First get the device state to ensure we have the correct device ID and building ID
+      const deviceState = await this.getDeviceState(deviceId, buildingId);
+
+      // Extract the actual device ID and building ID from the device state
+      deviceId = deviceState.DeviceID;
+      buildingId = deviceState.BuildingID;
+
+      // Make the API call to get weekly COP data
+      const baseUrlObj = new URL(this.baseUrl);
+      const path = `/Mitsubishi.Wifi.Client/Device/GetWeeklyCOPData?deviceId=${deviceId}&buildingId=${buildingId}`;
+
+      const options = {
+        hostname: baseUrlObj.hostname,
+        path: path,
+        method: 'GET',
+        headers: {
+          'X-MitsContextKey': this.contextKey,
+          'Accept': 'application/json'
+        }
+      };
+
+      try {
+        const data = await httpRequest(options);
+
+        // Print the weekly COP data in a nicely formatted way
+        console.log(prettyPrintJson(data, `MELCloud Weekly COP Data for Device ID: ${deviceId}`));
+
+        // Calculate average COP if data is available
+        if (data && Array.isArray(data) && data.length > 0) {
+          // Filter out entries with invalid COP values
+          const validEntries = data.filter(entry =>
+            entry.COP !== undefined &&
+            entry.COP !== null &&
+            !isNaN(entry.COP) &&
+            entry.COP > 0
+          );
+
+          if (validEntries.length > 0) {
+            const totalCOP = validEntries.reduce((sum, entry) => sum + entry.COP, 0);
+            const averageCOP = totalCOP / validEntries.length;
+
+            console.log(`\n===== Weekly Average COP Summary =====`);
+            console.log(`Device ID: ${deviceId}`);
+            console.log(`Building ID: ${buildingId}`);
+            console.log(`Number of valid COP entries: ${validEntries.length}`);
+            console.log(`Average COP: ${averageCOP.toFixed(2)}`);
+            console.log(`Min COP: ${Math.min(...validEntries.map(e => e.COP)).toFixed(2)}`);
+            console.log(`Max COP: ${Math.max(...validEntries.map(e => e.COP)).toFixed(2)}`);
+
+            return {
+              data,
+              summary: {
+                averageCOP,
+                validEntries: validEntries.length,
+                minCOP: Math.min(...validEntries.map(e => e.COP)),
+                maxCOP: Math.max(...validEntries.map(e => e.COP))
+              }
+            };
+          }
+        }
+
+        return { data, summary: { averageCOP: 0, validEntries: 0 } };
+      } catch (error) {
+        console.log(`Error getting weekly COP data: ${error.message}. This might be normal if the device doesn't support COP data.`);
+        return { error: error.message, supported: false };
+      }
+    } catch (error) {
+      console.error(`MELCloud get weekly COP data error for device ${deviceId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
    * Set the tank temperature constraints
    * @param {boolean} enableTankControl - Whether to enable tank temperature control
    * @param {number} minTankTemp - Minimum tank temperature
@@ -1532,6 +1868,19 @@ class Optimizer {
     if (enableTankControl) {
       this.logger.log(`Tank temperature constraints set: min=${minTankTemp}°C, max=${maxTankTemp}°C, step=${this.tankTempStep}°C`);
     }
+  }
+
+  /**
+   * Set COP settings
+   * @param {number} copWeight - Weight given to COP in optimization
+   * @param {boolean} autoSeasonalMode - Whether to automatically switch between summer and winter modes
+   * @param {boolean} summerMode - Whether to use summer mode (only used when autoSeasonalMode is false)
+   */
+  setCOPSettings(copWeight, autoSeasonalMode, summerMode) {
+    this.copWeight = copWeight;
+    this.autoSeasonalMode = autoSeasonalMode;
+    this.summerMode = summerMode;
+    this.logger.log(`COP settings updated - Weight: ${this.copWeight}, Auto Seasonal: ${this.autoSeasonalMode}, Summer Mode: ${this.summerMode}`);
   }
 
   async runHourlyOptimization() {
@@ -2710,10 +3059,24 @@ async function initializeServices(homey) {
     }
 
     // Create Optimizer instance
-    optimizer = new Optimizer(melCloud, tibber, deviceId, buildingId, homey.app, weather);
+    optimizer = new Optimizer(melCloud, tibber, deviceId, buildingId, homey.app, weather, homey);
 
     // Configure optimizer with initial settings
     await updateOptimizerSettings(homey);
+
+    // Initialize COP Helper if not already initialized
+    if (!global.copHelper) {
+      try {
+        // Import the COPHelper class
+        const { COPHelper } = require('./services/cop-helper');
+
+        // Create a new instance
+        global.copHelper = new COPHelper(homey, homey.app);
+        homey.app.log('COP Helper initialized globally');
+      } catch (error) {
+        homey.app.error('Failed to initialize COP Helper globally:', error);
+      }
+    }
 
     homey.app.log('Services initialized successfully');
   } catch (err) {
@@ -2723,6 +3086,7 @@ async function initializeServices(homey) {
 }
 
 // Function to update optimizer settings from Homey settings
+// This is exported so it can be called from the app.ts file
 async function updateOptimizerSettings(homey) {
   if (!optimizer) {
     return; // Optimizer not initialized yet
@@ -2771,14 +3135,58 @@ async function updateOptimizerSettings(homey) {
     homey.app.log('- Tank Temp Step:', tankTempStep, '°C');
   }
 
+  // Get COP settings
+  const copWeight = homey.settings.get('cop_weight') || 0.3;
+  const autoSeasonalMode = homey.settings.get('auto_seasonal_mode') !== false;
+  const summerMode = homey.settings.get('summer_mode') === true;
+
+  // Log COP settings
+  homey.app.log('COP settings:');
+  homey.app.log('- COP Weight:', copWeight);
+  homey.app.log('- Auto Seasonal Mode:', autoSeasonalMode ? 'Enabled' : 'Disabled');
+  homey.app.log('- Summer Mode:', summerMode ? 'Enabled' : 'Disabled');
+
   // Update the optimizer with the latest settings
   optimizer.setTemperatureConstraints(minTemp, maxTemp, tempStep);
   optimizer.setZone2TemperatureConstraints(enableZone2, minTempZone2, maxTempZone2, tempStepZone2);
   optimizer.setTankTemperatureConstraints(enableTankControl, minTankTemp, maxTankTemp, tankTempStep);
   optimizer.setThermalModel(kFactor);
+  optimizer.setCOPSettings(copWeight, autoSeasonalMode, summerMode);
 }
 
 module.exports = {
+  // Export the updateOptimizerSettings function so it can be called from app.ts
+  updateOptimizerSettings,
+
+  // API endpoint for updating optimizer settings
+  async updateOptimizerSettings({ homey }) {
+    try {
+      console.log('API method updateOptimizerSettings called');
+      homey.app.log('API method updateOptimizerSettings called');
+
+      // Initialize services if needed
+      try {
+        await initializeServices(homey);
+      } catch (initErr) {
+        return {
+          success: false,
+          error: `Failed to initialize services: ${initErr.message}`,
+          needsConfiguration: true
+        };
+      }
+
+      // Update optimizer with the latest settings
+      await updateOptimizerSettings(homey);
+
+      return {
+        success: true,
+        message: 'Optimizer settings updated successfully'
+      };
+    } catch (err) {
+      console.error('Error in updateOptimizerSettings API endpoint:', err);
+      return { success: false, error: err.message };
+    }
+  },
   async getDeviceList({ homey }) {
     try {
       console.log('API method getDeviceList called');
@@ -3681,6 +4089,146 @@ module.exports = {
       };
     } catch (err) {
       console.error('Error in getCheckCronStatus:', err);
+      return { success: false, error: err.message };
+    }
+  },
+
+  async getCOPData({ homey }) {
+    try {
+      console.log('API method getCOPData called');
+      homey.app.log('API method getCOPData called');
+
+      // Initialize services if needed
+      try {
+        await initializeServices(homey);
+      } catch (initErr) {
+        return {
+          success: false,
+          error: `Failed to initialize services: ${initErr.message}`,
+          needsConfiguration: true
+        };
+      }
+
+      // Get the device ID and building ID from settings
+      const deviceId = homey.settings.get('device_id');
+      const buildingId = parseInt(homey.settings.get('building_id') || '0');
+
+      if (!deviceId || !buildingId) {
+        return {
+          success: false,
+          error: 'Device ID or Building ID not set in settings'
+        };
+      }
+
+      try {
+        // Get COP data from MELCloud
+        const copData = await melCloud.getCOPData(deviceId, buildingId);
+
+        // Check if we have a COP helper instance
+        if (!global.copHelper) {
+          homey.app.log('COP Helper not initialized, creating instance');
+
+          // Import the COPHelper class
+          const { COPHelper } = require('./services/cop-helper');
+
+          // Create a new instance
+          global.copHelper = new COPHelper(homey, homey.app);
+          homey.app.log('COP Helper initialized');
+        }
+
+        // Get COP data from the helper
+        const helperData = await global.copHelper.getCOPData();
+
+        // Combine the data
+        const result = {
+          success: true,
+          melcloud: copData,
+          helper: helperData,
+          settings: {
+            copWeight: homey.settings.get('cop_weight') || 0.3,
+            autoSeasonalMode: homey.settings.get('auto_seasonal_mode') !== false,
+            summerMode: homey.settings.get('summer_mode') === true
+          }
+        };
+
+        return result;
+      } catch (error) {
+        homey.app.error('Error getting COP data:', error);
+        return {
+          success: false,
+          error: error.message
+        };
+      }
+    } catch (err) {
+      console.error('Error in getCOPData:', err);
+      return { success: false, error: err.message };
+    }
+  },
+
+  async getWeeklyAverageCOP({ homey }) {
+    try {
+      console.log('API method getWeeklyAverageCOP called');
+      homey.app.log('API method getWeeklyAverageCOP called');
+
+      // Initialize services if needed
+      try {
+        await initializeServices(homey);
+      } catch (initErr) {
+        return {
+          success: false,
+          error: `Failed to initialize services: ${initErr.message}`,
+          needsConfiguration: true
+        };
+      }
+
+      // Get the device ID and building ID from settings
+      const deviceId = homey.settings.get('device_id');
+      const buildingId = parseInt(homey.settings.get('building_id') || '0');
+
+      if (!deviceId || !buildingId) {
+        return {
+          success: false,
+          error: 'Device ID or Building ID not set in settings'
+        };
+      }
+
+      try {
+        // Get weekly COP data from MELCloud
+        const weeklyData = await melCloud.getWeeklyAverageCOP(deviceId, buildingId);
+
+        // Check if we have a COP helper instance
+        if (!global.copHelper) {
+          homey.app.log('COP Helper not initialized, creating instance');
+
+          // Import the COPHelper class
+          const { COPHelper } = require('./services/cop-helper');
+
+          // Create a new instance
+          global.copHelper = new COPHelper(homey, homey.app);
+          homey.app.log('COP Helper initialized');
+        }
+
+        // Get weekly average COP from the helper
+        const heatingCOP = await global.copHelper.getAverageCOP('weekly', 'heat');
+        const hotWaterCOP = await global.copHelper.getAverageCOP('weekly', 'water');
+
+        return {
+          success: true,
+          melcloud: weeklyData,
+          helper: {
+            heating: heatingCOP,
+            hotWater: hotWaterCOP
+          }
+        };
+      } catch (error) {
+        homey.app.error('Error getting weekly average COP:', error);
+        return {
+          success: false,
+          error: error.message
+        };
+      }
+    } catch (err) {
+      console.error('Error in getWeeklyAverageCOP:', err);
       return { success: false, error: err.message };
     }
   }

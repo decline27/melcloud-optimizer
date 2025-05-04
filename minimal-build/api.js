@@ -196,7 +196,7 @@ class MelCloudApi {
   }
 
   // Helper method to recursively find devices in an object
-  findDevicesInObject(obj, buildingId, path = '') {
+  findDevicesInObject(obj, buildingId, path = '', foundDeviceIds = new Set()) {
     const devices = [];
 
     // If this is null or not an object, return empty array
@@ -207,7 +207,7 @@ class MelCloudApi {
     // If this is an array, search each item
     if (Array.isArray(obj)) {
       obj.forEach((item, index) => {
-        const foundDevices = this.findDevicesInObject(item, buildingId, `${path}[${index}]`);
+        const foundDevices = this.findDevicesInObject(item, buildingId, `${path}[${index}]`, foundDeviceIds);
         devices.push(...foundDevices);
       });
       return devices;
@@ -215,14 +215,20 @@ class MelCloudApi {
 
     // Check if this object looks like a device
     if (obj.DeviceID !== undefined && obj.DeviceName !== undefined) {
-      console.log(`Found device at ${path}: ${obj.DeviceName} (ID: ${obj.DeviceID})`);
-      devices.push({
-        id: obj.DeviceID,
-        name: obj.DeviceName || `Device ${obj.DeviceID}`,
-        buildingId: buildingId,
-        type: 'heat_pump',
-        data: obj,
-      });
+      // Only add the device if we haven't seen this ID before
+      if (!foundDeviceIds.has(obj.DeviceID)) {
+        console.log(`Found device at ${path}: ${obj.DeviceName} (ID: ${obj.DeviceID})`);
+        foundDeviceIds.add(obj.DeviceID);
+        devices.push({
+          id: obj.DeviceID,
+          name: obj.DeviceName || `Device ${obj.DeviceID}`,
+          buildingId: buildingId,
+          type: 'heat_pump',
+          data: obj,
+        });
+      } else {
+        console.log(`Skipping duplicate device at ${path}: ${obj.DeviceName} (ID: ${obj.DeviceID})`);
+      }
     }
 
     // Check if this is a device list
@@ -230,14 +236,20 @@ class MelCloudApi {
       console.log(`Found device list at ${path} with ${obj.Devices.length} devices`);
       obj.Devices.forEach(device => {
         if (device.DeviceID !== undefined) {
-          console.log(`  Device: ${device.DeviceName || 'Unknown'} (ID: ${device.DeviceID})`);
-          devices.push({
-            id: device.DeviceID,
-            name: device.DeviceName || `Device ${device.DeviceID}`,
-            buildingId: buildingId,
-            type: 'heat_pump',
-            data: device,
-          });
+          // Only add the device if we haven't seen this ID before
+          if (!foundDeviceIds.has(device.DeviceID)) {
+            console.log(`  Device: ${device.DeviceName || 'Unknown'} (ID: ${device.DeviceID})`);
+            foundDeviceIds.add(device.DeviceID);
+            devices.push({
+              id: device.DeviceID,
+              name: device.DeviceName || `Device ${device.DeviceID}`,
+              buildingId: buildingId,
+              type: 'heat_pump',
+              data: device,
+            });
+          } else {
+            console.log(`  Skipping duplicate device: ${device.DeviceName || 'Unknown'} (ID: ${device.DeviceID})`);
+          }
         }
       });
     }
@@ -249,7 +261,7 @@ class MelCloudApi {
         return;
       }
 
-      const foundDevices = this.findDevicesInObject(obj[key], buildingId, `${path}.${key}`);
+      const foundDevices = this.findDevicesInObject(obj[key], buildingId, `${path}.${key}`, foundDeviceIds);
       devices.push(...foundDevices);
     });
 
