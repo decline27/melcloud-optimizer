@@ -1,5 +1,6 @@
 import { App } from 'homey';
 import { CronJob } from 'cron'; // Import CronJob
+import { COPHelper } from './services/cop-helper';
 
 // --- Type Definitions ---
 interface LogEntry { ts: string; price: number; indoor: number; target: number }
@@ -37,6 +38,7 @@ export default class HeatOptimizerApp extends App {
   // Make these public so they can be accessed from the API
   public hourlyJob?: CronJob;
   public weeklyJob?: CronJob;
+  public copHelper?: COPHelper;
 
   /**
    * Get the status of the cron jobs
@@ -125,6 +127,17 @@ export default class HeatOptimizerApp extends App {
     this.validateSettings();
 
     // API is automatically registered by Homey
+
+    // Initialize COP Helper
+    try {
+      this.copHelper = new COPHelper(this.homey, this);
+      this.log('COP Helper initialized');
+
+      // Make it available globally
+      (global as any).copHelper = this.copHelper;
+    } catch (error) {
+      this.error('Failed to initialize COP Helper:', error as Error);
+    }
 
     // Initialize cron jobs
     this.initializeCronJobs();
@@ -357,6 +370,19 @@ export default class HeatOptimizerApp extends App {
     else if (['min_temp', 'max_temp', 'min_temp_zone2', 'max_temp_zone2', 'enable_zone2'].includes(key)) {
       this.log(`Temperature setting '${key}' changed, re-validating settings`);
       this.validateSettings();
+    }
+    // If COP settings changed, update the COP Helper
+    else if (['cop_weight', 'auto_seasonal_mode', 'summer_mode'].includes(key)) {
+      this.log(`COP setting '${key}' changed, updating optimizer settings`);
+
+      // Call the API to update optimizer settings
+      try {
+        const api = require('../api.js');
+        await api.updateOptimizerSettings(this.homey);
+        this.log('Optimizer settings updated with new COP settings');
+      } catch (error) {
+        this.error('Failed to update optimizer settings with new COP settings:', error as Error);
+      }
     }
     // Handle manual hourly optimization trigger
     else if (key === 'trigger_hourly_optimization') {

@@ -1,6 +1,7 @@
 import { MelCloudApi } from './melcloud-api';
 import { TibberApi } from './tibber-api';
 import { ThermalModelService } from './thermal-model';
+import { COPHelper } from './cop-helper';
 
 /**
  * Optimizer Service
@@ -20,6 +21,10 @@ export class Optimizer {
   private thermalModelService: ThermalModelService | null = null;
   private weatherApi: any;
   private useThermalLearning: boolean = false;
+  private copHelper: COPHelper | null = null;
+  private copWeight: number = 0.3;
+  private autoSeasonalMode: boolean = true;
+  private summerMode: boolean = false;
 
   /**
    * Constructor
@@ -57,6 +62,22 @@ export class Optimizer {
         this.logger.error('Failed to initialize thermal learning model:', error);
         this.useThermalLearning = false;
       }
+
+      // Initialize COP helper
+      try {
+        this.copHelper = new COPHelper(homey, this.logger);
+        this.logger.log('COP helper initialized');
+
+        // Load COP settings from Homey settings
+        this.copWeight = homey.settings.get('cop_weight') || 0.3;
+        this.autoSeasonalMode = homey.settings.get('auto_seasonal_mode') !== false;
+        this.summerMode = homey.settings.get('summer_mode') === true;
+
+        this.logger.log(`COP settings loaded - Weight: ${this.copWeight}, Auto Seasonal: ${this.autoSeasonalMode}, Summer Mode: ${this.summerMode}`);
+      } catch (error) {
+        this.logger.error('Failed to initialize COP helper:', error);
+        this.copHelper = null;
+      }
     }
   }
 
@@ -79,6 +100,19 @@ export class Optimizer {
     this.minTemp = minTemp;
     this.maxTemp = maxTemp;
     this.tempStep = tempStep;
+  }
+
+  /**
+   * Set COP settings
+   * @param copWeight Weight given to COP in optimization
+   * @param autoSeasonalMode Whether to automatically switch between summer and winter modes
+   * @param summerMode Whether to use summer mode (only used when autoSeasonalMode is false)
+   */
+  setCOPSettings(copWeight: number, autoSeasonalMode: boolean, summerMode: boolean): void {
+    this.copWeight = copWeight;
+    this.autoSeasonalMode = autoSeasonalMode;
+    this.summerMode = summerMode;
+    this.logger.log(`COP settings updated - Weight: ${this.copWeight}, Auto Seasonal: ${this.autoSeasonalMode}, Summer Mode: ${this.summerMode}`);
   }
 
   /**
@@ -126,6 +160,31 @@ export class Optimizer {
           };
         } catch (weatherError) {
           this.logger.error('Error getting weather data:', weatherError);
+        }
+      }
+
+      // Collect thermal data point if thermal learning is enabled
+      if (this.useThermalLearning && this.thermalModelService) {
+        try {
+          // Create data point
+          const dataPoint = {
+            timestamp: new Date().toISOString(),
+            indoorTemperature: currentTemp,
+            outdoorTemperature: outdoorTemp,
+            targetTemperature: currentTarget,
+            heatingActive: !deviceState.IdleZone1,
+            weatherConditions: {
+              windSpeed: weatherConditions.windSpeed,
+              humidity: weatherConditions.humidity,
+              cloudCover: weatherConditions.cloudCover,
+              precipitation: weatherConditions.precipitation
+            }
+          };
+
+          // Add to collector
+          this.thermalModelService.collectDataPoint(dataPoint);
+        } catch (error) {
+          this.logger.error('Error collecting thermal data point:', error);
         }
       }
 
@@ -180,17 +239,30 @@ export class Optimizer {
         } catch (modelError) {
           this.logger.error('Error using thermal model, falling back to basic optimization:', modelError);
           // Fall back to basic optimization
-          newTarget = this.calculateOptimalTemperature(currentPrice, priceAvg, priceMin, priceMax, currentTemp);
+          newTarget = await this.calculateOptimalTemperature(currentPrice, priceAvg, priceMin, priceMax, currentTemp);
           reason = newTarget < currentTarget ? 'Price is above average, reducing temperature' :
                   newTarget > currentTarget ? 'Price is below average, increasing temperature' :
                   'No change needed';
         }
       } else {
         // Use basic optimization
-        newTarget = this.calculateOptimalTemperature(currentPrice, priceAvg, priceMin, priceMax, currentTemp);
+        newTarget = await this.calculateOptimalTemperature(currentPrice, priceAvg, priceMin, priceMax, currentTemp);
         reason = newTarget < currentTarget ? 'Price is above average, reducing temperature' :
                 newTarget > currentTarget ? 'Price is below average, increasing temperature' :
                 'No change needed';
+      }
+
+      // If COP helper is available, add COP info to the reason
+      if (this.copHelper && this.copWeight > 0) {
+        try {
+          const seasonalCOP = await this.copHelper.getSeasonalCOP();
+          if (seasonalCOP > 0) {
+            // Add COP info to the reason
+            reason += ` (COP: ${seasonalCOP.toFixed(2)})`;
+          }
+        } catch (error) {
+          this.logger.error('Error getting COP data for reason:', error);
+        }
       }
 
       // Apply constraints
@@ -217,6 +289,27 @@ export class Optimizer {
         this.logger.log(`Keeping temperature at ${currentTarget}°C: ${reason}`);
       }
 
+      // Get COP data if available
+      let copData = null;
+      if (this.copHelper) {
+        try {
+          const seasonalCOP = await this.copHelper.getSeasonalCOP();
+          const latestCOP = await this.copHelper.getLatestCOP();
+          const isSummerMode = this.autoSeasonalMode ? this.copHelper.isSummerSeason() : this.summerMode;
+
+          copData = {
+            heating: latestCOP.heating,
+            hotWater: latestCOP.hotWater,
+            seasonal: seasonalCOP,
+            weight: this.copWeight,
+            isSummerMode,
+            autoSeasonalMode: this.autoSeasonalMode
+          };
+        } catch (error) {
+          this.logger.error('Error getting COP data for result:', error);
+        }
+      }
+
       // Return result
       return {
         targetTemp: newTarget,
@@ -232,6 +325,7 @@ export class Optimizer {
         comfort,
         timestamp: new Date().toISOString(),
         kFactor: this.thermalModel.K,
+        cop: copData,
         ...additionalInfo
       };
     } catch (error) {
@@ -317,13 +411,13 @@ export class Optimizer {
    * @param currentTemp Current room temperature
    * @returns Optimal target temperature
    */
-  private calculateOptimalTemperature(
+  private async calculateOptimalTemperature(
     currentPrice: number,
     avgPrice: number,
     minPrice: number,
     maxPrice: number,
     currentTemp: number
-  ): number {
+  ): Promise<number> {
     // Normalize price between 0 and 1
     const priceRange = maxPrice - minPrice;
     const normalizedPrice = priceRange > 0
@@ -338,11 +432,53 @@ export class Optimizer {
     const tempRange = this.maxTemp - this.minTemp;
     const midTemp = (this.maxTemp + this.minTemp) / 2;
 
-    // Calculate target based on price
+    // Calculate base target based on price
     // When price is average, target is midTemp
     // When price is minimum, target is maxTemp
     // When price is maximum, target is minTemp
-    const targetTemp = midTemp + (invertedPrice - 0.5) * tempRange;
+    let targetTemp = midTemp + (invertedPrice - 0.5) * tempRange;
+
+    // Apply COP adjustment if helper is available
+    if (this.copHelper && this.copWeight > 0) {
+      try {
+        // Determine if we're in summer mode
+        let isSummerMode = this.summerMode;
+        if (this.autoSeasonalMode) {
+          isSummerMode = this.copHelper.isSummerSeason();
+        }
+
+        // Get the appropriate COP value based on season
+        const seasonalCOP = await this.copHelper.getSeasonalCOP();
+
+        // Log the COP data
+        this.logger.log(`Using COP data for optimization - Seasonal COP: ${seasonalCOP.toFixed(2)}, Summer Mode: ${isSummerMode}`);
+
+        if (seasonalCOP > 0) {
+          // Normalize COP between 0 and 1 (assuming typical COP range of 1-5)
+          // Higher COP is better, so we want to increase temperature when COP is high
+          const normalizedCOP = Math.min(Math.max((seasonalCOP - 1) / 4, 0), 1);
+
+          // Calculate COP adjustment (higher COP = higher temperature)
+          // The adjustment is weighted by the copWeight setting
+          const copAdjustment = (normalizedCOP - 0.5) * tempRange * this.copWeight;
+
+          // Apply the adjustment
+          targetTemp += copAdjustment;
+
+          this.logger.log(`Applied COP adjustment: ${copAdjustment.toFixed(2)}°C (COP: ${seasonalCOP.toFixed(2)}, Weight: ${this.copWeight})`);
+
+          // In summer mode, we might want to reduce the heating temperature further
+          if (isSummerMode) {
+            // Reduce heating temperature in summer mode (focus on hot water)
+            const summerAdjustment = -1.0 * this.copWeight; // Reduce by up to 1°C based on COP weight
+            targetTemp += summerAdjustment;
+            this.logger.log(`Applied summer mode adjustment: ${summerAdjustment.toFixed(2)}°C`);
+          }
+        }
+      } catch (error) {
+        this.logger.error('Error applying COP adjustment:', error);
+      }
+    }
 
     return targetTemp;
   }

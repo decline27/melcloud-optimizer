@@ -37,26 +37,25 @@ export class ThermalModelService {
     this.dataCollector = new ThermalDataCollector(homey);
     this.analyzer = new ThermalAnalyzer(homey);
 
-    // Initialize data collection
-    this.startDataCollection();
+    // Remove the 10-minute data collection interval
+    // this.startDataCollection();
 
-    // Schedule regular model updates
+    // Keep the model updates schedule
     this.scheduleModelUpdates();
   }
 
   /**
    * Start collecting thermal data at regular intervals
+   * This method is no longer used as data collection happens in the hourly optimization
    */
   private startDataCollection(): void {
-    // Collect data every 10 minutes
-    this.dataCollectionInterval = setInterval(() => {
-      this.collectDataPoint();
-    }, 10 * 60 * 1000);
+    // Method kept for reference but no longer called
+    this.homey.log('Thermal data collection now happens during hourly optimization');
 
-    // Collect initial data point
-    this.collectDataPoint();
-
-    this.homey.log('Thermal data collection started');
+    // If we wanted to collect data at intervals, we would use:
+    // this.dataCollectionInterval = setInterval(() => {
+    //   this.collectDataPointFromDevice();
+    // }, 10 * 60 * 1000); // Every 10 minutes
   }
 
   /**
@@ -79,7 +78,7 @@ export class ThermalModelService {
   /**
    * Collect a single data point from current device state
    */
-  private async collectDataPoint(): Promise<void> {
+  private async collectDataPointFromDevice(): Promise<void> {
     try {
       // Get current device state from MELCloud API
       const melcloudApi = this.homey.melcloudApi;
@@ -486,5 +485,19 @@ export class ThermalModelService {
     }
 
     this.homey.log('Thermal model service stopped');
+  }
+
+  /**
+   * Collect a data point from the optimizer
+   * @param dataPoint The thermal data point to collect
+   */
+  public collectDataPoint(dataPoint: ThermalDataPoint): void {
+    try {
+      // Add to collector
+      this.dataCollector.addDataPoint(dataPoint);
+      this.homey.log('Thermal data point collected during hourly optimization');
+    } catch (error) {
+      this.homey.error('Error collecting thermal data point:', error);
+    }
   }
 }

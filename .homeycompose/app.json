@@ -65,6 +65,18 @@
     "getThermalModelData": {
       "method": "GET",
       "path": "/getThermalModelData"
+    },
+    "getCOPData": {
+      "method": "GET",
+      "path": "/getCOPData"
+    },
+    "getWeeklyAverageCOP": {
+      "method": "GET",
+      "path": "/getWeeklyAverageCOP"
+    },
+    "updateOptimizerSettings": {
+      "method": "GET",
+      "path": "/updateOptimizerSettings"
     }
   }
 }
