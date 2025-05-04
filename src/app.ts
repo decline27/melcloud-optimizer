@@ -234,7 +234,7 @@ export default class HeatOptimizerApp extends App {
       try {
         await this.homey.flow.runFlowCardAction({
           uri: 'homey:flowcardaction:homey:manager:timeline:log',
-          args: { text: '🕒 Automatic hourly optimization triggered' }
+          args: { text: '🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP' }
         });
       } catch (err) {
         this.error('Failed to create timeline entry for automatic trigger', err as Error);
@@ -282,7 +282,7 @@ export default class HeatOptimizerApp extends App {
       try {
         await this.homey.flow.runFlowCardAction({
           uri: 'homey:flowcardaction:homey:manager:timeline:log',
-          args: { text: '📈 Automatic weekly calibration triggered' }
+          args: { text: '📈 Automatic weekly calibration | Updating thermal model with latest data' }
         });
       } catch (err) {
         this.error('Failed to create timeline entry for automatic trigger', err as Error);
@@ -400,7 +400,7 @@ export default class HeatOptimizerApp extends App {
           // First add the timeline entry
           await this.homey.flow.runFlowCardAction({
             uri: 'homey:flowcardaction:homey:manager:timeline:log',
-            args: { text: '\ud83d\udd04 Manual hourly optimization triggered' }
+            args: { text: '🔄 Manual hourly optimization | Optimizing based on current prices and COP' }
           });
 
           // Then run the optimization
@@ -456,7 +456,7 @@ export default class HeatOptimizerApp extends App {
           // First add the timeline entry
           await this.homey.flow.runFlowCardAction({
             uri: 'homey:flowcardaction:homey:manager:timeline:log',
-            args: { text: '\ud83d\udcca Manual weekly calibration triggered' }
+            args: { text: '📊 Manual weekly calibration | Analyzing thermal model based on collected data' }
           });
 
           // Then run the calibration

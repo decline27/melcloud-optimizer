@@ -3438,16 +3438,46 @@ module.exports = {
         // Send to timeline using the Homey SDK 3.0 API
         try {
           // Prepare message including Zone1, Zone2, and tank temperature if available
-          let message = `Optimized Zone1 temperature to ${result.targetTemp}°C (was ${result.targetOriginal}°C)`;
+          let message = `Zone1: ${result.targetTemp}°C (${result.targetTemp > result.targetOriginal ? '+' : ''}${(result.targetTemp - result.targetOriginal).toFixed(1)}°C)`;
+
+          // Add reason if available
+          if (result.reason) {
+            // Extract first part of reason (before any parentheses or periods)
+            const shortReason = result.reason.split(/[(.]/)[0].trim();
+            message += ` | Reason: ${shortReason}`;
+          }
+
+          // Add price context
+          if (result.priceNow !== undefined && result.priceAvg !== undefined) {
+            const priceRatio = result.priceNow / result.priceAvg;
+            let priceContext = '';
+            if (priceRatio > 1.5) priceContext = 'Very high';
+            else if (priceRatio > 1.2) priceContext = 'High';
+            else if (priceRatio < 0.8) priceContext = 'Low';
+            else if (priceRatio < 0.5) priceContext = 'Very low';
+            else priceContext = 'Average';
+
+            message += ` | Price: ${priceContext}`;
+          }
+
+          // Add savings if significant
+          if (result.savings && Math.abs(result.savings) > 0.05) {
+            message += ` | Savings: €${result.savings.toFixed(2)}`;
+          }
+
+          // Add COP if available
+          if (result.cop && result.cop.seasonal) {
+            message += ` | COP: ${result.cop.seasonal.toFixed(1)}`;
+          }
 
           // Only include Zone2 information if Zone2 is enabled in settings and the device supports it
           const enableZone2 = homey.settings.get('enable_zone2') === true;
           if (result.zone2Temperature && enableZone2) {
-            message += `. Zone2 temperature to ${result.zone2Temperature.targetTemp}°C (was ${result.zone2Temperature.targetOriginal}°C)`;
+            message += ` | Zone2: ${result.zone2Temperature.targetTemp}°C (${result.zone2Temperature.targetTemp > result.zone2Temperature.targetOriginal ? '+' : ''}${(result.zone2Temperature.targetTemp - result.zone2Temperature.targetOriginal).toFixed(1)}°C)`;
           }
 
           if (result.tankTemperature) {
-            message += `. Tank temperature to ${result.tankTemperature.targetTemp}°C (was ${result.tankTemperature.targetOriginal}°C)`;
+            message += ` | Tank: ${result.tankTemperature.targetTemp}°C (${result.tankTemperature.targetTemp > result.tankTemperature.targetOriginal ? '+' : ''}${(result.tankTemperature.targetTemp - result.tankTemperature.targetOriginal).toFixed(1)}°C)`;
           }
 
           // First try the direct timeline API if available
@@ -3660,9 +3690,35 @@ module.exports = {
         try {
           // First try the direct timeline API if available
           if (typeof homey.timeline === 'object' && typeof homey.timeline.createEntry === 'function') {
+            // Create more informative calibration message
+            let body = `Calibrated: K=${result.newK.toFixed(2)}`;
+
+            // Add change percentage if old K is available
+            if (result.oldK) {
+              const changePercent = ((result.newK - result.oldK) / result.oldK * 100);
+              if (Math.abs(changePercent) > 1) {
+                body += ` (${changePercent > 0 ? '+' : ''}${changePercent.toFixed(0)}%)`;
+              }
+            }
+
+            // Add S value if available
+            if (result.newS) {
+              body += ` | S=${result.newS.toFixed(2)}`;
+            }
+
+            // Add thermal characteristics if available
+            if (result.thermalCharacteristics) {
+              if (result.thermalCharacteristics.heatingRate) {
+                body += ` | Heat rate: ${result.thermalCharacteristics.heatingRate.toFixed(3)}`;
+              }
+              if (result.thermalCharacteristics.coolingRate) {
+                body += ` | Cool rate: ${result.thermalCharacteristics.coolingRate.toFixed(3)}`;
+              }
+            }
+
             await homey.timeline.createEntry({
               title: 'MELCloud Optimizer',
-              body: `Calibrated thermal model: K=${result.newK.toFixed(2)}`,
+              body: body,
               icon: 'flow:device_changed'
             });
             homey.app.log('Timeline entry created using timeline API');
@@ -3683,8 +3739,31 @@ module.exports = {
           }
           // Then try the notifications API as a fallback
           else if (typeof homey.notifications === 'object' && typeof homey.notifications.createNotification === 'function') {
+            // Create more informative calibration message
+            let excerpt = `Calibrated: K=${result.newK.toFixed(2)}`;
+
+            // Add change percentage if old K is available
+            if (result.oldK) {
+              const changePercent = ((result.newK - result.oldK) / result.oldK * 100);
+              if (Math.abs(changePercent) > 1) {
+                excerpt += ` (${changePercent > 0 ? '+' : ''}${changePercent.toFixed(0)}%)`;
+              }
+            }
+
+            // Add S value if available
+            if (result.newS) {
+              excerpt += ` | S=${result.newS.toFixed(2)}`;
+            }
+
+            // Add thermal characteristics if available
+            if (result.thermalCharacteristics) {
+              if (result.thermalCharacteristics.heatingRate) {
+                excerpt += ` | Heat rate: ${result.thermalCharacteristics.heatingRate.toFixed(3)}`;
+              }
+            }
+
             await homey.notifications.createNotification({
-              excerpt: `MELCloud Optimizer: Calibrated thermal model: K=${result.newK.toFixed(2)}`,
+              excerpt: `MELCloud Optimizer: ${excerpt}`,
             });
             homey.app.log('Timeline entry created using notifications API');
 
@@ -3707,7 +3786,7 @@ module.exports = {
               id: 'createEntry',
               args: {
                 title: 'MELCloud Optimizer',
-                message: `Calibrated thermal model: K=${result.newK.toFixed(2)}`,
+                message: `Calibrated: K=${result.newK.toFixed(2)}${result.oldK ? ` (${((result.newK - result.oldK) / result.oldK * 100) > 0 ? '+' : ''}${((result.newK - result.oldK) / result.oldK * 100).toFixed(0)}%)` : ''}${result.newS ? ` | S=${result.newS.toFixed(2)}` : ''}`,
                 icon: 'flow:device_changed'
               }
             });

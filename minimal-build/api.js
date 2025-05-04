@@ -1231,17 +1231,68 @@ module.exports = {
         try {
           // First try the direct timeline API if available
           if (typeof homey.timeline === 'object' && typeof homey.timeline.createEntry === 'function') {
+            // Create more informative message
+            let body = `Optimized to ${result.targetTemp}°C (${result.targetTemp > result.targetOriginal ? '+' : ''}${(result.targetTemp - result.targetOriginal).toFixed(1)}°C)`;
+
+            // Add reason if available
+            if (result.reason) {
+              // Extract first part of reason (before any parentheses or periods)
+              const shortReason = result.reason.split(/[(.]/)[0].trim();
+              body += ` | Reason: ${shortReason}`;
+            }
+
+            // Add price context
+            if (result.priceNow !== undefined && result.priceAvg !== undefined) {
+              const priceRatio = result.priceNow / result.priceAvg;
+              let priceContext = '';
+              if (priceRatio > 1.5) priceContext = 'Very high';
+              else if (priceRatio > 1.2) priceContext = 'High';
+              else if (priceRatio < 0.8) priceContext = 'Low';
+              else if (priceRatio < 0.5) priceContext = 'Very low';
+              else priceContext = 'Average';
+
+              body += ` | Price: ${priceContext}`;
+            }
+
+            // Add COP if available
+            if (result.cop && result.cop.current) {
+              body += ` | COP: ${result.cop.current.toFixed(1)}`;
+            }
+
             await homey.timeline.createEntry({
               title: 'MELCloud Optimizer',
-              body: `Optimized temperature to ${result.targetTemp}°C (was ${result.targetOriginal}°C)`,
+              body: body,
               icon: 'flow:device_changed'
             });
             homey.app.log('Timeline entry created using timeline API');
           }
           // Then try the notifications API as a fallback
           else if (typeof homey.notifications === 'object' && typeof homey.notifications.createNotification === 'function') {
+            // Create more informative message
+            let excerpt = `Optimized to ${result.targetTemp}°C (${result.targetTemp > result.targetOriginal ? '+' : ''}${(result.targetTemp - result.targetOriginal).toFixed(1)}°C)`;
+
+            // Add reason if available
+            if (result.reason) {
+              // Extract first part of reason (before any parentheses or periods)
+              const shortReason = result.reason.split(/[(.]/)[0].trim();
+              excerpt += ` | Reason: ${shortReason}`;
+            }
+
+            // Add price context
+            if (result.priceNow !== undefined && result.priceAvg !== undefined) {
+              const priceRatio = result.priceNow / result.priceAvg;
+              let priceContext = '';
+              if (priceRatio > 1.5) priceContext = 'Very high';
+              else if (priceRatio > 1.2) priceContext = 'High';
+              else if (priceRatio < 0.8) priceContext = 'Low';
+              else if (priceRatio < 0.5) priceContext = 'Very low';
+              else priceContext = 'Average';
+
+              excerpt += ` | Price: ${priceContext}`;
+            }
+
             await homey.notifications.createNotification({
-              excerpt: `MELCloud Optimizer: Temperature set to ${result.targetTemp}°C (was ${result.targetOriginal}°C)`,
+              excerpt: `MELCloud Optimizer: ${excerpt}`,
             });
             homey.app.log('Timeline entry created using notifications API');
           }
@@ -1252,7 +1303,7 @@ module.exports = {
               id: 'createEntry',
               args: {
                 title: 'MELCloud Optimizer',
-                message: `Optimized temperature to ${result.targetTemp}°C (was ${result.targetOriginal}°C)`,
+                message: `Optimized to ${result.targetTemp}°C (${result.targetTemp > result.targetOriginal ? '+' : ''}${(result.targetTemp - result.targetOriginal).toFixed(1)}°C)${result.reason ? ` | ${result.reason.split(/[(.]/)[0].trim()}` : ''}${result.priceNow && result.priceAvg ? ` | Price: ${result.priceNow > result.priceAvg * 1.2 ? 'High' : result.priceNow < result.priceAvg * 0.8 ? 'Low' : 'Average'}` : ''}`,
                 icon: 'flow:device_changed'
               }
             });
@@ -1353,9 +1404,35 @@ module.exports = {
         try {
           // First try the direct timeline API if available
           if (typeof homey.timeline === 'object' && typeof homey.timeline.createEntry === 'function') {
+            // Create more informative calibration message
+            let body = `Calibrated: K=${result.newK.toFixed(2)}`;
+
+            // Add change percentage if old K is available
+            if (result.oldK) {
+              const changePercent = ((result.newK - result.oldK) / result.oldK * 100);
+              if (Math.abs(changePercent) > 1) {
+                body += ` (${changePercent > 0 ? '+' : ''}${changePercent.toFixed(0)}%)`;
+              }
+            }
+
+            // Add S value if available
+            if (result.newS) {
+              body += ` | S=${result.newS.toFixed(2)}`;
+            }
+
+            // Add thermal characteristics if available
+            if (result.thermalCharacteristics) {
+              if (result.thermalCharacteristics.heatingRate) {
+                body += ` | Heat rate: ${result.thermalCharacteristics.heatingRate.toFixed(3)}`;
+              }
+              if (result.thermalCharacteristics.coolingRate) {
+                body += ` | Cool rate: ${result.thermalCharacteristics.coolingRate.toFixed(3)}`;
+              }
+            }
+
             await homey.timeline.createEntry({
               title: 'MELCloud Optimizer',
-              body: `Calibrated thermal model: K=${result.newK.toFixed(2)}`,
+              body: body,
               icon: 'flow:device_changed'
             });
             homey.app.log('Timeline entry created using timeline API');
@@ -1376,8 +1453,31 @@ module.exports = {
           }
           // Then try the notifications API as a fallback
           else if (typeof homey.notifications === 'object' && typeof homey.notifications.createNotification === 'function') {
+            // Create more informative calibration message
+            let excerpt = `Calibrated: K=${result.newK.toFixed(2)}`;
+
+            // Add change percentage if old K is available
+            if (result.oldK) {
+              const changePercent = ((result.newK - result.oldK) / result.oldK * 100);
+              if (Math.abs(changePercent) > 1) {
+                excerpt += ` (${changePercent > 0 ? '+' : ''}${changePercent.toFixed(0)}%)`;
+              }
+            }
+
+            // Add S value if available
+            if (result.newS) {
+              excerpt += ` | S=${result.newS.toFixed(2)}`;
+            }
+
+            // Add thermal characteristics if available
+            if (result.thermalCharacteristics) {
+              if (result.thermalCharacteristics.heatingRate) {
+                excerpt += ` | Heat rate: ${result.thermalCharacteristics.heatingRate.toFixed(3)}`;
+              }
+            }
+
             await homey.notifications.createNotification({
-              excerpt: `MELCloud Optimizer: Calibrated thermal model: K=${result.newK.toFixed(2)}`,
+              excerpt: `MELCloud Optimizer: ${excerpt}`,
             });
             homey.app.log('Timeline entry created using notifications API');
 
@@ -1400,7 +1500,7 @@ module.exports = {
               id: 'createEntry',
               args: {
                 title: 'MELCloud Optimizer',
-                message: `Calibrated thermal model: K=${result.newK.toFixed(2)}`,
+                message: `Calibrated: K=${result.newK.toFixed(2)}${result.oldK ? ` (${((result.newK - result.oldK) / result.oldK * 100) > 0 ? '+' : ''}${((result.newK - result.oldK) / result.oldK * 100).toFixed(0)}%)` : ''}${result.newS ? ` | S=${result.newS.toFixed(2)}` : ''}`,
                 icon: 'flow:device_changed'
               }
             });
