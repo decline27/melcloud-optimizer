@@ -2065,10 +2065,18 @@ class Optimizer {
         this.logger.log(`Keeping Zone1 temperature at ${currentTarget}°C: ${reason}`);
       }
 
-      // Handle Zone2 temperature optimization if enabled
+      // Handle Zone2 temperature optimization if enabled and device supports it
       let zone2Result = null;
-      if (this.enableZone2 && deviceState.SetTemperatureZone2 !== undefined) {
-        this.logger.log('Zone2 temperature optimization enabled');
+      // Check both that Zone2 is enabled in settings AND that the device actually has Zone2 capability
+      const deviceHasZone2 = deviceState.SetTemperatureZone2 !== undefined;
+
+      // Log a warning if Zone2 is enabled in settings but the device doesn't support it
+      if (this.enableZone2 && !deviceHasZone2) {
+        this.logger.log('WARNING: Zone2 temperature optimization is enabled in settings, but the device does not support Zone2. Please disable Zone2 in settings.');
+      }
+
+      if (this.enableZone2 && deviceHasZone2) {
+        this.logger.log('Zone2 temperature optimization enabled and device supports Zone2');
 
         try {
           // Get current Zone2 temperature
@@ -3416,8 +3424,9 @@ module.exports = {
         // Log to timeline (using app.log for now)
         homey.app.log(`🔄 TIMELINE: Optimized Zone1 temperature to ${result.targetTemp}°C (was ${result.targetOriginal}°C)`);
 
-        // Log Zone2 temperature changes if available
-        if (result.zone2Temperature) {
+        // Log Zone2 temperature changes if available and Zone2 is enabled
+        const enableZone2 = homey.settings.get('enable_zone2') === true;
+        if (result.zone2Temperature && enableZone2) {
           homey.app.log(`🔄 TIMELINE: Optimized Zone2 temperature to ${result.zone2Temperature.targetTemp}°C (was ${result.zone2Temperature.targetOriginal}°C)`);
         }
 
@@ -3431,7 +3440,9 @@ module.exports = {
           // Prepare message including Zone1, Zone2, and tank temperature if available
           let message = `Optimized Zone1 temperature to ${result.targetTemp}°C (was ${result.targetOriginal}°C)`;
 
-          if (result.zone2Temperature) {
+          // Only include Zone2 information if Zone2 is enabled in settings and the device supports it
+          const enableZone2 = homey.settings.get('enable_zone2') === true;
+          if (result.zone2Temperature && enableZone2) {
             message += `. Zone2 temperature to ${result.zone2Temperature.targetTemp}°C (was ${result.zone2Temperature.targetOriginal}°C)`;
           }
 
