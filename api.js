@@ -3879,7 +3879,7 @@ module.exports = {
             homey.app.log('Creating timeline entry for hourly job');
             await homey.flow.runFlowCardAction({
               uri: 'homey:flowcardaction:homey:manager:timeline:log',
-              args: { text: '🕒 Automatic hourly optimization triggered' }
+              args: { text: '🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP' }
             });
             homey.app.log('Timeline entry created successfully');
           } catch (err) {
@@ -3888,7 +3888,7 @@ module.exports = {
             // Try an alternative method if the first one fails
             try {
               homey.app.log('Trying alternative method for timeline entry');
-              await homey.notifications.createNotification({ excerpt: '🕒 Automatic hourly optimization triggered' });
+              await homey.notifications.createNotification({ excerpt: '🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP' });
               homey.app.log('Notification created successfully');
             } catch (notifyErr) {
               homey.app.error('Failed to create notification', notifyErr);
@@ -3919,7 +3919,7 @@ module.exports = {
             homey.app.log('Creating timeline entry for weekly job');
             await homey.flow.runFlowCardAction({
               uri: 'homey:flowcardaction:homey:manager:timeline:log',
-              args: { text: '📊 Automatic weekly calibration triggered' }
+              args: { text: '📈 Automatic weekly calibration | Updating thermal model with latest data' }
             });
             homey.app.log('Timeline entry created successfully');
           } catch (err) {
@@ -3928,7 +3928,7 @@ module.exports = {
             // Try an alternative method if the first one fails
             try {
               homey.app.log('Trying alternative method for timeline entry');
-              await homey.notifications.createNotification({ excerpt: '📊 Automatic weekly calibration triggered' });
+              await homey.notifications.createNotification({ excerpt: '📈 Automatic weekly calibration | Updating thermal model with latest data' });
               homey.app.log('Notification created successfully');
             } catch (notifyErr) {
               homey.app.error('Failed to create notification', notifyErr);
