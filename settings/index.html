@@ -94,20 +94,22 @@
       <div class="homey-form-group">
         <label class="homey-form-label" for="min_temp">Minimum Temperature (°C)</label>
         <input class="homey-form-input" id="min_temp" type="number" min="16" max="22" step="0.5" value="18" />
+        <p class="homey-form-helper">The minimum temperature that will be set during optimization. Suggested default: 19°C - provides good balance between comfort and energy savings during price peaks.</p>
       </div>
       <div class="homey-form-group">
         <label class="homey-form-label" for="max_temp">Maximum Temperature (°C)</label>
         <input class="homey-form-input" id="max_temp" type="number" min="20" max="26" step="0.5" value="24" />
+        <p class="homey-form-helper">The maximum temperature that will be set during optimization. Suggested default: 22°C - comfortable temperature during low-price periods without excessive energy use.</p>
       </div>
       <div class="homey-form-group">
         <label class="homey-form-label" for="temp_step_max">Maximum Temperature Step (°C)</label>
         <input class="homey-form-input" id="temp_step_max" type="number" min="0.1" max="2.0" step="0.1" value="0.5" />
-        <p class="homey-form-helper">Controls how much the temperature can change in one step. MELCloud supports 0.5°C increments for temperature settings.</p>
+        <p class="homey-form-helper">Controls how much the temperature can change in one step. Suggested default: 0.5°C - provides smooth transitions while still allowing the system to respond to price changes. MELCloud supports 0.5°C increments.</p>
       </div>
       <div class="homey-form-group">
         <label class="homey-form-label" for="initial_k">Initial K Factor</label>
         <input class="homey-form-input" id="initial_k" type="number" min="0.1" max="1.0" step="0.05" value="0.3" />
-        <p class="homey-form-helper">Initial thermal response factor. Will be automatically calibrated over time.</p>
+        <p class="homey-form-helper">Initial thermal response factor. Suggested default: 0.3 - good starting point for most homes. Lower values (0.1-0.2) for well-insulated homes, higher values (0.4-0.5) for poorly insulated homes. This will be automatically calibrated over time based on your home's actual thermal behavior.</p>
       </div>
     </fieldset>
 
@@ -147,22 +149,22 @@
           <input type="checkbox" id="enable_tank_control" />
           <span>Enable optimization of hot water tank temperature</span>
         </label>
-        <p class="homey-form-helper">Enable optimization of hot water tank temperature based on electricity prices.</p>
+        <p class="homey-form-helper">Enable optimization of hot water tank temperature based on electricity prices. Suggested default: Enabled - allows the system to store hot water as thermal energy when electricity is cheap.</p>
       </div>
       <div class="homey-form-group">
         <label class="homey-form-label" for="min_tank_temp">Minimum Tank Temperature (°C)</label>
         <input class="homey-form-input" id="min_tank_temp" type="number" min="30" max="45" step="0.5" value="40" />
-        <p class="homey-form-helper">Minimum allowed temperature for the hot water tank.</p>
+        <p class="homey-form-helper">Minimum allowed temperature for the hot water tank. Suggested default: 41°C - ensures sufficient hot water is always available while allowing for price optimization.</p>
       </div>
       <div class="homey-form-group">
         <label class="homey-form-label" for="max_tank_temp">Maximum Tank Temperature (°C)</label>
         <input class="homey-form-input" id="max_tank_temp" type="number" min="40" max="60" step="0.5" value="50" />
-        <p class="homey-form-helper">Maximum allowed temperature for the hot water tank.</p>
+        <p class="homey-form-helper">Maximum allowed temperature for the hot water tank. Suggested default: 53°C - provides good thermal storage capacity without excessive energy use. Check your heat pump's maximum recommended tank temperature.</p>
       </div>
       <div class="homey-form-group">
         <label class="homey-form-label" for="tank_temp_step">Tank Temperature Step (°C)</label>
         <input class="homey-form-input" id="tank_temp_step" type="number" min="0.5" max="5.0" step="0.5" value="1.0" />
-        <p class="homey-form-helper">Maximum change in tank temperature per optimization cycle.</p>
+        <p class="homey-form-helper">Maximum change in tank temperature per optimization cycle. Suggested default: 2°C - allows for meaningful temperature adjustments without causing excessive cycling of the heat pump.</p>
       </div>
     </fieldset>
 
@@ -284,7 +286,7 @@
       <div class="homey-form-group">
         <label class="homey-form-label" for="cop_weight">COP Weight Factor</label>
         <input class="homey-form-input" id="cop_weight" type="number" min="0.0" max="1.0" step="0.05" value="0.3" />
-        <p class="homey-form-helper">Weight given to COP (Coefficient of Performance) in optimization. Higher values prioritize energy efficiency over price.</p>
+        <p class="homey-form-helper">Weight given to COP (Coefficient of Performance) in optimization. Suggested default: 0.3 - balanced approach that considers both price and efficiency. Higher values (0.5-0.8) prioritize energy efficiency over price savings, while lower values (0.1-0.2) prioritize price savings over efficiency. For maximum cost savings, use 0.0-0.1.</p>
       </div>
       <div class="homey-form-group">
         <label class="homey-form-label" for="auto_seasonal_mode">Seasonal Mode Settings</label>
@@ -292,14 +294,14 @@
           <input type="checkbox" id="auto_seasonal_mode" checked />
           <span>Auto Seasonal Mode</span>
         </label>
-        <p class="homey-form-helper">Automatically switch between summer and winter modes based on the month.</p>
+        <p class="homey-form-helper">Automatically switch between summer and winter modes based on the month. Suggested default: Enabled - optimizes for hot water in summer (May-Sep) and heating in winter (Oct-Apr). This provides the best year-round performance without manual intervention.</p>
       </div>
       <div class="homey-form-group" id="summer_mode_container">
         <label class="homey-form-checkbox">
           <input type="checkbox" id="summer_mode" />
           <span>Summer Mode</span>
         </label>
-        <p class="homey-form-helper">When enabled, prioritizes hot water heating over space heating. Only used when Auto Seasonal Mode is disabled.</p>
+        <p class="homey-form-helper">When enabled, prioritizes hot water heating over space heating. Only used when Auto Seasonal Mode is disabled. Suggested setting: Enabled during summer months when you primarily use the heat pump for hot water rather than heating.</p>
       </div>
     </fieldset>
 
