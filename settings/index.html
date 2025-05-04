@@ -280,6 +280,30 @@
     </fieldset>
 
     <fieldset class="homey-form-fieldset">
+      <legend class="homey-form-legend">COP Optimization Settings</legend>
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="cop_weight">COP Weight Factor</label>
+        <input class="homey-form-input" id="cop_weight" type="number" min="0.0" max="1.0" step="0.05" value="0.3" />
+        <p class="homey-form-helper">Weight given to COP (Coefficient of Performance) in optimization. Higher values prioritize energy efficiency over price.</p>
+      </div>
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="auto_seasonal_mode">Seasonal Mode Settings</label>
+        <label class="homey-form-checkbox">
+          <input type="checkbox" id="auto_seasonal_mode" checked />
+          <span>Auto Seasonal Mode</span>
+        </label>
+        <p class="homey-form-helper">Automatically switch between summer and winter modes based on the month.</p>
+      </div>
+      <div class="homey-form-group" id="summer_mode_container">
+        <label class="homey-form-checkbox">
+          <input type="checkbox" id="summer_mode" />
+          <span>Summer Mode</span>
+        </label>
+        <p class="homey-form-helper">When enabled, prioritizes hot water heating over space heating. Only used when Auto Seasonal Mode is disabled.</p>
+      </div>
+    </fieldset>
+
+    <fieldset class="homey-form-fieldset">
       <legend class="homey-form-legend">Advanced Settings</legend>
       <div class="homey-form-group">
         <label class="homey-form-label" for="log_level">Log Level</label>
@@ -545,6 +569,12 @@
         const maxTempZone2Element = document.getElementById("max_temp_zone2");
         const tempStepZone2Element = document.getElementById("temp_step_zone2");
 
+        // COP settings elements
+        const copWeightElement = document.getElementById("cop_weight");
+        const autoSeasonalModeElement = document.getElementById("auto_seasonal_mode");
+        const summerModeElement = document.getElementById("summer_mode");
+        const summerModeContainer = document.getElementById("summer_mode_container");
+
         // Hot water tank elements
         const enableTankControlElement = document.getElementById("enable_tank_control");
         const minTankTempElement = document.getElementById("min_tank_temp");
@@ -733,6 +763,27 @@
           if (value !== undefined) tankTempStepElement.value = value;
         });
 
+        // Load COP settings
+        Homey.get("cop_weight", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) copWeightElement.value = value;
+        });
+
+        Homey.get("auto_seasonal_mode", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) {
+            autoSeasonalModeElement.checked = value;
+            // Show/hide summer mode based on auto seasonal mode
+            summerModeContainer.style.opacity = value ? '0.5' : '1';
+            summerModeElement.disabled = value;
+          }
+        });
+
+        Homey.get("summer_mode", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) summerModeElement.checked = value;
+        });
+
         // Function to load the device list and select the saved device and building IDs
         function loadDeviceList(savedDeviceId, savedBuildingId) {
           console.log('Loading device list with saved IDs:', { savedDeviceId, savedBuildingId });
@@ -872,6 +923,13 @@
         // Add event listener for the enable Zone2 checkbox
         enableZone2Element.addEventListener('change', function() {
           zone2SettingsDiv.style.display = this.checked ? 'block' : 'none';
+        });
+
+        // Add event listener for the Auto Seasonal Mode checkbox
+        autoSeasonalModeElement.addEventListener('change', function() {
+          // When Auto Seasonal Mode is enabled, disable Summer Mode
+          summerModeElement.disabled = this.checked;
+          summerModeContainer.style.opacity = this.checked ? '0.5' : '1';
         });
 
         // Add event listener for the detect location button
@@ -1048,6 +1106,25 @@
           }
 
           Homey.set("use_dst", useDstElement.checked, function (err) {
+            if (err) return Homey.alert(err);
+          });
+
+          // Save COP settings
+          const copWeight = parseFloat(copWeightElement.value);
+          if (!isNaN(copWeight) && copWeight >= 0.0 && copWeight <= 1.0) {
+            Homey.set("cop_weight", copWeight, function (err) {
+              if (err) return Homey.alert(err);
+            });
+          } else if (copWeightElement.value) {
+            Homey.alert('Invalid COP weight value. Must be between 0.0 and 1.0.');
+            return;
+          }
+
+          Homey.set("auto_seasonal_mode", autoSeasonalModeElement.checked, function (err) {
+            if (err) return Homey.alert(err);
+          });
+
+          Homey.set("summer_mode", summerModeElement.checked, function (err) {
             if (err) return Homey.alert(err);
           });
 
