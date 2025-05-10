@@ -23,9 +23,9 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/11</span>
+                <span class='fraction'>11/11</span>
             </div>
         
             
@@ -37,16 +37,16 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>0/4</span>
+                <span class='fraction'>4/4</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/11</span>
+                <span class='fraction'>11/11</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line low'></div>
+    <div class='status-line high'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -109,38 +109,38 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">5x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import HeatOptimizerApp from './app';
@@ -149,38 +149,38 @@
  * API class for the MELCloud Optimizer app
  * This class handles all API requests from the settings page
  */
-<span class="cstat-no" title="statement not covered" >export class A</span>pi {
+export class Api {
   private app: HeatOptimizerApp;
 &nbsp;
-<span class="fstat-no" title="function not covered" >  constructor(a</span>pp: HeatOptimizerApp) {
-<span class="cstat-no" title="statement not covered" >    this.app = app;</span>
+  constructor(app: HeatOptimizerApp) {
+    this.app = app;
   }
 &nbsp;
   /**
    * Run test logging
    */
-  async <span class="fstat-no" title="function not covered" >testLogging(</span>) {
-<span class="cstat-no" title="statement not covered" >    this.app.log('API method testLogging called');</span>
-<span class="cstat-no" title="statement not covered" >    this.app.testLogging();</span>
-<span class="cstat-no" title="statement not covered" >    return { success: true, message: 'Test logging completed' };</span>
+  async testLogging() {
+    this.app.log('API method testLogging called');
+    this.app.testLogging();
+    return { success: true, message: 'Test logging completed' };
   }
 &nbsp;
   /**
    * Run hourly optimizer
    */
-  async <span class="fstat-no" title="function not covered" >runHourlyOptimizer(</span>) {
-<span class="cstat-no" title="statement not covered" >    this.app.log('API method runHourlyOptimizer called');</span>
-<span class="cstat-no" title="statement not covered" >    await this.app.runHourlyOptimizer();</span>
-<span class="cstat-no" title="statement not covered" >    return { success: true, message: 'Hourly optimization completed' };</span>
+  async runHourlyOptimizer() {
+    this.app.log('API method runHourlyOptimizer called');
+    await this.app.runHourlyOptimizer();
+    return { success: true, message: 'Hourly optimization completed' };
   }
 &nbsp;
   /**
    * Run weekly calibration
    */
-  async <span class="fstat-no" title="function not covered" >runWeeklyCalibration(</span>) {
-<span class="cstat-no" title="statement not covered" >    this.app.log('API method runWeeklyCalibration called');</span>
-<span class="cstat-no" title="statement not covered" >    await this.app.runWeeklyCalibration();</span>
-<span class="cstat-no" title="statement not covered" >    return { success: true, message: 'Weekly calibration completed' };</span>
+  async runWeeklyCalibration() {
+    this.app.log('API method runWeeklyCalibration called');
+    await this.app.runWeeklyCalibration();
+    return { success: true, message: 'Weekly calibration completed' };
   }
 }
 &nbsp;</pre></td></tr></table></pre>
@@ -190,7 +190,7 @@
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2025-05-10T07:35:06.975Z
+                at 2025-05-10T11:45:13.514Z
             </div>
         <script src="../prettify.js"></script>
         <script>

@@ -149,7 +149,11 @@ describe('Thermal Model', () => {
 
     test('should initialize correctly', () => {
       expect(service).toBeDefined();
-      expect(mockHomey.log).toHaveBeenCalledWith('Thermal data collection started');
+      // The data collector logs this message during initialization
+      expect(mockHomey.log).toHaveBeenCalledWith('No stored thermal data found, starting fresh collection');
+      // The analyzer logs this message during initialization
+      expect(mockHomey.log).toHaveBeenCalledWith('No saved thermal characteristics found, using defaults');
+      // The service logs this message during initialization
       expect(mockHomey.log).toHaveBeenCalledWith('Thermal model updates scheduled');
     });
 
