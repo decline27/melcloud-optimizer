@@ -476,15 +476,23 @@ export class ThermalModelService {
    * Stop all data collection and model updates
    */
   public stop(): void {
-    if (this.dataCollectionInterval) {
-      clearInterval(this.dataCollectionInterval);
-    }
+    try {
+      if (this.dataCollectionInterval) {
+        clearInterval(this.dataCollectionInterval);
+        this.dataCollectionInterval = null;
+        this.homey.log('Thermal model data collection interval stopped');
+      }
 
-    if (this.modelUpdateInterval) {
-      clearInterval(this.modelUpdateInterval);
-    }
+      if (this.modelUpdateInterval) {
+        clearInterval(this.modelUpdateInterval);
+        this.modelUpdateInterval = null;
+        this.homey.log('Thermal model update interval stopped');
+      }
 
-    this.homey.log('Thermal model service stopped');
+      this.homey.log('Thermal model service stopped and resources cleaned up');
+    } catch (error) {
+      this.homey.error('Error stopping thermal model service:', error);
+    }
   }
 
   /**

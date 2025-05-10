@@ -8,7 +8,23 @@ export enum LogLevel {
   NONE = 99
 }
 
-export class Logger {
+/**
+ * Logger interface for standardized logging across the application
+ */
+export interface Logger {
+  log(message: string, ...args: any[]): void;
+  info(message: string, ...args: any[]): void;
+  error(message: string, error?: Error | unknown, ...args: any[]): void;
+  debug(message: string, ...args: any[]): void;
+  warn(message: string, ...args: any[]): void;
+  notify(message: string): Promise<void>;
+  marker(message: string): void;
+  sendToTimeline(message: string): Promise<void>;
+  setLogLevel(level: LogLevel): void;
+  setTimelineLogging(enabled: boolean): void;
+}
+
+export class HomeyLogger implements Logger {
   private app: any;
   private logLevel: LogLevel;
   private logToTimeline: boolean;
@@ -51,6 +67,16 @@ export class Logger {
     if (this.logLevel <= LogLevel.DEBUG) {
       // Use Homey's built-in logging - this will appear in the terminal with 'homey app run'
       this.app.log(`DEBUG: ${this.logPrefix}${message}`, ...args);
+    }
+  }
+
+  /**
+   * Log a message (standard log level)
+   */
+  public log(message: string, ...args: any[]): void {
+    if (this.logLevel <= LogLevel.INFO) {
+      // Use Homey's built-in logging - this will appear in the terminal with 'homey app run'
+      this.app.log(`${this.logPrefix}${message}`, ...args);
     }
   }
 

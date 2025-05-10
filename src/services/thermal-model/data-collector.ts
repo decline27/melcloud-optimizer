@@ -83,10 +83,36 @@ export class ThermalDataCollector {
    */
   private saveToSettings(): void {
     try {
-      this.homey.settings.set(THERMAL_DATA_SETTINGS_KEY, JSON.stringify(this.dataPoints));
+      // Create a new Set for tracking circular references
+      const seen = new WeakSet();
+
+      // Stringify with a replacer function to handle circular references
+      const dataString = JSON.stringify(this.dataPoints, (key, value) => {
+        // Handle circular references
+        if (typeof value === 'object' && value !== null) {
+          if (seen.has(value)) {
+            return '[Circular]';
+          }
+          seen.add(value);
+        }
+        return value;
+      });
+
+      this.homey.settings.set(THERMAL_DATA_SETTINGS_KEY, dataString);
       this.homey.log(`Saved ${this.dataPoints.length} thermal data points to settings storage`);
     } catch (error) {
-      this.homey.error(`Error saving thermal data to settings: ${error}`);
+      this.homey.error(`Error saving thermal data to settings`, error);
+
+      // Try to save a smaller subset if the full dataset is too large
+      if (this.dataPoints.length > 500) {
+        try {
+          const reducedDataPoints = this.dataPoints.slice(-500); // Keep only the most recent 500 points
+          this.homey.settings.set(THERMAL_DATA_SETTINGS_KEY, JSON.stringify(reducedDataPoints));
+          this.homey.log(`Saved reduced set of 500 thermal data points to settings storage`);
+        } catch (fallbackError) {
+          this.homey.error(`Failed to save even reduced thermal data to settings`, fallbackError);
+        }
+      }
     }
   }
 
@@ -95,10 +121,36 @@ export class ThermalDataCollector {
    */
   private saveToFile(): void {
     try {
-      fs.writeFileSync(this.backupFilePath, JSON.stringify(this.dataPoints), 'utf8');
+      // Create a new Set for tracking circular references
+      const seen = new WeakSet();
+
+      // Stringify with a replacer function to handle circular references
+      const dataString = JSON.stringify(this.dataPoints, (key, value) => {
+        // Handle circular references
+        if (typeof value === 'object' && value !== null) {
+          if (seen.has(value)) {
+            return '[Circular]';
+          }
+          seen.add(value);
+        }
+        return value;
+      });
+
+      fs.writeFileSync(this.backupFilePath, dataString, 'utf8');
       this.homey.log(`Saved ${this.dataPoints.length} thermal data points to backup file`);
     } catch (error) {
-      this.homey.error(`Error saving thermal data to backup file: ${error}`);
+      this.homey.error(`Error saving thermal data to backup file`, error);
+
+      // Try to save a smaller subset if the full dataset is too large
+      if (this.dataPoints.length > 500) {
+        try {
+          const reducedDataPoints = this.dataPoints.slice(-500); // Keep only the most recent 500 points
+          fs.writeFileSync(this.backupFilePath, JSON.stringify(reducedDataPoints), 'utf8');
+          this.homey.log(`Saved reduced set of 500 thermal data points to backup file`);
+        } catch (fallbackError) {
+          this.homey.error(`Failed to save even reduced thermal data to backup file`, fallbackError);
+        }
+      }
     }
   }
 
@@ -122,18 +174,24 @@ export class ThermalDataCollector {
       return;
     }
 
-    // Add the new data point
-    this.dataPoints.push(dataPoint);
+    try {
+      // Add the new data point
+      this.dataPoints.push(dataPoint);
 
-    // Trim the data set if it exceeds the maximum size
-    if (this.dataPoints.length > this.maxDataPoints) {
-      this.dataPoints = this.dataPoints.slice(this.dataPoints.length - this.maxDataPoints);
+      // Trim the data set if it exceeds the maximum size
+      if (this.dataPoints.length > this.maxDataPoints) {
+        const excessPoints = this.dataPoints.length - this.maxDataPoints;
+        this.dataPoints = this.dataPoints.slice(excessPoints);
+        this.homey.log(`Trimmed ${excessPoints} oldest thermal data points to maintain limit of ${this.maxDataPoints} entries`);
+      }
+
+      // Save the updated data
+      this.saveData();
+
+      this.homey.log(`Added new thermal data point. Total points: ${this.dataPoints.length}`);
+    } catch (error) {
+      this.homey.error('Error adding thermal data point:', error);
     }
-
-    // Save the updated data
-    this.saveData();
-
-    this.homey.log(`Added new thermal data point. Total points: ${this.dataPoints.length}`);
   }
 
   /**

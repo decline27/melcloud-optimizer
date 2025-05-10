@@ -219,7 +219,7 @@ describe('ThermalDataCollector', () => {
       dataCollector.addDataPoint(dataPoint);
 
       expect((dataCollector as any).dataPoints).toContain(dataPoint);
-      expect(mockHomey.error).toHaveBeenCalledWith(expect.stringContaining('Error saving thermal data to settings'));
+      expect(mockHomey.error).toHaveBeenCalledWith('Error saving thermal data to settings', expect.any(Error));
     });
 
     it('should handle errors when saving to file', () => {
@@ -245,7 +245,7 @@ describe('ThermalDataCollector', () => {
       dataCollector.addDataPoint(dataPoint);
 
       expect((dataCollector as any).dataPoints).toContain(dataPoint);
-      expect(mockHomey.error).toHaveBeenCalledWith(expect.stringContaining('Error saving thermal data to backup file'));
+      expect(mockHomey.error).toHaveBeenCalledWith('Error saving thermal data to backup file', expect.any(Error));
     });
   });
 

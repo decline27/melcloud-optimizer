@@ -1,5 +1,5 @@
 import { App } from 'homey';
-import { Logger, LogLevel } from '../../src/util/logger';
+import { HomeyLogger, LogLevel, Logger } from '../../src/util/logger';
 
 describe('Logger', () => {
   let mockApp: any;
@@ -21,7 +21,7 @@ describe('Logger', () => {
     };
 
     // Create a new logger instance with the mock app
-    logger = new Logger(mockApp, {
+    logger = new HomeyLogger(mockApp, {
       level: LogLevel.DEBUG,
       logToTimeline: true,
       prefix: 'TEST',

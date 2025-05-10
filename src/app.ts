@@ -758,17 +758,43 @@ export default class HeatOptimizerApp extends App {
   async onUninit() {
     this.log('MELCloud Optimizer App is shutting down');
 
-    // Stop cron jobs
-    if (this.hourlyJob) {
-      this.hourlyJob.stop();
-      this.log('Hourly cron job stopped');
-    }
+    try {
+      // Stop cron jobs
+      if (this.hourlyJob) {
+        this.hourlyJob.stop();
+        this.log('Hourly cron job stopped');
+      }
 
-    if (this.weeklyJob) {
-      this.weeklyJob.stop();
-      this.log('Weekly cron job stopped');
-    }
+      if (this.weeklyJob) {
+        this.weeklyJob.stop();
+        this.log('Weekly cron job stopped');
+      }
 
-    this.log('MELCloud Optimizer App shutdown complete');
+      // Stop thermal model service
+      try {
+        // Get the optimizer instance from the API
+        const api = require('../api.js');
+        if (api.optimizer && api.optimizer.thermalModelService) {
+          this.log('Stopping thermal model service...');
+          api.optimizer.thermalModelService.stop();
+          this.log('Thermal model service stopped');
+        }
+      } catch (thermalModelError) {
+        this.error('Error stopping thermal model service:', thermalModelError as Error);
+      }
+
+      // Clean up any other resources
+      if (this.copHelper) {
+        this.log('Cleaning up COP helper resources');
+        // No specific cleanup needed for COP helper currently
+      }
+
+      // Final cleanup
+      this.log('All resources cleaned up');
+    } catch (error) {
+      this.error('Error during app shutdown:', error as Error);
+    } finally {
+      this.log('MELCloud Optimizer App shutdown complete');
+    }
   }
 }
