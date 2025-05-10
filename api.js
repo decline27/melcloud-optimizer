@@ -2853,6 +2853,61 @@ class Optimizer {
     return savings;
   }
 
+  /**
+   * Calculate projected daily savings based on hourly savings and historical data
+   * @param {number} hourlySavings - Savings for the current hour
+   * @returns {number} - Projected daily savings
+   */
+  calculateDailySavings(hourlySavings) {
+    // Get the current hour of the day (0-23)
+    const currentDate = new Date();
+    const currentHour = currentDate.getHours();
+
+    // Initialize total savings
+    let totalSavings = hourlySavings; // Start with current hour's savings
+
+    // If we have historical data, use it to calculate more accurate daily savings
+    if (historicalData && historicalData.optimizations && historicalData.optimizations.length > 0) {
+      // Get today's date at midnight for comparison
+      const todayMidnight = new Date(currentDate);
+      todayMidnight.setHours(0, 0, 0, 0);
+
+      // Filter optimizations from today
+      const todayOptimizations = historicalData.optimizations.filter(opt => {
+        const optDate = new Date(opt.timestamp);
+        return optDate >= todayMidnight && optDate.getHours() < currentHour;
+      });
+
+      // If we have optimizations from earlier today, use them
+      if (todayOptimizations.length > 0) {
+        // Reset total savings to start fresh
+        totalSavings = 0;
+
+        // Sum up actual savings from previous hours today
+        todayOptimizations.forEach(opt => {
+          if (opt.savings) {
+            totalSavings += opt.savings;
+          }
+        });
+
+        // Add current hour's savings
+        totalSavings += hourlySavings;
+
+        // Project forward for remaining hours
+        const remainingHours = 24 - (todayOptimizations.length + 1); // +1 for current hour
+        if (remainingHours > 0) {
+          totalSavings += hourlySavings * remainingHours;
+        }
+
+        return totalSavings;
+      }
+    }
+
+    // Fallback: If no historical data available or no optimizations from today,
+    // project current hour's savings to a full day
+    return hourlySavings * 24;
+  }
+
   calculateComfortImpact(oldTemp, newTemp) {
     // Simple model: deviation from 21°C reduces comfort
     const idealTemp = 21;
@@ -3673,13 +3728,63 @@ module.exports = {
             message += ` | Price: ${priceContext}`;
           }
 
-          // Add savings if significant (threshold lowered to 0.02)
-          // Always display savings in local currency when they're significant
+          // Calculate projected daily savings based on hourly savings
+          // Always display projected daily savings in local currency when they're significant
+          // Using a higher threshold (0.5) for daily savings since they're 24x larger than hourly savings
           if (result.savings && Math.abs(result.savings) > 0.02) {
+            // Calculate daily savings first to check against the higher threshold
+            const dailySavings = optimizer.calculateDailySavings(result.savings);
+
+            // Only show if daily savings are significant (above 0.5 in local currency)
+            if (Math.abs(dailySavings) > 0.5) {
+
             // Use local currency format instead of hardcoded Euro symbol
             // This extracts just the currency symbol from the user's locale
             const currencySymbol = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(0).replace(/[0-9.,]/g, '');
-            message += ` | Savings: ${currencySymbol}${result.savings.toFixed(2)}`;
+
+            // Display projected daily savings instead of hourly savings
+            // Check if we used historical data
+            const currentHour = new Date().getHours();
+            const todayMidnight = new Date();
+            todayMidnight.setHours(0, 0, 0, 0);
+
+            // Filter optimizations from today
+            const todayOptimizations = historicalData.optimizations.filter(opt => {
+              const optDate = new Date(opt.timestamp);
+              return optDate >= todayMidnight && optDate.getHours() < currentHour;
+            });
+
+            if (todayOptimizations.length > 0) {
+              message += ` | Daily savings: ${currencySymbol}${dailySavings.toFixed(2)} (based on ${todayOptimizations.length + 1} hours)`;
+            } else {
+              message += ` | Daily savings: ${currencySymbol}${dailySavings.toFixed(2)}`;
+            }
+
+            // Log the projected daily savings for debugging with more details
+            homey.app.log(`Projected daily savings: ${currencySymbol}${dailySavings.toFixed(2)} (based on hourly savings of ${currencySymbol}${result.savings.toFixed(2)})`);
+
+            // Log details about how the daily savings were calculated
+
+            if (todayOptimizations.length > 0) {
+              homey.app.log(`Daily savings calculation used ${todayOptimizations.length} historical data points from earlier today`);
+
+              // Calculate total historical savings
+              let historicalSavings = 0;
+              todayOptimizations.forEach(opt => {
+                if (opt.savings) {
+                  historicalSavings += opt.savings;
+                }
+              });
+
+              homey.app.log(`Historical savings from previous hours today: ${currencySymbol}${historicalSavings.toFixed(2)}`);
+              homey.app.log(`Current hour savings: ${currencySymbol}${result.savings.toFixed(2)}`);
+
+              const remainingHours = 24 - (todayOptimizations.length + 1); // +1 for current hour
+              homey.app.log(`Projected savings for remaining ${remainingHours} hours: ${currencySymbol}${(result.savings * remainingHours).toFixed(2)}`);
+            } else {
+              homey.app.log(`No historical data from earlier today. Using simple projection (current hour × 24)`);
+            }
+              }
           }
 
           // Add COP if available
