@@ -1,9 +1,0 @@
-{
-  "name": "com.melcloud.optimize",
-  "version": "1.0.0",
-  "description": "Heat Pump Optimizer for Homey SDK 3.0",
-  "main": "index.js",
-  "dependencies": {
-    "cron": "^3.1.7"
-  }
-}

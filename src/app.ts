@@ -232,10 +232,35 @@ export default class HeatOptimizerApp extends App {
 
       // Add a timeline entry for the automatic trigger
       try {
-        await this.homey.flow.runFlowCardAction({
-          uri: 'homey:flowcardaction:homey:manager:timeline:log',
-          args: { text: '🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP' }
-        });
+        this.log('Creating timeline entry for hourly job');
+
+        // First try the direct timeline API if available
+        if (typeof this.homey.timeline === 'object' && typeof this.homey.timeline.createEntry === 'function') {
+          await this.homey.timeline.createEntry({
+            title: 'MELCloud Optimizer',
+            body: '🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP',
+            icon: 'flow:device_changed'
+          });
+          this.log('Timeline entry created using timeline API');
+        }
+        // Then try the notifications API as the main fallback
+        else if (typeof this.homey.notifications === 'object' && typeof this.homey.notifications.createNotification === 'function') {
+          await this.homey.notifications.createNotification({
+            excerpt: 'MELCloud Optimizer: 🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP',
+          });
+          this.log('Timeline entry created using notifications API');
+        }
+        // Finally try homey.flow if available
+        else if (typeof this.homey.flow === 'object' && typeof this.homey.flow.runFlowCardAction === 'function') {
+          await this.homey.flow.runFlowCardAction({
+            uri: 'homey:flowcardaction:homey:manager:timeline:log',
+            args: { text: '🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP' }
+          });
+          this.log('Timeline entry created using flow API');
+        }
+        else {
+          this.log('No timeline API available, using log only');
+        }
       } catch (err) {
         this.error('Failed to create timeline entry for automatic trigger', err as Error);
       }
@@ -280,10 +305,35 @@ export default class HeatOptimizerApp extends App {
 
       // Add a timeline entry for the automatic trigger
       try {
-        await this.homey.flow.runFlowCardAction({
-          uri: 'homey:flowcardaction:homey:manager:timeline:log',
-          args: { text: '📈 Automatic weekly calibration | Updating thermal model with latest data' }
-        });
+        this.log('Creating timeline entry for weekly job');
+
+        // First try the direct timeline API if available
+        if (typeof this.homey.timeline === 'object' && typeof this.homey.timeline.createEntry === 'function') {
+          await this.homey.timeline.createEntry({
+            title: 'MELCloud Optimizer',
+            body: '📈 Automatic weekly calibration | Updating thermal model with latest data',
+            icon: 'flow:device_changed'
+          });
+          this.log('Timeline entry created using timeline API');
+        }
+        // Then try the notifications API as the main fallback
+        else if (typeof this.homey.notifications === 'object' && typeof this.homey.notifications.createNotification === 'function') {
+          await this.homey.notifications.createNotification({
+            excerpt: 'MELCloud Optimizer: 📈 Automatic weekly calibration | Updating thermal model with latest data',
+          });
+          this.log('Timeline entry created using notifications API');
+        }
+        // Finally try homey.flow if available
+        else if (typeof this.homey.flow === 'object' && typeof this.homey.flow.runFlowCardAction === 'function') {
+          await this.homey.flow.runFlowCardAction({
+            uri: 'homey:flowcardaction:homey:manager:timeline:log',
+            args: { text: '📈 Automatic weekly calibration | Updating thermal model with latest data' }
+          });
+          this.log('Timeline entry created using flow API');
+        }
+        else {
+          this.log('No timeline API available, using log only');
+        }
       } catch (err) {
         this.error('Failed to create timeline entry for automatic trigger', err as Error);
       }
@@ -398,10 +448,35 @@ export default class HeatOptimizerApp extends App {
 
         try {
           // First add the timeline entry
-          await this.homey.flow.runFlowCardAction({
-            uri: 'homey:flowcardaction:homey:manager:timeline:log',
-            args: { text: '🔄 Manual hourly optimization | Optimizing based on current prices and COP' }
-          });
+          this.log('Creating timeline entry for manual hourly optimization');
+
+          // First try the direct timeline API if available
+          if (typeof this.homey.timeline === 'object' && typeof this.homey.timeline.createEntry === 'function') {
+            await this.homey.timeline.createEntry({
+              title: 'MELCloud Optimizer',
+              body: '🔄 Manual hourly optimization | Optimizing based on current prices and COP',
+              icon: 'flow:device_changed'
+            });
+            this.log('Timeline entry created using timeline API');
+          }
+          // Then try the notifications API as the main fallback
+          else if (typeof this.homey.notifications === 'object' && typeof this.homey.notifications.createNotification === 'function') {
+            await this.homey.notifications.createNotification({
+              excerpt: 'MELCloud Optimizer: 🔄 Manual hourly optimization | Optimizing based on current prices and COP',
+            });
+            this.log('Timeline entry created using notifications API');
+          }
+          // Finally try homey.flow if available
+          else if (typeof this.homey.flow === 'object' && typeof this.homey.flow.runFlowCardAction === 'function') {
+            await this.homey.flow.runFlowCardAction({
+              uri: 'homey:flowcardaction:homey:manager:timeline:log',
+              args: { text: '🔄 Manual hourly optimization | Optimizing based on current prices and COP' }
+            });
+            this.log('Timeline entry created using flow API');
+          }
+          else {
+            this.log('No timeline API available, using log only');
+          }
 
           // Then run the optimization
           await this.runHourlyOptimizer();
@@ -454,10 +529,35 @@ export default class HeatOptimizerApp extends App {
 
         try {
           // First add the timeline entry
-          await this.homey.flow.runFlowCardAction({
-            uri: 'homey:flowcardaction:homey:manager:timeline:log',
-            args: { text: '📊 Manual weekly calibration | Analyzing thermal model based on collected data' }
-          });
+          this.log('Creating timeline entry for manual weekly calibration');
+
+          // First try the direct timeline API if available
+          if (typeof this.homey.timeline === 'object' && typeof this.homey.timeline.createEntry === 'function') {
+            await this.homey.timeline.createEntry({
+              title: 'MELCloud Optimizer',
+              body: '📊 Manual weekly calibration | Analyzing thermal model based on collected data',
+              icon: 'flow:device_changed'
+            });
+            this.log('Timeline entry created using timeline API');
+          }
+          // Then try the notifications API as the main fallback
+          else if (typeof this.homey.notifications === 'object' && typeof this.homey.notifications.createNotification === 'function') {
+            await this.homey.notifications.createNotification({
+              excerpt: 'MELCloud Optimizer: 📊 Manual weekly calibration | Analyzing thermal model based on collected data',
+            });
+            this.log('Timeline entry created using notifications API');
+          }
+          // Finally try homey.flow if available
+          else if (typeof this.homey.flow === 'object' && typeof this.homey.flow.runFlowCardAction === 'function') {
+            await this.homey.flow.runFlowCardAction({
+              uri: 'homey:flowcardaction:homey:manager:timeline:log',
+              args: { text: '📊 Manual weekly calibration | Analyzing thermal model based on collected data' }
+            });
+            this.log('Timeline entry created using flow API');
+          }
+          else {
+            this.log('No timeline API available, using log only');
+          }
 
           // Then run the calibration
           await this.runWeeklyCalibration();

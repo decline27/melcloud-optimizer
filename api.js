@@ -8,10 +8,22 @@ const https = require('https');
  * Helper function to pretty-print JSON data
  * @param {Object} data - The data to format
  * @param {string} [label] - Optional label for the output
+ * @param {Object} [logger] - Logger object with log level
+ * @param {number} [minLogLevel=0] - Minimum log level to print (0=DEBUG, 1=INFO, 2=WARN, 3=ERROR)
  * @returns {string} - Formatted string
  */
-function prettyPrintJson(data, label = '') {
+function prettyPrintJson(data, label = '', logger = null, minLogLevel = 0) {
   try {
+    // Check if we should print based on log level
+    // Only print detailed JSON if we're in development mode or debug log level
+    const logLevel = logger?.homey?.settings?.get('log_level') || 1; // Default to INFO level
+    const isDevelopment = process.env.HOMEY_APP_MODE === 'development' || process.env.NODE_ENV === 'development';
+
+    // Skip detailed output if we're in production and log level is higher than minLogLevel
+    if (!isDevelopment && logLevel > minLogLevel) {
+      return `[${label}] (Output suppressed in production mode with log level ${logLevel})`;
+    }
+
     // Create a header with the label
     const header = label ? `\n===== ${label} =====\n` : '\n';
 
@@ -28,16 +40,30 @@ function prettyPrintJson(data, label = '') {
 }
 
 // Helper function for making HTTP requests with retry capability
-async function httpRequest(options, data = null, maxRetries = 3, retryDelay = 1000) {
+async function httpRequest(options, data = null, maxRetries = 3, retryDelay = 1000, logger = null) {
   let lastError = null;
+  const logLevel = logger?.homey?.settings?.get('log_level') || 1; // Default to INFO level
+  const isDevelopment = process.env.HOMEY_APP_MODE === 'development' || process.env.NODE_ENV === 'development';
+
+  // Helper function to log based on level
+  const log = (message, level = 1) => {
+    // Always log in development mode or if log level is appropriate
+    if (isDevelopment || logLevel <= level) {
+      if (logger && logger.log) {
+        logger.log(message);
+      } else {
+        console.log(message);
+      }
+    }
+  };
 
   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
     try {
       // If this is a retry, log it
       if (attempt > 1) {
-        console.log(`Retry attempt ${attempt - 1}/${maxRetries} for ${options.method} request to ${options.hostname}${options.path}`);
+        log(`Retry attempt ${attempt - 1}/${maxRetries} for ${options.method} request to ${options.hostname}${options.path}`, 1);
       } else {
-        console.log(`Making ${options.method} request to ${options.hostname}${options.path}`);
+        log(`Making ${options.method} request to ${options.hostname}${options.path}`, 1);
       }
 
       // Create a new promise for this attempt
@@ -46,7 +72,7 @@ async function httpRequest(options, data = null, maxRetries = 3, retryDelay = 10
           let responseData = '';
 
           // Log response status
-          console.log(`Response status: ${res.statusCode} ${res.statusMessage}`);
+          log(`Response status: ${res.statusCode} ${res.statusMessage}`, 1);
 
           res.on('data', (chunk) => {
             responseData += chunk;
@@ -56,22 +82,24 @@ async function httpRequest(options, data = null, maxRetries = 3, retryDelay = 10
             // Check if we got a redirect
             if (res.statusCode >= 300 && res.statusCode < 400) {
               const location = res.headers.location;
-              console.log(`Received redirect to: ${location}`);
+              log(`Received redirect to: ${location}`, 1);
               reject(new Error(`Received redirect to: ${location}`));
               return;
             }
 
             // Check if we got an error
             if (res.statusCode >= 400) {
-              console.log(`Error response: ${responseData.substring(0, 200)}...`);
+              log(`Error response: ${responseData.substring(0, 200)}...`, 1);
               reject(new Error(`HTTP error ${res.statusCode}: ${res.statusMessage}`));
               return;
             }
 
             // Try to parse as JSON
             try {
-              // Log first 100 chars of response for debugging (keep this for quick reference)
-              console.log(`Response data (first 100 chars): ${responseData.substring(0, 100)}...`);
+              // Only log response details in development mode or debug level
+              if (isDevelopment || logLevel <= 0) {
+                log(`Response data (first 100 chars): ${responseData.substring(0, 100)}...`, 0);
+              }
 
               const parsedData = JSON.parse(responseData);
 
@@ -80,14 +108,14 @@ async function httpRequest(options, data = null, maxRetries = 3, retryDelay = 10
 
               resolve(parsedData);
             } catch (error) {
-              console.log(`Failed to parse response as JSON. First 200 chars: ${responseData.substring(0, 200)}...`);
+              log(`Failed to parse response as JSON. First 200 chars: ${responseData.substring(0, 200)}...`, 1);
               reject(new Error(`Failed to parse response: ${error.message}`));
             }
           });
         });
 
         req.on('error', (error) => {
-          console.log(`Request error: ${error.message}`);
+          log(`Request error: ${error.message}`, 1);
           reject(error);
         });
 
@@ -99,7 +127,10 @@ async function httpRequest(options, data = null, maxRetries = 3, retryDelay = 10
 
         if (data) {
           const dataStr = JSON.stringify(data);
-          console.log(`Request data: ${dataStr.substring(0, 100)}...`);
+          // Only log request data in development mode or debug level
+          if (isDevelopment || logLevel <= 0) {
+            log(`Request data: ${dataStr.substring(0, 100)}...`, 0);
+          }
           req.write(dataStr);
         }
 
@@ -131,12 +162,12 @@ async function httpRequest(options, data = null, maxRetries = 3, retryDelay = 10
 
       // If this error is not retryable, or we've used all our retries, throw the error
       if (!isRetryable || attempt > maxRetries) {
-        console.log(`Request failed after ${attempt} attempt(s): ${error.message}`);
+        log(`Request failed after ${attempt} attempt(s): ${error.message}`, 1);
         throw error;
       }
 
       // Wait before retrying
-      console.log(`Waiting ${retryDelay}ms before retry...`);
+      log(`Waiting ${retryDelay}ms before retry...`, 1);
       await new Promise(resolve => setTimeout(resolve, retryDelay));
 
       // Increase the delay for the next retry (exponential backoff)
@@ -227,7 +258,11 @@ class MelCloudApi {
 
   async login(email, password) {
     try {
-      console.log('Logging in to MELCloud...');
+      if (this.logger && this.logger.log) {
+        this.logger.log('Logging in to MELCloud...');
+      } else {
+        console.log('Logging in to MELCloud...');
+      }
 
       // Make the actual API call to MELCloud
       const baseUrlObj = new URL(this.baseUrl);
@@ -250,8 +285,8 @@ class MelCloudApi {
         }
       };
 
-      // Use the httpRequest function
-      const response = await httpRequest(options, data);
+      // Use the httpRequest function with logger
+      const response = await httpRequest(options, data, 3, 1000, this.logger);
 
       if (response.ErrorId !== null && response.ErrorId !== undefined) {
         throw new Error(`MELCloud login failed: ${response.ErrorMessage}`);
@@ -274,13 +309,26 @@ class MelCloudApi {
         };
       }
 
-      // Print the formatted response
-      console.log(prettyPrintJson(sanitizedResponse, 'MELCloud Login Response'));
+      // Print the formatted response using the logger
+      const logOutput = prettyPrintJson(sanitizedResponse, 'MELCloud Login Response', this.logger, 0);
+      if (this.logger && this.logger.log) {
+        this.logger.log(logOutput);
+      } else {
+        console.log(logOutput);
+      }
 
-      console.log('Successfully logged in to MELCloud');
+      if (this.logger && this.logger.log) {
+        this.logger.log('Successfully logged in to MELCloud');
+      } else {
+        console.log('Successfully logged in to MELCloud');
+      }
       return true;
     } catch (error) {
-      console.error('MELCloud login error:', error);
+      if (this.logger && this.logger.error) {
+        this.logger.error('MELCloud login error:', error);
+      } else {
+        console.error('MELCloud login error:', error);
+      }
       throw error;
     }
   }
@@ -291,7 +339,12 @@ class MelCloudApi {
         throw new Error('Not logged in to MELCloud');
       }
 
-      console.log('Getting devices from MELCloud...');
+      // Log using the logger if available
+      if (this.logger && this.logger.log) {
+        this.logger.log('Getting devices from MELCloud...');
+      } else {
+        console.log('Getting devices from MELCloud...');
+      }
 
       // Make the actual API call to MELCloud
       const baseUrlObj = new URL(this.baseUrl);
@@ -305,82 +358,118 @@ class MelCloudApi {
         }
       };
 
-      const data = await httpRequest(options);
+      const data = await httpRequest(options, null, 3, 1000, this.logger);
 
-      // Print the raw API response in a nicely formatted way
-      console.log(prettyPrintJson(data, 'MELCloud API Raw Response'));
+      // Print the raw API response in a nicely formatted way using the logger
+      const rawResponseLog = prettyPrintJson(data, 'MELCloud API Raw Response', this.logger, 0);
+      if (this.logger && this.logger.log) {
+        this.logger.log(rawResponseLog);
+      } else {
+        console.log(rawResponseLog);
+      }
 
       this.devices = this.extractDevices(data);
 
-      // Print the extracted devices in a nicely formatted way
-      console.log(prettyPrintJson(this.devices, 'MELCloud Extracted Devices'));
+      // Print the extracted devices in a nicely formatted way using the logger
+      const extractedDevicesLog = prettyPrintJson(this.devices, 'MELCloud Extracted Devices', this.logger, 0);
+      if (this.logger && this.logger.log) {
+        this.logger.log(extractedDevicesLog);
+      } else {
+        console.log(extractedDevicesLog);
+      }
 
       // Print a summary of each device with building ID and device ID
-      console.log('\n===== MELCloud Device Summary =====');
+      let summaryLog = '\n===== MELCloud Device Summary =====';
       this.devices.forEach((device, index) => {
-        console.log(`Device ${index + 1}:`);
-        console.log(`  Name: ${device.name}`);
-        console.log(`  Device ID: ${device.id}`);
-        console.log(`  Building ID: ${device.buildingId}`);
-        console.log(`  Type: ${device.type}`);
-        console.log(`  Is Dummy: ${device.isDummy ? 'Yes' : 'No'}`);
+        summaryLog += `\nDevice ${index + 1}:`;
+        summaryLog += `\n  Name: ${device.name}`;
+        summaryLog += `\n  Device ID: ${device.id}`;
+        summaryLog += `\n  Building ID: ${device.buildingId}`;
+        summaryLog += `\n  Type: ${device.type}`;
+        summaryLog += `\n  Is Dummy: ${device.isDummy ? 'Yes' : 'No'}`;
 
-        // Print some key device properties if available
+        // Add some key device properties if available
         if (device.data) {
           if (device.data.SetTemperatureZone1 !== undefined) {
-            console.log(`  Zone1 Temperature: ${device.data.SetTemperatureZone1}°C`);
+            summaryLog += `\n  Zone1 Temperature: ${device.data.SetTemperatureZone1}°C`;
           }
           if (device.data.SetTemperatureZone2 !== undefined) {
-            console.log(`  Zone2 Temperature: ${device.data.SetTemperatureZone2}°C`);
+            summaryLog += `\n  Zone2 Temperature: ${device.data.SetTemperatureZone2}°C`;
           }
           if (device.data.SetTankWaterTemperature !== undefined) {
-            console.log(`  Tank Temperature: ${device.data.SetTankWaterTemperature}°C`);
+            summaryLog += `\n  Tank Temperature: ${device.data.SetTankWaterTemperature}°C`;
           }
           if (device.data.RoomTemperature !== undefined) {
-            console.log(`  Room Temperature: ${device.data.RoomTemperature}°C`);
+            summaryLog += `\n  Room Temperature: ${device.data.RoomTemperature}°C`;
           }
           if (device.data.OutdoorTemperature !== undefined) {
-            console.log(`  Outdoor Temperature: ${device.data.OutdoorTemperature}°C`);
+            summaryLog += `\n  Outdoor Temperature: ${device.data.OutdoorTemperature}°C`;
           }
         }
-        console.log(''); // Add a blank line between devices
+        summaryLog += '\n'; // Add a blank line between devices
       });
 
-      console.log(`Found ${this.devices.length} devices in MELCloud account`);
+      // Log the summary using the logger
+      if (this.logger && this.logger.log) {
+        this.logger.log(summaryLog);
+        this.logger.log(`Found ${this.devices.length} devices in MELCloud account`);
+      } else {
+        console.log(summaryLog);
+        console.log(`Found ${this.devices.length} devices in MELCloud account`);
+      }
+
       return this.devices;
     } catch (error) {
-      console.error('MELCloud get devices error:', error);
+      if (this.logger && this.logger.error) {
+        this.logger.error('MELCloud get devices error:', error);
+      } else {
+        console.error('MELCloud get devices error:', error);
+      }
       throw error;
     }
   }
 
   extractDevices(data) {
     const devices = [];
+    const log = (message) => {
+      if (this.logger && this.logger.log) {
+        this.logger.log(message);
+      } else {
+        console.log(message);
+      }
+    };
 
-    // Log the raw data structure for debugging
-    console.log('MELCloud API response structure:', JSON.stringify(data).substring(0, 500) + '...');
+    // Log the raw data structure for debugging (only in debug mode)
+    const logLevel = this.logger?.homey?.settings?.get('log_level') || 1;
+    const isDevelopment = process.env.HOMEY_APP_MODE === 'development' || process.env.NODE_ENV === 'development';
+
+    if (isDevelopment || logLevel <= 0) {
+      log('MELCloud API response structure: ' + JSON.stringify(data).substring(0, 500) + '...');
+    }
 
     // Check if data is an array
     if (!Array.isArray(data)) {
-      console.log('MELCloud API response is not an array. Using as a single building.');
+      log('MELCloud API response is not an array. Using as a single building.');
       data = [data];
     }
 
     // Process each building
     data.forEach(building => {
-      console.log(`Building: ${building.Name || 'Unknown'} (ID: ${building.ID || 'Unknown'})`);
+      log(`Building: ${building.Name || 'Unknown'} (ID: ${building.ID || 'Unknown'})`);
 
-      // Log the building structure for debugging
-      console.log(`Building structure keys: ${Object.keys(building).join(', ')}`);
+      // Log the building structure for debugging (only in debug mode)
+      if (isDevelopment || logLevel <= 0) {
+        log(`Building structure keys: ${Object.keys(building).join(', ')}`);
+      }
 
       // Deep search for devices in the building object
       const foundDevices = this.findDevicesInObject(building, building.ID);
 
       if (foundDevices.length > 0) {
-        console.log(`Found ${foundDevices.length} devices in building ${building.Name || 'Unknown'}`);
+        log(`Found ${foundDevices.length} devices in building ${building.Name || 'Unknown'}`);
         devices.push(...foundDevices);
       } else {
-        console.log(`No devices found in building ${building.Name || 'Unknown'}. Creating a dummy device for testing.`);
+        log(`No devices found in building ${building.Name || 'Unknown'}. Creating a dummy device for testing.`);
         // Create a dummy device using the building ID
         const dummyDeviceId = 123456; // Use a fixed ID for consistency
         devices.push({
@@ -408,6 +497,20 @@ class MelCloudApi {
   // Helper method to recursively find devices in an object
   findDevicesInObject(obj, buildingId, path = '', foundDeviceIds = new Set()) {
     const devices = [];
+    const logLevel = this.logger?.homey?.settings?.get('log_level') || 1;
+    const isDevelopment = process.env.HOMEY_APP_MODE === 'development' || process.env.NODE_ENV === 'development';
+
+    // Helper function to log based on level
+    const log = (message, level = 1) => {
+      // Only log if we're in development mode or if log level is appropriate
+      if (isDevelopment || logLevel <= level) {
+        if (this.logger && this.logger.log) {
+          this.logger.log(message);
+        } else {
+          console.log(message);
+        }
+      }
+    };
 
     // If this is null or not an object, return empty array
     if (!obj || typeof obj !== 'object') {
@@ -427,7 +530,7 @@ class MelCloudApi {
     if (obj.DeviceID !== undefined && obj.DeviceName !== undefined) {
       // Only add the device if we haven't seen this ID before
       if (!foundDeviceIds.has(obj.DeviceID)) {
-        console.log(`Found device at ${path}: ${obj.DeviceName} (ID: ${obj.DeviceID})`);
+        log(`Found device at ${path}: ${obj.DeviceName} (ID: ${obj.DeviceID})`, 0);
         foundDeviceIds.add(obj.DeviceID);
         devices.push({
           id: obj.DeviceID,
@@ -437,18 +540,18 @@ class MelCloudApi {
           data: obj,
         });
       } else {
-        console.log(`Skipping duplicate device at ${path}: ${obj.DeviceName} (ID: ${obj.DeviceID})`);
+        log(`Skipping duplicate device at ${path}: ${obj.DeviceName} (ID: ${obj.DeviceID})`, 0);
       }
     }
 
     // Check if this is a device list
     if (obj.Devices && Array.isArray(obj.Devices)) {
-      console.log(`Found device list at ${path} with ${obj.Devices.length} devices`);
+      log(`Found device list at ${path} with ${obj.Devices.length} devices`, 0);
       obj.Devices.forEach(device => {
         if (device.DeviceID !== undefined) {
           // Only add the device if we haven't seen this ID before
           if (!foundDeviceIds.has(device.DeviceID)) {
-            console.log(`  Device: ${device.DeviceName || 'Unknown'} (ID: ${device.DeviceID})`);
+            log(`  Device: ${device.DeviceName || 'Unknown'} (ID: ${device.DeviceID})`, 0);
             foundDeviceIds.add(device.DeviceID);
             devices.push({
               id: device.DeviceID,
@@ -458,7 +561,7 @@ class MelCloudApi {
               data: device,
             });
           } else {
-            console.log(`  Skipping duplicate device: ${device.DeviceName || 'Unknown'} (ID: ${device.DeviceID})`);
+            log(`  Skipping duplicate device: ${device.DeviceName || 'Unknown'} (ID: ${device.DeviceID})`, 0);
           }
         }
       });
@@ -917,6 +1020,83 @@ class TibberApi {
     this.priceUpdateTime = null; // Time when prices were last updated by Tibber
     this.nextPriceUpdateTime = null; // Next time when prices will be updated (13:00)
     this.logger = console; // Default logger
+
+    // Try to load cached prices from persistent storage
+    this.loadCachedPrices();
+  }
+
+  /**
+   * Load cached prices from persistent storage
+   * Uses Homey settings if available
+   */
+  loadCachedPrices() {
+    try {
+      // Check if we have a logger with Homey settings
+      if (this.logger?.homey?.settings) {
+        const cachedData = this.logger.homey.settings.get('tibber_cached_prices');
+
+        if (cachedData) {
+          // Parse the cached data
+          const parsedData = JSON.parse(cachedData);
+
+          // Restore the cache if it's valid
+          if (parsedData && parsedData.cachedPrices && parsedData.lastFetchTime) {
+            this.cachedPrices = parsedData.cachedPrices;
+            this.lastFetchTime = new Date(parsedData.lastFetchTime);
+
+            if (parsedData.priceUpdateTime) {
+              this.priceUpdateTime = new Date(parsedData.priceUpdateTime);
+            }
+
+            if (parsedData.nextPriceUpdateTime) {
+              this.nextPriceUpdateTime = new Date(parsedData.nextPriceUpdateTime);
+            }
+
+            if (this.logger.log) {
+              this.logger.log('Loaded cached Tibber prices from persistent storage');
+            } else {
+              console.log('Loaded cached Tibber prices from persistent storage');
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error loading cached Tibber prices:', error);
+      // If there's an error, we'll just start with a fresh cache
+      this.cachedPrices = null;
+      this.lastFetchTime = null;
+    }
+  }
+
+  /**
+   * Save cached prices to persistent storage
+   * Uses Homey settings if available
+   */
+  saveCachedPrices() {
+    try {
+      // Check if we have a logger with Homey settings
+      if (this.logger?.homey?.settings && this.cachedPrices) {
+        // Create a data object with all cache-related properties
+        const cacheData = {
+          cachedPrices: this.cachedPrices,
+          lastFetchTime: this.lastFetchTime ? this.lastFetchTime.toISOString() : null,
+          priceUpdateTime: this.priceUpdateTime ? this.priceUpdateTime.toISOString() : null,
+          nextPriceUpdateTime: this.nextPriceUpdateTime ? this.nextPriceUpdateTime.toISOString() : null
+        };
+
+        // Save to Homey settings
+        this.logger.homey.settings.set('tibber_cached_prices', JSON.stringify(cacheData));
+
+        if (this.logger.log) {
+          this.logger.log('Saved Tibber prices to persistent storage');
+        } else {
+          console.log('Saved Tibber prices to persistent storage');
+        }
+      }
+    } catch (error) {
+      console.error('Error saving cached Tibber prices:', error);
+      // If there's an error saving, we'll just continue without persistence
+    }
   }
 
   /**
@@ -985,8 +1165,9 @@ class TibberApi {
 
     const now = new Date();
 
-    // If it's been more than 1 hour since last fetch, fetch again
-    if ((now - this.lastFetchTime) > 60 * 60 * 1000) return true;
+    // If it's been more than 12 hours since last fetch, fetch again
+    // This is a significant increase from 1 hour to reduce API calls
+    if ((now - this.lastFetchTime) > 12 * 60 * 60 * 1000) return true;
 
     // If we're approaching the next price update time (13:00), fetch again
     // Check if it's between 12:45 and 13:15
@@ -996,12 +1177,30 @@ class TibberApi {
     }
 
     // If we have cached prices but they don't include the current hour, fetch again
+    // This is critical to ensure we always have the current price
     if (this.cachedPrices && this.cachedPrices.current) {
       const currentPriceTime = new Date(this.cachedPrices.current.time);
       const currentHour = new Date(now);
       currentHour.setMinutes(0, 0, 0);
 
       if (currentPriceTime < currentHour) return true;
+    }
+
+    // If we don't have tomorrow's prices and it's after 13:15, fetch again
+    // This ensures we get the next day's prices as soon as they're available
+    const currentHour = now.getHours();
+    const currentMinute = now.getMinutes();
+    if (currentHour >= 13 && currentMinute >= 15) {
+      // Check if we have tomorrow's prices
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(0, 0, 0, 0);
+
+      // If we have cached prices, check if they include tomorrow
+      if (this.cachedPrices && this.cachedPrices.prices) {
+        const hasTomorrowPrices = this.cachedPrices.prices.some(p => new Date(p.time) >= tomorrow);
+        if (!hasTomorrowPrices) return true;
+      }
     }
 
     return false;
@@ -1037,7 +1236,16 @@ class TibberApi {
     try {
       // Check if we should use cached prices
       if (!forceRefresh && this.cachedPrices && !this.shouldFetchNewPrices()) {
-        console.log('Using cached price data');
+        const cacheAge = Math.round((new Date() - this.lastFetchTime) / (60 * 1000)); // in minutes
+        const nextUpdateTime = this.nextPriceUpdateTime ?
+          `next update at ${this.nextPriceUpdateTime.toLocaleTimeString()}` :
+          'no scheduled update';
+
+        if (this.logger && this.logger.log) {
+          this.logger.log(`Using cached Tibber price data (${cacheAge} minutes old, ${nextUpdateTime})`);
+        } else {
+          console.log(`Using cached Tibber price data (${cacheAge} minutes old, ${nextUpdateTime})`);
+        }
         return this.cachedPrices;
       }
 
@@ -1107,6 +1315,11 @@ class TibberApi {
 
       // Determine when these prices were last updated by Tibber
       this.determinePriceUpdateTime(result);
+
+      // Save the cache to persistent storage if available
+      if (typeof this.saveCachedPrices === 'function') {
+        this.saveCachedPrices();
+      }
 
       return result;
     } catch (error) {
@@ -3460,9 +3673,13 @@ module.exports = {
             message += ` | Price: ${priceContext}`;
           }
 
-          // Add savings if significant
-          if (result.savings && Math.abs(result.savings) > 0.05) {
-            message += ` | Savings: €${result.savings.toFixed(2)}`;
+          // Add savings if significant (threshold lowered to 0.02)
+          // Always display savings in local currency when they're significant
+          if (result.savings && Math.abs(result.savings) > 0.02) {
+            // Use local currency format instead of hardcoded Euro symbol
+            // This extracts just the currency symbol from the user's locale
+            const currencySymbol = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(0).replace(/[0-9.,]/g, '');
+            message += ` | Savings: ${currencySymbol}${result.savings.toFixed(2)}`;
           }
 
           // Add COP if available
@@ -3877,22 +4094,38 @@ module.exports = {
           // Add a timeline entry for the automatic trigger
           try {
             homey.app.log('Creating timeline entry for hourly job');
-            await homey.flow.runFlowCardAction({
-              uri: 'homey:flowcardaction:homey:manager:timeline:log',
-              args: { text: '🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP' }
-            });
+
+            // First try the direct timeline API if available
+            if (typeof homey.timeline === 'object' && typeof homey.timeline.createEntry === 'function') {
+              await homey.timeline.createEntry({
+                title: 'MELCloud Optimizer',
+                body: '🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP',
+                icon: 'flow:device_changed'
+              });
+              homey.app.log('Timeline entry created using timeline API');
+            }
+            // Then try the notifications API as the main fallback
+            else if (typeof homey.notifications === 'object' && typeof homey.notifications.createNotification === 'function') {
+              await homey.notifications.createNotification({
+                excerpt: 'MELCloud Optimizer: 🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP',
+              });
+              homey.app.log('Timeline entry created using notifications API');
+            }
+            // Finally try homey.app.flow if available
+            else if (homey.app && homey.app.flow && typeof homey.app.flow.runFlowCardAction === 'function') {
+              await homey.app.flow.runFlowCardAction({
+                uri: 'homey:flowcardaction:homey:manager:timeline:log',
+                args: { text: '🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP' }
+              });
+              homey.app.log('Timeline entry created using app flow API');
+            }
+            else {
+              homey.app.log('No timeline API available, using log only');
+            }
+
             homey.app.log('Timeline entry created successfully');
           } catch (err) {
             homey.app.error('Failed to create timeline entry for automatic trigger', err);
-
-            // Try an alternative method if the first one fails
-            try {
-              homey.app.log('Trying alternative method for timeline entry');
-              await homey.notifications.createNotification({ excerpt: '🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP' });
-              homey.app.log('Notification created successfully');
-            } catch (notifyErr) {
-              homey.app.error('Failed to create notification', notifyErr);
-            }
           }
 
           // Call the hourly optimizer
@@ -3917,22 +4150,38 @@ module.exports = {
           // Add a timeline entry for the automatic trigger
           try {
             homey.app.log('Creating timeline entry for weekly job');
-            await homey.flow.runFlowCardAction({
-              uri: 'homey:flowcardaction:homey:manager:timeline:log',
-              args: { text: '📈 Automatic weekly calibration | Updating thermal model with latest data' }
-            });
+
+            // First try the direct timeline API if available
+            if (typeof homey.timeline === 'object' && typeof homey.timeline.createEntry === 'function') {
+              await homey.timeline.createEntry({
+                title: 'MELCloud Optimizer',
+                body: '📈 Automatic weekly calibration | Updating thermal model with latest data',
+                icon: 'flow:device_changed'
+              });
+              homey.app.log('Timeline entry created using timeline API');
+            }
+            // Then try the notifications API as the main fallback
+            else if (typeof homey.notifications === 'object' && typeof homey.notifications.createNotification === 'function') {
+              await homey.notifications.createNotification({
+                excerpt: 'MELCloud Optimizer: 📈 Automatic weekly calibration | Updating thermal model with latest data',
+              });
+              homey.app.log('Timeline entry created using notifications API');
+            }
+            // Finally try homey.app.flow if available
+            else if (homey.app && homey.app.flow && typeof homey.app.flow.runFlowCardAction === 'function') {
+              await homey.app.flow.runFlowCardAction({
+                uri: 'homey:flowcardaction:homey:manager:timeline:log',
+                args: { text: '📈 Automatic weekly calibration | Updating thermal model with latest data' }
+              });
+              homey.app.log('Timeline entry created using app flow API');
+            }
+            else {
+              homey.app.log('No timeline API available, using log only');
+            }
+
             homey.app.log('Timeline entry created successfully');
           } catch (err) {
             homey.app.error('Failed to create timeline entry for automatic trigger', err);
-
-            // Try an alternative method if the first one fails
-            try {
-              homey.app.log('Trying alternative method for timeline entry');
-              await homey.notifications.createNotification({ excerpt: '📈 Automatic weekly calibration | Updating thermal model with latest data' });
-              homey.app.log('Notification created successfully');
-            } catch (notifyErr) {
-              homey.app.error('Failed to create notification', notifyErr);
-            }
           }
 
           // Call the weekly calibration
@@ -3976,22 +4225,38 @@ module.exports = {
         // Add a timeline entry for the cron job initialization
         try {
           homey.app.log('Creating timeline entry for cron job initialization');
-          await homey.flow.runFlowCardAction({
-            uri: 'homey:flowcardaction:homey:manager:timeline:log',
-            args: { text: '🕓 Scheduled jobs initialized' }
-          });
+
+          // First try the direct timeline API if available
+          if (typeof homey.timeline === 'object' && typeof homey.timeline.createEntry === 'function') {
+            await homey.timeline.createEntry({
+              title: 'MELCloud Optimizer',
+              body: '🕓 Scheduled jobs initialized',
+              icon: 'flow:device_changed'
+            });
+            homey.app.log('Timeline entry created using timeline API');
+          }
+          // Then try the notifications API as the main fallback
+          else if (typeof homey.notifications === 'object' && typeof homey.notifications.createNotification === 'function') {
+            await homey.notifications.createNotification({
+              excerpt: 'MELCloud Optimizer: 🕓 Scheduled jobs initialized',
+            });
+            homey.app.log('Timeline entry created using notifications API');
+          }
+          // Finally try homey.app.flow if available
+          else if (homey.app && homey.app.flow && typeof homey.app.flow.runFlowCardAction === 'function') {
+            await homey.app.flow.runFlowCardAction({
+              uri: 'homey:flowcardaction:homey:manager:timeline:log',
+              args: { text: '🕓 Scheduled jobs initialized' }
+            });
+            homey.app.log('Timeline entry created using app flow API');
+          }
+          else {
+            homey.app.log('No timeline API available, using log only');
+          }
+
           homey.app.log('Timeline entry created successfully');
         } catch (err) {
           homey.app.error('Failed to create timeline entry for cron job initialization', err);
-
-          // Try an alternative method if the first one fails
-          try {
-            homey.app.log('Trying alternative method for timeline entry');
-            await homey.notifications.createNotification({ excerpt: '🕓 Scheduled jobs initialized' });
-            homey.app.log('Notification created successfully');
-          } catch (notifyErr) {
-            homey.app.error('Failed to create notification', notifyErr);
-          }
         }
 
         // Update the cron status in settings
@@ -4155,14 +4420,33 @@ module.exports = {
 
       // Create a timeline entry to show the cron status
       try {
-        // Use homey.app.flow instead of homey.flow
-        if (homey.app && homey.app.flow && typeof homey.app.flow.runFlowCardAction === 'function') {
+        homey.app.log('Creating timeline entry for cron status check');
+
+        // First try the direct timeline API if available
+        if (typeof homey.timeline === 'object' && typeof homey.timeline.createEntry === 'function') {
+          await homey.timeline.createEntry({
+            title: 'MELCloud Optimizer',
+            body: '⏱️ Cron job status checked',
+            icon: 'flow:device_changed'
+          });
+          homey.app.log('Timeline entry created using timeline API');
+        }
+        // Then try the notifications API as the main fallback
+        else if (typeof homey.notifications === 'object' && typeof homey.notifications.createNotification === 'function') {
+          await homey.notifications.createNotification({
+            excerpt: 'MELCloud Optimizer: ⏱️ Cron job status checked',
+          });
+          homey.app.log('Timeline entry created using notifications API');
+        }
+        // Finally try homey.app.flow if available
+        else if (homey.app && homey.app.flow && typeof homey.app.flow.runFlowCardAction === 'function') {
           await homey.app.flow.runFlowCardAction({
             uri: 'homey:flowcardaction:homey:manager:timeline:log',
             args: { text: '⏱️ Cron job status checked' }
           });
-          homey.app.log('Timeline entry created for cron status check');
-        } else {
+          homey.app.log('Timeline entry created using app flow API');
+        }
+        else {
           homey.app.log('Timeline API not available, using log only');
         }
       } catch (err) {
