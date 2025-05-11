@@ -73,6 +73,18 @@
     "updateOptimizerSettings": {
       "method": "GET",
       "path": "/updateOptimizerSettings"
+    },
+    "getMelCloudStatus": {
+      "method": "GET",
+      "path": "/getMelCloudStatus"
+    },
+    "getTibberStatus": {
+      "method": "GET",
+      "path": "/getTibberStatus"
+    },
+    "runSystemHealthCheck": {
+      "method": "GET",
+      "path": "/runSystemHealthCheck"
     }
   }
 }

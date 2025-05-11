@@ -9,6 +9,8 @@
 import { DateTime } from 'luxon';
 import { ThermalDataCollector, ThermalDataPoint } from './data-collector';
 import { ThermalAnalyzer, ThermalCharacteristics, HeatingPrediction } from './thermal-analyzer';
+import { HomeyApp, PricePoint, WeatherData } from '../../types';
+import { validateNumber, validateBoolean } from '../../util/validation';
 
 export interface OptimizationRecommendation {
   // Recommended target temperature
@@ -30,10 +32,11 @@ export interface OptimizationRecommendation {
 export class ThermalModelService {
   private dataCollector: ThermalDataCollector;
   private analyzer: ThermalAnalyzer;
-  private dataCollectionInterval: any;
-  private modelUpdateInterval: any;
+  private dataCollectionInterval: NodeJS.Timeout | null = null;
+  private modelUpdateInterval: NodeJS.Timeout | null = null;
+  private dataCleanupInterval: NodeJS.Timeout | null = null;
 
-  constructor(private homey: any) {
+  constructor(private homey: HomeyApp) {
     this.dataCollector = new ThermalDataCollector(homey);
     this.analyzer = new ThermalAnalyzer(homey);
 
@@ -67,12 +70,22 @@ export class ThermalModelService {
       this.updateThermalModel();
     }, 6 * 60 * 60 * 1000);
 
+    // Clean up old data once a day
+    this.dataCleanupInterval = setInterval(() => {
+      this.cleanupOldData();
+    }, 24 * 60 * 60 * 1000);
+
     // Initial model update
     setTimeout(() => {
       this.updateThermalModel();
     }, 30 * 60 * 1000); // First update after 30 minutes
 
-    this.homey.log('Thermal model updates scheduled');
+    // Initial data cleanup
+    setTimeout(() => {
+      this.cleanupOldData();
+    }, 60 * 60 * 1000); // First cleanup after 1 hour
+
+    this.homey.log('Thermal model updates and data cleanup scheduled');
   }
 
   /**
@@ -162,6 +175,32 @@ export class ThermalModelService {
   }
 
   /**
+   * Clean up old data to manage memory usage
+   */
+  private cleanupOldData(): void {
+    try {
+      // Get current data points
+      const dataPoints = this.dataCollector.getAllDataPoints();
+
+      // Keep only the last 30 days of data
+      const thirtyDaysAgo = DateTime.now().minus({ days: 30 }).toMillis();
+
+      const filteredDataPoints = dataPoints.filter(point => {
+        const timestamp = DateTime.fromISO(point.timestamp).toMillis();
+        return timestamp >= thirtyDaysAgo;
+      });
+
+      // If we filtered out any points, update the data collector
+      if (filteredDataPoints.length < dataPoints.length) {
+        this.dataCollector.setDataPoints(filteredDataPoints);
+        this.homey.log(`Cleaned up thermal data: removed ${dataPoints.length - filteredDataPoints.length} old data points`);
+      }
+    } catch (error) {
+      this.homey.error('Error cleaning up old thermal data:', error);
+    }
+  }
+
+  /**
    * Get the optimal pre-heating start time to reach target temperature by a specific time
    * @param targetTemp Target temperature to reach
    * @param targetTime Time by which the target temperature should be reached
@@ -174,7 +213,7 @@ export class ThermalModelService {
     targetTime: string,
     currentTemp: number,
     outdoorTemp: number,
-    weatherForecast: any
+    weatherForecast: WeatherData
   ): string {
     // Prevent unused parameter warnings
     void(outdoorTemp); void(weatherForecast);
@@ -238,12 +277,17 @@ export class ThermalModelService {
    * @param comfortProfile User's comfort profile
    */
   public getHeatingRecommendation(
-    priceForecasts: any[],
+    priceForecasts: PricePoint[],
     targetTemp: number,
     currentTemp: number,
     outdoorTemp: number,
-    weatherForecast: any,
-    comfortProfile: any
+    weatherForecast: WeatherData,
+    comfortProfile: {
+      dayStart: number;
+      dayEnd: number;
+      nightTempReduction: number;
+      preHeatHours: number;
+    }
   ): OptimizationRecommendation {
     // Note: outdoorTemp, weatherForecast, and comfortProfile parameters are currently not used
     // but are included for future enhancements and API consistency
@@ -457,6 +501,12 @@ export class ThermalModelService {
 
   /**
    * Calculate time needed to reach target temperature
+   * @param currentTemp Current indoor temperature
+   * @param targetTemp Target temperature to reach
+   * @param outdoorTemp Current outdoor temperature
+   * @param weatherConditions Weather conditions
+   * @returns Heating prediction with time to target and confidence
+   * @throws Error if validation fails
    */
   public getTimeToTarget(
     currentTemp: number,
@@ -464,12 +514,51 @@ export class ThermalModelService {
     outdoorTemp: number,
     weatherConditions: any
   ): HeatingPrediction {
-    return this.analyzer.calculateTimeToTarget(
-      currentTemp,
-      targetTemp,
-      outdoorTemp,
-      weatherConditions
-    );
+    // Default value for validated current temp in case of error
+    let validatedCurrentTemp: number = 20; // Default to room temperature
+
+    try {
+      // Validate inputs
+      validatedCurrentTemp = validateNumber(currentTemp, 'currentTemp', { min: -10, max: 40 });
+      const validatedTargetTemp = validateNumber(targetTemp, 'targetTemp', { min: 5, max: 30 });
+      const validatedOutdoorTemp = validateNumber(outdoorTemp, 'outdoorTemp', { min: -50, max: 50 });
+
+      // Validate or create default weather conditions
+      let validatedWeatherConditions = {
+        windSpeed: 0,
+        humidity: 50,
+        cloudCover: 50,
+        precipitation: 0
+      };
+
+      if (weatherConditions) {
+        validatedWeatherConditions = {
+          windSpeed: validateNumber(weatherConditions.windSpeed || 0, 'windSpeed', { min: 0, max: 200 }),
+          humidity: validateNumber(weatherConditions.humidity || 50, 'humidity', { min: 0, max: 100 }),
+          cloudCover: validateNumber(weatherConditions.cloudCover || 50, 'cloudCover', { min: 0, max: 100 }),
+          precipitation: validateNumber(weatherConditions.precipitation || 0, 'precipitation', { min: 0, max: 500 })
+        };
+      }
+
+      return this.analyzer.calculateTimeToTarget(
+        validatedCurrentTemp,
+        validatedTargetTemp,
+        validatedOutdoorTemp,
+        validatedWeatherConditions
+      );
+    } catch (error) {
+      this.homey.error('Error calculating time to target:', error);
+      // If we couldn't validate the current temp, use a safe default
+      if (typeof validatedCurrentTemp === 'undefined') {
+        validatedCurrentTemp = 20; // Default room temperature
+      }
+      // Return a default prediction with zero confidence
+      return {
+        timeToTarget: 60, // Default 60 minutes
+        confidence: 0,
+        predictedTemperature: validatedCurrentTemp // Use current temperature as prediction
+      };
+    }
   }
 
   /**
@@ -489,6 +578,12 @@ export class ThermalModelService {
         this.homey.log('Thermal model update interval stopped');
       }
 
+      if (this.dataCleanupInterval) {
+        clearInterval(this.dataCleanupInterval);
+        this.dataCleanupInterval = null;
+        this.homey.log('Thermal model data cleanup interval stopped');
+      }
+
       this.homey.log('Thermal model service stopped and resources cleaned up');
     } catch (error) {
       this.homey.error('Error stopping thermal model service:', error);
@@ -498,14 +593,55 @@ export class ThermalModelService {
   /**
    * Collect a data point from the optimizer
    * @param dataPoint The thermal data point to collect
+   * @throws Error if validation fails
    */
   public collectDataPoint(dataPoint: ThermalDataPoint): void {
     try {
+      // Validate data point
+      if (!dataPoint) {
+        throw new Error('Invalid data point: data point is null or undefined');
+      }
+
+      // Validate required fields
+      const timestamp = dataPoint.timestamp || DateTime.now().toISO();
+      const indoorTemperature = validateNumber(dataPoint.indoorTemperature, 'indoorTemperature', { min: -10, max: 40 });
+      const outdoorTemperature = validateNumber(dataPoint.outdoorTemperature, 'outdoorTemperature', { min: -50, max: 50 });
+      const targetTemperature = validateNumber(dataPoint.targetTemperature, 'targetTemperature', { min: 5, max: 30 });
+      const heatingActive = validateBoolean(dataPoint.heatingActive, 'heatingActive');
+
+      // Validate weather conditions if present
+      let weatherConditions = dataPoint.weatherConditions || {
+        windSpeed: 0,
+        humidity: 50,
+        cloudCover: 50,
+        precipitation: 0
+      };
+
+      if (dataPoint.weatherConditions) {
+        weatherConditions = {
+          windSpeed: validateNumber(dataPoint.weatherConditions.windSpeed, 'windSpeed', { min: 0, max: 200 }),
+          humidity: validateNumber(dataPoint.weatherConditions.humidity, 'humidity', { min: 0, max: 100 }),
+          cloudCover: validateNumber(dataPoint.weatherConditions.cloudCover, 'cloudCover', { min: 0, max: 100 }),
+          precipitation: validateNumber(dataPoint.weatherConditions.precipitation, 'precipitation', { min: 0, max: 500 })
+        };
+      }
+
+      // Create validated data point
+      const validatedDataPoint: ThermalDataPoint = {
+        timestamp,
+        indoorTemperature,
+        outdoorTemperature,
+        targetTemperature,
+        heatingActive,
+        weatherConditions
+      };
+
       // Add to collector
-      this.dataCollector.addDataPoint(dataPoint);
+      this.dataCollector.addDataPoint(validatedDataPoint);
       this.homey.log('Thermal data point collected during hourly optimization');
     } catch (error) {
       this.homey.error('Error collecting thermal data point:', error);
+      throw error; // Re-throw to propagate the error
     }
   }
 }

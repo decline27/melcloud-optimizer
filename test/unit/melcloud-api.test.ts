@@ -1,103 +1,279 @@
-// Mock the MelCloudApi class instead of importing it
-jest.mock('../../src/services/melcloud-api', () => {
-  return {
-    MelCloudApi: jest.fn().mockImplementation(() => {
-      return {
-        login: jest.fn().mockResolvedValue(true),
-        getDevices: jest.fn().mockResolvedValue([
-          {
-            id: 123,
-            name: 'Boiler',
-            buildingId: 456,
-            type: 'heat_pump',
-            data: {}
-          }
-        ]),
-        getDeviceById: jest.fn().mockReturnValue({
-          id: 123,
-          name: 'Boiler',
-          buildingId: 456
-        }),
-        getDeviceState: jest.fn().mockResolvedValue({
-          DeviceID: 123,
-          BuildingID: 456,
-          SetTemperature: 21.0
-        }),
-        setDeviceTemperature: jest.fn().mockResolvedValue(true),
-        contextKey: 'test-session-key'
-      };
-    })
-  };
-});
-
-// Mock console.error to avoid polluting test output
-console.error = jest.fn();
+import { MelCloudApi } from '../../src/services/melcloud-api';
+import { createMockLogger } from '../mocks';
 
 // Mock fetch globally
 global.fetch = jest.fn();
 
-describe('MELCloud API', () => {
-  // Import the mocked MelCloudApi
-  const { MelCloudApi } = require('../../src/services/melcloud-api');
-  let melCloudApi: any;
+describe('MelCloudApi', () => {
+  let api: MelCloudApi;
+  let mockLogger: ReturnType<typeof createMockLogger>;
 
   beforeEach(() => {
     // Reset all mocks
     jest.clearAllMocks();
 
-    // Create a new instance of the mocked MelCloudApi
-    melCloudApi = new MelCloudApi();
+    // Mock fetch
+    global.fetch = jest.fn().mockImplementation((url, options) => {
+      if (url.includes('Login/ClientLogin')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            ErrorId: null,
+            LoginData: {
+              ContextKey: 'test-context-key'
+            }
+          })
+        });
+      } else if (url.includes('User/ListDevices')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([
+            {
+              ID: 1,
+              Structure: {
+                Devices: [
+                  {
+                    DeviceID: 'device-1',
+                    DeviceName: 'Test Device',
+                    BuildingID: 1
+                  }
+                ]
+              }
+            }
+          ])
+        });
+      } else if (url.includes('Device/Get')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            DeviceID: 'device-1',
+            DeviceName: 'Test Device',
+            RoomTemperature: 21,
+            SetTemperature: 22,
+            OutdoorTemperature: 5,
+            DailyHeatingEnergyProduced: 10,
+            DailyHeatingEnergyConsumed: 3,
+            DailyHotWaterEnergyProduced: 5,
+            DailyHotWaterEnergyConsumed: 2
+          })
+        });
+      } else if (url.includes('Device/SetAta') || url.includes('Device/SetAtw')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({})
+        });
+      }
+
+      return Promise.reject(new Error(`Unhandled URL: ${url}`));
+    });
+
+    // Mock logger
+    mockLogger = createMockLogger();
+
+    // Create API instance
+    api = new MelCloudApi(mockLogger);
+  });
+
+  afterEach(() => {
+    jest.resetAllMocks();
   });
 
   describe('login', () => {
-    it('should login successfully', async () => {
-      const result = await melCloudApi.login('test@example.com', 'password');
+    test('should authenticate with MELCloud', async () => {
+      const result = await api.login('test@example.com', 'password');
 
       expect(result).toBe(true);
-      expect(melCloudApi.login).toHaveBeenCalledWith('test@example.com', 'password');
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://app.melcloud.com/Mitsubishi.Wifi.Client/Login/ClientLogin',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('test@example.com')
+        })
+      );
+      expect(mockLogger.log).toHaveBeenCalled();
+    });
+
+    test('should handle authentication errors', async () => {
+      // Mock fetch to return an error
+      global.fetch = jest.fn().mockImplementation(() => {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            ErrorId: 1,
+            ErrorMessage: 'Invalid credentials'
+          })
+        });
+      });
+
+      await expect(api.login('test@example.com', 'wrong-password')).rejects.toThrow('MELCloud login failed');
+      expect(mockLogger.error).toHaveBeenCalled();
+    });
+
+    test('should handle network errors', async () => {
+      // Mock fetch to throw a network error
+      global.fetch = jest.fn().mockImplementation(() => {
+        return Promise.reject(new Error('Network error'));
+      });
+
+      await expect(api.login('test@example.com', 'password')).rejects.toThrow('Network error');
+      expect(mockLogger.error).toHaveBeenCalled();
     });
   });
 
   describe('getDevices', () => {
-    it('should retrieve devices', async () => {
-      const devices = await melCloudApi.getDevices();
+    test('should return devices list', async () => {
+      // First login to set context key
+      await api.login('test@example.com', 'password');
+
+      const devices = await api.getDevices();
 
       expect(devices).toHaveLength(1);
-      expect(devices[0]).toHaveProperty('id', 123);
-      expect(devices[0]).toHaveProperty('name', 'Boiler');
-      expect(devices[0]).toHaveProperty('buildingId', 456);
-      expect(melCloudApi.getDevices).toHaveBeenCalled();
+      expect(devices[0].id).toBe('device-1');
+      expect(devices[0].name).toBe('Test Device');
+      expect(devices[0].buildingId).toBe(1);
+      expect(mockLogger.log).toHaveBeenCalled();
     });
-  });
 
-  describe('getDeviceById', () => {
-    it('should get device by ID', () => {
-      const device = melCloudApi.getDeviceById('123');
+    test('should handle errors when not logged in', async () => {
+      await expect(api.getDevices()).rejects.toThrow('Not logged in to MELCloud');
+      expect(mockLogger.error).toHaveBeenCalled();
+    });
 
-      expect(device).toHaveProperty('id', 123);
-      expect(device).toHaveProperty('name', 'Boiler');
-      expect(device).toHaveProperty('buildingId', 456);
-      expect(melCloudApi.getDeviceById).toHaveBeenCalledWith('123');
+    test('should handle API errors', async () => {
+      // First login to set context key
+      await api.login('test@example.com', 'password');
+
+      // Mock fetch to return an error
+      global.fetch = jest.fn().mockImplementation(() => {
+        return Promise.reject(new Error('API error'));
+      });
+
+      await expect(api.getDevices()).rejects.toThrow('API error');
+      expect(mockLogger.error).toHaveBeenCalled();
     });
   });
 
   describe('getDeviceState', () => {
-    it('should get device state', async () => {
-      const state = await melCloudApi.getDeviceState('123', 456);
+    test('should return device state', async () => {
+      // First login to set context key
+      await api.login('test@example.com', 'password');
 
-      expect(state).toHaveProperty('DeviceID', 123);
-      expect(state).toHaveProperty('BuildingID', 456);
-      expect(state).toHaveProperty('SetTemperature', 21.0);
-      expect(melCloudApi.getDeviceState).toHaveBeenCalledWith('123', 456);
+      const state = await api.getDeviceState('device-1', 1);
+
+      expect(state.DeviceID).toBe('device-1');
+      expect(state.RoomTemperature).toBe(21);
+      expect(state.SetTemperature).toBe(22);
+      expect(state.OutdoorTemperature).toBe(5);
+      expect(mockLogger.log).toHaveBeenCalled();
+    });
+
+    test('should handle errors when not logged in', async () => {
+      await expect(api.getDeviceState('device-1', 1)).rejects.toThrow('Not logged in to MELCloud');
+      expect(mockLogger.error).toHaveBeenCalled();
+    });
+
+    test('should handle API errors', async () => {
+      // First login to set context key
+      await api.login('test@example.com', 'password');
+
+      // Mock fetch to return an error
+      global.fetch = jest.fn().mockImplementation(() => {
+        return Promise.reject(new Error('API error'));
+      });
+
+      await expect(api.getDeviceState('device-1', 1)).rejects.toThrow('API error');
+      expect(mockLogger.error).toHaveBeenCalled();
     });
   });
 
   describe('setDeviceTemperature', () => {
-    it('should set temperature', async () => {
-      const result = await melCloudApi.setDeviceTemperature('123', 456, 20.5);
+    test('should update temperature', async () => {
+      // First login to set context key
+      await api.login('test@example.com', 'password');
+
+      const result = await api.setDeviceTemperature('device-1', 1, 23);
 
       expect(result).toBe(true);
-      expect(melCloudApi.setDeviceTemperature).toHaveBeenCalledWith('123', 456, 20.5);
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://app.melcloud.com/Mitsubishi.Wifi.Client/Device/SetAta',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('23')
+        })
+      );
+      expect(mockLogger.log).toHaveBeenCalled();
+    });
+
+    test('should handle errors when not logged in', async () => {
+      await expect(api.setDeviceTemperature('device-1', 1, 23)).rejects.toThrow('Not logged in to MELCloud');
+      expect(mockLogger.error).toHaveBeenCalled();
+    });
+
+    test('should handle API errors', async () => {
+      // First login to set context key
+      await api.login('test@example.com', 'password');
+
+      // Mock fetch to return an error
+      global.fetch = jest.fn().mockImplementation(() => {
+        return Promise.reject(new Error('API error'));
+      });
+
+      await expect(api.setDeviceTemperature('device-1', 1, 23)).rejects.toThrow('API error');
+      expect(mockLogger.error).toHaveBeenCalled();
+    });
+  });
+
+  describe('getWeeklyAverageCOP', () => {
+    test('should calculate weekly average COP', async () => {
+      // First login to set context key
+      await api.login('test@example.com', 'password');
+
+      // Mock device state with energy data
+      global.fetch = jest.fn().mockImplementation(() => {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            DeviceID: 'device-1',
+            DailyHeatingEnergyProduced: 10,
+            DailyHeatingEnergyConsumed: 3,
+            DailyHotWaterEnergyProduced: 5,
+            DailyHotWaterEnergyConsumed: 2
+          })
+        });
+      });
+
+      const result = await api.getWeeklyAverageCOP('device-1', 1);
+
+      expect(result).toHaveProperty('heating');
+      expect(result).toHaveProperty('hotWater');
+      expect(result.heating).toBeGreaterThan(0);
+      expect(result.hotWater).toBeGreaterThan(0);
+      expect(mockLogger.log).toHaveBeenCalled();
+    });
+
+    test('should handle missing energy data', async () => {
+      // First login to set context key
+      await api.login('test@example.com', 'password');
+
+      // Mock device state without energy data
+      global.fetch = jest.fn().mockImplementation(() => {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            DeviceID: 'device-1',
+            // No energy data
+          })
+        });
+      });
+
+      const result = await api.getWeeklyAverageCOP('device-1', 1);
+
+      // Should return default values
+      expect(result).toHaveProperty('heating');
+      expect(result).toHaveProperty('hotWater');
+      expect(result.heating).toBe(0);
+      expect(result.hotWater).toBe(0);
+      expect(mockLogger.warn).toHaveBeenCalled();
     });
   });
 });

@@ -28,10 +28,15 @@
 - The MELCloud API uses specific effective flags for different temperature controls: Zone1 temperature: 0x200000080 (8589934720), Zone2 temperature: 0x800000200 (34359738880), and Tank temperature: 0x400000000 (17179869184).
 - The MELCloud API returns the original tank temperature value (47°C) instead of the requested value (50°C) when using the SetAtw endpoint, suggesting a potential limitation in the API's tank temperature control capabilities.
 - The Weather and Tibber APIs provide forecast data for 24+ hours.
+- For Homey applications, use Homey's built-in HTTP request capabilities instead of standard fetch() for better compatibility and performance.
 
 # Data Persistence
 - The system needs to ensure data persistence across app updates and reinstalls to maintain collected thermal model data.
 - The system should use the original implementation of Homey persistent memory to ensure data persistence between app installations and updates.
+- The system implements a dual-storage approach for thermal data, using both Homey settings (primary) and a backup file (secondary) to ensure data persistence.
+- The system implements automatic data reduction if the full dataset becomes too large for Homey settings storage, keeping the most recent 500 data points.
+- The system stores COP snapshots in Homey settings with a rolling 31-day retention policy to maintain performance while preserving recent history.
+- Thermal model characteristics are saved to Homey settings after each analysis to ensure persistence across app reinstalls.
 
 # Codebase and Homey Environment
 - The codebase has been fully migrated to TypeScript.
@@ -53,12 +58,16 @@
 - The system should require users to manually press the 'Manage Scheduled Jobs' button to start the cron jobs rather than starting them automatically.
 - The system uses a data-driven thermal learning model for weekly calibration of the thermal model parameters without relying on external AI services.
 - The user wants to exclusively use the Advanced Thermal Learning Model (TypeScript implementation).
+- The system stores cron job status information in Homey settings, including running state, next run time, timezone information, and DST status.
 
 # Development Workflow
 - The user prefers to sync code to GitHub before making changes to the codebase.
+- The user prefers to move code from the develop branch to all branches and overwrite existing code when synchronizing branches.
 - The user prefers to overwrite local code with the remote repository code rather than pushing local changes when synchronizing branches.
 - The user prefers step-by-step implementation with separate messages for each major step, clear indications of which part of the plan is being implemented.
 - The user prefers to start fresh from the develop branch on GitHub rather than continuing with partial migrations.
+- The user prefers to receive implementation plans as separate Markdown files for each batch of improvements, with detailed steps, code examples, and testing procedures that can serve as standalone implementation guides.
+- The user prefers to commit changes to the develop branch before creating new feature branches.
 
 # User Interface
 - Add helpful default value suggestions in settings page help text to guide users with optimal values that balance cost savings and temperature comfort.
@@ -74,3 +83,10 @@
 # Display and Localization
 - The system should display savings in local currency rather than euros and use a lower threshold (0.02) for showing savings information.
 - The system should display savings in local currency in timeline entries from the Advanced Learning Model, similar to the minimal-build implementation.
+- The system should display projected daily savings rather than hourly savings in timeline entries to better show the cumulative financial impact of optimization.
+- The system should consider using historical data from the previous hours when calculating projected daily savings rather than just multiplying the current hour's savings by 24.
+
+# Testing
+- The MELCloud Optimizer codebase needs improved test coverage, particularly for critical components with 0% coverage like melcloud-api.ts, optimizer.ts, and tibber-api.ts, with targets of 80% for statements/functions/lines and 60% for branches.
+- The MELCloud Optimizer test coverage plan includes fixing TypeScript errors in optimizer tests, implementing tests for thermal model components, enhancing app.ts coverage, and adjusting Jest coverage thresholds to a phased approach (starting at 50% statements/lines, 40% branches, 50% functions and gradually increasing).
+- The MELCloud Optimizer test coverage plan includes fixing failing tests in optimizer.real.test.ts and optimizer.enhanced.test.ts, prioritizing coverage for critical components (optimizer.ts, melcloud-api.ts, tibber-api.ts, thermal-model.ts), and implementing a phased coverage threshold approach (Phase 1: 50% statements/lines, 40% branches, 50% functions; Phase 2: 65%/50%/65%; Phase 3: 80%/60%/80%).

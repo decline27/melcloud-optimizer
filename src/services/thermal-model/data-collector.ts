@@ -212,6 +212,29 @@ export class ThermalDataCollector {
   }
 
   /**
+   * Set data points (replace all existing data)
+   * Used for data cleanup and management
+   */
+  public setDataPoints(dataPoints: ThermalDataPoint[]): void {
+    if (!this.initialized) {
+      this.homey.log('Thermal data collector not yet initialized, waiting...');
+      return;
+    }
+
+    try {
+      // Replace the data points
+      this.dataPoints = dataPoints;
+
+      // Save the updated data
+      this.saveData();
+
+      this.homey.log(`Updated thermal data points. Total points: ${this.dataPoints.length}`);
+    } catch (error) {
+      this.homey.error('Error setting thermal data points:', error);
+    }
+  }
+
+  /**
    * Clear all stored data (for testing or reset)
    */
   public clearData(): void {

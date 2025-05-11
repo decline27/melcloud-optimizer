@@ -19,6 +19,27 @@ describe('HeatOptimizerApp', () => {
       json: jest.fn().mockResolvedValue({})
     });
 
+  });
+
+  afterEach(() => {
+    // Clean up cron jobs
+    if (app.hourlyJob) {
+      app.hourlyJob.stop();
+      (app as any).hourlyJob = undefined;
+    }
+
+    if (app.weeklyJob) {
+      app.weeklyJob.stop();
+      (app as any).weeklyJob = undefined;
+    }
+
+    // Call the cleanup method if it exists
+    if (typeof (app as any).cleanupCronJobs === 'function') {
+      (app as any).cleanupCronJobs();
+    }
+  });
+
+  beforeEach(() => {
     // Create mock settings
     mockSettings = {
       get: jest.fn(),
@@ -242,11 +263,19 @@ describe('HeatOptimizerApp', () => {
       // Mock the runWeeklyCalibration method
       (app as any).runWeeklyCalibration = jest.fn().mockResolvedValue(undefined);
 
+      // Mock the cleanupCronJobs method
+      (app as any).cleanupCronJobs = jest.fn();
+
       await app.onInit();
 
       // Manually set the callbacks since onInit might not be calling the mocked setInterval
       (app as any)._hourlyCallback = jest.fn();
       (app as any)._weeklyCallback = jest.fn();
+    });
+
+    afterEach(() => {
+      // Clean up cron jobs after each test
+      (app as any).cleanupCronJobs();
     });
 
     it('should notify if required settings are missing', async () => {
@@ -432,7 +461,15 @@ describe('HeatOptimizerApp', () => {
         setLogLevel: jest.fn()
       };
 
+      // Mock the cleanupCronJobs method
+      (app as any).cleanupCronJobs = jest.fn();
+
       await app.onInit();
+    });
+
+    afterEach(() => {
+      // Clean up cron jobs after each test
+      (app as any).cleanupCronJobs();
     });
 
     it('should update log level when log_level setting changes', () => {

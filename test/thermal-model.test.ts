@@ -154,7 +154,7 @@ describe('Thermal Model', () => {
       // The analyzer logs this message during initialization
       expect(mockHomey.log).toHaveBeenCalledWith('No saved thermal characteristics found, using defaults');
       // The service logs this message during initialization
-      expect(mockHomey.log).toHaveBeenCalledWith('Thermal model updates scheduled');
+      expect(mockHomey.log).toHaveBeenCalledWith('Thermal model updates and data cleanup scheduled');
     });
 
     test('should provide heating recommendations', async () => {

@@ -1,33 +1,16 @@
 import { App } from 'homey';
 import { CronJob } from 'cron'; // Import CronJob
 import { COPHelper } from './services/cop-helper';
-
-// --- Type Definitions ---
-interface LogEntry { ts: string; price: number; indoor: number; target: number }
-interface ThermalModel { K: number; S?: number }
-interface DeviceInfo { id: string; name: string; type: string }
-interface PricePoint { time: string; price: number }
-interface OptimizationResult {
-  targetTemp: number;
-  reason: string;
-  priceNow: number;
-  priceAvg: number;
-  priceMin: number;
-  priceMax: number;
-  indoorTemp: number;
-  outdoorTemp: number;
-  targetOriginal: number;
-  savings: number;
-  comfort: number;
-  timestamp: string;
-  kFactor?: number;
-  thermalModel?: {
-    characteristics: any;
-    timeToTarget: number;
-    confidence: number;
-    recommendation: any;
-  };
-}
+import { TimelineHelper } from './util/timeline-helper';
+import {
+  LogEntry,
+  ThermalModel,
+  DeviceInfo,
+  PricePoint,
+  OptimizationResult,
+  HomeyApp,
+  HomeyLogger
+} from './types';
 
 /**
  * MELCloud Heat Pump Optimizer App
@@ -39,6 +22,8 @@ export default class HeatOptimizerApp extends App {
   public hourlyJob?: CronJob;
   public weeklyJob?: CronJob;
   public copHelper?: COPHelper;
+  public timelineHelper?: TimelineHelper;
+  private memoryUsageInterval?: NodeJS.Timeout;
 
   /**
    * Get the status of the cron jobs
@@ -106,6 +91,32 @@ export default class HeatOptimizerApp extends App {
   }
 
   /**
+   * Clean up cron jobs
+   * This method is public so it can be called from tests
+   */
+  public cleanupCronJobs() {
+    this.log('Cleaning up cron jobs...');
+
+    // Stop hourly job if it exists
+    if (this.hourlyJob) {
+      this.log('Stopping hourly cron job...');
+      this.hourlyJob.stop();
+      this.hourlyJob = undefined;
+      this.log('Hourly cron job stopped');
+    }
+
+    // Stop weekly job if it exists
+    if (this.weeklyJob) {
+      this.log('Stopping weekly cron job...');
+      this.weeklyJob.stop();
+      this.weeklyJob = undefined;
+      this.log('Weekly cron job stopped');
+    }
+
+    this.log('Cron jobs cleaned up successfully');
+  }
+
+  /**
    * onInit is called when the app is initialized
    */
   async onInit() {
@@ -139,6 +150,22 @@ export default class HeatOptimizerApp extends App {
       this.error('Failed to initialize COP Helper:', error as Error);
     }
 
+    // Initialize Timeline Helper
+    try {
+      // Create a logger object that implements the required interface
+      const logger = {
+        log: (message: string, ...args: any[]) => this.log(message, ...args),
+        error: (message: string, error?: Error | unknown, ...args: any[]) => this.error(message, error as Error, ...args)
+      };
+      this.timelineHelper = new TimelineHelper(this.homey, logger);
+      this.log('Timeline Helper initialized');
+
+      // Make it available globally
+      (global as any).timelineHelper = this.timelineHelper;
+    } catch (error) {
+      this.error('Failed to initialize Timeline Helper:', error as Error);
+    }
+
     // Initialize cron jobs
     this.initializeCronJobs();
 
@@ -152,6 +179,12 @@ export default class HeatOptimizerApp extends App {
     console.log('App ID:', this.id);
     console.log('App Version:', this.manifest.version);
     console.log('===== END DIRECT CONSOLE LOG =====');
+
+    // Monitor memory usage in development mode
+    if (process.env.NODE_ENV === 'development') {
+      this.monitorMemoryUsage();
+      this.log('Memory usage monitoring started (development mode only)');
+    }
 
     // Log app initialization complete
     this.log('MELCloud Optimizer App initialized successfully');
@@ -234,32 +267,42 @@ export default class HeatOptimizerApp extends App {
       try {
         this.log('Creating timeline entry for hourly job');
 
-        // First try the direct timeline API if available
-        if (typeof this.homey.timeline === 'object' && typeof this.homey.timeline.createEntry === 'function') {
-          await this.homey.timeline.createEntry({
-            title: 'MELCloud Optimizer',
-            body: '🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP',
-            icon: 'flow:device_changed'
-          });
-          this.log('Timeline entry created using timeline API');
-        }
-        // Then try the notifications API as the main fallback
-        else if (typeof this.homey.notifications === 'object' && typeof this.homey.notifications.createNotification === 'function') {
-          await this.homey.notifications.createNotification({
-            excerpt: 'MELCloud Optimizer: 🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP',
-          });
-          this.log('Timeline entry created using notifications API');
-        }
-        // Finally try homey.flow if available
-        else if (typeof this.homey.flow === 'object' && typeof this.homey.flow.runFlowCardAction === 'function') {
-          await this.homey.flow.runFlowCardAction({
-            uri: 'homey:flowcardaction:homey:manager:timeline:log',
-            args: { text: '🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP' }
-          });
-          this.log('Timeline entry created using flow API');
-        }
-        else {
-          this.log('No timeline API available, using log only');
+        if (this.timelineHelper) {
+          await this.timelineHelper.createInfoEntry(
+            'MELCloud Optimizer',
+            '🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP',
+            false
+          );
+          this.log('Timeline entry created using timeline helper');
+        } else {
+          // Fallback to direct API calls if timeline helper is not available
+          // First try the direct timeline API if available
+          if (typeof this.homey.timeline === 'object' && typeof this.homey.timeline.createEntry === 'function') {
+            await this.homey.timeline.createEntry({
+              title: 'MELCloud Optimizer',
+              body: '🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP',
+              icon: 'flow:device_changed'
+            });
+            this.log('Timeline entry created using timeline API');
+          }
+          // Then try the notifications API as the main fallback
+          else if (typeof this.homey.notifications === 'object' && typeof this.homey.notifications.createNotification === 'function') {
+            await this.homey.notifications.createNotification({
+              excerpt: 'MELCloud Optimizer: 🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP',
+            });
+            this.log('Timeline entry created using notifications API');
+          }
+          // Finally try homey.flow if available
+          else if (typeof this.homey.flow === 'object' && typeof this.homey.flow.runFlowCardAction === 'function') {
+            await this.homey.flow.runFlowCardAction({
+              uri: 'homey:flowcardaction:homey:manager:timeline:log',
+              args: { text: '🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP' }
+            });
+            this.log('Timeline entry created using flow API');
+          }
+          else {
+            this.log('No timeline API available, using log only');
+          }
         }
       } catch (err) {
         this.error('Failed to create timeline entry for automatic trigger', err as Error);
@@ -307,32 +350,42 @@ export default class HeatOptimizerApp extends App {
       try {
         this.log('Creating timeline entry for weekly job');
 
-        // First try the direct timeline API if available
-        if (typeof this.homey.timeline === 'object' && typeof this.homey.timeline.createEntry === 'function') {
-          await this.homey.timeline.createEntry({
-            title: 'MELCloud Optimizer',
-            body: '📈 Automatic weekly calibration | Updating thermal model with latest data',
-            icon: 'flow:device_changed'
-          });
-          this.log('Timeline entry created using timeline API');
-        }
-        // Then try the notifications API as the main fallback
-        else if (typeof this.homey.notifications === 'object' && typeof this.homey.notifications.createNotification === 'function') {
-          await this.homey.notifications.createNotification({
-            excerpt: 'MELCloud Optimizer: 📈 Automatic weekly calibration | Updating thermal model with latest data',
-          });
-          this.log('Timeline entry created using notifications API');
-        }
-        // Finally try homey.flow if available
-        else if (typeof this.homey.flow === 'object' && typeof this.homey.flow.runFlowCardAction === 'function') {
-          await this.homey.flow.runFlowCardAction({
-            uri: 'homey:flowcardaction:homey:manager:timeline:log',
-            args: { text: '📈 Automatic weekly calibration | Updating thermal model with latest data' }
-          });
-          this.log('Timeline entry created using flow API');
-        }
-        else {
-          this.log('No timeline API available, using log only');
+        if (this.timelineHelper) {
+          await this.timelineHelper.createInfoEntry(
+            'MELCloud Optimizer',
+            '📈 Automatic weekly calibration | Updating thermal model with latest data',
+            false
+          );
+          this.log('Timeline entry created using timeline helper');
+        } else {
+          // Fallback to direct API calls if timeline helper is not available
+          // First try the direct timeline API if available
+          if (typeof this.homey.timeline === 'object' && typeof this.homey.timeline.createEntry === 'function') {
+            await this.homey.timeline.createEntry({
+              title: 'MELCloud Optimizer',
+              body: '📈 Automatic weekly calibration | Updating thermal model with latest data',
+              icon: 'flow:device_changed'
+            });
+            this.log('Timeline entry created using timeline API');
+          }
+          // Then try the notifications API as the main fallback
+          else if (typeof this.homey.notifications === 'object' && typeof this.homey.notifications.createNotification === 'function') {
+            await this.homey.notifications.createNotification({
+              excerpt: 'MELCloud Optimizer: 📈 Automatic weekly calibration | Updating thermal model with latest data',
+            });
+            this.log('Timeline entry created using notifications API');
+          }
+          // Finally try homey.flow if available
+          else if (typeof this.homey.flow === 'object' && typeof this.homey.flow.runFlowCardAction === 'function') {
+            await this.homey.flow.runFlowCardAction({
+              uri: 'homey:flowcardaction:homey:manager:timeline:log',
+              args: { text: '📈 Automatic weekly calibration | Updating thermal model with latest data' }
+            });
+            this.log('Timeline entry created using flow API');
+          }
+          else {
+            this.log('No timeline API available, using log only');
+          }
         }
       } catch (err) {
         this.error('Failed to create timeline entry for automatic trigger', err as Error);
@@ -450,32 +503,42 @@ export default class HeatOptimizerApp extends App {
           // First add the timeline entry
           this.log('Creating timeline entry for manual hourly optimization');
 
-          // First try the direct timeline API if available
-          if (typeof this.homey.timeline === 'object' && typeof this.homey.timeline.createEntry === 'function') {
-            await this.homey.timeline.createEntry({
-              title: 'MELCloud Optimizer',
-              body: '🔄 Manual hourly optimization | Optimizing based on current prices and COP',
-              icon: 'flow:device_changed'
-            });
-            this.log('Timeline entry created using timeline API');
-          }
-          // Then try the notifications API as the main fallback
-          else if (typeof this.homey.notifications === 'object' && typeof this.homey.notifications.createNotification === 'function') {
-            await this.homey.notifications.createNotification({
-              excerpt: 'MELCloud Optimizer: 🔄 Manual hourly optimization | Optimizing based on current prices and COP',
-            });
-            this.log('Timeline entry created using notifications API');
-          }
-          // Finally try homey.flow if available
-          else if (typeof this.homey.flow === 'object' && typeof this.homey.flow.runFlowCardAction === 'function') {
-            await this.homey.flow.runFlowCardAction({
-              uri: 'homey:flowcardaction:homey:manager:timeline:log',
-              args: { text: '🔄 Manual hourly optimization | Optimizing based on current prices and COP' }
-            });
-            this.log('Timeline entry created using flow API');
-          }
-          else {
-            this.log('No timeline API available, using log only');
+          if (this.timelineHelper) {
+            await this.timelineHelper.createInfoEntry(
+              'MELCloud Optimizer',
+              '🔄 Manual hourly optimization | Optimizing based on current prices and COP',
+              true // Create notification for manual triggers
+            );
+            this.log('Timeline entry created using timeline helper');
+          } else {
+            // Fallback to direct API calls if timeline helper is not available
+            // First try the direct timeline API if available
+            if (typeof this.homey.timeline === 'object' && typeof this.homey.timeline.createEntry === 'function') {
+              await this.homey.timeline.createEntry({
+                title: 'MELCloud Optimizer',
+                body: '🔄 Manual hourly optimization | Optimizing based on current prices and COP',
+                icon: 'flow:device_changed'
+              });
+              this.log('Timeline entry created using timeline API');
+            }
+            // Then try the notifications API as the main fallback
+            else if (typeof this.homey.notifications === 'object' && typeof this.homey.notifications.createNotification === 'function') {
+              await this.homey.notifications.createNotification({
+                excerpt: 'MELCloud Optimizer: 🔄 Manual hourly optimization | Optimizing based on current prices and COP',
+              });
+              this.log('Timeline entry created using notifications API');
+            }
+            // Finally try homey.flow if available
+            else if (typeof this.homey.flow === 'object' && typeof this.homey.flow.runFlowCardAction === 'function') {
+              await this.homey.flow.runFlowCardAction({
+                uri: 'homey:flowcardaction:homey:manager:timeline:log',
+                args: { text: '🔄 Manual hourly optimization | Optimizing based on current prices and COP' }
+              });
+              this.log('Timeline entry created using flow API');
+            }
+            else {
+              this.log('No timeline API available, using log only');
+            }
           }
 
           // Then run the optimization
@@ -574,6 +637,24 @@ export default class HeatOptimizerApp extends App {
   }
 
   /**
+   * Monitor memory usage
+   */
+  private monitorMemoryUsage(): void {
+    const memoryUsageInterval = setInterval(() => {
+      const memoryUsage = process.memoryUsage();
+      this.log('Memory Usage:', {
+        rss: `${Math.round(memoryUsage.rss / 1024 / 1024)} MB`,
+        heapTotal: `${Math.round(memoryUsage.heapTotal / 1024 / 1024)} MB`,
+        heapUsed: `${Math.round(memoryUsage.heapUsed / 1024 / 1024)} MB`,
+        external: `${Math.round(memoryUsage.external / 1024 / 1024)} MB`
+      });
+    }, 60 * 60 * 1000); // Log memory usage every hour
+
+    // Store the interval for cleanup
+    this.memoryUsageInterval = memoryUsageInterval;
+  }
+
+  /**
    * Test logging functionality
    */
   public testLogging() {
@@ -612,6 +693,33 @@ export default class HeatOptimizerApp extends App {
       const result = await api.getRunHourlyOptimizer({ homey: this.homey });
 
       if (result.success) {
+        // Store the successful result for potential fallback use
+        this.homey.settings.set('last_optimization_result', result);
+
+        // Create success timeline entry
+        try {
+          if (this.timelineHelper) {
+            // Create a more detailed message with the optimization results
+            let message = 'Temperature optimized based on electricity prices';
+
+            if (result.data && result.data.targetTemp && result.data.targetOriginal) {
+              message += ` from ${result.data.targetOriginal}°C to ${result.data.targetTemp}°C`;
+            }
+
+            if (result.data && result.data.savings) {
+              message += `. Estimated savings: ${result.data.savings.toFixed(2)} ${result.data.currency || '€'}`;
+            }
+
+            await this.timelineHelper.createSuccessEntry(
+              'Hourly Optimization Completed',
+              message,
+              false // Don't create notification for success
+            );
+          }
+        } catch (timelineErr) {
+          this.error('Failed to create success timeline entry', timelineErr as Error);
+        }
+
         this.log('===== HOURLY OPTIMIZATION COMPLETED SUCCESSFULLY =====');
         return result;
       } else {
@@ -621,9 +729,51 @@ export default class HeatOptimizerApp extends App {
       const error = err as Error;
       this.error('Hourly optimization error', error);
 
-      // Send notification
+      // Check if we have cached data we can use as fallback
       try {
-        await this.homey.notifications.createNotification({ excerpt: `HourlyOptimizer error: ${error.message}` });
+        const lastResult = this.homey.settings.get('last_optimization_result');
+        if (lastResult) {
+          this.log('Using cached optimization result as fallback');
+
+          // Send notification about the fallback
+          try {
+            if (this.timelineHelper) {
+              await this.timelineHelper.createWarningEntry(
+                'Hourly Optimization Warning',
+                `${error.message}. Using cached settings as fallback.`,
+                true // Create notification for warnings
+              );
+            } else {
+              // Fallback to direct notification
+              await this.homey.notifications.createNotification({
+                excerpt: `HourlyOptimizer error: ${error.message}. Using cached settings as fallback.`
+              });
+            }
+          } catch (notifyErr) {
+            this.error('Failed to send notification', notifyErr as Error);
+          }
+
+          this.log('===== HOURLY OPTIMIZATION COMPLETED WITH FALLBACK =====');
+          return { ...lastResult, fallback: true };
+        }
+      } catch (fallbackErr) {
+        this.error('Failed to use fallback optimization result', fallbackErr as Error);
+      }
+
+      // Send notification about the failure
+      try {
+        if (this.timelineHelper) {
+          await this.timelineHelper.createErrorEntry(
+            'Hourly Optimization Failed',
+            error.message,
+            true // Create notification for errors
+          );
+        } else {
+          // Fallback to direct notification
+          await this.homey.notifications.createNotification({
+            excerpt: `HourlyOptimizer error: ${error.message}`
+          });
+        }
       } catch (notifyErr) {
         this.error('Failed to send notification', notifyErr as Error);
       }
@@ -631,6 +781,144 @@ export default class HeatOptimizerApp extends App {
       this.error('===== HOURLY OPTIMIZATION FAILED =====');
       throw error; // Re-throw to propagate the error
     }
+  }
+
+  /**
+   * Check system health
+   * @returns Object with health status and issues
+   */
+  private async checkSystemHealth(): Promise<{ healthy: boolean; issues: string[] }> {
+    const issues: string[] = [];
+
+    // Check MELCloud connection
+    try {
+      const api = require('../api.js');
+      const melcloudStatus = await api.getMelCloudStatus({ homey: this.homey });
+
+      if (!melcloudStatus.connected) {
+        issues.push('MELCloud connection: Not connected');
+      }
+    } catch (error) {
+      issues.push(`MELCloud connection check failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    // Check Tibber API
+    try {
+      const api = require('../api.js');
+      const tibberStatus = await api.getTibberStatus({ homey: this.homey });
+
+      if (!tibberStatus.connected) {
+        issues.push('Tibber API connection: Not connected');
+      }
+    } catch (error) {
+      issues.push(`Tibber API connection check failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    // Check cron jobs
+    if (!this.hourlyJob || !this.hourlyJob.running) {
+      issues.push('Hourly optimization job: Not running');
+    }
+
+    if (!this.weeklyJob || !this.weeklyJob.running) {
+      issues.push('Weekly calibration job: Not running');
+    }
+
+    return {
+      healthy: issues.length === 0,
+      issues
+    };
+  }
+
+  /**
+   * Run system health check and recover if needed
+   * @returns Health status and recovery information
+   */
+  public async runSystemHealthCheck(): Promise<{ healthy: boolean; issues: string[]; recovered: boolean }> {
+    this.log('Running system health check');
+
+    const healthStatus = await this.checkSystemHealth();
+
+    if (!healthStatus.healthy) {
+      this.log(`System health check found ${healthStatus.issues.length} issues:`, healthStatus.issues);
+
+      // Create timeline entry for health check issues
+      try {
+        if (this.timelineHelper) {
+          const issuesMessage = healthStatus.issues.join(', ');
+          await this.timelineHelper.createWarningEntry(
+            'System Health Check Issues',
+            `Found ${healthStatus.issues.length} issues: ${issuesMessage}`,
+            true // Create notification for health issues
+          );
+        }
+      } catch (timelineErr) {
+        this.error('Failed to create health check timeline entry', timelineErr as Error);
+      }
+
+      // Try to recover
+      let recovered = false;
+
+      try {
+        // Restart cron jobs if needed
+        if (!this.hourlyJob?.running || !this.weeklyJob?.running) {
+          this.log('Restarting cron jobs');
+          this.initializeCronJobs();
+          recovered = true;
+        }
+
+        // Other recovery actions as needed
+
+        this.log('System recovery actions completed');
+
+        // Create timeline entry for recovery
+        if (recovered && this.timelineHelper) {
+          await this.timelineHelper.createSuccessEntry(
+            'System Recovery',
+            'Successfully recovered from system health issues',
+            false // Don't create notification for recovery
+          );
+        }
+      } catch (error) {
+        this.error('Failed to recover system:', error as Error);
+
+        // Create timeline entry for recovery failure
+        if (this.timelineHelper) {
+          try {
+            await this.timelineHelper.createErrorEntry(
+              'System Recovery Failed',
+              `Failed to recover from system health issues: ${error instanceof Error ? error.message : String(error)}`,
+              true // Create notification for recovery failure
+            );
+          } catch (timelineErr) {
+            this.error('Failed to create recovery failure timeline entry', timelineErr as Error);
+          }
+        }
+      }
+
+      return {
+        ...healthStatus,
+        recovered
+      };
+    } else {
+      // Create timeline entry for successful health check
+      try {
+        if (this.timelineHelper) {
+          await this.timelineHelper.createInfoEntry(
+            'System Health Check',
+            'System health check passed successfully',
+            false // Don't create notification for successful health check
+          );
+        }
+      } catch (timelineErr) {
+        this.error('Failed to create health check success timeline entry', timelineErr as Error);
+      }
+    }
+
+    this.log('System health check passed');
+    return {
+      ...healthStatus,
+      recovered: false
+    };
   }
 
   /**
@@ -646,6 +934,30 @@ export default class HeatOptimizerApp extends App {
       const result = await api.getRunWeeklyCalibration({ homey: this.homey });
 
       if (result.success) {
+        // Create success timeline entry
+        try {
+          if (this.timelineHelper) {
+            // Create a more detailed message with the calibration results
+            let message = 'Thermal model updated with latest data';
+
+            if (result.data && result.data.oldK && result.data.newK) {
+              message += `. K-factor adjusted from ${result.data.oldK.toFixed(2)} to ${result.data.newK.toFixed(2)}`;
+            }
+
+            if (result.data && result.data.method) {
+              message += ` using ${result.data.method} method`;
+            }
+
+            await this.timelineHelper.createSuccessEntry(
+              'Weekly Calibration Completed',
+              message,
+              false // Don't create notification for success
+            );
+          }
+        } catch (timelineErr) {
+          this.error('Failed to create success timeline entry', timelineErr as Error);
+        }
+
         this.log('===== WEEKLY CALIBRATION COMPLETED SUCCESSFULLY =====');
         return result;
       } else {
@@ -657,7 +969,18 @@ export default class HeatOptimizerApp extends App {
 
       // Send notification
       try {
-        await this.homey.notifications.createNotification({ excerpt: `WeeklyCalibration error: ${error.message}` });
+        if (this.timelineHelper) {
+          await this.timelineHelper.createErrorEntry(
+            'Weekly Calibration Failed',
+            error.message,
+            true // Create notification for errors
+          );
+        } else {
+          // Fallback to direct notification
+          await this.homey.notifications.createNotification({
+            excerpt: `WeeklyCalibration error: ${error.message}`
+          });
+        }
       } catch (notifyErr) {
         this.error('Failed to send notification', notifyErr as Error);
       }
@@ -756,19 +1079,11 @@ export default class HeatOptimizerApp extends App {
    * onUninit is called when the app is destroyed
    */
   async onUninit() {
-    this.log('MELCloud Optimizer App is shutting down');
+    this.log('===== MELCloud Optimizer App Stopping =====');
 
     try {
-      // Stop cron jobs
-      if (this.hourlyJob) {
-        this.hourlyJob.stop();
-        this.log('Hourly cron job stopped');
-      }
-
-      if (this.weeklyJob) {
-        this.weeklyJob.stop();
-        this.log('Weekly cron job stopped');
-      }
+      // Stop and clean up cron jobs
+      this.cleanupCronJobs();
 
       // Stop thermal model service
       try {
@@ -787,6 +1102,13 @@ export default class HeatOptimizerApp extends App {
       if (this.copHelper) {
         this.log('Cleaning up COP helper resources');
         // No specific cleanup needed for COP helper currently
+      }
+
+      // Clean up memory usage monitoring
+      if (this.memoryUsageInterval) {
+        this.log('Cleaning up memory usage monitoring');
+        clearInterval(this.memoryUsageInterval);
+        this.memoryUsageInterval = undefined;
       }
 
       // Final cleanup

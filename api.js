@@ -4710,5 +4710,176 @@ module.exports = {
       console.error('Error in getWeeklyAverageCOP:', err);
       return { success: false, error: err.message };
     }
+  },
+
+  async getMelCloudStatus({ homey }) {
+    try {
+      console.log('API method getMelCloudStatus called');
+      homey.app.log('API method getMelCloudStatus called');
+
+      // Initialize services if needed
+      try {
+        await initializeServices(homey);
+      } catch (initErr) {
+        return {
+          connected: false,
+          error: `Failed to initialize services: ${initErr.message}`,
+          needsConfiguration: true
+        };
+      }
+
+      try {
+        // Check if MELCloud is initialized
+        if (!melCloud) {
+          homey.app.log('MELCloud API not initialized');
+          return {
+            connected: false,
+            error: 'MELCloud API not initialized'
+          };
+        }
+
+        // Check if we have a context key (logged in)
+        if (!melCloud.contextKey) {
+          homey.app.log('MELCloud API not logged in');
+
+          // Try to login
+          try {
+            const melcloudUser = homey.settings.get('melcloud_user');
+            const melcloudPass = homey.settings.get('melcloud_pass');
+
+            if (!melcloudUser || !melcloudPass) {
+              return {
+                connected: false,
+                error: 'MELCloud credentials not available'
+              };
+            }
+
+            const loginSuccess = await melCloud.login(melcloudUser, melcloudPass);
+
+            if (loginSuccess) {
+              homey.app.log('Successfully reconnected to MELCloud');
+              return {
+                connected: true,
+                reconnected: true
+              };
+            } else {
+              return {
+                connected: false,
+                error: 'Failed to reconnect to MELCloud'
+              };
+            }
+          } catch (loginError) {
+            homey.app.error('Error reconnecting to MELCloud:', loginError);
+            return {
+              connected: false,
+              error: `Failed to reconnect: ${loginError.message}`
+            };
+          }
+        }
+
+        // Try to get devices as a connection test
+        try {
+          const devices = await melCloud.getDevices();
+          return {
+            connected: true,
+            devices: devices.length
+          };
+        } catch (deviceError) {
+          homey.app.error('Error getting MELCloud devices:', deviceError);
+          return {
+            connected: false,
+            error: `Failed to get devices: ${deviceError.message}`
+          };
+        }
+      } catch (error) {
+        homey.app.error('Error checking MELCloud status:', error);
+        return {
+          connected: false,
+          error: error.message
+        };
+      }
+    } catch (err) {
+      console.error('Error in getMelCloudStatus:', err);
+      return { connected: false, error: err.message };
+    }
+  },
+
+  async getTibberStatus({ homey }) {
+    try {
+      console.log('API method getTibberStatus called');
+      homey.app.log('API method getTibberStatus called');
+
+      // Initialize services if needed
+      try {
+        await initializeServices(homey);
+      } catch (initErr) {
+        return {
+          connected: false,
+          error: `Failed to initialize services: ${initErr.message}`,
+          needsConfiguration: true
+        };
+      }
+
+      try {
+        // Check if Tibber is initialized
+        if (!tibber) {
+          homey.app.log('Tibber API not initialized');
+          return {
+            connected: false,
+            error: 'Tibber API not initialized'
+          };
+        }
+
+        // Try to get prices as a connection test
+        try {
+          const prices = await tibber.getPrices();
+          return {
+            connected: true,
+            pricePoints: prices.prices.length
+          };
+        } catch (priceError) {
+          homey.app.error('Error getting Tibber prices:', priceError);
+          return {
+            connected: false,
+            error: `Failed to get prices: ${priceError.message}`
+          };
+        }
+      } catch (error) {
+        homey.app.error('Error checking Tibber status:', error);
+        return {
+          connected: false,
+          error: error.message
+        };
+      }
+    } catch (err) {
+      console.error('Error in getTibberStatus:', err);
+      return { connected: false, error: err.message };
+    }
+  },
+
+  async runSystemHealthCheck({ homey }) {
+    try {
+      console.log('API method runSystemHealthCheck called');
+      homey.app.log('API method runSystemHealthCheck called');
+
+      try {
+        // Call the app's health check method
+        return await homey.app.runSystemHealthCheck();
+      } catch (error) {
+        homey.app.error('Error running system health check:', error);
+        return {
+          healthy: false,
+          issues: [`Error running health check: ${error.message}`],
+          recovered: false
+        };
+      }
+    } catch (err) {
+      console.error('Error in runSystemHealthCheck:', err);
+      return {
+        healthy: false,
+        issues: [`API error: ${err.message}`],
+        recovered: false
+      };
+    }
   }
 };

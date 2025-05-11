@@ -1,5 +1,6 @@
 import { ThermalModelService, ThermalDataCollector, ThermalAnalyzer } from '../../src/services/thermal-model';
 import { DateTime } from 'luxon';
+import { createMockLogger } from '../mocks';
 
 // Mock dependencies
 jest.mock('../../src/services/thermal-model/data-collector');
@@ -153,7 +154,13 @@ describe('ThermalModelService', () => {
       const targetTemp = 22.0;
       const currentTemp = 21.0;
       const outdoorTemp = 5.0;
-      const weatherForecast = {};
+      const weatherForecast = {
+        temperature: 5.0,
+        windSpeed: 3.0,
+        humidity: 70,
+        cloudCover: 80,
+        precipitation: 0
+      };
       const comfortProfile = {};
 
       const recommendation = thermalModelService.getHeatingRecommendation(
@@ -190,7 +197,13 @@ describe('ThermalModelService', () => {
       const targetTemp = 22.0;
       const currentTemp = 21.0;
       const outdoorTemp = 5.0;
-      const weatherForecast = {};
+      const weatherForecast = {
+        temperature: 5.0,
+        windSpeed: 3.0,
+        humidity: 70,
+        cloudCover: 80,
+        precipitation: 0
+      };
       const comfortProfile = {};
 
       const recommendation = thermalModelService.getHeatingRecommendation(
@@ -218,7 +231,13 @@ describe('ThermalModelService', () => {
       const targetTemp = 22.0;
       const currentTemp = 21.0;
       const outdoorTemp = 5.0;
-      const weatherForecast = {};
+      const weatherForecast = {
+        temperature: 5.0,
+        windSpeed: 3.0,
+        humidity: 70,
+        cloudCover: 80,
+        precipitation: 0
+      };
       const comfortProfile = {};
 
       const recommendation = thermalModelService.getHeatingRecommendation(
@@ -285,6 +304,215 @@ describe('ThermalModelService', () => {
         modelConfidence: 0.6,
         lastUpdated: expect.any(String)
       });
+    });
+
+    it('should handle errors when getting thermal characteristics', () => {
+      // Make getThermalCharacteristics throw an error
+      mockAnalyzer.getThermalCharacteristics.mockImplementationOnce(() => {
+        throw new Error('Test error');
+      });
+
+      const characteristics = thermalModelService.getThermalCharacteristics();
+
+      expect(mockHomey.error).toHaveBeenCalledWith(
+        'Error getting thermal characteristics:',
+        expect.any(Error)
+      );
+      expect(characteristics).toEqual({
+        heatingRate: 0,
+        coolingRate: 0,
+        outdoorTempImpact: 0,
+        windImpact: 0,
+        thermalMass: 0,
+        modelConfidence: 0,
+        lastUpdated: expect.any(String)
+      });
+    });
+  });
+
+  describe('updateThermalModel', () => {
+    it('should update the thermal model with new data points', () => {
+      // Mock data points
+      mockDataCollector.getAllDataPoints.mockReturnValueOnce([
+        {
+          timestamp: DateTime.now().minus({ hours: 2 }).toISO(),
+          indoorTemperature: 20.0,
+          outdoorTemperature: 5.0,
+          targetTemperature: 22.0,
+          heatingActive: true,
+          weatherConditions: {
+            windSpeed: 3.0,
+            humidity: 70,
+            cloudCover: 80
+          }
+        },
+        {
+          timestamp: DateTime.now().minus({ hours: 1 }).toISO(),
+          indoorTemperature: 21.0,
+          outdoorTemperature: 4.5,
+          targetTemperature: 22.0,
+          heatingActive: true,
+          weatherConditions: {
+            windSpeed: 3.5,
+            humidity: 75,
+            cloudCover: 85
+          }
+        },
+        {
+          timestamp: DateTime.now().toISO(),
+          indoorTemperature: 21.5,
+          outdoorTemperature: 4.0,
+          targetTemperature: 22.0,
+          heatingActive: true,
+          weatherConditions: {
+            windSpeed: 4.0,
+            humidity: 80,
+            cloudCover: 90
+          }
+        }
+      ]);
+
+      // Access private method using reflection
+      const updateThermalModel = Object.getOwnPropertyDescriptor(
+        Object.getPrototypeOf(thermalModelService),
+        'updateThermalModel'
+      )?.value;
+
+      // Bind the method to the thermalModelService instance
+      const boundMethod = updateThermalModel.bind(thermalModelService);
+
+      // Call the method
+      const result = boundMethod();
+
+      // Verify the analyzer was called with the data points
+      expect(mockAnalyzer.updateModel).toHaveBeenCalled();
+      expect(result).toEqual({
+        heatingRate: 0.5,
+        coolingRate: 0.2,
+        outdoorTempImpact: 0.1,
+        windImpact: 0.05,
+        thermalMass: 0.7,
+        modelConfidence: 0.6,
+        lastUpdated: expect.any(String)
+      });
+    });
+
+    it('should handle insufficient data points', () => {
+      // Mock empty data points
+      mockDataCollector.getAllDataPoints.mockReturnValueOnce([]);
+
+      // Access private method using reflection
+      const updateThermalModel = Object.getOwnPropertyDescriptor(
+        Object.getPrototypeOf(thermalModelService),
+        'updateThermalModel'
+      )?.value;
+
+      // Bind the method to the thermalModelService instance
+      const boundMethod = updateThermalModel.bind(thermalModelService);
+
+      // Call the method
+      const result = boundMethod();
+
+      // Verify the analyzer was not called
+      expect(mockAnalyzer.updateModel).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        heatingRate: 0,
+        coolingRate: 0,
+        outdoorTempImpact: 0,
+        windImpact: 0,
+        thermalMass: 0,
+        modelConfidence: 0,
+        lastUpdated: expect.any(String)
+      });
+      expect(mockHomey.log).toHaveBeenCalledWith(
+        'Not enough data points to update thermal model'
+      );
+    });
+
+    it('should handle errors during model update', () => {
+      // Mock data points
+      mockDataCollector.getAllDataPoints.mockReturnValueOnce([
+        {
+          timestamp: DateTime.now().toISO(),
+          indoorTemperature: 21.5,
+          outdoorTemperature: 4.0,
+          targetTemperature: 22.0,
+          heatingActive: true,
+          weatherConditions: {
+            windSpeed: 4.0,
+            humidity: 80,
+            cloudCover: 90
+          }
+        }
+      ]);
+
+      // Make updateModel throw an error
+      mockAnalyzer.updateModel.mockImplementationOnce(() => {
+        throw new Error('Test error');
+      });
+
+      // Access private method using reflection
+      const updateThermalModel = Object.getOwnPropertyDescriptor(
+        Object.getPrototypeOf(thermalModelService),
+        'updateThermalModel'
+      )?.value;
+
+      // Bind the method to the thermalModelService instance
+      const boundMethod = updateThermalModel.bind(thermalModelService);
+
+      // Call the method
+      const result = boundMethod();
+
+      // Verify error handling
+      expect(mockHomey.error).toHaveBeenCalledWith(
+        'Error updating thermal model:',
+        expect.any(Error)
+      );
+      expect(result).toEqual({
+        heatingRate: 0,
+        coolingRate: 0,
+        outdoorTempImpact: 0,
+        windImpact: 0,
+        thermalMass: 0,
+        modelConfidence: 0,
+        lastUpdated: expect.any(String)
+      });
+    });
+  });
+
+  describe('stop', () => {
+    it('should stop the service and save data', () => {
+      // Add a mock saveData method using Object.defineProperty
+      Object.defineProperty(thermalModelService, 'saveData', {
+        value: jest.fn(),
+        writable: true
+      });
+
+      // Call the stop method
+      thermalModelService.stop();
+
+      // Verify saveData was called
+      expect(thermalModelService['saveData']).toHaveBeenCalled();
+      expect(mockHomey.log).toHaveBeenCalledWith('Thermal model service stopped');
+    });
+
+    it('should handle errors during stop', () => {
+      // Add a mock saveData method that throws an error
+      Object.defineProperty(thermalModelService, 'saveData', {
+        value: jest.fn().mockImplementation(() => {
+          throw new Error('Test error');
+        }),
+        writable: true
+      });
+
+      // Call the stop method
+      thermalModelService.stop();
+
+      // Verify error handling
+      expect(mockHomey.error).toHaveBeenCalledWith(
+        'Error stopping thermal model service:',
+        expect.any(Error)
+      );
     });
   });
 });

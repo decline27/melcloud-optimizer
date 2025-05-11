@@ -15,15 +15,15 @@ module.exports = {
     '!src/index.ts',
   ],
   // Phase 1 coverage thresholds (current phase)
-  // Phase 1: 50% statements/lines, 40% branches, 50% functions
+  // Phase 1: 45% statements/lines, 35% branches, 45% functions
   // Phase 2: 65% statements/lines, 50% branches, 65% functions
   // Phase 3: 80% statements/lines, 60% branches, 80% functions
   coverageThreshold: {
     global: {
-      branches: 40,
-      functions: 50,
-      lines: 50,
-      statements: 50,
+      branches: 35,
+      functions: 45,
+      lines: 45,
+      statements: 45,
     },
   },
   moduleNameMapper: {

@@ -1,5 +1,6 @@
 import fetch from 'node-fetch';
 import { Logger } from '../util/logger';
+import { TibberPriceInfo } from '../types';
 
 /**
  * Tibber API Service
@@ -9,6 +10,10 @@ export class TibberApi {
   private apiEndpoint = 'https://api.tibber.com/v1-beta/gql';
   private token: string;
   private logger: Logger;
+  private cache: Map<string, { data: any; timestamp: number }> = new Map();
+  private cacheTTL: number = 30 * 60 * 1000; // 30 minutes default TTL
+  private lastApiCallTime: number = 0;
+  private minApiCallInterval: number = 2000; // 2 seconds minimum between calls
 
   /**
    * Constructor
@@ -51,7 +56,9 @@ export class TibberApi {
     return error instanceof Error &&
       (error.message.includes('network') ||
        error.message.includes('timeout') ||
-       error.message.includes('connection'));
+       error.message.includes('connection') ||
+       error.message.includes('ENOTFOUND') ||
+       error.message.includes('ETIMEDOUT'));
   }
 
   /**
@@ -63,14 +70,138 @@ export class TibberApi {
     return error instanceof Error &&
       (error.message.includes('auth') ||
        error.message.includes('token') ||
-       error.message.includes('unauthorized'));
+       error.message.includes('unauthorized') ||
+       error.message.includes('Authentication'));
+  }
+
+  /**
+   * Retryable request with exponential backoff
+   * @param requestFn Function that returns a promise with the request
+   * @param maxRetries Maximum number of retry attempts
+   * @param retryDelay Initial delay between retries in ms
+   * @returns Promise resolving to the request result
+   */
+  private async retryableRequest<T>(
+    requestFn: () => Promise<T>,
+    maxRetries: number = 3,
+    retryDelay: number = 2000
+  ): Promise<T> {
+    let lastError: Error | unknown;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await requestFn();
+      } catch (error) {
+        lastError = error;
+
+        // Check if it's a network error that we should retry
+        if (this.isNetworkError(error)) {
+          this.logger.warn(
+            `Network error on attempt ${attempt}/${maxRetries}, retrying in ${retryDelay}ms:`,
+            error
+          );
+
+          // Wait before retrying
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+
+          // Increase delay for next attempt (exponential backoff)
+          retryDelay *= 2;
+        } else {
+          // Not a retryable error
+          throw error;
+        }
+      }
+    }
+
+    // If we get here, all retries failed
+    throw lastError;
+  }
+
+  /**
+   * Get cached data if available and not expired
+   * @param key Cache key
+   * @returns Cached data or null if not found or expired
+   */
+  private getCachedData<T>(key: string): T | null {
+    const cached = this.cache.get(key);
+
+    if (!cached) {
+      return null;
+    }
+
+    // Check if cache is still valid
+    const now = Date.now();
+    if (now - cached.timestamp > this.cacheTTL) {
+      this.cache.delete(key);
+      return null;
+    }
+
+    return cached.data as T;
+  }
+
+  /**
+   * Set data in cache
+   * @param key Cache key
+   * @param data Data to cache
+   */
+  private setCachedData<T>(key: string, data: T): void {
+    this.cache.set(key, {
+      data,
+      timestamp: Date.now()
+    });
+  }
+
+  /**
+   * Throttled API call to prevent rate limiting
+   * @param query GraphQL query
+   * @returns Promise resolving to API response
+   */
+  private async throttledApiCall<T>(query: string): Promise<T> {
+    // Ensure minimum time between API calls
+    const now = Date.now();
+    const timeSinceLastCall = now - this.lastApiCallTime;
+
+    if (timeSinceLastCall < this.minApiCallInterval) {
+      const waitTime = this.minApiCallInterval - timeSinceLastCall;
+      this.logger.debug(`Throttling API call to Tibber, waiting ${waitTime}ms`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+
+    this.lastApiCallTime = Date.now();
+
+    // Make the API call
+    this.logger.debug(`API Call to Tibber GraphQL endpoint`);
+
+    const response = await fetch(this.apiEndpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.token}`,
+      },
+      body: JSON.stringify({ query }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status} ${response.statusText}`);
+    }
+
+    return await response.json() as T;
   }
 
   /**
    * Get current and future electricity prices
    * @returns Promise resolving to price data
    */
-  async getPrices(): Promise<any> {
+  async getPrices(): Promise<TibberPriceInfo> {
+    // Check cache first
+    const cacheKey = 'tibber_prices';
+    const cachedData = this.getCachedData<any>(cacheKey);
+
+    if (cachedData) {
+      this.logger.debug(`Using cached Tibber price data`);
+      return cachedData;
+    }
+
     const query = `{
       viewer {
         homes {
@@ -103,16 +234,9 @@ export class TibberApi {
     this.logApiCall('POST', this.apiEndpoint, { query: 'Tibber price query' });
 
     try {
-      const response = await fetch(this.apiEndpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.token}`,
-        },
-        body: JSON.stringify({ query }),
-      });
-
-      const data = await response.json() as any;
+      const data = await this.retryableRequest(
+        () => this.throttledApiCall<any>(query)
+      );
 
       if (data.errors) {
         const errorMessage = `Tibber API error: ${data.errors[0].message}`;
@@ -122,6 +246,10 @@ export class TibberApi {
 
       const formattedData = this.formatPriceData(data);
       this.logger.log(`Tibber prices retrieved: ${formattedData.prices.length} price points`);
+
+      // Cache the result
+      this.setCachedData(cacheKey, formattedData);
+
       return formattedData;
     } catch (error) {
       if (this.isAuthError(error)) {
@@ -145,7 +273,7 @@ export class TibberApi {
    * @param data Tibber API response data
    * @returns Formatted price data
    */
-  private formatPriceData(data: any): any {
+  private formatPriceData(data: any): TibberPriceInfo {
     try {
       const homes = data.data.viewer.homes;
       if (!homes || homes.length === 0) {
@@ -170,11 +298,14 @@ export class TibberApi {
         price: price.total,
       }));
 
-      const result = {
+      const result: TibberPriceInfo = {
         current: priceInfo.current ? {
           time: priceInfo.current.startsAt,
           price: priceInfo.current.total,
-        } : null,
+        } : {
+          time: new Date().toISOString(),
+          price: 0
+        },
         prices,
       };
 
