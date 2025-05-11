@@ -707,7 +707,14 @@ export default class HeatOptimizerApp extends App {
             }
 
             if (result.data && result.data.savings) {
-              message += `. Estimated savings: ${result.data.savings.toFixed(2)} ${result.data.currency || '€'}`;
+              // Get the user's locale or default to the system locale
+              const userLocale = this.homey.i18n?.getLanguage() || undefined;
+              // Get the user's currency or default to the system currency
+              const userCurrency = this.homey.settings?.get('currency') || this.homey.i18n?.getCurrency() || 'EUR';
+              // Get the currency symbol from the user's locale
+              const currencySymbol = new Intl.NumberFormat(userLocale, { style: 'currency', currency: userCurrency }).format(0).replace(/[0-9.,]/g, '');
+
+              message += `. Estimated savings: ${currencySymbol}${result.data.savings.toFixed(2)}`;
             }
 
             await this.timelineHelper.createSuccessEntry(

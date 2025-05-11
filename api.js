@@ -3738,9 +3738,13 @@ module.exports = {
             // Only show if daily savings are significant (above 0.5 in local currency)
             if (Math.abs(dailySavings) > 0.5) {
 
-            // Use local currency format instead of hardcoded Euro symbol
+            // Use local currency format based on the user's locale
             // This extracts just the currency symbol from the user's locale
-            const currencySymbol = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(0).replace(/[0-9.,]/g, '');
+            // Get the user's locale or default to the system locale
+            const userLocale = homey.i18n?.getLanguage() || undefined;
+            // Get the user's currency or default to the system currency
+            const userCurrency = homey.settings?.get('currency') || homey.i18n?.getCurrency() || 'EUR';
+            const currencySymbol = new Intl.NumberFormat(userLocale, { style: 'currency', currency: userCurrency }).format(0).replace(/[0-9.,]/g, '');
 
             // Display projected daily savings instead of hourly savings
             // Check if we used historical data
