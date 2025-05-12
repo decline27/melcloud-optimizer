@@ -150,6 +150,11 @@ export interface HomeyApp {
   flow?: {
     runFlowCardAction(options: { uri: string; args: any }): Promise<any>;
   };
+  // Internationalization and localization
+  i18n?: {
+    getLanguage(): string;
+    getCurrency(): string;
+  };
   // Optional properties that might be used in some contexts
   melcloudApi?: any;
   weatherApi?: any;

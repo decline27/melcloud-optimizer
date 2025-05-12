@@ -151,17 +151,36 @@ export class HomeyLogger implements Logger {
 
   /**
    * Send a message to the Homey timeline
+   * @param message Message to send to the timeline
+   * @param type Optional message type (info, warning, error)
    */
-  public async sendToTimeline(message: string): Promise<void> {
+  public async sendToTimeline(message: string, type: 'info' | 'warning' | 'error' = 'info'): Promise<void> {
     try {
       // Log timeline message using Homey's logging
       this.app.log(`${this.logPrefix}TIMELINE: ${message}`);
 
-      // Send to Homey timeline
-      await this.app.homey.flow.runFlowCardAction({
-        uri: 'homey:flowcardaction:homey:manager:timeline:log',
-        args: { text: message }
-      });
+      // Check if we have access to the TimelineHelper
+      if (this.app.timelineHelper) {
+        // Use the appropriate method based on the message type
+        switch (type) {
+          case 'warning':
+            await this.app.timelineHelper.createWarningEntry('MELCloud Optimizer', message, false);
+            break;
+          case 'error':
+            await this.app.timelineHelper.createErrorEntry('MELCloud Optimizer', message, false);
+            break;
+          case 'info':
+          default:
+            await this.app.timelineHelper.createInfoEntry('MELCloud Optimizer', message, false);
+            break;
+        }
+      } else {
+        // Fallback to direct flow API if TimelineHelper is not available
+        await this.app.homey.flow.runFlowCardAction({
+          uri: 'homey:flowcardaction:homey:manager:timeline:log',
+          args: { text: message }
+        });
+      }
     } catch (err) {
       // Don't log timeline errors to timeline to avoid loops
       this.app.error(`Failed to send to timeline: ${message}`, err as Error);

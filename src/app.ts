@@ -1,7 +1,7 @@
 import { App } from 'homey';
 import { CronJob } from 'cron'; // Import CronJob
 import { COPHelper } from './services/cop-helper';
-import { TimelineHelper } from './util/timeline-helper';
+import { TimelineHelper, TimelineEventType } from './util/timeline-helper';
 import {
   LogEntry,
   ThermalModel,
@@ -268,14 +268,15 @@ export default class HeatOptimizerApp extends App {
         this.log('Creating timeline entry for hourly job');
 
         if (this.timelineHelper) {
-          await this.timelineHelper.createInfoEntry(
-            'MELCloud Optimizer',
-            '🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP',
+          await this.timelineHelper.addTimelineEntry(
+            TimelineEventType.HOURLY_OPTIMIZATION,
+            {},
             false
           );
           this.log('Timeline entry created using timeline helper');
         } else {
           // Fallback to direct API calls if timeline helper is not available
+          this.log('Timeline helper not available, using direct API calls');
           // First try the direct timeline API if available
           if (typeof this.homey.timeline === 'object' && typeof this.homey.timeline.createEntry === 'function') {
             await this.homey.timeline.createEntry({
@@ -351,14 +352,15 @@ export default class HeatOptimizerApp extends App {
         this.log('Creating timeline entry for weekly job');
 
         if (this.timelineHelper) {
-          await this.timelineHelper.createInfoEntry(
-            'MELCloud Optimizer',
-            '📈 Automatic weekly calibration | Updating thermal model with latest data',
+          await this.timelineHelper.addTimelineEntry(
+            TimelineEventType.WEEKLY_CALIBRATION,
+            {},
             false
           );
           this.log('Timeline entry created using timeline helper');
         } else {
           // Fallback to direct API calls if timeline helper is not available
+          this.log('Timeline helper not available, using direct API calls');
           // First try the direct timeline API if available
           if (typeof this.homey.timeline === 'object' && typeof this.homey.timeline.createEntry === 'function') {
             await this.homey.timeline.createEntry({
@@ -504,14 +506,15 @@ export default class HeatOptimizerApp extends App {
           this.log('Creating timeline entry for manual hourly optimization');
 
           if (this.timelineHelper) {
-            await this.timelineHelper.createInfoEntry(
-              'MELCloud Optimizer',
-              '🔄 Manual hourly optimization | Optimizing based on current prices and COP',
+            await this.timelineHelper.addTimelineEntry(
+              TimelineEventType.HOURLY_OPTIMIZATION_MANUAL,
+              {},
               true // Create notification for manual triggers
             );
             this.log('Timeline entry created using timeline helper');
           } else {
             // Fallback to direct API calls if timeline helper is not available
+            this.log('Timeline helper not available, using direct API calls');
             // First try the direct timeline API if available
             if (typeof this.homey.timeline === 'object' && typeof this.homey.timeline.createEntry === 'function') {
               await this.homey.timeline.createEntry({
@@ -594,32 +597,43 @@ export default class HeatOptimizerApp extends App {
           // First add the timeline entry
           this.log('Creating timeline entry for manual weekly calibration');
 
-          // First try the direct timeline API if available
-          if (typeof this.homey.timeline === 'object' && typeof this.homey.timeline.createEntry === 'function') {
-            await this.homey.timeline.createEntry({
-              title: 'MELCloud Optimizer',
-              body: '📊 Manual weekly calibration | Analyzing thermal model based on collected data',
-              icon: 'flow:device_changed'
-            });
-            this.log('Timeline entry created using timeline API');
-          }
-          // Then try the notifications API as the main fallback
-          else if (typeof this.homey.notifications === 'object' && typeof this.homey.notifications.createNotification === 'function') {
-            await this.homey.notifications.createNotification({
-              excerpt: 'MELCloud Optimizer: 📊 Manual weekly calibration | Analyzing thermal model based on collected data',
-            });
-            this.log('Timeline entry created using notifications API');
-          }
-          // Finally try homey.flow if available
-          else if (typeof this.homey.flow === 'object' && typeof this.homey.flow.runFlowCardAction === 'function') {
-            await this.homey.flow.runFlowCardAction({
-              uri: 'homey:flowcardaction:homey:manager:timeline:log',
-              args: { text: '📊 Manual weekly calibration | Analyzing thermal model based on collected data' }
-            });
-            this.log('Timeline entry created using flow API');
-          }
-          else {
-            this.log('No timeline API available, using log only');
+          if (this.timelineHelper) {
+            await this.timelineHelper.addTimelineEntry(
+              TimelineEventType.WEEKLY_CALIBRATION_MANUAL,
+              {},
+              true // Create notification for manual triggers
+            );
+            this.log('Timeline entry created using timeline helper');
+          } else {
+            // Fallback to direct API calls if timeline helper is not available
+            this.log('Timeline helper not available, using direct API calls');
+            // First try the direct timeline API if available
+            if (typeof this.homey.timeline === 'object' && typeof this.homey.timeline.createEntry === 'function') {
+              await this.homey.timeline.createEntry({
+                title: 'MELCloud Optimizer',
+                body: '📊 Manual weekly calibration | Analyzing thermal model based on collected data',
+                icon: 'flow:device_changed'
+              });
+              this.log('Timeline entry created using timeline API');
+            }
+            // Then try the notifications API as the main fallback
+            else if (typeof this.homey.notifications === 'object' && typeof this.homey.notifications.createNotification === 'function') {
+              await this.homey.notifications.createNotification({
+                excerpt: 'MELCloud Optimizer: 📊 Manual weekly calibration | Analyzing thermal model based on collected data',
+              });
+              this.log('Timeline entry created using notifications API');
+            }
+            // Finally try homey.flow if available
+            else if (typeof this.homey.flow === 'object' && typeof this.homey.flow.runFlowCardAction === 'function') {
+              await this.homey.flow.runFlowCardAction({
+                uri: 'homey:flowcardaction:homey:manager:timeline:log',
+                args: { text: '📊 Manual weekly calibration | Analyzing thermal model based on collected data' }
+              });
+              this.log('Timeline entry created using flow API');
+            }
+            else {
+              this.log('No timeline API available, using log only');
+            }
           }
 
           // Then run the calibration
@@ -699,28 +713,33 @@ export default class HeatOptimizerApp extends App {
         // Create success timeline entry
         try {
           if (this.timelineHelper) {
-            // Create a more detailed message with the optimization results
-            let message = 'Temperature optimized based on electricity prices';
+            // Prepare additional data for the timeline entry
+            const additionalData: Record<string, any> = {};
 
             if (result.data && result.data.targetTemp && result.data.targetOriginal) {
-              message += ` from ${result.data.targetOriginal}°C to ${result.data.targetTemp}°C`;
+              additionalData.targetTemp = result.data.targetTemp;
+              additionalData.targetOriginal = result.data.targetOriginal;
             }
 
             if (result.data && result.data.savings) {
-              // Get the user's locale or default to the system locale
-              const userLocale = this.homey.i18n?.getLanguage() || undefined;
-              // Get the user's currency or default to the system currency
-              const userCurrency = this.homey.settings?.get('currency') || this.homey.i18n?.getCurrency() || 'EUR';
-              // Get the currency symbol from the user's locale
-              const currencySymbol = new Intl.NumberFormat(userLocale, { style: 'currency', currency: userCurrency }).format(0).replace(/[0-9.,]/g, '');
-
-              message += `. Estimated savings: ${currencySymbol}${result.data.savings.toFixed(2)}`;
+              additionalData.savings = result.data.savings;
             }
 
-            await this.timelineHelper.createSuccessEntry(
-              'Hourly Optimization Completed',
-              message,
-              false // Don't create notification for success
+            // Add any other relevant data
+            if (result.data && result.data.reason) {
+              additionalData.reason = result.data.reason;
+            }
+
+            if (result.data && result.data.cop) {
+              additionalData.cop = result.data.cop;
+            }
+
+            // Create the timeline entry using our standardized helper
+            await this.timelineHelper.addTimelineEntry(
+              TimelineEventType.HOURLY_OPTIMIZATION_RESULT,
+              {}, // No specific details needed
+              false, // Don't create notification for success
+              additionalData
             );
           }
         } catch (timelineErr) {
@@ -745,9 +764,12 @@ export default class HeatOptimizerApp extends App {
           // Send notification about the fallback
           try {
             if (this.timelineHelper) {
-              await this.timelineHelper.createWarningEntry(
-                'Hourly Optimization Warning',
-                `${error.message}. Using cached settings as fallback.`,
+              await this.timelineHelper.addTimelineEntry(
+                TimelineEventType.HOURLY_OPTIMIZATION_ERROR,
+                {
+                  error: `${error.message}. Using cached settings as fallback.`,
+                  warning: true
+                },
                 true // Create notification for warnings
               );
             } else {
@@ -770,9 +792,9 @@ export default class HeatOptimizerApp extends App {
       // Send notification about the failure
       try {
         if (this.timelineHelper) {
-          await this.timelineHelper.createErrorEntry(
-            'Hourly Optimization Failed',
-            error.message,
+          await this.timelineHelper.addTimelineEntry(
+            TimelineEventType.HOURLY_OPTIMIZATION_ERROR,
+            { error: error.message },
             true // Create notification for errors
           );
         } else {
@@ -852,9 +874,12 @@ export default class HeatOptimizerApp extends App {
       try {
         if (this.timelineHelper) {
           const issuesMessage = healthStatus.issues.join(', ');
-          await this.timelineHelper.createWarningEntry(
-            'System Health Check Issues',
-            `Found ${healthStatus.issues.length} issues: ${issuesMessage}`,
+          await this.timelineHelper.addTimelineEntry(
+            TimelineEventType.SYSTEM_HEALTH_ERROR,
+            {
+              count: healthStatus.issues.length,
+              issues: issuesMessage
+            },
             true // Create notification for health issues
           );
         }
@@ -879,9 +904,9 @@ export default class HeatOptimizerApp extends App {
 
         // Create timeline entry for recovery
         if (recovered && this.timelineHelper) {
-          await this.timelineHelper.createSuccessEntry(
-            'System Recovery',
-            'Successfully recovered from system health issues',
+          await this.timelineHelper.addTimelineEntry(
+            TimelineEventType.SYSTEM_RECOVERY,
+            {},
             false // Don't create notification for recovery
           );
         }
@@ -891,9 +916,13 @@ export default class HeatOptimizerApp extends App {
         // Create timeline entry for recovery failure
         if (this.timelineHelper) {
           try {
-            await this.timelineHelper.createErrorEntry(
-              'System Recovery Failed',
-              `Failed to recover from system health issues: ${error instanceof Error ? error.message : String(error)}`,
+            await this.timelineHelper.addTimelineEntry(
+              TimelineEventType.SYSTEM_HEALTH_ERROR,
+              {
+                error: `Failed to recover from system health issues: ${error instanceof Error ? error.message : String(error)}`,
+                count: 1,
+                issues: 'Recovery failure'
+              },
               true // Create notification for recovery failure
             );
           } catch (timelineErr) {
@@ -910,9 +939,9 @@ export default class HeatOptimizerApp extends App {
       // Create timeline entry for successful health check
       try {
         if (this.timelineHelper) {
-          await this.timelineHelper.createInfoEntry(
-            'System Health Check',
-            'System health check passed successfully',
+          await this.timelineHelper.addTimelineEntry(
+            TimelineEventType.SYSTEM_HEALTH_CHECK,
+            {},
             false // Don't create notification for successful health check
           );
         }
@@ -944,21 +973,33 @@ export default class HeatOptimizerApp extends App {
         // Create success timeline entry
         try {
           if (this.timelineHelper) {
-            // Create a more detailed message with the calibration results
-            let message = 'Thermal model updated with latest data';
+            // Prepare additional data for the timeline entry
+            const additionalData: Record<string, any> = {};
 
             if (result.data && result.data.oldK && result.data.newK) {
-              message += `. K-factor adjusted from ${result.data.oldK.toFixed(2)} to ${result.data.newK.toFixed(2)}`;
+              additionalData.oldK = result.data.oldK;
+              additionalData.newK = result.data.newK;
             }
 
             if (result.data && result.data.method) {
-              message += ` using ${result.data.method} method`;
+              additionalData.method = result.data.method;
             }
 
-            await this.timelineHelper.createSuccessEntry(
-              'Weekly Calibration Completed',
-              message,
-              false // Don't create notification for success
+            // Add any other relevant data
+            if (result.data && result.data.newS) {
+              additionalData.newS = result.data.newS;
+            }
+
+            if (result.data && result.data.thermalCharacteristics) {
+              additionalData.thermalCharacteristics = result.data.thermalCharacteristics;
+            }
+
+            // Create the timeline entry using our standardized helper
+            await this.timelineHelper.addTimelineEntry(
+              TimelineEventType.WEEKLY_CALIBRATION_RESULT,
+              {}, // No specific details needed
+              false, // Don't create notification for success
+              additionalData
             );
           }
         } catch (timelineErr) {
@@ -977,9 +1018,9 @@ export default class HeatOptimizerApp extends App {
       // Send notification
       try {
         if (this.timelineHelper) {
-          await this.timelineHelper.createErrorEntry(
-            'Weekly Calibration Failed',
-            error.message,
+          await this.timelineHelper.addTimelineEntry(
+            TimelineEventType.WEEKLY_CALIBRATION_ERROR,
+            { error: error.message },
             true // Create notification for errors
           );
         } else {

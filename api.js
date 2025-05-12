@@ -1,8 +1,9 @@
 // We can't import the TypeScript services directly in the API
 // Instead, we'll implement simplified versions of the services here
 
-// Import the HTTPS module
+// Import the HTTPS module and our timeline helper wrapper
 const https = require('https');
+const { TimelineHelperWrapper, TimelineEventType } = require('./timeline-helper-wrapper');
 
 /**
  * Helper function to pretty-print JSON data
@@ -3703,16 +3704,25 @@ module.exports = {
           homey.app.log(`💧 TIMELINE: Optimized tank temperature to ${result.tankTemperature.targetTemp}°C (was ${result.tankTemperature.targetOriginal}°C)`);
         }
 
-        // Send to timeline using the Homey SDK 3.0 API
+        // Send to timeline using our standardized TimelineHelperWrapper
         try {
-          // Prepare message including Zone1, Zone2, and tank temperature if available
-          let message = `Zone1: ${result.targetTemp}°C (${result.targetTemp > result.targetOriginal ? '+' : ''}${(result.targetTemp - result.targetOriginal).toFixed(1)}°C)`;
+          // Create a timeline helper wrapper instance
+          const timelineHelper = new TimelineHelperWrapper(homey);
+
+          // Prepare additional data for the timeline entry
+          const additionalData = {
+            targetTemp: result.targetTemp,
+            targetOriginal: result.targetOriginal,
+            savings: result.savings || 0
+          };
+
+          // Prepare details for the timeline entry
+          const details = {};
 
           // Add reason if available
           if (result.reason) {
             // Extract first part of reason (before any parentheses or periods)
-            const shortReason = result.reason.split(/[(.]/)[0].trim();
-            message += ` | Reason: ${shortReason}`;
+            details.reason = result.reason.split(/[(.]/)[0].trim();
           }
 
           // Add price context
@@ -3725,119 +3735,64 @@ module.exports = {
             else if (priceRatio < 0.5) priceContext = 'Very low';
             else priceContext = 'Average';
 
-            message += ` | Price: ${priceContext}`;
-          }
-
-          // Calculate projected daily savings based on hourly savings
-          // Always display projected daily savings in local currency when they're significant
-          // Using a higher threshold (0.5) for daily savings since they're 24x larger than hourly savings
-          if (result.savings && Math.abs(result.savings) > 0.02) {
-            // Calculate daily savings first to check against the higher threshold
-            const dailySavings = optimizer.calculateDailySavings(result.savings);
-
-            // Only show if daily savings are significant (above 0.5 in local currency)
-            if (Math.abs(dailySavings) > 0.5) {
-
-            // Use local currency format based on the user's locale
-            // This extracts just the currency symbol from the user's locale
-            // Get the user's locale or default to the system locale
-            const userLocale = homey.i18n?.getLanguage() || undefined;
-            // Get the user's currency or default to the system currency
-            const userCurrency = homey.settings?.get('currency') || homey.i18n?.getCurrency() || 'EUR';
-            const currencySymbol = new Intl.NumberFormat(userLocale, { style: 'currency', currency: userCurrency }).format(0).replace(/[0-9.,]/g, '');
-
-            // Display projected daily savings instead of hourly savings
-            // Check if we used historical data
-            const currentHour = new Date().getHours();
-            const todayMidnight = new Date();
-            todayMidnight.setHours(0, 0, 0, 0);
-
-            // Filter optimizations from today
-            const todayOptimizations = historicalData.optimizations.filter(opt => {
-              const optDate = new Date(opt.timestamp);
-              return optDate >= todayMidnight && optDate.getHours() < currentHour;
-            });
-
-            if (todayOptimizations.length > 0) {
-              message += ` | Daily savings: ${currencySymbol}${dailySavings.toFixed(2)} (based on ${todayOptimizations.length + 1} hours)`;
-            } else {
-              message += ` | Daily savings: ${currencySymbol}${dailySavings.toFixed(2)}`;
-            }
-
-            // Log the projected daily savings for debugging with more details
-            homey.app.log(`Projected daily savings: ${currencySymbol}${dailySavings.toFixed(2)} (based on hourly savings of ${currencySymbol}${result.savings.toFixed(2)})`);
-
-            // Log details about how the daily savings were calculated
-
-            if (todayOptimizations.length > 0) {
-              homey.app.log(`Daily savings calculation used ${todayOptimizations.length} historical data points from earlier today`);
-
-              // Calculate total historical savings
-              let historicalSavings = 0;
-              todayOptimizations.forEach(opt => {
-                if (opt.savings) {
-                  historicalSavings += opt.savings;
-                }
-              });
-
-              homey.app.log(`Historical savings from previous hours today: ${currencySymbol}${historicalSavings.toFixed(2)}`);
-              homey.app.log(`Current hour savings: ${currencySymbol}${result.savings.toFixed(2)}`);
-
-              const remainingHours = 24 - (todayOptimizations.length + 1); // +1 for current hour
-              homey.app.log(`Projected savings for remaining ${remainingHours} hours: ${currencySymbol}${(result.savings * remainingHours).toFixed(2)}`);
-            } else {
-              homey.app.log(`No historical data from earlier today. Using simple projection (current hour × 24)`);
-            }
-              }
+            details.price = priceContext;
           }
 
           // Add COP if available
           if (result.cop && result.cop.seasonal) {
-            message += ` | COP: ${result.cop.seasonal.toFixed(1)}`;
+            details.cop = result.cop.seasonal.toFixed(1);
           }
 
-          // Only include Zone2 information if Zone2 is enabled in settings and the device supports it
+          // Add Zone2 information if available and enabled
           const enableZone2 = homey.settings.get('enable_zone2') === true;
           if (result.zone2Temperature && enableZone2) {
-            message += ` | Zone2: ${result.zone2Temperature.targetTemp}°C (${result.zone2Temperature.targetTemp > result.zone2Temperature.targetOriginal ? '+' : ''}${(result.zone2Temperature.targetTemp - result.zone2Temperature.targetOriginal).toFixed(1)}°C)`;
+            additionalData.zone2Temp = result.zone2Temperature.targetTemp;
+            additionalData.zone2Original = result.zone2Temperature.targetOriginal;
           }
 
+          // Add tank information if available
           if (result.tankTemperature) {
-            message += ` | Tank: ${result.tankTemperature.targetTemp}°C (${result.tankTemperature.targetTemp > result.tankTemperature.targetOriginal ? '+' : ''}${(result.tankTemperature.targetTemp - result.tankTemperature.targetOriginal).toFixed(1)}°C)`;
+            additionalData.tankTemp = result.tankTemperature.targetTemp;
+            additionalData.tankOriginal = result.tankTemperature.targetOriginal;
           }
 
-          // First try the direct timeline API if available
-          if (typeof homey.timeline === 'object' && typeof homey.timeline.createEntry === 'function') {
-            await homey.timeline.createEntry({
-              title: 'MELCloud Optimizer',
-              body: message,
-              icon: 'flow:device_changed'
-            });
-            homey.app.log('Timeline entry created using timeline API');
-          }
-          // Then try the notifications API as a fallback
-          else if (typeof homey.notifications === 'object' && typeof homey.notifications.createNotification === 'function') {
-            await homey.notifications.createNotification({
-              excerpt: `MELCloud Optimizer: ${message}`,
-            });
-            homey.app.log('Timeline entry created using notifications API');
-          }
-          // Finally try the flow API as a last resort
-          else if (homey.app && homey.app.flow && typeof homey.app.flow.runFlowCardAction === 'function') {
-            await homey.app.flow.runFlowCardAction({
-              uri: 'homey:manager:timeline',
-              id: 'createEntry',
-              args: {
-                title: 'MELCloud Optimizer',
-                message: message,
-                icon: 'flow:device_changed'
+          // Calculate daily savings for display
+          if (result.savings && Math.abs(result.savings) > 0.02) {
+            const dailySavings = optimizer.calculateDailySavings(result.savings);
+
+            // Only include if daily savings are significant
+            if (Math.abs(dailySavings) > 0.5) {
+              additionalData.dailySavings = dailySavings;
+
+              // Get today's optimization count for context
+              const currentHour = new Date().getHours();
+              const todayMidnight = new Date();
+              todayMidnight.setHours(0, 0, 0, 0);
+
+              // Filter optimizations from today
+              const todayOptimizations = historicalData.optimizations.filter(opt => {
+                const optDate = new Date(opt.timestamp);
+                return optDate >= todayMidnight && optDate.getHours() < currentHour;
+              });
+
+              if (todayOptimizations.length > 0) {
+                additionalData.todayHours = todayOptimizations.length + 1; // +1 for current hour
               }
-            });
-            homey.app.log('Timeline entry created using flow API');
+
+              // Log the projected daily savings for debugging
+              homey.app.log(`Projected daily savings: ${dailySavings.toFixed(2)} (based on hourly savings of ${result.savings.toFixed(2)})`);
+            }
           }
-          else {
-            homey.app.log('No timeline API available, using log only');
-          }
+
+          // Create the timeline entry using our standardized helper
+          await timelineHelper.addTimelineEntry(
+            TimelineEventType.HOURLY_OPTIMIZATION_RESULT,
+            details,
+            false, // Don't create notification by default
+            additionalData
+          );
+
+          homey.app.log('Timeline entry created using TimelineHelperWrapper');
         } catch (timelineErr) {
           homey.app.log('Timeline logging failed:', timelineErr.message);
         }
@@ -4012,133 +3967,60 @@ module.exports = {
           homey.app.log(`📊 TIMELINE: Analysis: ${truncatedAnalysis}`);
         }
 
-        // Send to timeline using the Homey SDK 3.0 API
+        // Send to timeline using our standardized TimelineHelperWrapper
         try {
-          // First try the direct timeline API if available
-          if (typeof homey.timeline === 'object' && typeof homey.timeline.createEntry === 'function') {
-            // Create more informative calibration message
-            let body = `Calibrated: K=${result.newK.toFixed(2)}`;
+          // Create a timeline helper wrapper instance
+          const timelineHelper = new TimelineHelperWrapper(homey);
 
-            // Add change percentage if old K is available
-            if (result.oldK) {
-              const changePercent = ((result.newK - result.oldK) / result.oldK * 100);
-              if (Math.abs(changePercent) > 1) {
-                body += ` (${changePercent > 0 ? '+' : ''}${changePercent.toFixed(0)}%)`;
-              }
+          // Prepare additional data for the timeline entry
+          const additionalData = {
+            oldK: result.oldK,
+            newK: result.newK,
+            method: 'Advanced Thermal Learning'
+          };
+
+          // Prepare details for the timeline entry
+          const details = {};
+
+          // Add S value if available
+          if (result.newS) {
+            details.s = result.newS.toFixed(2);
+          }
+
+          // Add thermal characteristics if available
+          if (result.thermalCharacteristics) {
+            if (result.thermalCharacteristics.heatingRate) {
+              details.heatingRate = result.thermalCharacteristics.heatingRate.toFixed(3);
             }
-
-            // Add S value if available
-            if (result.newS) {
-              body += ` | S=${result.newS.toFixed(2)}`;
-            }
-
-            // Add thermal characteristics if available
-            if (result.thermalCharacteristics) {
-              if (result.thermalCharacteristics.heatingRate) {
-                body += ` | Heat rate: ${result.thermalCharacteristics.heatingRate.toFixed(3)}`;
-              }
-              if (result.thermalCharacteristics.coolingRate) {
-                body += ` | Cool rate: ${result.thermalCharacteristics.coolingRate.toFixed(3)}`;
-              }
-            }
-
-            await homey.timeline.createEntry({
-              title: 'MELCloud Optimizer',
-              body: body,
-              icon: 'flow:device_changed'
-            });
-            homey.app.log('Timeline entry created using timeline API');
-
-            // Add analysis entry
-            if (result.analysis && result.analysis.length > 0) {
-              const maxLength = 200;
-              const truncatedAnalysis = result.analysis.length > maxLength
-                ? result.analysis.substring(0, maxLength) + '...'
-                : result.analysis;
-
-              await homey.timeline.createEntry({
-                title: 'MELCloud Optimizer Analysis',
-                body: truncatedAnalysis,
-                icon: 'flow:device_changed'
-              });
+            if (result.thermalCharacteristics.coolingRate) {
+              details.coolingRate = result.thermalCharacteristics.coolingRate.toFixed(3);
             }
           }
-          // Then try the notifications API as a fallback
-          else if (typeof homey.notifications === 'object' && typeof homey.notifications.createNotification === 'function') {
-            // Create more informative calibration message
-            let excerpt = `Calibrated: K=${result.newK.toFixed(2)}`;
 
-            // Add change percentage if old K is available
-            if (result.oldK) {
-              const changePercent = ((result.newK - result.oldK) / result.oldK * 100);
-              if (Math.abs(changePercent) > 1) {
-                excerpt += ` (${changePercent > 0 ? '+' : ''}${changePercent.toFixed(0)}%)`;
-              }
-            }
+          // Create the main calibration timeline entry
+          await timelineHelper.addTimelineEntry(
+            TimelineEventType.WEEKLY_CALIBRATION_RESULT,
+            details,
+            false, // Don't create notification by default
+            additionalData
+          );
 
-            // Add S value if available
-            if (result.newS) {
-              excerpt += ` | S=${result.newS.toFixed(2)}`;
-            }
+          // Add analysis entry if available
+          if (result.analysis && result.analysis.length > 0) {
+            const maxLength = 200;
+            const truncatedAnalysis = result.analysis.length > maxLength
+              ? result.analysis.substring(0, maxLength) + '...'
+              : result.analysis;
 
-            // Add thermal characteristics if available
-            if (result.thermalCharacteristics) {
-              if (result.thermalCharacteristics.heatingRate) {
-                excerpt += ` | Heat rate: ${result.thermalCharacteristics.heatingRate.toFixed(3)}`;
-              }
-            }
-
-            await homey.notifications.createNotification({
-              excerpt: `MELCloud Optimizer: ${excerpt}`,
-            });
-            homey.app.log('Timeline entry created using notifications API');
-
-            // Add analysis notification
-            if (result.analysis && result.analysis.length > 0) {
-              const maxLength = 200;
-              const truncatedAnalysis = result.analysis.length > maxLength
-                ? result.analysis.substring(0, maxLength) + '...'
-                : result.analysis;
-
-              await homey.notifications.createNotification({
-                excerpt: `MELCloud Optimizer Analysis: ${truncatedAnalysis}`,
-              });
-            }
+            // Create a custom entry for the analysis
+            await timelineHelper.addTimelineEntry(
+              TimelineEventType.CUSTOM,
+              { message: truncatedAnalysis },
+              false
+            );
           }
-          // Finally try the flow API as a last resort
-          else if (homey.app && homey.app.flow && typeof homey.app.flow.runFlowCardAction === 'function') {
-            await homey.app.flow.runFlowCardAction({
-              uri: 'homey:manager:timeline',
-              id: 'createEntry',
-              args: {
-                title: 'MELCloud Optimizer',
-                message: `Calibrated: K=${result.newK.toFixed(2)}${result.oldK ? ` (${((result.newK - result.oldK) / result.oldK * 100) > 0 ? '+' : ''}${((result.newK - result.oldK) / result.oldK * 100).toFixed(0)}%)` : ''}${result.newS ? ` | S=${result.newS.toFixed(2)}` : ''}`,
-                icon: 'flow:device_changed'
-              }
-            });
-            homey.app.log('Timeline entry created using flow API');
 
-            // Add analysis entry
-            if (result.analysis && result.analysis.length > 0) {
-              const maxLength = 200;
-              const truncatedAnalysis = result.analysis.length > maxLength
-                ? result.analysis.substring(0, maxLength) + '...'
-                : result.analysis;
-
-              await homey.app.flow.runFlowCardAction({
-                uri: 'homey:manager:timeline',
-                id: 'createEntry',
-                args: {
-                  title: 'MELCloud Optimizer Analysis',
-                  message: truncatedAnalysis,
-                  icon: 'flow:device_changed'
-                }
-              });
-            }
-          }
-          else {
-            homey.app.log('No timeline API available, using log only');
-          }
+          homey.app.log('Timeline entries created using TimelineHelperWrapper');
         } catch (timelineErr) {
           homey.app.log('Timeline logging failed:', timelineErr.message);
         }
@@ -4204,33 +4086,15 @@ module.exports = {
           try {
             homey.app.log('Creating timeline entry for hourly job');
 
-            // First try the direct timeline API if available
-            if (typeof homey.timeline === 'object' && typeof homey.timeline.createEntry === 'function') {
-              await homey.timeline.createEntry({
-                title: 'MELCloud Optimizer',
-                body: '🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP',
-                icon: 'flow:device_changed'
-              });
-              homey.app.log('Timeline entry created using timeline API');
-            }
-            // Then try the notifications API as the main fallback
-            else if (typeof homey.notifications === 'object' && typeof homey.notifications.createNotification === 'function') {
-              await homey.notifications.createNotification({
-                excerpt: 'MELCloud Optimizer: 🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP',
-              });
-              homey.app.log('Timeline entry created using notifications API');
-            }
-            // Finally try homey.app.flow if available
-            else if (homey.app && homey.app.flow && typeof homey.app.flow.runFlowCardAction === 'function') {
-              await homey.app.flow.runFlowCardAction({
-                uri: 'homey:flowcardaction:homey:manager:timeline:log',
-                args: { text: '🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP' }
-              });
-              homey.app.log('Timeline entry created using app flow API');
-            }
-            else {
-              homey.app.log('No timeline API available, using log only');
-            }
+            // Create a timeline helper wrapper instance
+            const timelineHelper = new TimelineHelperWrapper(homey);
+
+            // Create the timeline entry using our standardized helper
+            await timelineHelper.addTimelineEntry(
+              TimelineEventType.HOURLY_OPTIMIZATION,
+              {},
+              false
+            );
 
             homey.app.log('Timeline entry created successfully');
           } catch (err) {
@@ -4260,33 +4124,15 @@ module.exports = {
           try {
             homey.app.log('Creating timeline entry for weekly job');
 
-            // First try the direct timeline API if available
-            if (typeof homey.timeline === 'object' && typeof homey.timeline.createEntry === 'function') {
-              await homey.timeline.createEntry({
-                title: 'MELCloud Optimizer',
-                body: '📈 Automatic weekly calibration | Updating thermal model with latest data',
-                icon: 'flow:device_changed'
-              });
-              homey.app.log('Timeline entry created using timeline API');
-            }
-            // Then try the notifications API as the main fallback
-            else if (typeof homey.notifications === 'object' && typeof homey.notifications.createNotification === 'function') {
-              await homey.notifications.createNotification({
-                excerpt: 'MELCloud Optimizer: 📈 Automatic weekly calibration | Updating thermal model with latest data',
-              });
-              homey.app.log('Timeline entry created using notifications API');
-            }
-            // Finally try homey.app.flow if available
-            else if (homey.app && homey.app.flow && typeof homey.app.flow.runFlowCardAction === 'function') {
-              await homey.app.flow.runFlowCardAction({
-                uri: 'homey:flowcardaction:homey:manager:timeline:log',
-                args: { text: '📈 Automatic weekly calibration | Updating thermal model with latest data' }
-              });
-              homey.app.log('Timeline entry created using app flow API');
-            }
-            else {
-              homey.app.log('No timeline API available, using log only');
-            }
+            // Create a timeline helper wrapper instance
+            const timelineHelper = new TimelineHelperWrapper(homey);
+
+            // Create the timeline entry using our standardized helper
+            await timelineHelper.addTimelineEntry(
+              TimelineEventType.WEEKLY_CALIBRATION,
+              {},
+              false
+            );
 
             homey.app.log('Timeline entry created successfully');
           } catch (err) {
@@ -4335,33 +4181,15 @@ module.exports = {
         try {
           homey.app.log('Creating timeline entry for cron job initialization');
 
-          // First try the direct timeline API if available
-          if (typeof homey.timeline === 'object' && typeof homey.timeline.createEntry === 'function') {
-            await homey.timeline.createEntry({
-              title: 'MELCloud Optimizer',
-              body: '🕓 Scheduled jobs initialized',
-              icon: 'flow:device_changed'
-            });
-            homey.app.log('Timeline entry created using timeline API');
-          }
-          // Then try the notifications API as the main fallback
-          else if (typeof homey.notifications === 'object' && typeof homey.notifications.createNotification === 'function') {
-            await homey.notifications.createNotification({
-              excerpt: 'MELCloud Optimizer: 🕓 Scheduled jobs initialized',
-            });
-            homey.app.log('Timeline entry created using notifications API');
-          }
-          // Finally try homey.app.flow if available
-          else if (homey.app && homey.app.flow && typeof homey.app.flow.runFlowCardAction === 'function') {
-            await homey.app.flow.runFlowCardAction({
-              uri: 'homey:flowcardaction:homey:manager:timeline:log',
-              args: { text: '🕓 Scheduled jobs initialized' }
-            });
-            homey.app.log('Timeline entry created using app flow API');
-          }
-          else {
-            homey.app.log('No timeline API available, using log only');
-          }
+          // Create a timeline helper wrapper instance
+          const timelineHelper = new TimelineHelperWrapper(homey);
+
+          // Create the timeline entry using our standardized helper
+          await timelineHelper.addTimelineEntry(
+            TimelineEventType.CRON_JOB_INITIALIZED,
+            {},
+            false
+          );
 
           homey.app.log('Timeline entry created successfully');
         } catch (err) {
