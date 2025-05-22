@@ -89,6 +89,14 @@
     "runSystemHealthCheck": {
       "method": "GET",
       "path": "/runSystemHealthCheck"
+    },
+    "getMemoryUsage": {
+      "method": "GET",
+      "path": "/getMemoryUsage"
+    },
+    "runThermalDataCleanup": {
+      "method": "GET",
+      "path": "/runThermalDataCleanup"
     }
   }
 }

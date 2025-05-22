@@ -4713,5 +4713,95 @@ module.exports = {
         recovered: false
       };
     }
+  },
+
+  async getMemoryUsage({ homey }) {
+    try {
+      console.log('API method getMemoryUsage called');
+      homey.app.log('API method getMemoryUsage called');
+
+      try {
+        // Initialize services if needed
+        await initializeServices(homey);
+
+        // Get memory usage from process safely
+        let processMemory = {};
+        try {
+          const memUsage = process.memoryUsage();
+          processMemory = {
+            rss: Math.round(memUsage.rss / 1024 / 1024 * 100) / 100,
+            heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024 * 100) / 100,
+            heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024 * 100) / 100,
+            external: Math.round(memUsage.external / 1024 / 1024 * 100) / 100,
+          };
+        } catch (memError) {
+          homey.app.log('Could not get detailed memory usage, using estimated values');
+          // Provide estimated values if actual memory usage is not available
+          processMemory = {
+            rss: 'N/A',
+            heapTotal: 'N/A',
+            heapUsed: 'N/A',
+            external: 'N/A'
+          };
+        }
+
+        // Get thermal model memory usage if available
+        let thermalModelMemory = null;
+        if (optimizer && optimizer.thermalModelService) {
+          thermalModelMemory = optimizer.thermalModelService.getMemoryUsage();
+        }
+
+        return {
+          success: true,
+          processMemory,
+          thermalModelMemory,
+          timestamp: new Date().toISOString()
+        };
+      } catch (error) {
+        homey.app.error('Error getting memory usage:', error);
+        return {
+          success: false,
+          message: `Error getting memory usage: ${error.message}`
+        };
+      }
+    } catch (err) {
+      console.error('Error in getMemoryUsage:', err);
+      return { success: false, error: err.message };
+    }
+  },
+
+  async runThermalDataCleanup({ homey }) {
+    try {
+      console.log('API method runThermalDataCleanup called');
+      homey.app.log('API method runThermalDataCleanup called');
+
+      try {
+        // Initialize services if needed
+        await initializeServices(homey);
+
+        // Run thermal data cleanup if available
+        if (optimizer && optimizer.thermalModelService) {
+          const result = optimizer.thermalModelService.forceDataCleanup();
+          return {
+            success: true,
+            ...result
+          };
+        } else {
+          return {
+            success: false,
+            message: 'Thermal model service not available'
+          };
+        }
+      } catch (error) {
+        homey.app.error('Error running thermal data cleanup:', error);
+        return {
+          success: false,
+          message: `Error running thermal data cleanup: ${error.message}`
+        };
+      }
+    } catch (err) {
+      console.error('Error in runThermalDataCleanup:', err);
+      return { success: false, error: err.message };
+    }
   }
 };
