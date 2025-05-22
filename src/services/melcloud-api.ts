@@ -2,10 +2,12 @@ import * as https from 'https';
 import { URL } from 'url';
 import { Logger } from '../util/logger';
 import { DeviceInfo, MelCloudDevice, HomeySettings } from '../types';
+import { ErrorHandler, AppError, ErrorCategory } from '../util/error-handler';
 
-// Add global declaration for homeySettings
+// Add global declaration for homeySettings and logger
 declare global {
   var homeySettings: HomeySettings;
+  var logger: Logger;
 }
 
 /**
@@ -26,25 +28,43 @@ export class MelCloudApi {
   private maxReconnectAttempts: number = 5;
   private reconnectDelay: number = 5000; // 5 seconds initial delay
   private reconnectTimers: NodeJS.Timeout[] = [];
+  private errorHandler: ErrorHandler;
 
   /**
    * Constructor
    * @param logger Logger instance
    */
   constructor(logger?: Logger) {
-    // Create a default console logger if none provided (for tests)
-    this.logger = logger || {
-      log: (message: string, ...args: any[]) => console.log(message, ...args),
-      info: (message: string, ...args: any[]) => console.log(`INFO: ${message}`, ...args),
-      error: (message: string, error?: Error | unknown, ...args: any[]) => console.error(message, error, ...args),
-      debug: (message: string, ...args: any[]) => console.debug(message, ...args),
-      warn: (message: string, ...args: any[]) => console.warn(message, ...args),
-      notify: async (message: string) => Promise.resolve(),
-      marker: (message: string) => console.log(`===== ${message} =====`),
-      sendToTimeline: async (message: string) => Promise.resolve(),
-      setLogLevel: () => {},
-      setTimelineLogging: () => {}
-    };
+    // Use the provided logger or try to get the global logger
+    if (logger) {
+      this.logger = logger;
+    } else if (global.logger) {
+      this.logger = global.logger;
+    } else {
+      // Create a default console logger if none provided (for tests)
+      this.logger = {
+        log: (message: string, ...args: any[]) => console.log(message, ...args),
+        info: (message: string, ...args: any[]) => console.log(`INFO: ${message}`, ...args),
+        error: (message: string, error?: Error | unknown, context?: Record<string, any>) => console.error(message, error, context),
+        debug: (message: string, ...args: any[]) => console.debug(message, ...args),
+        warn: (message: string, context?: Record<string, any>) => console.warn(message, context),
+        api: (message: string, context?: Record<string, any>) => console.log(`API: ${message}`, context),
+        optimization: (message: string, context?: Record<string, any>) => console.log(`OPTIMIZATION: ${message}`, context),
+        notify: async (message: string) => Promise.resolve(),
+        marker: (message: string) => console.log(`===== ${message} =====`),
+        sendToTimeline: async (message: string, type?: 'info' | 'warning' | 'error') => Promise.resolve(),
+        setLogLevel: () => {},
+        setTimelineLogging: () => {},
+        getLogLevel: () => 1, // INFO level
+        enableCategory: () => {},
+        disableCategory: () => {},
+        isCategoryEnabled: () => true,
+        formatValue: (value: any) => typeof value === 'object' ? JSON.stringify(value) : String(value)
+      };
+    }
+
+    // Initialize error handler
+    this.errorHandler = new ErrorHandler(this.logger);
   }
 
   /**
@@ -54,7 +74,12 @@ export class MelCloudApi {
    * @param params Optional parameters
    */
   private logApiCall(method: string, endpoint: string, params?: any): void {
-    this.logger.log(`API Call: ${method} ${endpoint}${params ? ' with params: ' + JSON.stringify(params) : ''}`);
+    this.logger.api(`${method} ${endpoint}`, {
+      method,
+      endpoint,
+      params: params || null,
+      timestamp: new Date().toISOString()
+    });
   }
 
   /**
@@ -86,6 +111,20 @@ export class MelCloudApi {
   }
 
   /**
+   * Create a standardized API error
+   * @param error Original error
+   * @param context Additional context
+   * @param message Optional custom message
+   * @returns AppError instance
+   */
+  private createApiError(error: unknown, context?: Record<string, any>, message?: string): AppError {
+    return this.errorHandler.createAppError(error, {
+      api: 'MELCloud',
+      ...context
+    }, message);
+  }
+
+  /**
    * Retryable request with exponential backoff
    * @param requestFn Function that returns a promise with the request
    * @param maxRetries Maximum number of retry attempts
@@ -107,9 +146,17 @@ export class MelCloudApi {
 
         // Check if it's a network error that we should retry
         if (this.isNetworkError(error)) {
+          // Create a standardized error with context
+          const appError = this.createApiError(error, {
+            attempt,
+            maxRetries,
+            retryDelay,
+            retryable: true
+          });
+
           this.logger.warn(
-            `Network error on attempt ${attempt}/${maxRetries}, retrying in ${retryDelay}ms:`,
-            error
+            `Network error on attempt ${attempt}/${maxRetries}, retrying in ${retryDelay}ms: ${appError.message}`,
+            { attempt, maxRetries, retryDelay }
           );
 
           // Wait before retrying
@@ -119,13 +166,20 @@ export class MelCloudApi {
           retryDelay *= 2;
         } else {
           // Not a retryable error
-          throw error;
+          throw this.createApiError(error, {
+            attempt,
+            maxRetries,
+            retryable: false
+          });
         }
       }
     }
 
     // If we get here, all retries failed
-    throw lastError;
+    throw this.createApiError(lastError, {
+      allRetriesFailed: true,
+      maxRetries
+    }, `All ${maxRetries} retry attempts failed`);
   }
 
   /**
@@ -363,19 +417,17 @@ export class MelCloudApi {
 
       return true;
     } catch (error) {
-      if (this.isAuthError(error)) {
-        this.logger.error('Authentication error in MELCloud login:', error);
-        throw new Error(`Authentication error: ${error instanceof Error ? error.message : String(error)}`);
-      } else if (this.isNetworkError(error)) {
-        this.logger.error('Network error in MELCloud login:', error);
-        throw new Error(`Network error: ${error instanceof Error ? error.message : String(error)}`);
-      } else {
-        this.logger.error('MELCloud login error:', error);
-        const enhancedError = error instanceof Error
-          ? new Error(`MELCloud login failed: ${error.message}`)
-          : new Error(`MELCloud login failed: ${String(error)}`);
-        throw enhancedError;
-      }
+      // Create a standardized error with context
+      const appError = this.createApiError(error, {
+        operation: 'login',
+        email: email ? `${email.substring(0, 3)}...` : 'not provided', // Only include first 3 chars for privacy
+      });
+
+      // Log the error with appropriate level based on category
+      this.errorHandler.logError(appError);
+
+      // Throw the standardized error
+      throw appError;
     }
   }
 
@@ -403,27 +455,39 @@ export class MelCloudApi {
         this.logger.log(`MELCloud devices retrieved: ${this.devices.length} devices found`);
         return this.devices;
       } catch (error) {
-        if (this.isAuthError(error)) {
-          this.logger.error('Authentication error in MELCloud getDevices:', error);
+        // Create a standardized error with context
+        const appError = this.createApiError(error, {
+          operation: 'getDevices'
+        });
+
+        // For authentication errors, try to reconnect
+        if (appError.category === ErrorCategory.AUTHENTICATION) {
+          this.logger.warn('Authentication error in MELCloud getDevices, attempting to reconnect');
 
           // Try to reconnect on auth error
           await this.ensureConnected();
-
-          throw new Error(`Authentication error: ${error instanceof Error ? error.message : String(error)}`);
-        } else if (this.isNetworkError(error)) {
-          this.logger.error('Network error in MELCloud getDevices:', error);
-          throw new Error(`Network error: ${error instanceof Error ? error.message : String(error)}`);
-        } else {
-          this.logger.error('MELCloud get devices error:', error);
-          const enhancedError = error instanceof Error
-            ? new Error(`MELCloud get devices failed: ${error.message}`)
-            : new Error(`MELCloud get devices failed: ${String(error)}`);
-          throw enhancedError;
         }
+
+        // Log the error with appropriate level based on category
+        this.errorHandler.logError(appError);
+
+        // Throw the standardized error
+        throw appError;
       }
     } catch (error) {
-      this.logger.error('MELCloud get devices error:', error);
-      throw error;
+      // If this is already an AppError, just rethrow it
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      // Otherwise, create and log a standardized error
+      const appError = this.createApiError(error, {
+        operation: 'getDevices',
+        outerCatch: true
+      });
+
+      this.errorHandler.logError(appError);
+      throw appError;
     }
   }
 
@@ -463,6 +527,52 @@ export class MelCloudApi {
   }
 
   /**
+   * Get weekly average COP (Coefficient of Performance) for a device
+   * @param deviceId Device ID
+   * @param buildingId Building ID
+   * @returns Promise resolving to COP values for heating and hot water
+   */
+  async getWeeklyAverageCOP(deviceId: string, buildingId: number): Promise<{ heating: number; hotWater: number }> {
+    try {
+      // Get device state to access energy data
+      const deviceState = await this.getDeviceState(deviceId, buildingId);
+
+      // Calculate COP for heating
+      let heatingCOP = 0;
+      if (deviceState.DailyHeatingEnergyProduced && deviceState.DailyHeatingEnergyConsumed) {
+        if (deviceState.DailyHeatingEnergyConsumed > 0) {
+          heatingCOP = deviceState.DailyHeatingEnergyProduced / deviceState.DailyHeatingEnergyConsumed;
+        }
+      }
+
+      // Calculate COP for hot water
+      let hotWaterCOP = 0;
+      if (deviceState.DailyHotWaterEnergyProduced && deviceState.DailyHotWaterEnergyConsumed) {
+        if (deviceState.DailyHotWaterEnergyConsumed > 0) {
+          hotWaterCOP = deviceState.DailyHotWaterEnergyProduced / deviceState.DailyHotWaterEnergyConsumed;
+        }
+      }
+
+      this.logger.log(`Weekly average COP for device ${deviceId}: Heating=${heatingCOP.toFixed(2)}, Hot Water=${hotWaterCOP.toFixed(2)}`);
+
+      return {
+        heating: heatingCOP,
+        hotWater: hotWaterCOP
+      };
+    } catch (error) {
+      this.logger.warn(`Failed to get weekly average COP for device ${deviceId}:`, {
+        deviceId,
+        buildingId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return {
+        heating: 0,
+        hotWater: 0
+      };
+    }
+  }
+
+  /**
    * Get device state
    * @param deviceId Device ID
    * @param buildingId Building ID
@@ -499,27 +609,43 @@ export class MelCloudApi {
 
         return data;
       } catch (error) {
-        if (this.isAuthError(error)) {
-          this.logger.error(`Authentication error in MELCloud getDeviceState for device ${deviceId}:`, error);
+        // Create a standardized error with context
+        const appError = this.createApiError(error, {
+          operation: 'getDeviceState',
+          deviceId,
+          buildingId
+        });
+
+        // For authentication errors, try to reconnect
+        if (appError.category === ErrorCategory.AUTHENTICATION) {
+          this.logger.warn(`Authentication error in MELCloud getDeviceState for device ${deviceId}, attempting to reconnect`);
 
           // Try to reconnect on auth error
           await this.ensureConnected();
-
-          throw new Error(`Authentication error: ${error instanceof Error ? error.message : String(error)}`);
-        } else if (this.isNetworkError(error)) {
-          this.logger.error(`Network error in MELCloud getDeviceState for device ${deviceId}:`, error);
-          throw new Error(`Network error: ${error instanceof Error ? error.message : String(error)}`);
-        } else {
-          this.logger.error(`MELCloud get device state error for device ${deviceId}:`, error);
-          const enhancedError = error instanceof Error
-            ? new Error(`MELCloud get device state failed: ${error.message}`)
-            : new Error(`MELCloud get device state failed: ${String(error)}`);
-          throw enhancedError;
         }
+
+        // Log the error with appropriate level based on category
+        this.errorHandler.logError(appError);
+
+        // Throw the standardized error
+        throw appError;
       }
     } catch (error) {
-      this.logger.error(`MELCloud get device state error for device ${deviceId}:`, error);
-      throw error;
+      // If this is already an AppError, just rethrow it
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      // Otherwise, create and log a standardized error
+      const appError = this.createApiError(error, {
+        operation: 'getDeviceState',
+        deviceId,
+        buildingId,
+        outerCatch: true
+      });
+
+      this.errorHandler.logError(appError);
+      throw appError;
     }
   }
 
@@ -586,27 +712,45 @@ export class MelCloudApi {
 
         return success;
       } catch (error) {
-        if (this.isAuthError(error)) {
-          this.logger.error(`Authentication error in MELCloud setDeviceTemperature for device ${deviceId}:`, error);
+        // Create a standardized error with context
+        const appError = this.createApiError(error, {
+          operation: 'setDeviceTemperature',
+          deviceId,
+          buildingId,
+          temperature
+        });
+
+        // For authentication errors, try to reconnect
+        if (appError.category === ErrorCategory.AUTHENTICATION) {
+          this.logger.warn(`Authentication error in MELCloud setDeviceTemperature for device ${deviceId}, attempting to reconnect`);
 
           // Try to reconnect on auth error
           await this.ensureConnected();
-
-          throw new Error(`Authentication error: ${error instanceof Error ? error.message : String(error)}`);
-        } else if (this.isNetworkError(error)) {
-          this.logger.error(`Network error in MELCloud setDeviceTemperature for device ${deviceId}:`, error);
-          throw new Error(`Network error: ${error instanceof Error ? error.message : String(error)}`);
-        } else {
-          this.logger.error(`MELCloud set temperature error for device ${deviceId}:`, error);
-          const enhancedError = error instanceof Error
-            ? new Error(`MELCloud set temperature failed: ${error.message}`)
-            : new Error(`MELCloud set temperature failed: ${String(error)}`);
-          throw enhancedError;
         }
+
+        // Log the error with appropriate level based on category
+        this.errorHandler.logError(appError);
+
+        // Throw the standardized error
+        throw appError;
       }
     } catch (error) {
-      this.logger.error(`MELCloud set temperature error for device ${deviceId}:`, error);
-      throw error;
+      // If this is already an AppError, just rethrow it
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      // Otherwise, create and log a standardized error
+      const appError = this.createApiError(error, {
+        operation: 'setDeviceTemperature',
+        deviceId,
+        buildingId,
+        temperature,
+        outerCatch: true
+      });
+
+      this.errorHandler.logError(appError);
+      throw appError;
     }
   }
 }

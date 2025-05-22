@@ -7,8 +7,14 @@
 import { ThermalAnalyzer, ThermalDataCollector, ThermalModelService } from '../src/services/thermal-model';
 import { DateTime } from 'luxon';
 
-// Mock Homey
+// Mock Homey with required HomeyApp interface properties
 const mockHomey = {
+  id: 'com.melcloud.optimize',
+  manifest: {
+    version: '1.0.0'
+  },
+  version: '1.0.0',
+  platform: 'local',
   log: jest.fn(),
   error: jest.fn(),
   env: {
@@ -16,7 +22,9 @@ const mockHomey = {
   },
   settings: {
     get: jest.fn().mockReturnValue(null),
-    set: jest.fn()
+    set: jest.fn(),
+    unset: jest.fn().mockResolvedValue(undefined),
+    on: jest.fn()
   }
 };
 
@@ -154,7 +162,7 @@ describe('Thermal Model', () => {
       // The analyzer logs this message during initialization
       expect(mockHomey.log).toHaveBeenCalledWith('No saved thermal characteristics found, using defaults');
       // The service logs this message during initialization
-      expect(mockHomey.log).toHaveBeenCalledWith('Thermal model updates and data cleanup scheduled');
+      expect(mockHomey.log).toHaveBeenCalledWith('Thermal model updates and data cleanup scheduled (cleanup every 12 hours)');
     });
 
     test('should provide heating recommendations', async () => {

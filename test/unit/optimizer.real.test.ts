@@ -73,15 +73,18 @@ describe('Optimizer', () => {
     // Mock specific methods
     mockMelCloud.getDeviceState.mockResolvedValue({
       DeviceID: deviceId,
+      DeviceName: 'Test Device',
       BuildingID: buildingId,
       RoomTemperatureZone1: 21.5,
       SetTemperatureZone1: 21.0,
       OutdoorTemperature: 5.0,
       OperationMode: 1, // Heating
-      Power: true
+      Power: true,
+      IdleZone1: false // Required by MelCloudDevice type
     });
     mockMelCloud.setDeviceTemperature.mockResolvedValue(true);
 
+    // Create a valid TibberPriceInfo object without extra properties
     mockTibber.getPrices.mockResolvedValue({
       current: {
         price: 0.15,
@@ -100,10 +103,8 @@ describe('Optimizer', () => {
           price: 0.16,
           time: '2023-01-01T02:00:00Z'
         }
-      ],
-      min: 0.14,
-      max: 0.16,
-      average: 0.15
+      ]
+      // Removed min, max, average properties that aren't in the TibberPriceInfo type
     });
 
     // Add methods to ThermalModelService mock

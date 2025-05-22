@@ -9,19 +9,111 @@ export enum LogLevel {
 }
 
 /**
+ * Log categories for filtering logs
+ */
+export enum LogCategory {
+  GENERAL = 'general',
+  API = 'api',
+  OPTIMIZATION = 'optimization',
+  THERMAL_MODEL = 'thermal_model',
+  TIMELINE = 'timeline',
+  SYSTEM = 'system'
+}
+
+/**
+ * Logger configuration options
+ */
+export interface LoggerConfig {
+  level?: LogLevel;
+  logToTimeline?: boolean;
+  prefix?: string;
+  enabledCategories?: LogCategory[];
+  includeTimestamps?: boolean;
+  includeSourceModule?: boolean;
+  verboseMode?: boolean;
+}
+
+/**
  * Logger interface for standardized logging across the application
  */
 export interface Logger {
   log(message: string, ...args: any[]): void;
   info(message: string, ...args: any[]): void;
-  error(message: string, error?: Error | unknown, ...args: any[]): void;
+  error(message: string, error?: Error | unknown, context?: Record<string, any>): void;
   debug(message: string, ...args: any[]): void;
-  warn(message: string, ...args: any[]): void;
+  warn(message: string, context?: Record<string, any>): void;
+  api(message: string, context?: Record<string, any>): void;
+  optimization(message: string, context?: Record<string, any>): void;
   notify(message: string): Promise<void>;
   marker(message: string): void;
-  sendToTimeline(message: string): Promise<void>;
+  sendToTimeline(message: string, type?: 'info' | 'warning' | 'error'): Promise<void>;
   setLogLevel(level: LogLevel): void;
   setTimelineLogging(enabled: boolean): void;
+  getLogLevel(): LogLevel;
+  enableCategory(category: LogCategory): void;
+  disableCategory(category: LogCategory): void;
+  isCategoryEnabled(category: LogCategory): boolean;
+  formatValue(value: any): string;
+}
+
+/**
+ * Detect if running in development mode via Homey CLI
+ * @returns True if running in development mode
+ */
+export function isRunningInDevMode(): boolean {
+  // Check for NODE_ENV environment variable
+  if (process.env.NODE_ENV === 'development') {
+    return true;
+  }
+
+  // Check for Homey CLI specific environment variables or conditions
+  // This is a simplified check - Homey might have other indicators
+  if (process.env.HOMEY_CLI || process.env.HOMEY_APP_ID) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Format a timestamp in a human-readable format
+ * @returns Formatted timestamp
+ */
+function getFormattedTimestamp(): string {
+  const now = new Date();
+  return now.toISOString().replace('T', ' ').substring(0, 23);
+}
+
+/**
+ * Format a value for logging based on its type
+ * @param value Value to format
+ * @returns Formatted string representation
+ */
+function formatValue(value: any): string {
+  if (value === null) return 'null';
+  if (value === undefined) return 'undefined';
+
+  if (typeof value === 'object') {
+    if (value instanceof Error) {
+      return `Error: ${value.message}${value.stack ? `\n${value.stack}` : ''}`;
+    }
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+    if (Array.isArray(value)) {
+      if (value.length > 10) {
+        return `Array(${value.length}) [${value.slice(0, 3).map(formatValue).join(', ')}, ... ${value.length - 6} more ..., ${value.slice(-3).map(formatValue).join(', ')}]`;
+      }
+      return `[${value.map(formatValue).join(', ')}]`;
+    }
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch (e) {
+      return `[Object: circular or too complex to stringify]`;
+    }
+  }
+
+  return String(value);
 }
 
 export class HomeyLogger implements Logger {
@@ -29,19 +121,55 @@ export class HomeyLogger implements Logger {
   private logLevel: LogLevel;
   private logToTimeline: boolean;
   private logPrefix: string;
+  private enabledCategories: Set<LogCategory>;
+  private includeTimestamps: boolean;
+  private includeSourceModule: boolean;
+  private verboseMode: boolean;
+  private sourceModule: string;
 
-  constructor(app: any, options: {
-    level?: LogLevel;
-    logToTimeline?: boolean;
-    prefix?: string;
-  } = {}) {
+  constructor(app: any, options: LoggerConfig = {}) {
     this.app = app;
     this.logLevel = options.level ?? LogLevel.INFO;
     this.logToTimeline = options.logToTimeline ?? false;
     this.logPrefix = options.prefix ? `[${options.prefix}] ` : '';
+    this.sourceModule = options.prefix || 'App';
+    this.includeTimestamps = options.includeTimestamps ?? true;
+    this.includeSourceModule = options.includeSourceModule ?? true;
+
+    // Detect if we're running in development mode (via Homey CLI)
+    this.verboseMode = options.verboseMode ?? isRunningInDevMode();
+
+    // Initialize enabled categories
+    this.enabledCategories = new Set<LogCategory>(
+      options.enabledCategories || Object.values(LogCategory)
+    );
 
     // Log initialization using Homey's built-in logging
-    this.app.log(`${this.logPrefix}Logger initialized with level: ${LogLevel[this.logLevel]}`);
+    this.app.log(`${this.getLogPrefix()}Logger initialized with level: ${LogLevel[this.logLevel]}, verbose mode: ${this.verboseMode}`);
+  }
+
+  /**
+   * Get the log prefix including timestamp and source module if enabled
+   */
+  private getLogPrefix(): string {
+    let prefix = '';
+
+    if (this.includeTimestamps) {
+      prefix += `[${getFormattedTimestamp()}] `;
+    }
+
+    if (this.includeSourceModule && this.sourceModule) {
+      prefix += `[${this.sourceModule}] `;
+    }
+
+    return prefix + this.logPrefix;
+  }
+
+  /**
+   * Format a value for logging
+   */
+  public formatValue(value: any): string {
+    return formatValue(value);
   }
 
   /**
@@ -61,12 +189,46 @@ export class HomeyLogger implements Logger {
   }
 
   /**
+   * Get the current log level
+   * @returns Current log level
+   */
+  public getLogLevel(): LogLevel {
+    return this.logLevel;
+  }
+
+  /**
+   * Enable a log category
+   */
+  public enableCategory(category: LogCategory): void {
+    this.enabledCategories.add(category);
+    this.debug(`Enabled log category: ${category}`);
+  }
+
+  /**
+   * Disable a log category
+   */
+  public disableCategory(category: LogCategory): void {
+    this.enabledCategories.delete(category);
+    this.debug(`Disabled log category: ${category}`);
+  }
+
+  /**
+   * Check if a category is enabled
+   */
+  public isCategoryEnabled(category: LogCategory): boolean {
+    return this.enabledCategories.has(category);
+  }
+
+  /**
    * Log a debug message
    */
   public debug(message: string, ...args: any[]): void {
-    if (this.logLevel <= LogLevel.DEBUG) {
-      // Use Homey's built-in logging - this will appear in the terminal with 'homey app run'
-      this.app.log(`DEBUG: ${this.logPrefix}${message}`, ...args);
+    if (this.logLevel <= LogLevel.DEBUG && this.isCategoryEnabled(LogCategory.GENERAL)) {
+      // Only log debug messages in verbose mode
+      if (this.verboseMode) {
+        // Use Homey's built-in logging - this will appear in the terminal with 'homey app run'
+        this.app.log(`DEBUG: ${this.getLogPrefix()}${message}`, ...args);
+      }
     }
   }
 
@@ -74,9 +236,9 @@ export class HomeyLogger implements Logger {
    * Log a message (standard log level)
    */
   public log(message: string, ...args: any[]): void {
-    if (this.logLevel <= LogLevel.INFO) {
+    if (this.logLevel <= LogLevel.INFO && this.isCategoryEnabled(LogCategory.GENERAL)) {
       // Use Homey's built-in logging - this will appear in the terminal with 'homey app run'
-      this.app.log(`${this.logPrefix}${message}`, ...args);
+      this.app.log(`${this.getLogPrefix()}${message}`, ...args);
     }
   }
 
@@ -84,9 +246,9 @@ export class HomeyLogger implements Logger {
    * Log an info message
    */
   public info(message: string, ...args: any[]): void {
-    if (this.logLevel <= LogLevel.INFO) {
+    if (this.logLevel <= LogLevel.INFO && this.isCategoryEnabled(LogCategory.GENERAL)) {
       // Use Homey's built-in logging - this will appear in the terminal with 'homey app run'
-      this.app.log(`INFO: ${this.logPrefix}${message}`, ...args);
+      this.app.log(`INFO: ${this.getLogPrefix()}${message}`, ...args);
 
       if (this.logToTimeline) {
         this.sendToTimeline(`ℹ️ ${message}`);
@@ -95,33 +257,69 @@ export class HomeyLogger implements Logger {
   }
 
   /**
-   * Log a warning message
+   * Log an API-related message
    */
-  public warn(message: string, ...args: any[]): void {
-    if (this.logLevel <= LogLevel.WARN) {
+  public api(message: string, context?: Record<string, any>): void {
+    if (this.logLevel <= LogLevel.INFO && this.isCategoryEnabled(LogCategory.API)) {
+      const contextStr = context ? this.formatValue(context) : '';
+      this.app.log(`API: ${this.getLogPrefix()}${message}${contextStr ? ' ' + contextStr : ''}`);
+    }
+  }
+
+  /**
+   * Log an optimization-related message
+   */
+  public optimization(message: string, context?: Record<string, any>): void {
+    if (this.logLevel <= LogLevel.INFO && this.isCategoryEnabled(LogCategory.OPTIMIZATION)) {
+      const contextStr = context ? this.formatValue(context) : '';
+      this.app.log(`OPTIMIZATION: ${this.getLogPrefix()}${message}${contextStr ? ' ' + contextStr : ''}`);
+    }
+  }
+
+  /**
+   * Log a warning message
+   * @param message Warning message
+   * @param context Optional context object
+   */
+  public warn(message: string, context?: Record<string, any>): void {
+    if (this.logLevel <= LogLevel.WARN && this.isCategoryEnabled(LogCategory.GENERAL)) {
       // Use Homey's built-in logging - this will appear in the terminal with 'homey app run'
-      this.app.log(`WARN: ${this.logPrefix}⚠️ ${message}`, ...args);
+      if (context) {
+        this.app.log(`WARN: ${this.getLogPrefix()}⚠️ ${message}`, this.formatValue(context));
+      } else {
+        this.app.log(`WARN: ${this.getLogPrefix()}⚠️ ${message}`);
+      }
 
       if (this.logToTimeline) {
-        this.sendToTimeline(`⚠️ ${message}`);
+        this.sendToTimeline(`⚠️ ${message}`, 'warning');
       }
     }
   }
 
   /**
    * Log an error message
+   * @param message Error message
+   * @param error Optional error object
+   * @param context Optional context object
    */
-  public error(message: string, error?: Error, ...args: any[]): void {
-    if (this.logLevel <= LogLevel.ERROR) {
+  public error(message: string, error?: Error | unknown, context?: Record<string, any>): void {
+    if (this.logLevel <= LogLevel.ERROR && this.isCategoryEnabled(LogCategory.GENERAL)) {
       // Use Homey's built-in error logging - this will appear in the terminal with 'homey app run'
-      if (error) {
-        this.app.error(`ERROR: ${this.logPrefix}🔴 ${message}`, error, ...args);
+      if (error instanceof Error) {
+        if (context) {
+          this.app.error(`ERROR: ${this.getLogPrefix()}🔴 ${message}`, error, this.formatValue(context));
+        } else {
+          this.app.error(`ERROR: ${this.getLogPrefix()}🔴 ${message}`, error);
+        }
+      } else if (context) {
+        this.app.error(`ERROR: ${this.getLogPrefix()}🔴 ${message}`, this.formatValue(context));
       } else {
-        this.app.error(`ERROR: ${this.logPrefix}🔴 ${message}`, ...args);
+        this.app.error(`ERROR: ${this.getLogPrefix()}🔴 ${message}`);
       }
 
       if (this.logToTimeline) {
-        this.sendToTimeline(`🔴 ${message}${error ? `: ${error.message}` : ''}`);
+        const errorMessage = error instanceof Error ? error.message : error ? String(error) : '';
+        this.sendToTimeline(`🔴 ${message}${errorMessage ? `: ${errorMessage}` : ''}`, 'error');
       }
     }
   }
@@ -132,7 +330,7 @@ export class HomeyLogger implements Logger {
   public async notify(message: string): Promise<void> {
     try {
       // Log notification using Homey's logging
-      this.app.log(`${this.logPrefix}NOTIFICATION: ${message}`);
+      this.app.log(`${this.getLogPrefix()}NOTIFICATION: ${message}`);
 
       // Send notification to Homey
       await this.app.homey.notifications.createNotification({ excerpt: message });
@@ -146,7 +344,7 @@ export class HomeyLogger implements Logger {
    */
   public marker(message: string): void {
     // Use Homey's built-in logging with a special format
-    this.app.log(`${this.logPrefix}===== ${message} =====`);
+    this.app.log(`${this.getLogPrefix()}===== ${message} =====`);
   }
 
   /**
@@ -155,9 +353,13 @@ export class HomeyLogger implements Logger {
    * @param type Optional message type (info, warning, error)
    */
   public async sendToTimeline(message: string, type: 'info' | 'warning' | 'error' = 'info'): Promise<void> {
+    if (!this.isCategoryEnabled(LogCategory.TIMELINE)) {
+      return;
+    }
+
     try {
       // Log timeline message using Homey's logging
-      this.app.log(`${this.logPrefix}TIMELINE: ${message}`);
+      this.app.log(`${this.getLogPrefix()}TIMELINE: ${message}`);
 
       // Check if we have access to the TimelineHelper
       if (this.app.timelineHelper) {

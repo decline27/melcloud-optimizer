@@ -333,6 +333,22 @@
       </div>
     </fieldset>
 
+    <fieldset class="homey-form-fieldset">
+      <legend class="homey-form-legend">Memory Management</legend>
+      <div class="homey-form-group">
+        <p class="homey-form-helper">Monitor and manage memory usage of the thermal model data collector.</p>
+        <div class="button-container">
+          <button id="check_memory" class="homey-button" onclick="checkMemoryUsage()">Check Memory Usage</button>
+          <button id="run_cleanup" class="homey-button-primary" onclick="runDataCleanup()">Run Data Cleanup</button>
+        </div>
+        <div id="memory_stats" style="margin-top: 15px; display: none;">
+          <h3>Memory Usage Statistics</h3>
+          <div id="memory_stats_content" style="background-color: #f5f5f5; padding: 10px; border-radius: 5px; font-family: monospace; white-space: pre-wrap;"></div>
+        </div>
+        <p id="memory_result" class="result-message"></p>
+      </div>
+    </fieldset>
+
     <button id="save" class="homey-button-primary-full">Save changes</button>
 
     <script type="text/javascript">
@@ -523,6 +539,130 @@
             document.getElementById('trigger_result').textContent = "Scheduled jobs status checked successfully!";
           }
         });
+      }
+
+      // Function to check memory usage
+      function checkMemoryUsage() {
+        console.log('Check memory usage button clicked');
+
+        // Disable button and show loading state
+        document.getElementById('check_memory').disabled = true;
+        document.getElementById('memory_result').textContent = "Checking memory usage...";
+
+        // Call the API
+        HomeyInstance.api('GET', '/getMemoryUsage', {}, function(err, result) {
+          if (err) {
+            console.error('Error calling /getMemoryUsage:', err);
+            document.getElementById('check_memory').disabled = false;
+            document.getElementById('memory_result').textContent = "Error: " + err.message;
+            return HomeyInstance.alert(err.message);
+          }
+
+          console.log('/getMemoryUsage called successfully:', result);
+
+          // Format and display the memory usage statistics
+          let statsHtml = '';
+
+          if (result.success) {
+            // Process memory
+            statsHtml += `Process Memory:\n`;
+            statsHtml += `- RSS: ${result.processMemory.rss} MB\n`;
+            statsHtml += `- Heap Total: ${result.processMemory.heapTotal} MB\n`;
+            statsHtml += `- Heap Used: ${result.processMemory.heapUsed} MB\n`;
+            statsHtml += `- External: ${result.processMemory.external} MB\n\n`;
+
+            // Thermal model memory
+            if (result.thermalModelMemory) {
+              statsHtml += `Thermal Model Data:\n`;
+              statsHtml += `- Data Points: ${result.thermalModelMemory.dataPointCount}\n`;
+              statsHtml += `- Aggregated Data Points: ${result.thermalModelMemory.aggregatedDataCount}\n`;
+              statsHtml += `- Estimated Memory Usage: ${result.thermalModelMemory.estimatedMemoryUsageKB} KB\n`;
+              statsHtml += `- Data Points Per Day: ${result.thermalModelMemory.dataPointsPerDay}\n\n`;
+
+              // Model characteristics
+              statsHtml += `Model Characteristics:\n`;
+              statsHtml += `- Heating Rate: ${result.thermalModelMemory.modelCharacteristics.heatingRate.toFixed(4)}\n`;
+              statsHtml += `- Cooling Rate: ${result.thermalModelMemory.modelCharacteristics.coolingRate.toFixed(4)}\n`;
+              statsHtml += `- Outdoor Temp Impact: ${result.thermalModelMemory.modelCharacteristics.outdoorTempImpact.toFixed(4)}\n`;
+              statsHtml += `- Wind Impact: ${result.thermalModelMemory.modelCharacteristics.windImpact.toFixed(4)}\n`;
+              statsHtml += `- Thermal Mass: ${result.thermalModelMemory.modelCharacteristics.thermalMass.toFixed(4)}\n`;
+              statsHtml += `- Model Confidence: ${result.thermalModelMemory.modelCharacteristics.modelConfidence.toFixed(4)}\n`;
+              statsHtml += `- Last Updated: ${result.thermalModelMemory.modelCharacteristics.lastUpdated}\n`;
+            } else {
+              statsHtml += `Thermal Model Data: Not available\n`;
+            }
+
+            // Timestamp
+            statsHtml += `\nTimestamp: ${result.timestamp}`;
+
+            // Show the stats container
+            document.getElementById('memory_stats').style.display = 'block';
+            document.getElementById('memory_stats_content').textContent = statsHtml;
+
+            // Show success message
+            document.getElementById('memory_result').textContent = "Memory usage statistics retrieved successfully.";
+          } else {
+            document.getElementById('memory_result').textContent = "Error retrieving memory usage: " + result.message;
+            document.getElementById('memory_stats').style.display = 'none';
+          }
+
+          // Enable the button
+          document.getElementById('check_memory').disabled = false;
+        });
+      }
+
+      // Function to run data cleanup
+      function runDataCleanup() {
+        console.log('Run data cleanup button clicked');
+
+        // Confirm before running cleanup
+        HomeyInstance.confirm(
+          'Run Data Cleanup',
+          'This will aggregate older data points to reduce memory usage. Continue?',
+          function(err, confirmed) {
+            if (err) {
+              return HomeyInstance.alert(err);
+            }
+
+            if (confirmed) {
+              // Disable button and show loading state
+              document.getElementById('run_cleanup').disabled = true;
+              document.getElementById('memory_result').textContent = "Running data cleanup...";
+
+              // Call the API
+              HomeyInstance.api('GET', '/runThermalDataCleanup', {}, function(err, result) {
+                if (err) {
+                  console.error('Error calling /runThermalDataCleanup:', err);
+                  document.getElementById('run_cleanup').disabled = false;
+                  document.getElementById('memory_result').textContent = "Error: " + err.message;
+                  return HomeyInstance.alert(err.message);
+                }
+
+                console.log('/runThermalDataCleanup called successfully:', result);
+
+                if (result.success) {
+                  // Format and display the cleanup results
+                  let resultMessage = `Cleanup successful!\n`;
+                  resultMessage += `- Data points: ${result.dataPointsBefore} → ${result.dataPointsAfter}\n`;
+                  resultMessage += `- Aggregated points: ${result.aggregatedPointsBefore} → ${result.aggregatedPointsAfter}\n`;
+                  resultMessage += `- Memory usage: ${result.memoryUsageBefore}KB → ${result.memoryUsageAfter}KB\n`;
+                  resultMessage += `- Saved: ${result.memoryUsageBefore - result.memoryUsageAfter}KB`;
+
+                  // Show the results
+                  document.getElementById('memory_result').textContent = resultMessage;
+
+                  // Refresh memory stats
+                  checkMemoryUsage();
+                } else {
+                  document.getElementById('memory_result').textContent = "Error running data cleanup: " + result.message;
+                }
+
+                // Enable the button
+                document.getElementById('run_cleanup').disabled = false;
+              });
+            }
+          }
+        );
       }
 
       function onHomeyReady(Homey) {

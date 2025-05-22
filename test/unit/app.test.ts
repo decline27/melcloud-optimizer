@@ -253,8 +253,18 @@ describe('HeatOptimizerApp', () => {
         info: jest.fn(),
         warn: jest.fn(),
         error: jest.fn(),
+        api: jest.fn(),
+        optimization: jest.fn(),
         notify: jest.fn().mockResolvedValue(undefined),
-        setLogLevel: jest.fn()
+        marker: jest.fn(),
+        sendToTimeline: jest.fn().mockResolvedValue(undefined),
+        setLogLevel: jest.fn().mockClear(),
+        setTimelineLogging: jest.fn(),
+        getLogLevel: jest.fn().mockReturnValue(1), // INFO level
+        enableCategory: jest.fn(),
+        disableCategory: jest.fn(),
+        isCategoryEnabled: jest.fn().mockReturnValue(true),
+        formatValue: jest.fn(value => typeof value === 'object' ? JSON.stringify(value) : String(value))
       };
 
       // Mock the runHourlyOptimizer method
@@ -457,8 +467,18 @@ describe('HeatOptimizerApp', () => {
         info: jest.fn(),
         warn: jest.fn(),
         error: jest.fn(),
+        api: jest.fn(),
+        optimization: jest.fn(),
         notify: jest.fn().mockResolvedValue(undefined),
-        setLogLevel: jest.fn()
+        marker: jest.fn(),
+        sendToTimeline: jest.fn().mockResolvedValue(undefined),
+        setLogLevel: jest.fn().mockClear(),
+        setTimelineLogging: jest.fn(),
+        getLogLevel: jest.fn().mockReturnValue(1), // INFO level
+        enableCategory: jest.fn(),
+        disableCategory: jest.fn(),
+        isCategoryEnabled: jest.fn().mockReturnValue(true),
+        formatValue: jest.fn(value => typeof value === 'object' ? JSON.stringify(value) : String(value))
       };
 
       // Mock the cleanupCronJobs method
@@ -479,14 +499,15 @@ describe('HeatOptimizerApp', () => {
         return undefined;
       });
 
-      // Reset the logger.setLogLevel mock
-      (app as any).logger.setLogLevel.mockClear();
+      // Create a new mock for setLogLevel
+      const setLogLevelMock = jest.fn();
+      (app as any).logger.setLogLevel = setLogLevelMock;
 
-      // Directly call the method that would be called by onSettingsChanged
-      (app as any).logger.setLogLevel(2);
+      // Call onSettingsChanged with log_level
+      (app as any).onSettingsChanged('log_level');
 
       // Check if log level was updated
-      expect((app as any).logger.setLogLevel).toHaveBeenCalledWith(2);
+      expect(setLogLevelMock).toHaveBeenCalledWith(2);
     });
 
     it('should validate settings when credential settings change', () => {

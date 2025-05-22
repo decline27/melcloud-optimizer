@@ -1,6 +1,12 @@
 import fetch from 'node-fetch';
 import { Logger } from '../util/logger';
 import { TibberPriceInfo } from '../types';
+import { ErrorHandler, AppError, ErrorCategory } from '../util/error-handler';
+
+// Add global declaration for logger
+declare global {
+  var logger: Logger;
+}
 
 /**
  * Tibber API Service
@@ -14,6 +20,7 @@ export class TibberApi {
   private cacheTTL: number = 30 * 60 * 1000; // 30 minutes default TTL
   private lastApiCallTime: number = 0;
   private minApiCallInterval: number = 2000; // 2 seconds minimum between calls
+  private errorHandler: ErrorHandler;
 
   /**
    * Constructor
@@ -22,19 +29,38 @@ export class TibberApi {
    */
   constructor(token: string, logger?: Logger) {
     this.token = token;
-    // Create a default console logger if none provided (for tests)
-    this.logger = logger || {
-      log: (message: string, ...args: any[]) => console.log(message, ...args),
-      info: (message: string, ...args: any[]) => console.log(`INFO: ${message}`, ...args),
-      error: (message: string, error?: Error | unknown, ...args: any[]) => console.error(message, error, ...args),
-      debug: (message: string, ...args: any[]) => console.debug(message, ...args),
-      warn: (message: string, ...args: any[]) => console.warn(message, ...args),
-      notify: async (message: string) => Promise.resolve(),
-      marker: (message: string) => console.log(`===== ${message} =====`),
-      sendToTimeline: async (message: string) => Promise.resolve(),
-      setLogLevel: () => {},
-      setTimelineLogging: () => {}
-    };
+
+    // Use the provided logger or try to get the global logger
+    if (logger) {
+      this.logger = logger;
+    } else if (global.logger) {
+      this.logger = global.logger;
+    } else {
+      // Create a default console logger if none provided (for tests)
+      this.logger = {
+        log: (message: string, ...args: any[]) => console.log(message, ...args),
+        info: (message: string, ...args: any[]) => console.log(`INFO: ${message}`, ...args),
+        error: (message: string, error?: Error | unknown, context?: Record<string, any>) => console.error(message, error, context),
+        debug: (message: string, ...args: any[]) => console.debug(message, ...args),
+        warn: (message: string, context?: Record<string, any>) => console.warn(message, context),
+        api: (message: string, context?: Record<string, any>) => console.log(`API: ${message}`, context),
+        optimization: (message: string, context?: Record<string, any>) => console.log(`OPTIMIZATION: ${message}`, context),
+        notify: async (message: string) => Promise.resolve(),
+        marker: (message: string) => console.log(`===== ${message} =====`),
+        sendToTimeline: async (message: string, type?: 'info' | 'warning' | 'error') => Promise.resolve(),
+        setLogLevel: () => {},
+        setTimelineLogging: () => {},
+        getLogLevel: () => 1, // INFO level
+        enableCategory: () => {},
+        disableCategory: () => {},
+        isCategoryEnabled: () => true,
+        formatValue: (value: any) => typeof value === 'object' ? JSON.stringify(value) : String(value)
+      };
+    }
+
+    // Initialize error handler
+    this.errorHandler = new ErrorHandler(this.logger);
+    this.logger.api('Tibber API service initialized', { token: token ? '***' : 'not provided' });
   }
 
   /**
@@ -44,7 +70,13 @@ export class TibberApi {
    * @param params Optional parameters
    */
   private logApiCall(method: string, endpoint: string, params?: any): void {
-    this.logger.log(`API Call: ${method} ${endpoint}${params ? ' with params: ' + JSON.stringify(params) : ''}`);
+    this.logger.api(`${method} ${endpoint}`, {
+      method,
+      endpoint,
+      params: params || null,
+      timestamp: new Date().toISOString(),
+      service: 'Tibber'
+    });
   }
 
   /**
@@ -53,12 +85,8 @@ export class TibberApi {
    * @returns True if it's a network error
    */
   private isNetworkError(error: unknown): boolean {
-    return error instanceof Error &&
-      (error.message.includes('network') ||
-       error.message.includes('timeout') ||
-       error.message.includes('connection') ||
-       error.message.includes('ENOTFOUND') ||
-       error.message.includes('ETIMEDOUT'));
+    const appError = this.errorHandler.createAppError(error);
+    return appError.category === ErrorCategory.NETWORK;
   }
 
   /**
@@ -67,11 +95,22 @@ export class TibberApi {
    * @returns True if it's an authentication error
    */
   private isAuthError(error: unknown): boolean {
-    return error instanceof Error &&
-      (error.message.includes('auth') ||
-       error.message.includes('token') ||
-       error.message.includes('unauthorized') ||
-       error.message.includes('Authentication'));
+    const appError = this.errorHandler.createAppError(error);
+    return appError.category === ErrorCategory.AUTHENTICATION;
+  }
+
+  /**
+   * Create a standardized API error
+   * @param error Original error
+   * @param context Additional context
+   * @param message Optional custom message
+   * @returns AppError instance
+   */
+  private createApiError(error: unknown, context?: Record<string, any>, message?: string): AppError {
+    return this.errorHandler.createAppError(error, {
+      api: 'Tibber',
+      ...context
+    }, message);
   }
 
   /**
@@ -96,9 +135,17 @@ export class TibberApi {
 
         // Check if it's a network error that we should retry
         if (this.isNetworkError(error)) {
+          // Create a standardized error with context
+          const appError = this.createApiError(error, {
+            attempt,
+            maxRetries,
+            retryDelay,
+            retryable: true
+          });
+
           this.logger.warn(
-            `Network error on attempt ${attempt}/${maxRetries}, retrying in ${retryDelay}ms:`,
-            error
+            `Network error on attempt ${attempt}/${maxRetries}, retrying in ${retryDelay}ms: ${appError.message}`,
+            { attempt, maxRetries, retryDelay }
           );
 
           // Wait before retrying
@@ -108,13 +155,20 @@ export class TibberApi {
           retryDelay *= 2;
         } else {
           // Not a retryable error
-          throw error;
+          throw this.createApiError(error, {
+            attempt,
+            maxRetries,
+            retryable: false
+          });
         }
       }
     }
 
     // If we get here, all retries failed
-    throw lastError;
+    throw this.createApiError(lastError, {
+      allRetriesFailed: true,
+      maxRetries
+    }, `All ${maxRetries} retry attempts failed`);
   }
 
   /**
@@ -240,8 +294,10 @@ export class TibberApi {
 
       if (data.errors) {
         const errorMessage = `Tibber API error: ${data.errors[0].message}`;
-        this.logger.error(errorMessage);
-        throw new Error(errorMessage);
+        throw this.createApiError(new Error(errorMessage), {
+          operation: 'getPrices',
+          graphqlErrors: data.errors
+        });
       }
 
       const formattedData = this.formatPriceData(data);
@@ -252,19 +308,21 @@ export class TibberApi {
 
       return formattedData;
     } catch (error) {
-      if (this.isAuthError(error)) {
-        this.logger.error('Authentication error in Tibber API:', error);
-        throw new Error(`Authentication error: ${error instanceof Error ? error.message : String(error)}`);
-      } else if (this.isNetworkError(error)) {
-        this.logger.error('Network error in Tibber API:', error);
-        throw new Error(`Network error: ${error instanceof Error ? error.message : String(error)}`);
-      } else {
-        this.logger.error('Tibber API error:', error);
-        const enhancedError = error instanceof Error
-          ? new Error(`Tibber API failed: ${error.message}`)
-          : new Error(`Tibber API failed: ${String(error)}`);
-        throw enhancedError;
+      // If this is already an AppError, just rethrow it
+      if (error instanceof AppError) {
+        throw error;
       }
+
+      // Create a standardized error with context
+      const appError = this.createApiError(error, {
+        operation: 'getPrices'
+      });
+
+      // Log the error with appropriate level based on category
+      this.errorHandler.logError(appError);
+
+      // Throw the standardized error
+      throw appError;
     }
   }
 
@@ -312,8 +370,16 @@ export class TibberApi {
       this.logger.log(`Formatted price data: current price ${result.current?.price || 'N/A'}, ${prices.length} price points`);
       return result;
     } catch (error) {
-      this.logger.error('Error formatting Tibber price data:', error);
-      throw new Error(`Failed to format price data: ${error instanceof Error ? error.message : String(error)}`);
+      // Create a standardized error with context
+      const appError = this.createApiError(error, {
+        operation: 'formatPriceData'
+      }, 'Failed to format price data');
+
+      // Log the error
+      this.errorHandler.logError(appError);
+
+      // Throw the standardized error
+      throw appError;
     }
   }
 }

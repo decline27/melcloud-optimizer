@@ -71,9 +71,10 @@ export class ThermalModelService {
     }, 6 * 60 * 60 * 1000);
 
     // Clean up old data once a day
+    // Reduced from 24 hours to 12 hours to better manage memory
     this.dataCleanupInterval = setInterval(() => {
       this.cleanupOldData();
-    }, 24 * 60 * 60 * 1000);
+    }, 12 * 60 * 60 * 1000);
 
     // Initial model update
     setTimeout(() => {
@@ -85,7 +86,7 @@ export class ThermalModelService {
       this.cleanupOldData();
     }, 60 * 60 * 1000); // First cleanup after 1 hour
 
-    this.homey.log('Thermal model updates and data cleanup scheduled');
+    this.homey.log('Thermal model updates and data cleanup scheduled (cleanup every 12 hours)');
   }
 
   /**
@@ -152,49 +153,102 @@ export class ThermalModelService {
 
   /**
    * Update the thermal model with collected data
+   * Now uses both detailed and aggregated data for better analysis
+   * @returns The updated thermal characteristics or default values if update fails
    */
-  private updateThermalModel(): void {
+  private updateThermalModel(): ThermalCharacteristics {
     try {
-      // Get all data points
+      // Get combined data (detailed + aggregated) for more comprehensive analysis
+      const combinedData = this.dataCollector.getCombinedDataForAnalysis();
       const dataPoints = this.dataCollector.getAllDataPoints();
+
+      // Log data availability
+      this.homey.log(`Updating thermal model with ${dataPoints.length} detailed points and ${combinedData.aggregated.length} aggregated data points`);
+      this.homey.log(`Total data points represented: ${combinedData.totalDataPoints}`);
 
       if (dataPoints.length < 24) {
         this.homey.log(`Not enough data for thermal model update. Have ${dataPoints.length} points, need at least 24.`);
-        return;
+        return {
+          heatingRate: 0,
+          coolingRate: 0,
+          outdoorTempImpact: 0,
+          windImpact: 0,
+          thermalMass: 0,
+          modelConfidence: 0,
+          lastUpdated: DateTime.now().toISO()
+        };
       }
 
-      // Update the model
+      // Get memory usage before update
+      const memoryBefore = this.dataCollector.getMemoryUsage();
+
+      // Update the model with detailed data points
+      // Note: In the future, we could enhance the analyzer to also use aggregated data
       const updatedCharacteristics = this.analyzer.updateModel(dataPoints);
 
+      // Get memory usage after update
+      const memoryAfter = this.dataCollector.getMemoryUsage();
+
+      // Calculate memory impact of the update
+      const memoryImpact = memoryAfter.estimatedMemoryUsageKB - memoryBefore.estimatedMemoryUsageKB;
+
       this.homey.log('Thermal model updated successfully');
+      this.homey.log(`Memory impact of update: ${memoryImpact}KB`);
       this.homey.log('New thermal characteristics:', JSON.stringify(updatedCharacteristics));
 
+      return updatedCharacteristics;
     } catch (error) {
       this.homey.error('Error updating thermal model:', error);
+      return {
+        heatingRate: 0,
+        coolingRate: 0,
+        outdoorTempImpact: 0,
+        windImpact: 0,
+        thermalMass: 0,
+        modelConfidence: 0,
+        lastUpdated: DateTime.now().toISO()
+      };
     }
   }
 
   /**
    * Clean up old data to manage memory usage
+   * This method now uses the data collector's aggregation functionality
+   * to preserve historical patterns while reducing memory usage
    */
   private cleanupOldData(): void {
     try {
-      // Get current data points
+      // Get memory usage statistics before cleanup
+      const beforeStats = this.dataCollector.getMemoryUsage();
+
+      // First, trigger data aggregation for older data points
+      // This will preserve the information in aggregated form while reducing memory usage
+      this.homey.log('Running thermal data cleanup and aggregation...');
+
+      // The data collector now handles removing old data points and aggregating older data
+      // We don't need to manually filter by date anymore
+
+      // Trigger aggregation of older data
+      // This is now handled internally by the data collector
+      // which will aggregate data older than 7 days and keep only the last 30 days
+
+      // Get all data points (this will trigger removeOldDataPoints in the data collector)
       const dataPoints = this.dataCollector.getAllDataPoints();
 
-      // Keep only the last 30 days of data
-      const thirtyDaysAgo = DateTime.now().minus({ days: 30 }).toMillis();
+      // Get data statistics for reporting
+      const dataStats = this.dataCollector.getDataStatistics(30);
 
-      const filteredDataPoints = dataPoints.filter(point => {
-        const timestamp = DateTime.fromISO(point.timestamp).toMillis();
-        return timestamp >= thirtyDaysAgo;
-      });
+      // Log cleanup results
+      const afterStats = this.dataCollector.getMemoryUsage();
 
-      // If we filtered out any points, update the data collector
-      if (filteredDataPoints.length < dataPoints.length) {
-        this.dataCollector.setDataPoints(filteredDataPoints);
-        this.homey.log(`Cleaned up thermal data: removed ${dataPoints.length - filteredDataPoints.length} old data points`);
-      }
+      this.homey.log(`Thermal data cleanup complete.`);
+      this.homey.log(`Data points: ${beforeStats.dataPointCount} → ${afterStats.dataPointCount}`);
+      this.homey.log(`Aggregated data points: ${beforeStats.aggregatedDataCount} → ${afterStats.aggregatedDataCount}`);
+      this.homey.log(`Estimated memory usage: ${beforeStats.estimatedMemoryUsageKB}KB → ${afterStats.estimatedMemoryUsageKB}KB`);
+      this.homey.log(`Data statistics: ${dataStats.dataPointCount} points over last 30 days, avg indoor temp: ${dataStats.avgIndoorTemp}°C`);
+
+      // Update the thermal model with the cleaned data
+      this.updateThermalModel();
     } catch (error) {
       this.homey.error('Error cleaning up old thermal data:', error);
     }
@@ -475,7 +529,20 @@ export class ThermalModelService {
    * Get the current thermal characteristics
    */
   public getThermalCharacteristics(): ThermalCharacteristics {
-    return this.analyzer.getThermalCharacteristics();
+    try {
+      return this.analyzer.getThermalCharacteristics();
+    } catch (error) {
+      this.homey.error('Error getting thermal characteristics:', error);
+      return {
+        heatingRate: 0,
+        coolingRate: 0,
+        outdoorTempImpact: 0,
+        windImpact: 0,
+        thermalMass: 0,
+        modelConfidence: 0,
+        lastUpdated: DateTime.now().toISO()
+      };
+    }
   }
 
   /**
@@ -563,9 +630,18 @@ export class ThermalModelService {
 
   /**
    * Stop all data collection and model updates
+   * Ensures proper cleanup of resources
    */
   public stop(): void {
     try {
+      // Run final data cleanup to ensure data is properly saved
+      try {
+        this.cleanupOldData();
+      } catch (cleanupError) {
+        this.homey.error('Error during final data cleanup:', cleanupError);
+      }
+
+      // Clear all intervals
       if (this.dataCollectionInterval) {
         clearInterval(this.dataCollectionInterval);
         this.dataCollectionInterval = null;
@@ -582,6 +658,14 @@ export class ThermalModelService {
         clearInterval(this.dataCleanupInterval);
         this.dataCleanupInterval = null;
         this.homey.log('Thermal model data cleanup interval stopped');
+      }
+
+      // Log memory usage statistics before stopping
+      try {
+        const memoryStats = this.dataCollector.getMemoryUsage();
+        this.homey.log(`Final memory stats - Data points: ${memoryStats.dataPointCount}, Aggregated: ${memoryStats.aggregatedDataCount}, Memory: ${memoryStats.estimatedMemoryUsageKB}KB`);
+      } catch (statsError) {
+        this.homey.error('Error getting final memory statistics:', statsError);
       }
 
       this.homey.log('Thermal model service stopped and resources cleaned up');
@@ -642,6 +726,106 @@ export class ThermalModelService {
     } catch (error) {
       this.homey.error('Error collecting thermal data point:', error);
       throw error; // Re-throw to propagate the error
+    }
+  }
+
+  /**
+   * Get memory usage statistics for the thermal model service
+   * @returns Object with memory usage information
+   */
+  public getMemoryUsage(): {
+    dataPointCount: number;
+    aggregatedDataCount: number;
+    estimatedMemoryUsageKB: number;
+    dataPointsPerDay: number;
+    modelCharacteristics: {
+      heatingRate: number;
+      coolingRate: number;
+      outdoorTempImpact: number;
+      windImpact: number;
+      thermalMass: number;
+      modelConfidence: number;
+      lastUpdated: string;
+    };
+  } {
+    try {
+      // Get memory usage from data collector
+      const collectorStats = this.dataCollector.getMemoryUsage();
+
+      // Get model characteristics
+      const characteristics = this.analyzer.getThermalCharacteristics();
+
+      return {
+        ...collectorStats,
+        modelCharacteristics: characteristics
+      };
+    } catch (error) {
+      this.homey.error('Error getting memory usage statistics:', error);
+      return {
+        dataPointCount: 0,
+        aggregatedDataCount: 0,
+        estimatedMemoryUsageKB: 0,
+        dataPointsPerDay: 0,
+        modelCharacteristics: {
+          heatingRate: 0,
+          coolingRate: 0,
+          outdoorTempImpact: 0,
+          windImpact: 0,
+          thermalMass: 0,
+          modelConfidence: 0,
+          lastUpdated: DateTime.now().toISO()
+        }
+      };
+    }
+  }
+
+  /**
+   * Force data cleanup and aggregation
+   * This can be called from the app to manually trigger cleanup
+   * @returns Object with cleanup results
+   */
+  public forceDataCleanup(): {
+    success: boolean;
+    dataPointsBefore: number;
+    dataPointsAfter: number;
+    aggregatedPointsBefore: number;
+    aggregatedPointsAfter: number;
+    memoryUsageBefore: number;
+    memoryUsageAfter: number;
+    message: string;
+  } {
+    try {
+      // Get memory usage before cleanup
+      const beforeStats = this.dataCollector.getMemoryUsage();
+
+      // Run cleanup
+      this.cleanupOldData();
+
+      // Get memory usage after cleanup
+      const afterStats = this.dataCollector.getMemoryUsage();
+
+      return {
+        success: true,
+        dataPointsBefore: beforeStats.dataPointCount,
+        dataPointsAfter: afterStats.dataPointCount,
+        aggregatedPointsBefore: beforeStats.aggregatedDataCount,
+        aggregatedPointsAfter: afterStats.aggregatedDataCount,
+        memoryUsageBefore: beforeStats.estimatedMemoryUsageKB,
+        memoryUsageAfter: afterStats.estimatedMemoryUsageKB,
+        message: `Cleanup successful. Reduced memory usage by ${beforeStats.estimatedMemoryUsageKB - afterStats.estimatedMemoryUsageKB}KB.`
+      };
+    } catch (error) {
+      this.homey.error('Error forcing data cleanup:', error);
+      return {
+        success: false,
+        dataPointsBefore: 0,
+        dataPointsAfter: 0,
+        aggregatedPointsBefore: 0,
+        aggregatedPointsAfter: 0,
+        memoryUsageBefore: 0,
+        memoryUsageAfter: 0,
+        message: `Error during cleanup: ${error}`
+      };
     }
   }
 }

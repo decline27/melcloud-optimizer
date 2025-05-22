@@ -2,14 +2,14 @@ import { App } from 'homey';
 import { CronJob } from 'cron'; // Import CronJob
 import { COPHelper } from './services/cop-helper';
 import { TimelineHelper, TimelineEventType } from './util/timeline-helper';
+import { HomeyLogger, LogLevel, LogCategory } from './util/logger';
 import {
   LogEntry,
   ThermalModel,
   DeviceInfo,
   PricePoint,
   OptimizationResult,
-  HomeyApp,
-  HomeyLogger
+  HomeyApp
 } from './types';
 
 /**
@@ -23,6 +23,13 @@ export default class HeatOptimizerApp extends App {
   public weeklyJob?: CronJob;
   public copHelper?: COPHelper;
   public timelineHelper?: TimelineHelper;
+  public logger: HomeyLogger = new HomeyLogger(this, {
+    level: LogLevel.INFO,
+    logToTimeline: false,
+    prefix: 'App',
+    includeTimestamps: true,
+    includeSourceModule: true
+  });
   private memoryUsageInterval?: NodeJS.Timeout;
 
   /**
@@ -120,19 +127,22 @@ export default class HeatOptimizerApp extends App {
    * onInit is called when the app is initialized
    */
   async onInit() {
+    // Initialize the centralized logger
+    this.initializeLogger();
+
     // Log app initialization
-    this.log('===== MELCloud Optimizer App Starting =====');
-    this.log('Heat Pump Optimizer initialized');
+    this.logger.marker('MELCloud Optimizer App Starting');
+    this.logger.info('Heat Pump Optimizer initialized');
 
     // Log some additional information
-    this.log('App ID:', this.id);
-    this.log('App Version:', this.manifest.version);
-    this.log('Homey Version:', this.homey.version);
-    this.log('Homey Platform:', this.homey.platform);
+    this.logger.info(`App ID: ${this.id}`);
+    this.logger.info(`App Version: ${this.manifest.version}`);
+    this.logger.info(`Homey Version: ${this.homey.version}`);
+    this.logger.info(`Homey Platform: ${this.homey.platform}`);
 
     // Register settings change listener
     this.homey.settings.on('set', this.onSettingsChanged.bind(this));
-    this.log('Settings change listener registered');
+    this.logger.info('Settings change listener registered');
 
     // Validate settings
     this.validateSettings();
@@ -142,52 +152,70 @@ export default class HeatOptimizerApp extends App {
     // Initialize COP Helper
     try {
       this.copHelper = new COPHelper(this.homey, this);
-      this.log('COP Helper initialized');
+      this.logger.info('COP Helper initialized');
 
       // Make it available globally
       (global as any).copHelper = this.copHelper;
     } catch (error) {
-      this.error('Failed to initialize COP Helper:', error as Error);
+      this.logger.error('Failed to initialize COP Helper', error as Error);
     }
 
     // Initialize Timeline Helper
     try {
-      // Create a logger object that implements the required interface
-      const logger = {
-        log: (message: string, ...args: any[]) => this.log(message, ...args),
-        error: (message: string, error?: Error | unknown, ...args: any[]) => this.error(message, error as Error, ...args)
-      };
-      this.timelineHelper = new TimelineHelper(this.homey, logger);
-      this.log('Timeline Helper initialized');
+      this.timelineHelper = new TimelineHelper(this.homey, this.logger);
+      this.logger.info('Timeline Helper initialized');
 
       // Make it available globally
       (global as any).timelineHelper = this.timelineHelper;
     } catch (error) {
-      this.error('Failed to initialize Timeline Helper:', error as Error);
+      this.logger.error('Failed to initialize Timeline Helper', error as Error);
     }
 
     // Initialize cron jobs
     this.initializeCronJobs();
 
     // Always run test logging on startup for debugging
-    this.log('Running test logging on startup...');
+    this.logger.info('Running test logging on startup...');
     this.testLogging();
-
-    // Log to console directly for maximum visibility
-    console.log('===== DIRECT CONSOLE LOG =====');
-    console.log('This is a direct console.log message');
-    console.log('App ID:', this.id);
-    console.log('App Version:', this.manifest.version);
-    console.log('===== END DIRECT CONSOLE LOG =====');
 
     // Monitor memory usage in development mode
     if (process.env.NODE_ENV === 'development') {
       this.monitorMemoryUsage();
-      this.log('Memory usage monitoring started (development mode only)');
+      this.logger.info('Memory usage monitoring started (development mode only)');
     }
 
+    // Run initial data cleanup to optimize memory usage on startup
+    this.runInitialDataCleanup();
+
     // Log app initialization complete
-    this.log('MELCloud Optimizer App initialized successfully');
+    this.logger.info('MELCloud Optimizer App initialized successfully');
+  }
+
+  /**
+   * Initialize the centralized logger
+   */
+  private initializeLogger() {
+    // Get log level from settings or use INFO as default
+    const logLevelSetting = this.homey.settings.get('log_level');
+    const logLevel = logLevelSetting !== undefined ? Number(logLevelSetting) : LogLevel.INFO;
+
+    // Get timeline logging setting or use false as default
+    const logToTimeline = this.homey.settings.get('log_to_timeline') === true;
+
+    // Initialize the logger
+    this.logger = new HomeyLogger(this, {
+      level: logLevel,
+      logToTimeline: logToTimeline,
+      prefix: 'App',
+      includeTimestamps: true,
+      includeSourceModule: true
+    });
+
+    // Make the logger available globally for other modules
+    (global as any).logger = this.logger;
+
+    // Log initialization
+    this.log(`Centralized logger initialized with level: ${LogLevel[logLevel]}`);
   }
 
   /**
@@ -462,7 +490,8 @@ export default class HeatOptimizerApp extends App {
     if (key === 'log_level') {
       const logLevel = this.homey.settings.get('log_level') as number;
       if (logLevel !== undefined) {
-        this.log(`Log level changed to ${logLevel}`);
+        this.logger.setLogLevel(logLevel);
+        this.logger.info(`Log level changed to ${LogLevel[logLevel]}`);
       }
     }
     // If credentials changed, re-validate
@@ -656,12 +685,23 @@ export default class HeatOptimizerApp extends App {
   private monitorMemoryUsage(): void {
     const memoryUsageInterval = setInterval(() => {
       const memoryUsage = process.memoryUsage();
-      this.log('Memory Usage:', {
+      const formattedMemory = {
         rss: `${Math.round(memoryUsage.rss / 1024 / 1024)} MB`,
         heapTotal: `${Math.round(memoryUsage.heapTotal / 1024 / 1024)} MB`,
         heapUsed: `${Math.round(memoryUsage.heapUsed / 1024 / 1024)} MB`,
         external: `${Math.round(memoryUsage.external / 1024 / 1024)} MB`
-      });
+      };
+
+      this.logger.debug('Memory Usage:', formattedMemory);
+
+      // Log a warning if memory usage is high
+      const heapUsedMB = Math.round(memoryUsage.heapUsed / 1024 / 1024);
+      if (heapUsedMB > 100) { // Warn if heap usage exceeds 100MB
+        this.logger.warn('High memory usage detected', {
+          heapUsed: formattedMemory.heapUsed,
+          timestamp: new Date().toISOString()
+        });
+      }
     }, 60 * 60 * 1000); // Log memory usage every hour
 
     // Store the interval for cleanup
@@ -672,34 +712,65 @@ export default class HeatOptimizerApp extends App {
    * Test logging functionality
    */
   public testLogging() {
-    // Direct log using Homey's built-in logging
-    this.log('===== TEST LOGGING STARTED =====');
-    this.log('This is a test debug message');
-    this.log('This is a test info message');
-    this.log('This is a test warning message');
-    this.error('This is a test error message');
+    // Test all log levels and categories
+    this.logger.marker('TEST LOGGING STARTED');
 
-    // Log some system information
-    this.log('System Information:');
-    this.log('- App ID:', this.id);
-    this.log('- App Version:', this.manifest.version);
-    this.log('- Homey Version:', this.homey.version);
-    this.log('- Homey Platform:', this.homey.platform);
-    this.log('- Node.js Version:', process.version);
-    this.log('- Memory Usage:', JSON.stringify(process.memoryUsage()));
+    // Test different log levels
+    this.logger.debug('This is a test debug message');
+    this.logger.info('This is a test info message');
+    this.logger.warn('This is a test warning message', { source: 'testLogging' });
+    this.logger.error('This is a test error message', new Error('Test error'), { source: 'testLogging' });
+
+    // Test specialized log categories
+    this.logger.api('This is a test API log message', { endpoint: '/test', method: 'GET' });
+    this.logger.optimization('This is a test optimization log message', { factor: 0.75, reason: 'testing' });
+
+    // Log system information
+    this.logger.info('System Information:');
+    const systemInfo = {
+      appId: this.id,
+      appVersion: this.manifest.version,
+      homeyVersion: this.homey.version,
+      homeyPlatform: this.homey.platform,
+      nodeVersion: process.version,
+      memoryUsage: process.memoryUsage()
+    };
+
+    // Test object formatting
+    this.logger.info('System Info Object:', systemInfo);
 
     // Log current date and time
-    this.log('Current Date/Time:', new Date().toISOString());
+    this.logger.info('Current Date/Time:', new Date().toISOString());
 
-    this.log('===== TEST LOGGING COMPLETED =====');
+    // Test timeline entry
+    if (this.timelineHelper) {
+      this.timelineHelper.createInfoEntry('MELCloud Optimizer', 'Test logging entry', false)
+        .then(() => this.logger.info('Timeline test entry created'))
+        .catch(err => this.logger.error('Failed to create timeline test entry', err));
+    } else {
+      this.logger.warn('Timeline helper not available, skipping timeline test');
+    }
+
+    // Test array formatting
+    const testArray = Array.from({ length: 20 }, (_, i) => `item-${i}`);
+    this.logger.debug('Test array formatting:', testArray);
+
+    // Test error formatting
+    try {
+      throw new Error('Test error with stack trace');
+    } catch (error) {
+      this.logger.error('Caught test error', error);
+    }
+
+    this.logger.marker('TEST LOGGING COMPLETED');
   }
 
   /**
    * Run the hourly optimization process
    */
   public async runHourlyOptimizer() {
-    this.log('Starting hourly optimization');
-    this.log('===== HOURLY OPTIMIZATION STARTED =====');
+    this.logger.marker('HOURLY OPTIMIZATION STARTED');
+    this.logger.optimization('Starting hourly optimization process');
 
     try {
       // Call the API implementation
@@ -709,6 +780,17 @@ export default class HeatOptimizerApp extends App {
       if (result.success) {
         // Store the successful result for potential fallback use
         this.homey.settings.set('last_optimization_result', result);
+
+        // Log optimization details
+        if (result.data) {
+          this.logger.optimization('Optimization successful', {
+            targetTemp: result.data.targetTemp,
+            originalTemp: result.data.targetOriginal,
+            savings: result.data.savings,
+            reason: result.data.reason,
+            cop: result.data.cop
+          });
+        }
 
         // Create success timeline entry
         try {
@@ -743,23 +825,29 @@ export default class HeatOptimizerApp extends App {
             );
           }
         } catch (timelineErr) {
-          this.error('Failed to create success timeline entry', timelineErr as Error);
+          this.logger.error('Failed to create success timeline entry', timelineErr as Error);
         }
 
-        this.log('===== HOURLY OPTIMIZATION COMPLETED SUCCESSFULLY =====');
+        this.logger.marker('HOURLY OPTIMIZATION COMPLETED SUCCESSFULLY');
         return result;
       } else {
         throw new Error(result.error || 'Unknown error');
       }
     } catch (err) {
       const error = err as Error;
-      this.error('Hourly optimization error', error);
+      this.logger.error('Hourly optimization error', error, {
+        timestamp: new Date().toISOString(),
+        component: 'hourlyOptimizer'
+      });
 
       // Check if we have cached data we can use as fallback
       try {
         const lastResult = this.homey.settings.get('last_optimization_result');
         if (lastResult) {
-          this.log('Using cached optimization result as fallback');
+          this.logger.warn('Using cached optimization result as fallback', {
+            lastResultTimestamp: lastResult.timestamp || 'unknown',
+            error: error.message
+          });
 
           // Send notification about the fallback
           try {
@@ -779,14 +867,14 @@ export default class HeatOptimizerApp extends App {
               });
             }
           } catch (notifyErr) {
-            this.error('Failed to send notification', notifyErr as Error);
+            this.logger.error('Failed to send notification', notifyErr as Error);
           }
 
-          this.log('===== HOURLY OPTIMIZATION COMPLETED WITH FALLBACK =====');
+          this.logger.marker('HOURLY OPTIMIZATION COMPLETED WITH FALLBACK');
           return { ...lastResult, fallback: true };
         }
       } catch (fallbackErr) {
-        this.error('Failed to use fallback optimization result', fallbackErr as Error);
+        this.logger.error('Failed to use fallback optimization result', fallbackErr as Error);
       }
 
       // Send notification about the failure
@@ -804,10 +892,10 @@ export default class HeatOptimizerApp extends App {
           });
         }
       } catch (notifyErr) {
-        this.error('Failed to send notification', notifyErr as Error);
+        this.logger.error('Failed to send notification', notifyErr as Error);
       }
 
-      this.error('===== HOURLY OPTIMIZATION FAILED =====');
+      this.logger.marker('HOURLY OPTIMIZATION FAILED');
       throw error; // Re-throw to propagate the error
     }
   }
@@ -1165,6 +1253,45 @@ export default class HeatOptimizerApp extends App {
       this.error('Error during app shutdown:', error as Error);
     } finally {
       this.log('MELCloud Optimizer App shutdown complete');
+    }
+  }
+
+  /**
+   * Run initial data cleanup on app startup
+   * This ensures we start with optimized memory usage
+   */
+  private runInitialDataCleanup(): void {
+    try {
+      // Wait a bit to ensure all services are initialized
+      setTimeout(async () => {
+        this.log('Running initial data cleanup to optimize memory usage...');
+
+        try {
+          // Get the optimizer instance from the API
+          const api = require('../api.js');
+
+          // Run thermal data cleanup if available
+          if (api.optimizer && api.optimizer.thermalModelService) {
+            const result = api.optimizer.thermalModelService.forceDataCleanup();
+
+            if (result.success) {
+              this.log(`Initial data cleanup successful. Memory usage reduced from ${result.memoryUsageBefore}KB to ${result.memoryUsageAfter}KB`);
+
+              // Log memory usage statistics
+              const memoryStats = api.optimizer.thermalModelService.getMemoryUsage();
+              this.log(`Current thermal model data: ${memoryStats.dataPointCount} data points, ${memoryStats.aggregatedDataCount} aggregated points`);
+            } else {
+              this.error(`Initial data cleanup failed: ${result.message}`);
+            }
+          } else {
+            this.log('Thermal model service not yet available for initial cleanup');
+          }
+        } catch (error) {
+          this.error('Error during initial data cleanup:', error as Error);
+        }
+      }, 2 * 60 * 1000); // Run 2 minutes after startup to ensure all services are initialized
+    } catch (error) {
+      this.error('Error scheduling initial data cleanup:', error as Error);
     }
   }
 }

@@ -2,25 +2,25 @@
 <svg width="500" height="500" viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg">
   <!-- Background circle -->
   <circle cx="250" cy="250" r="240" fill="#1E88E5" />
-
+  
   <!-- Heat pump outline -->
   <rect x="120" y="150" width="260" height="200" rx="15" ry="15" fill="#FFFFFF" stroke="#333333" stroke-width="8" />
-
+  
   <!-- Heat pump vents -->
   <rect x="140" y="180" width="220" height="10" rx="2" ry="2" fill="#333333" />
   <rect x="140" y="210" width="220" height="10" rx="2" ry="2" fill="#333333" />
   <rect x="140" y="240" width="220" height="10" rx="2" ry="2" fill="#333333" />
   <rect x="140" y="270" width="220" height="10" rx="2" ry="2" fill="#333333" />
   <rect x="140" y="300" width="220" height="10" rx="2" ry="2" fill="#333333" />
-
+  
   <!-- Temperature indicator -->
   <circle cx="250" cy="350" r="30" fill="#FF5722" />
   <text x="250" y="360" font-family="Arial, sans-serif" font-size="30" font-weight="bold" text-anchor="middle" fill="#FFFFFF">°C</text>
-
+  
   <!-- Price graph -->
-  <polyline points="120,120 160,100 200,110 240,80 280,90 320,60 360,70 400,50"
+  <polyline points="120,120 160,100 200,110 240,80 280,90 320,60 360,70 400,50" 
             stroke="#4CAF50" stroke-width="8" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-
+  
   <!-- Currency symbol -->
   <text x="380" y="120" font-family="Arial, sans-serif" font-size="40" font-weight="bold" text-anchor="middle" fill="#FFFFFF">€</text>
 </svg>
