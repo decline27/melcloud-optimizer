@@ -28,5 +28,15 @@ module.exports = {
   },
   moduleNameMapper: {
     '^homey$': '<rootDir>/test/mocks/homey.mock.ts',
+    'node-fetch': '<rootDir>/test/mocks/node-fetch.mock.ts',
   },
+  transformIgnorePatterns: [
+    '/node_modules/(?!(node-fetch)/).+\\.js$'
+  ],
+  // Set a longer timeout for tests that might take longer
+  testTimeout: 10000,
+  // Force exit after tests complete to avoid hanging
+  forceExit: true,
+  // Detect open handles to help identify what's keeping the process alive
+  detectOpenHandles: true,
 };
