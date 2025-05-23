@@ -43,11 +43,24 @@ describe('MelCloudApi Direct Tests', () => {
 
     // Create a new instance of MelCloudApi
     melCloudApi = new MelCloudApi();
+
+    // Override the minApiCallInterval to 0 for faster tests
+    (melCloudApi as any).minApiCallInterval = 0;
   });
 
   afterEach(() => {
     // Clean up any pending timers
     melCloudApi.cleanup();
+
+    // Reset mock response
+    mockResponse.statusCode = 200;
+    mockResponse.statusMessage = 'OK';
+
+    // Reset all mocks
+    jest.clearAllMocks();
+
+    // Clear any pending timeouts
+    jest.useRealTimers();
   });
 
   describe('login', () => {
@@ -341,22 +354,18 @@ describe('MelCloudApi Direct Tests', () => {
         // First call for getDeviceState
         .mockImplementationOnce((options, callback) => {
           if (callback) {
-            setTimeout(() => {
-              callback(mockResponse);
-              mockResponse.emit('data', JSON.stringify(getDeviceStateResponse));
-              mockResponse.emit('end');
-            }, 10);
+            callback(mockResponse);
+            mockResponse.emit('data', JSON.stringify(getDeviceStateResponse));
+            mockResponse.emit('end');
           }
           return mockRequestObject;
         })
         // Second call for setDeviceTemperature
         .mockImplementationOnce((options, callback) => {
           if (callback) {
-            setTimeout(() => {
-              callback(mockResponse);
-              mockResponse.emit('data', JSON.stringify(setTemperatureResponse));
-              mockResponse.emit('end');
-            }, 10);
+            callback(mockResponse);
+            mockResponse.emit('data', JSON.stringify(setTemperatureResponse));
+            mockResponse.emit('end');
           }
           return mockRequestObject;
         });
