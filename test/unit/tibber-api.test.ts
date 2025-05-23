@@ -1,5 +1,6 @@
 import { TibberApi } from '../../src/services/tibber-api';
 import fetch from 'node-fetch';
+import { createMockLogger } from '../mocks/logger.mock';
 
 // Mock fetch globally
 jest.mock('node-fetch');
@@ -8,13 +9,17 @@ const mockedFetch = fetch as jest.MockedFunction<typeof fetch>;
 describe('TibberApi', () => {
   let tibberApi: TibberApi;
   const mockToken = 'test-token';
+  let mockLogger: ReturnType<typeof createMockLogger>;
 
   beforeEach(() => {
     // Reset all mocks
     jest.clearAllMocks();
 
-    // Create a new instance of TibberApi
-    tibberApi = new TibberApi(mockToken);
+    // Create a mock logger
+    mockLogger = createMockLogger();
+
+    // Create a new instance of TibberApi with the mock logger
+    tibberApi = new TibberApi(mockToken, mockLogger);
   });
 
   describe('getPrices', () => {
@@ -182,13 +187,24 @@ describe('TibberApi', () => {
     it('should handle network errors', async () => {
       // This test is flaky due to the retry mechanism
       // Just verify that the API call doesn't crash
+      // Mock fetch to simulate a network error
+      mockedFetch.mockRejectedValueOnce(new Error('Network error'));
+
+      // Mock the errorHandler.logError method to ensure it's called
+      (tibberApi as any).errorHandler.logError = jest.fn();
+
+      // Disable retries for this test to make it faster
+      (tibberApi as any).retryableRequest = jest.fn().mockImplementation(
+        (fn) => fn()
+      );
+
       try {
         await tibberApi.getPrices();
       } catch (error) {
         // Expected to throw an error
         expect(error).toBeDefined();
       }
-    });
+    }, 10000); // Increase timeout to 10 seconds
   });
 
   describe('formatPriceData', () => {

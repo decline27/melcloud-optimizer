@@ -3,6 +3,8 @@ import { URL } from 'url';
 import { Logger } from '../util/logger';
 import { DeviceInfo, MelCloudDevice, HomeySettings } from '../types';
 import { ErrorHandler, AppError, ErrorCategory } from '../util/error-handler';
+import { BaseApiService } from './base-api-service';
+import { TimeZoneHelper } from '../util/time-zone-helper';
 
 // Add global declaration for homeySettings and logger
 declare global {
@@ -15,85 +17,31 @@ declare global {
  * Handles communication with the MELCloud API
  * Uses Node.js built-in https module for better compatibility with Homey
  */
-export class MelCloudApi {
+export class MelCloudApi extends BaseApiService {
   private baseUrl = 'https://app.melcloud.com/Mitsubishi.Wifi.Client/';
   private contextKey: string | null = null;
   private devices: any[] = [];
-  private logger: Logger;
-  private lastApiCallTime: number = 0;
-  private minApiCallInterval: number = 2000; // 2 seconds minimum between calls
-  private cache: Map<string, { data: any; timestamp: number }> = new Map();
-  private cacheTTL: number = 5 * 60 * 1000; // 5 minutes default TTL
   private reconnectAttempts: number = 0;
   private maxReconnectAttempts: number = 5;
   private reconnectDelay: number = 5000; // 5 seconds initial delay
   private reconnectTimers: NodeJS.Timeout[] = [];
-  private errorHandler: ErrorHandler;
+  private timeZoneHelper: TimeZoneHelper;
 
   /**
    * Constructor
    * @param logger Logger instance
    */
   constructor(logger?: Logger) {
-    // Use the provided logger or try to get the global logger
-    if (logger) {
-      this.logger = logger;
-    } else if (global.logger) {
-      this.logger = global.logger;
-    } else {
-      // Create a default console logger if none provided (for tests)
-      this.logger = {
-        log: (message: string, ...args: any[]) => console.log(message, ...args),
-        info: (message: string, ...args: any[]) => console.log(`INFO: ${message}`, ...args),
-        error: (message: string, error?: Error | unknown, context?: Record<string, any>) => console.error(message, error, context),
-        debug: (message: string, ...args: any[]) => console.debug(message, ...args),
-        warn: (message: string, context?: Record<string, any>) => console.warn(message, context),
-        api: (message: string, context?: Record<string, any>) => console.log(`API: ${message}`, context),
-        optimization: (message: string, context?: Record<string, any>) => console.log(`OPTIMIZATION: ${message}`, context),
-        notify: async (message: string) => Promise.resolve(),
-        marker: (message: string) => console.log(`===== ${message} =====`),
-        sendToTimeline: async (message: string, type?: 'info' | 'warning' | 'error') => Promise.resolve(),
-        setLogLevel: () => {},
-        setTimelineLogging: () => {},
-        getLogLevel: () => 1, // INFO level
-        enableCategory: () => {},
-        disableCategory: () => {},
-        isCategoryEnabled: () => true,
-        formatValue: (value: any) => typeof value === 'object' ? JSON.stringify(value) : String(value)
-      };
-    }
-
-    // Initialize error handler
-    this.errorHandler = new ErrorHandler(this.logger);
-  }
-
-  /**
-   * Log API call details
-   * @param method HTTP method
-   * @param endpoint API endpoint
-   * @param params Optional parameters
-   */
-  private logApiCall(method: string, endpoint: string, params?: any): void {
-    this.logger.api(`${method} ${endpoint}`, {
-      method,
-      endpoint,
-      params: params || null,
-      timestamp: new Date().toISOString()
+    // Call the parent constructor with service name and logger
+    super('MELCloud', logger || (global.logger as Logger), {
+      failureThreshold: 3,
+      resetTimeout: 60000, // 1 minute
+      halfOpenSuccessThreshold: 1,
+      timeout: 15000 // 15 seconds
     });
-  }
 
-  /**
-   * Check if an error is a network error
-   * @param error Error to check
-   * @returns True if it's a network error
-   */
-  private isNetworkError(error: unknown): boolean {
-    return error instanceof Error &&
-      (error.message.includes('network') ||
-       error.message.includes('timeout') ||
-       error.message.includes('connection') ||
-       error.message.includes('ENOTFOUND') ||
-       error.message.includes('ETIMEDOUT'));
+    // Initialize time zone helper
+    this.timeZoneHelper = new TimeZoneHelper(this.logger);
   }
 
   /**
@@ -111,78 +59,6 @@ export class MelCloudApi {
   }
 
   /**
-   * Create a standardized API error
-   * @param error Original error
-   * @param context Additional context
-   * @param message Optional custom message
-   * @returns AppError instance
-   */
-  private createApiError(error: unknown, context?: Record<string, any>, message?: string): AppError {
-    return this.errorHandler.createAppError(error, {
-      api: 'MELCloud',
-      ...context
-    }, message);
-  }
-
-  /**
-   * Retryable request with exponential backoff
-   * @param requestFn Function that returns a promise with the request
-   * @param maxRetries Maximum number of retry attempts
-   * @param retryDelay Initial delay between retries in ms
-   * @returns Promise resolving to the request result
-   */
-  private async retryableRequest<T>(
-    requestFn: () => Promise<T>,
-    maxRetries: number = 3,
-    retryDelay: number = 2000
-  ): Promise<T> {
-    let lastError: Error | unknown;
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        return await requestFn();
-      } catch (error) {
-        lastError = error;
-
-        // Check if it's a network error that we should retry
-        if (this.isNetworkError(error)) {
-          // Create a standardized error with context
-          const appError = this.createApiError(error, {
-            attempt,
-            maxRetries,
-            retryDelay,
-            retryable: true
-          });
-
-          this.logger.warn(
-            `Network error on attempt ${attempt}/${maxRetries}, retrying in ${retryDelay}ms: ${appError.message}`,
-            { attempt, maxRetries, retryDelay }
-          );
-
-          // Wait before retrying
-          await new Promise(resolve => setTimeout(resolve, retryDelay));
-
-          // Increase delay for next attempt (exponential backoff)
-          retryDelay *= 2;
-        } else {
-          // Not a retryable error
-          throw this.createApiError(error, {
-            attempt,
-            maxRetries,
-            retryable: false
-          });
-        }
-      }
-    }
-
-    // If we get here, all retries failed
-    throw this.createApiError(lastError, {
-      allRetriesFailed: true,
-      maxRetries
-    }, `All ${maxRetries} retry attempts failed`);
-  }
-
-  /**
    * Ensure we have a valid connection to MELCloud
    * Attempts to reconnect if not connected
    */
@@ -193,6 +69,8 @@ export class MelCloudApi {
 
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       this.logger.error(`Maximum reconnect attempts (${this.maxReconnectAttempts}) reached`);
+      // Clear any pending timers before throwing
+      this.clearReconnectTimers();
       throw new Error('Failed to reconnect to MELCloud after multiple attempts');
     }
 
@@ -214,6 +92,8 @@ export class MelCloudApi {
 
       if (success) {
         this.reconnectAttempts = 0; // Reset counter on success
+        // Clear any pending timers on successful reconnection
+        this.clearReconnectTimers();
         this.logger.log('Successfully reconnected to MELCloud');
         return true;
       } else {
@@ -226,8 +106,17 @@ export class MelCloudApi {
       const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
       this.logger.log(`Will retry in ${delay / 1000} seconds`);
 
+      // Clear any existing timers before creating a new one
+      this.clearReconnectTimers();
+
       // Schedule retry
       const timer = setTimeout(() => {
+        // Remove this timer from the array once it executes
+        const index = this.reconnectTimers.indexOf(timer);
+        if (index !== -1) {
+          this.reconnectTimers.splice(index, 1);
+        }
+
         this.ensureConnected().catch(err => {
           this.logger.error('Scheduled reconnect failed:', err);
         });
@@ -241,38 +130,18 @@ export class MelCloudApi {
   }
 
   /**
-   * Get cached data if available and not expired
-   * @param key Cache key
-   * @returns Cached data or null if not found or expired
+   * Clear all reconnect timers to prevent memory leaks
    */
-  private getCachedData<T>(key: string): T | null {
-    const cached = this.cache.get(key);
-
-    if (!cached) {
-      return null;
+  private clearReconnectTimers(): void {
+    // Clear all existing timers
+    for (const timer of this.reconnectTimers) {
+      clearTimeout(timer);
     }
-
-    // Check if cache is still valid
-    const now = Date.now();
-    if (now - cached.timestamp > this.cacheTTL) {
-      this.cache.delete(key);
-      return null;
-    }
-
-    return cached.data as T;
+    // Reset the array
+    this.reconnectTimers = [];
   }
 
-  /**
-   * Set data in cache
-   * @param key Cache key
-   * @param data Data to cache
-   */
-  private setCachedData<T>(key: string, data: T): void {
-    this.cache.set(key, {
-      data,
-      timestamp: Date.now()
-    });
-  }
+
 
   /**
    * Throttled API call to prevent rate limiting
@@ -289,93 +158,89 @@ export class MelCloudApi {
       body?: string;
     } = {}
   ): Promise<T> {
-    // Ensure minimum time between API calls
-    const now = Date.now();
-    const timeSinceLastCall = now - this.lastApiCallTime;
+    // Use circuit breaker to protect against cascading failures
+    return this.circuitBreaker.execute(async () => {
+      // Throttle requests using the base class method
+      await this.throttle();
 
-    if (timeSinceLastCall < this.minApiCallInterval) {
-      const waitTime = this.minApiCallInterval - timeSinceLastCall;
-      this.logger.debug(`Throttling API call to ${endpoint}, waiting ${waitTime}ms`);
-      await new Promise(resolve => setTimeout(resolve, waitTime));
-    }
+      // Log the API call
+      this.logApiCall(method, endpoint);
 
-    this.lastApiCallTime = Date.now();
+      // Make the API call
+      const fullUrl = `${this.baseUrl}${endpoint}`;
 
-    // Make the API call
-    const fullUrl = `${this.baseUrl}${endpoint}`;
-    this.logger.debug(`API Call: ${method} ${fullUrl}`);
+      // Parse the URL
+      const urlObj = new URL(fullUrl);
 
-    // Parse the URL
-    const urlObj = new URL(fullUrl);
+      // Create headers object as a plain object
+      const headersObj: Record<string, string> = {
+        'Accept': 'application/json'
+      };
 
-    // Create headers object as a plain object
-    const headersObj: Record<string, string> = {
-      'Accept': 'application/json'
-    };
-
-    // Add existing headers if any
-    if (options.headers) {
-      if (options.headers instanceof Headers) {
-        options.headers.forEach((value, key) => {
-          headersObj[key] = value;
-        });
-      } else if (typeof options.headers === 'object') {
-        Object.assign(headersObj, options.headers);
+      // Add existing headers if any
+      if (options.headers) {
+        if (options.headers instanceof Headers) {
+          options.headers.forEach((value, key) => {
+            headersObj[key] = value;
+          });
+        } else if (typeof options.headers === 'object') {
+          Object.assign(headersObj, options.headers);
+        }
       }
-    }
 
-    // Add context key if available
-    if (this.contextKey) {
-      headersObj['X-MitsContextKey'] = this.contextKey;
-    }
+      // Add context key if available
+      if (this.contextKey) {
+        headersObj['X-MitsContextKey'] = this.contextKey;
+      }
 
-    // Create request options
-    const requestOptions = {
-      hostname: urlObj.hostname,
-      path: urlObj.pathname + urlObj.search,
-      method: method,
-      headers: headersObj
-    };
+      // Create request options
+      const requestOptions = {
+        hostname: urlObj.hostname,
+        path: urlObj.pathname + urlObj.search,
+        method: method,
+        headers: headersObj
+      };
 
-    // Return a promise that resolves with the API response
-    return new Promise<T>((resolve, reject) => {
-      const req = https.request(requestOptions, (res) => {
-        let data = '';
+      // Return a promise that resolves with the API response
+      return new Promise<T>((resolve, reject) => {
+        const req = https.request(requestOptions, (res) => {
+          let data = '';
 
-        // Collect data chunks
-        res.on('data', (chunk) => {
-          data += chunk;
-        });
+          // Collect data chunks
+          res.on('data', (chunk) => {
+            data += chunk;
+          });
 
-        // Process the complete response
-        res.on('end', () => {
-          // Check if the response is successful (2xx status code)
-          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-            try {
-              // Parse the JSON response
-              const parsedData = JSON.parse(data);
-              resolve(parsedData as T);
-            } catch (error) {
-              reject(new Error(`Failed to parse API response: ${error instanceof Error ? error.message : String(error)}`));
+          // Process the complete response
+          res.on('end', () => {
+            // Check if the response is successful (2xx status code)
+            if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+              try {
+                // Parse the JSON response
+                const parsedData = JSON.parse(data);
+                resolve(parsedData as T);
+              } catch (error) {
+                reject(new Error(`Failed to parse API response: ${error instanceof Error ? error.message : String(error)}`));
+              }
+            } else {
+              reject(new Error(`API error: ${res.statusCode} ${res.statusMessage}`));
             }
-          } else {
-            reject(new Error(`API error: ${res.statusCode} ${res.statusMessage}`));
-          }
+          });
         });
+
+        // Handle request errors
+        req.on('error', (error) => {
+          reject(new Error(`API request error: ${error.message}`));
+        });
+
+        // Send the request body if provided
+        if (options.body) {
+          req.write(options.body);
+        }
+
+        // End the request
+        req.end();
       });
-
-      // Handle request errors
-      req.on('error', (error) => {
-        reject(new Error(`API request error: ${error.message}`));
-      });
-
-      // Send the request body if provided
-      if (options.body) {
-        req.write(options.body);
-      }
-
-      // End the request
-      req.end();
     });
   }
 
@@ -386,8 +251,6 @@ export class MelCloudApi {
    * @returns Promise resolving to login success
    */
   async login(email: string, password: string): Promise<boolean> {
-    this.logApiCall('POST', 'Login/ClientLogin', { Email: email });
-
     try {
       const data = await this.retryableRequest(
         () => this.throttledApiCall<any>('POST', 'Login/ClientLogin', {
@@ -654,15 +517,15 @@ export class MelCloudApi {
    * This is important for tests to prevent memory leaks and lingering timers
    */
   cleanup(): void {
-    // Clear all reconnect timers
-    for (const timer of this.reconnectTimers) {
-      clearTimeout(timer);
-    }
-    this.reconnectTimers = [];
+    // Clear all reconnect timers using our helper method
+    this.clearReconnectTimers();
 
     // Reset state
     this.reconnectAttempts = 0;
     this.contextKey = null;
+
+    // Call parent class cleanup to handle cache and circuit breaker
+    super.cleanup();
   }
 
   /**

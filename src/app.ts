@@ -1215,44 +1215,87 @@ export default class HeatOptimizerApp extends App {
    * onUninit is called when the app is destroyed
    */
   async onUninit() {
-    this.log('===== MELCloud Optimizer App Stopping =====');
+    this.logger.marker('MELCloud Optimizer App Stopping');
 
     try {
       // Stop and clean up cron jobs
       this.cleanupCronJobs();
 
-      // Stop thermal model service
+      // Clean up API services
       try {
-        // Get the optimizer instance from the API
         const api = require('../api.js');
-        if (api.optimizer && api.optimizer.thermalModelService) {
-          this.log('Stopping thermal model service...');
-          api.optimizer.thermalModelService.stop();
-          this.log('Thermal model service stopped');
+
+        // Clean up MELCloud API
+        if (api.melCloud) {
+          this.logger.info('Cleaning up MELCloud API resources');
+          if (typeof api.melCloud.cleanup === 'function') {
+            api.melCloud.cleanup();
+            this.logger.info('MELCloud API resources cleaned up');
+          }
         }
-      } catch (thermalModelError) {
-        this.error('Error stopping thermal model service:', thermalModelError as Error);
+
+        // Clean up Tibber API
+        if (api.tibber) {
+          this.logger.info('Cleaning up Tibber API resources');
+          if (typeof api.tibber.cleanup === 'function') {
+            api.tibber.cleanup();
+            this.logger.info('Tibber API resources cleaned up');
+          }
+        }
+
+        // Stop thermal model service
+        if (api.optimizer && api.optimizer.thermalModelService) {
+          this.logger.info('Stopping thermal model service');
+          if (typeof api.optimizer.thermalModelService.stop === 'function') {
+            api.optimizer.thermalModelService.stop();
+            this.logger.info('Thermal model service stopped');
+          }
+        }
+      } catch (apiError) {
+        this.logger.error('Error cleaning up API resources:', apiError as Error);
       }
 
       // Clean up any other resources
       if (this.copHelper) {
-        this.log('Cleaning up COP helper resources');
+        this.logger.info('Cleaning up COP helper resources');
         // No specific cleanup needed for COP helper currently
+      }
+
+      // Clean up timeline helper
+      if (this.timelineHelper) {
+        this.logger.info('Cleaning up Timeline helper resources');
+        // No specific cleanup needed for Timeline helper currently
       }
 
       // Clean up memory usage monitoring
       if (this.memoryUsageInterval) {
-        this.log('Cleaning up memory usage monitoring');
+        this.logger.info('Cleaning up memory usage monitoring');
         clearInterval(this.memoryUsageInterval);
         this.memoryUsageInterval = undefined;
       }
 
+      // Remove global references
+      if ((global as any).logger === this.logger) {
+        this.logger.info('Removing global logger reference');
+        (global as any).logger = undefined;
+      }
+
+      if ((global as any).copHelper === this.copHelper) {
+        this.logger.info('Removing global COP helper reference');
+        (global as any).copHelper = undefined;
+      }
+
+      if ((global as any).timelineHelper === this.timelineHelper) {
+        this.logger.info('Removing global timeline helper reference');
+        (global as any).timelineHelper = undefined;
+      }
+
       // Final cleanup
-      this.log('All resources cleaned up');
+      this.logger.info('All resources cleaned up');
     } catch (error) {
-      this.error('Error during app shutdown:', error as Error);
+      this.logger.error('Error during app shutdown:', error as Error);
     } finally {
-      this.log('MELCloud Optimizer App shutdown complete');
+      this.logger.marker('MELCloud Optimizer App shutdown complete');
     }
   }
 

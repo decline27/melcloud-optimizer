@@ -47,19 +47,7 @@ export class ThermalModelService {
     this.scheduleModelUpdates();
   }
 
-  /**
-   * Start collecting thermal data at regular intervals
-   * This method is no longer used as data collection happens in the hourly optimization
-   */
-  private startDataCollection(): void {
-    // Method kept for reference but no longer called
-    this.homey.log('Thermal data collection now happens during hourly optimization');
-
-    // If we wanted to collect data at intervals, we would use:
-    // this.dataCollectionInterval = setInterval(() => {
-    //   this.collectDataPointFromDevice();
-    // }, 10 * 60 * 1000); // Every 10 minutes
-  }
+  // Data collection now happens during hourly optimization
 
   /**
    * Schedule regular updates to the thermal model
@@ -89,67 +77,7 @@ export class ThermalModelService {
     this.homey.log('Thermal model updates and data cleanup scheduled (cleanup every 12 hours)');
   }
 
-  /**
-   * Collect a single data point from current device state
-   */
-  private async collectDataPointFromDevice(): Promise<void> {
-    try {
-      // Get current device state from MELCloud API
-      const melcloudApi = this.homey.melcloudApi;
-      if (!melcloudApi) {
-        this.homey.error('MELCloud API not available for thermal data collection');
-        return;
-      }
-
-      const deviceState = await melcloudApi.getDeviceState();
-
-      // Get weather data
-      const weatherApi = this.homey.weatherApi;
-      let weatherData = {
-        temperature: deviceState.OutdoorTemperature || 0,
-        windSpeed: 0,
-        humidity: 50,
-        cloudCover: 50,
-        precipitation: 0
-      };
-
-      if (weatherApi) {
-        try {
-          const currentWeather = await weatherApi.getCurrentWeather();
-          weatherData = {
-            temperature: currentWeather.temperature,
-            windSpeed: currentWeather.windSpeed,
-            humidity: currentWeather.humidity,
-            cloudCover: currentWeather.cloudCover || 50,
-            precipitation: currentWeather.precipitation || 0
-          };
-        } catch (weatherError) {
-          this.homey.error('Error getting weather data for thermal model:', weatherError);
-        }
-      }
-
-      // Create data point
-      const dataPoint: ThermalDataPoint = {
-        timestamp: DateTime.now().toISO(),
-        indoorTemperature: deviceState.RoomTemperatureZone1 || 20,
-        outdoorTemperature: weatherData.temperature,
-        targetTemperature: deviceState.SetTemperatureZone1 || 20,
-        heatingActive: !deviceState.IdleZone1,
-        weatherConditions: {
-          windSpeed: weatherData.windSpeed,
-          humidity: weatherData.humidity,
-          cloudCover: weatherData.cloudCover,
-          precipitation: weatherData.precipitation
-        }
-      };
-
-      // Add to collector
-      this.dataCollector.addDataPoint(dataPoint);
-
-    } catch (error) {
-      this.homey.error('Error collecting thermal data point:', error);
-    }
-  }
+  // Data collection now happens in the collectDataPoint method called during hourly optimization
 
   /**
    * Update the thermal model with collected data

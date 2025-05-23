@@ -187,6 +187,8 @@ class MelCloudApi {
     this.contextKey = null;
     this.devices = [];
     this.logger = console; // Default logger
+    this.reconnectTimers = []; // Store reconnect timers for cleanup
+    this.cache = new Map(); // Cache for API responses
   }
 
   /**
@@ -1007,6 +1009,46 @@ class MelCloudApi {
     } catch (error) {
       console.error(`MELCloud set tank temperature error for device ${deviceId}:`, error);
       throw error; // Re-throw the error to be handled by the caller
+    }
+  }
+
+  /**
+   * Clean up any pending timers and resources
+   * This is important to prevent memory leaks and lingering timers
+   */
+  cleanup() {
+    if (this.logger && this.logger.log) {
+      this.logger.log('Cleaning up MELCloud API resources');
+    } else {
+      console.log('Cleaning up MELCloud API resources');
+    }
+
+    // Clear all reconnect timers
+    if (this.reconnectTimers && this.reconnectTimers.length > 0) {
+      for (const timer of this.reconnectTimers) {
+        clearTimeout(timer);
+      }
+      this.reconnectTimers = [];
+
+      if (this.logger && this.logger.log) {
+        this.logger.log(`Cleared ${this.reconnectTimers.length} reconnect timers`);
+      }
+    }
+
+    // Clear cache
+    if (this.cache && typeof this.cache.clear === 'function') {
+      this.cache.clear();
+
+      if (this.logger && this.logger.log) {
+        this.logger.log('Cleared MELCloud API cache');
+      }
+    }
+
+    // Reset state
+    this.contextKey = null;
+
+    if (this.logger && this.logger.log) {
+      this.logger.log('MELCloud API resources cleaned up');
     }
   }
 }
@@ -1846,6 +1888,37 @@ class TibberApi {
         timeFormatted: priceTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
     });
+  }
+
+  /**
+   * Clean up any pending timers and resources
+   * This is important to prevent memory leaks and lingering timers
+   */
+  cleanup() {
+    if (this.logger && this.logger.log) {
+      this.logger.log('Cleaning up Tibber API resources');
+    } else {
+      console.log('Cleaning up Tibber API resources');
+    }
+
+    // Save cached prices before cleanup
+    if (typeof this.saveCachedPrices === 'function') {
+      try {
+        this.saveCachedPrices();
+      } catch (error) {
+        console.error('Error saving cached prices during cleanup:', error);
+      }
+    }
+
+    // Reset state
+    this.cachedPrices = null;
+    this.lastFetchTime = null;
+    this.priceUpdateTime = null;
+    this.nextPriceUpdateTime = null;
+
+    if (this.logger && this.logger.log) {
+      this.logger.log('Tibber API resources cleaned up');
+    }
   }
 }
 

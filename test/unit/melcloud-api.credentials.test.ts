@@ -2,6 +2,7 @@ import { MelCloudApi } from '../../src/services/melcloud-api';
 import * as fs from 'fs';
 import * as path from 'path';
 import { HomeySettings } from '../../src/types';
+import { createMockLogger } from '../mocks/logger.mock';
 
 // Skip these tests if config file doesn't exist
 const configPath = path.join(__dirname, '../config.json');
@@ -17,6 +18,7 @@ declare global {
   let melCloudApi: MelCloudApi;
   let config: any;
   let originalHomeySettings: any;
+  let mockLogger: ReturnType<typeof createMockLogger>;
 
   beforeAll(() => {
     // Save original homeySettings if it exists
@@ -47,8 +49,11 @@ declare global {
   });
 
   beforeEach(() => {
-    // Create a new instance of MelCloudApi
-    melCloudApi = new MelCloudApi();
+    // Create a mock logger
+    mockLogger = createMockLogger();
+
+    // Create a new instance of MelCloudApi with the mock logger
+    melCloudApi = new MelCloudApi(mockLogger);
   });
 
   afterEach(() => {

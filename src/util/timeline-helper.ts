@@ -323,52 +323,10 @@ export class TimelineHelper {
 
       let success = false;
 
-      // Try the direct timeline API first
-      try {
-        if (this.homey.timeline) {
-          await this.homey.timeline.createEntry({
-            title: options.title,
-            body: options.message,
-            icon,
-            type
-          });
-          this.logger.log(`Timeline entry created using timeline API: ${options.title}`);
-          success = true;
-        }
-      } catch (timelineError) {
-        this.logger.error('Failed to create timeline entry using timeline API:', timelineError);
-      }
-
-      // If timeline API failed, try notifications API
-      if (!success) {
-        try {
-          if (this.homey.notifications) {
-            await this.homey.notifications.createNotification({
-              excerpt: `${options.title}: ${options.message}`
-            });
-            this.logger.log(`Timeline entry created using notifications API: ${options.title}`);
-            success = true;
-          }
-        } catch (notifyError) {
-          this.logger.error('Failed to create timeline entry using notifications API:', notifyError);
-        }
-      }
-
-      // If notifications API failed, try flow API
-      if (!success) {
-        try {
-          if (this.homey.flow && typeof this.homey.flow.runFlowCardAction === 'function') {
-            await this.homey.flow.runFlowCardAction({
-              uri: 'homey:flowcardaction:homey:manager:timeline:log',
-              args: { text: `${options.title}: ${options.message}` }
-            });
-            this.logger.log(`Timeline entry created using flow API: ${options.title}`);
-            success = true;
-          }
-        } catch (flowError) {
-          this.logger.error('Failed to create timeline entry using flow API:', flowError);
-        }
-      }
+      // Try each API method in sequence until one succeeds
+      success = await this.tryTimelineAPI(options.title, options.message, icon, type) ||
+                await this.tryNotificationsAPI(options.title, options.message) ||
+                await this.tryFlowAPI(options.title, options.message);
 
       // If all APIs failed, log the failure
       if (!success) {
@@ -389,6 +347,80 @@ export class TimelineHelper {
       this.logger.error('Error creating timeline entry with fallbacks:', error);
       return false;
     }
+  }
+
+  /**
+   * Try to create a timeline entry using the timeline API
+   * @param title Entry title
+   * @param message Entry message
+   * @param icon Entry icon
+   * @param type Entry type
+   * @returns Promise resolving to true if successful
+   */
+  private async tryTimelineAPI(
+    title: string,
+    message: string,
+    icon: string,
+    type: TimelineEntryType
+  ): Promise<boolean> {
+    try {
+      if (this.homey.timeline) {
+        await this.homey.timeline.createEntry({
+          title: title,
+          body: message,
+          icon,
+          type
+        });
+        this.logger.log(`Timeline entry created using timeline API: ${title}`);
+        return true;
+      }
+    } catch (timelineError) {
+      this.logger.error('Failed to create timeline entry using timeline API:', timelineError);
+    }
+    return false;
+  }
+
+  /**
+   * Try to create a timeline entry using the notifications API
+   * @param title Entry title
+   * @param message Entry message
+   * @returns Promise resolving to true if successful
+   */
+  private async tryNotificationsAPI(title: string, message: string): Promise<boolean> {
+    try {
+      if (this.homey.notifications) {
+        await this.homey.notifications.createNotification({
+          excerpt: `${title}: ${message}`
+        });
+        this.logger.log(`Timeline entry created using notifications API: ${title}`);
+        return true;
+      }
+    } catch (notifyError) {
+      this.logger.error('Failed to create timeline entry using notifications API:', notifyError);
+    }
+    return false;
+  }
+
+  /**
+   * Try to create a timeline entry using the flow API
+   * @param title Entry title
+   * @param message Entry message
+   * @returns Promise resolving to true if successful
+   */
+  private async tryFlowAPI(title: string, message: string): Promise<boolean> {
+    try {
+      if (this.homey.flow && typeof this.homey.flow.runFlowCardAction === 'function') {
+        await this.homey.flow.runFlowCardAction({
+          uri: 'homey:flowcardaction:homey:manager:timeline:log',
+          args: { text: `${title}: ${message}` }
+        });
+        this.logger.log(`Timeline entry created using flow API: ${title}`);
+        return true;
+      }
+    } catch (flowError) {
+      this.logger.error('Failed to create timeline entry using flow API:', flowError);
+    }
+    return false;
   }
 
   /**

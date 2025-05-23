@@ -209,13 +209,13 @@ export class ErrorHandler {
         this.logger.warn(`Network Error: ${appError.message}`, logContext);
         break;
       case ErrorCategory.AUTHENTICATION:
-        this.logger.error(`Authentication Error: ${appError.message}`, appError.originalError as Error);
+        this.logger.error(`Authentication Error: ${appError.message}`, appError.originalError ? (appError.originalError as Error) : undefined);
         break;
       case ErrorCategory.VALIDATION:
         this.logger.warn(`Validation Error: ${appError.message}`, logContext);
         break;
       default:
-        this.logger.error(`${appError.category} Error: ${appError.message}`, appError.originalError as Error);
+        this.logger.error(`${appError.category} Error: ${appError.message}`, appError.originalError ? (appError.originalError as Error) : undefined);
     }
 
     return appError;
