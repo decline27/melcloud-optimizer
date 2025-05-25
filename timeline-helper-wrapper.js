@@ -4,6 +4,125 @@
  * Provides standardized timeline entry creation for JavaScript files
  */
 
+/**
+ * Currency detection utility using GPS coordinates
+ */
+class CurrencyDetector {
+  static COUNTRY_CURRENCY_MAP = {
+    // Europe
+    'AT': 'EUR', 'BE': 'EUR', 'CY': 'EUR', 'EE': 'EUR', 'FI': 'EUR', 'FR': 'EUR',
+    'DE': 'EUR', 'GR': 'EUR', 'IE': 'EUR', 'IT': 'EUR', 'LV': 'EUR', 'LT': 'EUR',
+    'LU': 'EUR', 'MT': 'EUR', 'NL': 'EUR', 'PT': 'EUR', 'SK': 'EUR', 'SI': 'EUR',
+    'ES': 'EUR', 'AD': 'EUR', 'MC': 'EUR', 'SM': 'EUR', 'VA': 'EUR',
+
+    // Nordic countries
+    'NO': 'NOK', 'SE': 'SEK', 'DK': 'DKK', 'IS': 'ISK',
+
+    // Other European
+    'GB': 'GBP', 'CH': 'CHF', 'PL': 'PLN', 'CZ': 'CZK', 'HU': 'HUF',
+    'RO': 'RON', 'BG': 'BGN', 'HR': 'HRK',
+
+    // North America
+    'US': 'USD', 'CA': 'CAD', 'MX': 'MXN',
+
+    // Asia Pacific
+    'JP': 'JPY', 'AU': 'AUD', 'NZ': 'NZD', 'CN': 'CNY', 'KR': 'KRW',
+    'IN': 'INR', 'SG': 'SGD', 'HK': 'HKD',
+
+    // Others
+    'BR': 'BRL', 'ZA': 'ZAR', 'RU': 'RUB'
+  };
+
+  static COORDINATE_RANGES = [
+    // Nordic countries (common for heat pumps)
+    { name: 'Norway', code: 'NO', lat: [57.0, 71.5], lng: [4.0, 31.5] },
+    { name: 'Sweden', code: 'SE', lat: [55.0, 69.5], lng: [10.0, 24.5] },
+    { name: 'Denmark', code: 'DK', lat: [54.5, 57.8], lng: [8.0, 15.5] },
+    { name: 'Finland', code: 'FI', lat: [59.5, 70.5], lng: [19.0, 31.5] },
+    { name: 'Iceland', code: 'IS', lat: [63.0, 67.0], lng: [-25.0, -13.0] },
+
+    // Major European countries
+    { name: 'Germany', code: 'DE', lat: [47.0, 55.5], lng: [5.5, 15.5] },
+    { name: 'France', code: 'FR', lat: [41.0, 51.5], lng: [-5.5, 10.0] },
+    { name: 'United Kingdom', code: 'GB', lat: [49.5, 61.0], lng: [-8.5, 2.0] },
+    { name: 'Netherlands', code: 'NL', lat: [50.5, 54.0], lng: [3.0, 7.5] },
+    { name: 'Belgium', code: 'BE', lat: [49.5, 51.5], lng: [2.5, 6.5] },
+    { name: 'Switzerland', code: 'CH', lat: [45.5, 48.0], lng: [5.5, 11.0] },
+    { name: 'Austria', code: 'AT', lat: [46.0, 49.5], lng: [9.5, 17.5] },
+    { name: 'Poland', code: 'PL', lat: [49.0, 55.0], lng: [14.0, 24.5] },
+
+    // North America
+    { name: 'United States', code: 'US', lat: [24.0, 72.0], lng: [-180.0, -66.0] },
+    { name: 'Canada', code: 'CA', lat: [41.5, 84.0], lng: [-141.0, -52.0] },
+
+    // Other regions
+    { name: 'Japan', code: 'JP', lat: [24.0, 46.0], lng: [123.0, 146.0] },
+    { name: 'Australia', code: 'AU', lat: [-44.0, -10.0], lng: [113.0, 154.0] }
+  ];
+
+  /**
+   * Detect currency based on GPS coordinates
+   * @param {number} latitude Latitude coordinate
+   * @param {number} longitude Longitude coordinate
+   * @returns {string|null} Currency code (ISO 4217) or null if not detected
+   */
+  static detectCurrency(latitude, longitude) {
+    if (!latitude || !longitude ||
+        latitude < -90 || latitude > 90 ||
+        longitude < -180 || longitude > 180) {
+      return null;
+    }
+
+    // Find matching country based on coordinates
+    for (const region of this.COORDINATE_RANGES) {
+      const [latMin, latMax] = region.lat;
+      const [lngMin, lngMax] = region.lng;
+
+      if (latitude >= latMin && latitude <= latMax &&
+          longitude >= lngMin && longitude <= lngMax) {
+        return this.COUNTRY_CURRENCY_MAP[region.code] || null;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Get currency with fallback chain
+   * @param {object} homey Homey app instance
+   * @returns {string} Currency code
+   */
+  static getCurrencyWithFallback(homey) {
+    // 1. Try manual currency setting (if exists)
+    const manualCurrency = homey.settings?.get('currency');
+    if (manualCurrency) {
+      return manualCurrency;
+    }
+
+    // 2. Try GPS-based detection
+    const latitude = homey.settings?.get('latitude');
+    const longitude = homey.settings?.get('longitude');
+
+    if (latitude && longitude) {
+      const detectedCurrency = this.detectCurrency(latitude, longitude);
+      if (detectedCurrency) {
+        return detectedCurrency;
+      }
+    }
+
+    // 3. Try Homey's i18n currency
+    if (homey.i18n?.getCurrency) {
+      const i18nCurrency = homey.i18n.getCurrency();
+      if (i18nCurrency) {
+        return i18nCurrency;
+      }
+    }
+
+    // 4. Default fallback
+    return 'EUR';
+  }
+}
+
 // Define timeline entry types (must match the TypeScript enum)
 const TimelineEntryType = {
   INFO: 'info',
@@ -110,9 +229,9 @@ class TimelineHelperWrapper {
               try {
                 // Get the user's locale or default to the system locale
                 const userLocale = this.homey.i18n?.getLanguage() || 'en-US';
-                // Get the user's currency or default to EUR
-                const userCurrency = this.homey.settings?.get('currency') ||
-                                    (this.homey.i18n?.getCurrency ? this.homey.i18n.getCurrency() : 'EUR');
+
+                // Use GPS-based currency detection with fallback chain
+                const userCurrency = CurrencyDetector.getCurrencyWithFallback(this.homey);
 
                 // Format the savings amount with proper currency formatting based on locale
                 const savingsAmount = additionalData.dailySavings !== undefined ?

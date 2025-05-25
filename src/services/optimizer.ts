@@ -9,10 +9,11 @@ import {
   WeatherData,
   ThermalModel,
   OptimizationResult,
-  HomeyLogger,
   HomeyApp,
   isError
 } from '../types';
+import { EnhancedSavingsCalculator, OptimizationData, SavingsCalculationResult } from '../util/enhanced-savings-calculator';
+import { HomeyLogger } from '../util/logger';
 
 /**
  * Optimizer Service
@@ -30,6 +31,7 @@ export class Optimizer {
   private copWeight: number = 0.3;
   private autoSeasonalMode: boolean = true;
   private summerMode: boolean = false;
+  private enhancedSavingsCalculator: EnhancedSavingsCalculator;
 
   /**
    * Constructor
@@ -50,6 +52,9 @@ export class Optimizer {
     private readonly weatherApi?: { getCurrentWeather(): Promise<WeatherData> },
     private readonly homey?: HomeyApp
   ) {
+    // Initialize enhanced savings calculator with proper Logger instance
+    // Use the existing logger since it already implements the Logger interface
+    this.enhancedSavingsCalculator = new EnhancedSavingsCalculator(this.logger);
 
     // Initialize thermal learning model if homey instance is provided
     if (homey) {
@@ -562,6 +567,23 @@ export class Optimizer {
     const savings = (energySavingPercent / 100) * hourlyConsumption * currentPrice;
 
     return savings;
+  }
+
+  /**
+   * Calculate enhanced daily savings using historical data and compounding effects
+   * @param currentHourSavings Current hour's savings
+   * @param historicalOptimizations Historical optimization data
+   * @returns Enhanced savings calculation result
+   */
+  calculateEnhancedDailySavings(
+    currentHourSavings: number,
+    historicalOptimizations: OptimizationData[] = []
+  ): SavingsCalculationResult {
+    return this.enhancedSavingsCalculator.calculateEnhancedDailySavings(
+      currentHourSavings,
+      historicalOptimizations,
+      new Date().getHours()
+    );
   }
 
   /**

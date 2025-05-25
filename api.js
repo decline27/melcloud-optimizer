@@ -2933,6 +2933,59 @@ class Optimizer {
    * @returns {number} - Projected daily savings
    */
   calculateDailySavings(hourlySavings) {
+    // Try to use enhanced savings calculation if optimizer is available
+    if (optimizer && typeof optimizer.calculateEnhancedDailySavings === 'function') {
+      try {
+        // Convert historical data to the format expected by the enhanced calculator
+        const optimizationData = [];
+
+        if (historicalData && historicalData.optimizations && historicalData.optimizations.length > 0) {
+          // Get today's date at midnight for filtering
+          const todayMidnight = new Date();
+          todayMidnight.setHours(0, 0, 0, 0);
+          const currentHour = new Date().getHours();
+
+          // Filter optimizations from today only (before current hour)
+          const todayOptimizations = historicalData.optimizations.filter(opt => {
+            const optDate = new Date(opt.timestamp);
+            return optDate >= todayMidnight && optDate.getHours() < currentHour;
+          });
+
+          // Convert to OptimizationData format
+          todayOptimizations.forEach(opt => {
+            optimizationData.push({
+              timestamp: opt.timestamp,
+              savings: opt.savings || 0,
+              targetTemp: opt.targetTemp || 20,
+              targetOriginal: opt.targetOriginal || 20,
+              priceNow: opt.priceNow || 0,
+              priceAvg: opt.priceAvg || 0,
+              indoorTemp: opt.indoorTemp,
+              outdoorTemp: opt.outdoorTemp,
+              cop: opt.cop
+            });
+          });
+        }
+
+        // Calculate enhanced daily savings
+        const result = optimizer.calculateEnhancedDailySavings(hourlySavings, optimizationData);
+
+        // Log the enhanced calculation details for debugging
+        if (homey && homey.app) {
+          homey.app.log(`Enhanced daily savings calculation: ${result.dailySavings.toFixed(4)} (method: ${result.method}, confidence: ${result.confidence.toFixed(2)})`);
+          homey.app.log(`Breakdown - Actual: ${result.breakdown.actualSavings.toFixed(4)}, Current: ${result.breakdown.currentHourSavings.toFixed(4)}, Projected: ${result.breakdown.projectedAmount.toFixed(4)}`);
+        }
+
+        return result.dailySavings;
+      } catch (error) {
+        if (homey && homey.app) {
+          homey.app.error('Error in enhanced daily savings calculation, falling back to simple method:', error);
+        }
+        // Fall through to simple calculation
+      }
+    }
+
+    // Fallback to original calculation method
     // Get the current hour of the day (0-23)
     const currentDate = new Date();
     const currentHour = currentDate.getHours();
