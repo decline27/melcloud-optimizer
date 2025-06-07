@@ -333,4 +333,136 @@ describe('MelCloudApi', () => {
       expect(true).toBe(true);
     });
   });
+
+  describe('setDeviceTankTemperature', () => {
+    const deviceId = 'device-1';
+    const buildingId = 1;
+    const targetTankTemp = 50;
+
+    beforeEach(async () => {
+      // Ensure logged in for these tests
+      await api.login('test@example.com', 'password');
+      // Reset mocks specifically for throttledApiCall to ensure clean state for assertions
+      ((api as any).throttledApiCall as jest.Mock).mockClear();
+    });
+
+    it('should successfully set tank temperature if device supports it', async () => {
+      // Mock getDeviceState to return a device that supports tank temperature
+      const mockDeviceStateWithTank = {
+        DeviceID: deviceId,
+        BuildingID: buildingId,
+        SetTankWaterTemperature: 45, // Current tank temp
+        EffectiveFlags: 0,
+        HasPendingCommand: false,
+        Power: true,
+        // ... other necessary device properties
+      };
+      // Specific mock for the getDeviceState call within setDeviceTankTemperature
+      ((api as any).throttledApiCall as jest.Mock).mockImplementation((method: string, endpoint: string) => {
+        if (endpoint.includes(`Device/Get?id=${deviceId}&buildingID=${buildingId}`)) {
+          return Promise.resolve(mockDeviceStateWithTank);
+        }
+        if (endpoint.includes('Device/SetAtw')) { // This is the call we are testing primarily
+          return Promise.resolve({ ErrorId: undefined, ErrorMessage: undefined }); // Simulate successful SetAtw
+        }
+        // Fallback for other calls like login if they weren't reset properly (shouldn't happen with beforeEach clear)
+        if (endpoint.includes('Login/ClientLogin')) {
+            return Promise.resolve({ ErrorId: null, LoginData: { ContextKey: 'test-context-key' } });
+        }
+        return Promise.reject(new Error(`Unhandled endpoint in test: ${endpoint}`));
+      });
+
+      const result = await api.setDeviceTankTemperature(deviceId, buildingId, targetTankTemp);
+
+      expect(result).toBe(true);
+      expect(mockLogger.log).toHaveBeenCalledWith(`Setting tank temperature for device ${deviceId} to ${targetTankTemp}°C`);
+      expect((api as any).throttledApiCall).toHaveBeenCalledWith(
+        'POST',
+        'Device/SetAtw',
+        expect.objectContaining({
+          body: JSON.stringify(expect.objectContaining({
+            SetTankWaterTemperature: targetTankTemp,
+            EffectiveFlags: 0x1000000000020,
+            HasPendingCommand: true,
+            Power: true,
+          })),
+          headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
+        })
+      );
+      expect(mockLogger.log).toHaveBeenCalledWith(`Successfully set tank temperature for device ${deviceId} to ${targetTankTemp}°C`);
+    });
+
+    it('should return false and log error if device does not support tank temperature', async () => {
+      const mockDeviceStateNoTank = {
+        DeviceID: deviceId,
+        BuildingID: buildingId,
+        // SetTankWaterTemperature is undefined
+      };
+      ((api as any).throttledApiCall as jest.Mock).mockImplementation((method: string, endpoint: string) => {
+        if (endpoint.includes(`Device/Get?id=${deviceId}&buildingID=${buildingId}`)) {
+          return Promise.resolve(mockDeviceStateNoTank);
+        }
+         if (endpoint.includes('Login/ClientLogin')) { // Ensure login still works if called
+            return Promise.resolve({ ErrorId: null, LoginData: { ContextKey: 'test-context-key' } });
+        }
+        return Promise.reject(new Error(`Unhandled endpoint: ${endpoint}`));
+      });
+
+      const result = await api.setDeviceTankTemperature(deviceId, buildingId, targetTankTemp);
+
+      expect(result).toBe(false);
+      expect(mockLogger.error).toHaveBeenCalledWith(`Device ${deviceId} does not support tank temperature control (SetTankWaterTemperature is undefined).`);
+      expect((api as any).throttledApiCall).not.toHaveBeenCalledWith(expect.stringContaining('Device/SetAtw'), expect.anything());
+    });
+
+    it('should throw error if API call to SetAtw fails', async () => {
+      const mockDeviceStateWithTank = {
+        DeviceID: deviceId,
+        BuildingID: buildingId,
+        SetTankWaterTemperature: 45,
+      };
+      ((api as any).throttledApiCall as jest.Mock).mockImplementation((method: string, endpoint: string) => {
+        if (endpoint.includes(`Device/Get?id=${deviceId}&buildingID=${buildingId}`)) {
+          return Promise.resolve(mockDeviceStateWithTank);
+        }
+        if (endpoint.includes('Device/SetAtw')) {
+          return Promise.reject(new Error('SetAtw API Call Failed'));
+        }
+        if (endpoint.includes('Login/ClientLogin')) {
+            return Promise.resolve({ ErrorId: null, LoginData: { ContextKey: 'test-context-key' } });
+        }
+        return Promise.reject(new Error(`Unhandled endpoint: ${endpoint}`));
+      });
+
+      await expect(api.setDeviceTankTemperature(deviceId, buildingId, targetTankTemp))
+        .rejects
+        .toThrow('SetAtw API Call Failed');
+      expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('Failed to set tank temperature'), expect.any(Error));
+    });
+     it('should return false if SetAtw responds with an error message', async () => {
+      const mockDeviceStateWithTank = {
+        DeviceID: deviceId,
+        BuildingID: buildingId,
+        SetTankWaterTemperature: 45,
+      };
+      ((api as any).throttledApiCall as jest.Mock).mockImplementation((method: string, endpoint: string) => {
+        if (endpoint.includes(`Device/Get?id=${deviceId}&buildingID=${buildingId}`)) {
+          return Promise.resolve(mockDeviceStateWithTank);
+        }
+        if (endpoint.includes('Device/SetAtw')) {
+          return Promise.resolve({ ErrorId: 1, ErrorMessage: "Simulated SetAtw Error" });
+        }
+         if (endpoint.includes('Login/ClientLogin')) {
+            return Promise.resolve({ ErrorId: null, LoginData: { ContextKey: 'test-context-key' } });
+        }
+        return Promise.reject(new Error(`Unhandled endpoint: ${endpoint}`));
+      });
+
+      const result = await api.setDeviceTankTemperature(deviceId, buildingId, targetTankTemp);
+      expect(result).toBe(false);
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        `Failed to set tank temperature for device ${deviceId}. Response: ${JSON.stringify({ ErrorId: 1, ErrorMessage: "Simulated SetAtw Error" })}`
+      );
+    });
+  });
 });

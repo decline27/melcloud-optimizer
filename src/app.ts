@@ -4,13 +4,16 @@ import { COPHelper } from './services/cop-helper';
 import { TimelineHelper, TimelineEventType } from './util/timeline-helper';
 import { HomeyLogger, LogLevel, LogCategory } from './util/logger';
 import {
-  LogEntry,
-  ThermalModel,
-  DeviceInfo,
-  PricePoint,
-  OptimizationResult,
+  OptimizationResult, // Kept as it's used in function signatures for return
   HomeyApp
 } from './types';
+
+// New Service Imports
+import { Optimizer } from './services/optimizer';
+import { MelCloudApi } from './services/melcloud-api';
+import { TibberApi } from './services/tibber-api';
+import { ThermalModelService } from './services/thermal-model';
+import { WeatherApi } from './services/weather-api';
 
 /**
  * MELCloud Heat Pump Optimizer App
@@ -23,14 +26,28 @@ export default class HeatOptimizerApp extends App {
   public weeklyJob?: CronJob;
   public copHelper?: COPHelper;
   public timelineHelper?: TimelineHelper;
-  public logger: HomeyLogger = new HomeyLogger(this, {
-    level: LogLevel.INFO,
-    logToTimeline: false,
-    prefix: 'App',
-    includeTimestamps: true,
-    includeSourceModule: true
-  });
+  public logger!: HomeyLogger; // Definite assignment, initialized in constructor/onInit
   private memoryUsageInterval?: NodeJS.Timeout;
+
+  // Service instances
+  private melcloudApi!: MelCloudApi;
+  private tibberApi!: TibberApi;
+  private weatherApi!: WeatherApi;
+  private thermalModelService!: ThermalModelService;
+  private appOptimizer!: Optimizer;
+
+  constructor(props: any) {
+    super(props);
+    // Basic logger initialization for very early logs, will be refined in onInit's initializeLogger
+    this.logger = new HomeyLogger(this, {
+      level: LogLevel.INFO,
+      logToTimeline: false,
+      prefix: 'App',
+      includeTimestamps: true,
+      includeSourceModule: true
+    });
+    (global as any).logger = this.logger; // Make it globally available early
+  }
 
   /**
    * Get the status of the cron jobs
@@ -127,27 +144,89 @@ export default class HeatOptimizerApp extends App {
    * onInit is called when the app is initialized
    */
   async onInit() {
-    // Initialize the centralized logger
+    // Initialize the centralized logger (this will refine the one from constructor)
     this.initializeLogger();
 
     // Log app initialization
     this.logger.marker('MELCloud Optimizer App Starting');
-    this.logger.info('Heat Pump Optimizer initialized');
+    this.logger.info('Heat Pump Optimizer initializing...'); // Changed message slightly
 
-    // Log some additional information
-    this.logger.info(`App ID: ${this.id}`);
-    this.logger.info(`App Version: ${this.manifest.version}`);
-    this.logger.info(`Homey Version: ${this.homey.version}`);
-    this.logger.info(`Homey Platform: ${this.homey.platform}`);
-
-    // Register settings change listener
+    // Register settings change listener early
     this.homey.settings.on('set', this.onSettingsChanged.bind(this));
     this.logger.info('Settings change listener registered');
 
-    // Validate settings
-    this.validateSettings();
+    // Validate essential settings for service initialization
+    this.validateSettings(); // Ensure basic settings are present
 
-    // API is automatically registered by Homey
+    // Instantiate services (Moved here as per overall plan)
+    try {
+      this.melcloudApi = new MelCloudApi(this.logger, this.homey.settings);
+      const melcloudUser = this.homey.settings.get('melcloud_user');
+      const melcloudPass = this.homey.settings.get('melcloud_pass');
+      if (melcloudUser && melcloudPass) {
+        // Intentionally not awaiting login here to prevent blocking onInit for too long.
+        // Login will be attempted by MelCloudApi internally when needed.
+        this.logger.info('MelCloudApi instantiated. Login will be attempted on first use.');
+      } else {
+        this.logger.error('MELCloud credentials not found. MelCloudApi may not function.');
+      }
+
+      this.tibberApi = new TibberApi(this.homey.settings.get('tibber_token') || '', this.logger);
+      this.logger.info('TibberApi initialized.');
+
+      this.weatherApi = new WeatherApi(this.logger, this.homey.settings.get('weather_api_key'));
+      this.logger.info('WeatherApi initialized.');
+
+      this.thermalModelService = new ThermalModelService(this.homey as any);
+      this.logger.info('ThermalModelService initialized.');
+
+      // Instantiate Optimizer
+      const deviceId = this.homey.settings.get('melcloud_device_id');
+      const buildingIdSetting = this.homey.settings.get('melcloud_building_id');
+      // Ensure buildingId is treated as a number if it exists, or undefined
+      const buildingId = buildingIdSetting !== undefined && buildingIdSetting !== null ? Number(buildingIdSetting) : undefined;
+
+
+      if (deviceId && buildingId !== undefined) {
+        this.appOptimizer = new Optimizer(
+          this.melcloudApi,
+          this.tibberApi,
+          deviceId,
+          buildingId, // Already a number or undefined
+          this.logger,
+          this.weatherApi,
+          this.homey as any // Pass homey for settings and other app context
+        );
+        this.logger.info('Optimizer service initialized.');
+
+        // Load initial settings into Optimizer
+        this.appOptimizer.setTemperatureConstraints(
+          this.homey.settings.get('min_temp') ?? 18,
+          this.homey.settings.get('max_temp') ?? 22,
+          this.homey.settings.get('temp_step') ?? 0.5
+        );
+        this.appOptimizer.setCOPSettings(
+          this.homey.settings.get('cop_weight') ?? 0.3,
+          this.homey.settings.get('auto_seasonal_mode') !== false,
+          this.homey.settings.get('summer_mode') === true
+        );
+        this.appOptimizer.setComfortProfileSettings(
+          this.homey.settings.get('comfort_profile_enabled') ?? true,
+          this.homey.settings.get('comfort_day_start_hour') ?? 7,
+          this.homey.settings.get('comfort_day_end_hour') ?? 22,
+          this.homey.settings.get('comfort_night_temp_reduction') ?? 2,
+          this.homey.settings.get('comfort_preheat_hours') ?? 1
+        );
+        this.logger.info('Initial settings loaded into Optimizer.');
+
+      } else {
+        this.logger.error('CRITICAL: Optimizer cannot be initialized. MELCloud Device ID or Building ID is missing from settings.');
+        // Consider how to handle this - app might be non-functional
+      }
+
+    } catch (error) {
+      this.logger.error('Error during service initialization:', error as Error);
+    }
 
     // Initialize COP Helper
     try {
@@ -212,10 +291,10 @@ export default class HeatOptimizerApp extends App {
     });
 
     // Make the logger available globally for other modules
-    (global as any).logger = this.logger;
+    (global as any).logger = this.logger; // Ensure global logger is the refined one
 
     // Log initialization
-    this.log(`Centralized logger initialized with level: ${LogLevel[logLevel]}`);
+    this.logger.log(`Centralized logger initialized with level: ${LogLevel[logLevel]}`);
   }
 
   /**
@@ -505,17 +584,45 @@ export default class HeatOptimizerApp extends App {
       this.log(`Temperature setting '${key}' changed, re-validating settings`);
       this.validateSettings();
     }
-    // If COP settings changed, update the COP Helper
+    // Temperature constraints
+    else if (['min_temp', 'max_temp', 'temp_step'].includes(key)) {
+      if (this.appOptimizer) {
+        this.logger.info(`Temperature constraint '${key}' changed. Updating optimizer.`);
+        this.appOptimizer.setTemperatureConstraints(
+          this.homey.settings.get('min_temp') ?? 18,
+          this.homey.settings.get('max_temp') ?? 22,
+          this.homey.settings.get('temp_step') ?? 0.5
+        );
+      }
+    }
+    // COP settings
     else if (['cop_weight', 'auto_seasonal_mode', 'summer_mode'].includes(key)) {
-      this.log(`COP setting '${key}' changed, updating optimizer settings`);
-
-      // Call the API to update optimizer settings
-      try {
-        const api = require('../api.js');
-        await api.updateOptimizerSettings(this.homey);
-        this.log('Optimizer settings updated with new COP settings');
-      } catch (error) {
-        this.error('Failed to update optimizer settings with new COP settings:', error as Error);
+      if (this.appOptimizer) {
+        this.logger.info(`COP setting '${key}' changed. Updating optimizer.`);
+        this.appOptimizer.setCOPSettings(
+          this.homey.settings.get('cop_weight') ?? 0.3,
+          this.homey.settings.get('auto_seasonal_mode') !== false,
+          this.homey.settings.get('summer_mode') === true
+        );
+      }
+    }
+    // Comfort profile settings
+    else if ([
+      'comfort_profile_enabled',
+      'comfort_day_start_hour',
+      'comfort_day_end_hour',
+      'comfort_night_temp_reduction',
+      'comfort_preheat_hours',
+    ].includes(key)) {
+      if (this.appOptimizer) {
+        this.logger.info(`Comfort profile setting '${key}' changed. Updating optimizer.`);
+        this.appOptimizer.setComfortProfileSettings(
+          this.homey.settings.get('comfort_profile_enabled') ?? true,
+          this.homey.settings.get('comfort_day_start_hour') ?? 7,
+          this.homey.settings.get('comfort_day_end_hour') ?? 22,
+          this.homey.settings.get('comfort_night_temp_reduction') ?? 2,
+          this.homey.settings.get('comfort_preheat_hours') ?? 1
+        );
       }
     }
     // Handle manual hourly optimization trigger
@@ -769,134 +876,86 @@ export default class HeatOptimizerApp extends App {
    * Run the hourly optimization process
    */
   public async runHourlyOptimizer() {
-    this.logger.marker('HOURLY OPTIMIZATION STARTED');
-    this.logger.optimization('Starting hourly optimization process');
+    this.logger.marker('HOURLY OPTIMIZATION STARTED (using appOptimizer service)');
+    this.logger.optimization('Starting hourly optimization process via Optimizer service');
+
+    if (!this.appOptimizer) {
+      this.logger.error('Optimizer service not initialized. Cannot run hourly optimization.');
+      this.logger.marker('HOURLY OPTIMIZATION FAILED (Optimizer not initialized)');
+      // Create error timeline entry
+      if (this.timelineHelper) {
+        await this.timelineHelper.addTimelineEntry(
+          TimelineEventType.HOURLY_OPTIMIZATION_ERROR,
+          { error: 'Optimizer service not initialized.' }, true
+        ).catch(err => this.logger.error('Failed to create error timeline entry', err));
+      }
+      throw new Error('Optimizer service not initialized.');
+    }
 
     try {
-      // Call the API implementation
-      const api = require('../api.js');
-      const result = await api.getRunHourlyOptimizer({ homey: this.homey });
+      const resultData = await this.appOptimizer.runHourlyOptimization();
 
-      if (result.success) {
-        // Store the successful result for potential fallback use
-        this.homey.settings.set('last_optimization_result', result);
+      // Store the successful result for potential fallback use
+      this.homey.settings.set('last_optimization_result', resultData);
 
-        // Log optimization details
-        if (result.data) {
-          this.logger.optimization('Optimization successful', {
-            targetTemp: result.data.targetTemp,
-            originalTemp: result.data.targetOriginal,
-            savings: result.data.savings,
-            reason: result.data.reason,
-            cop: result.data.cop
-          });
-        }
-
-        // Create success timeline entry
-        try {
-          if (this.timelineHelper) {
-            // Prepare additional data for the timeline entry
-            const additionalData: Record<string, any> = {};
-
-            if (result.data && result.data.targetTemp && result.data.targetOriginal) {
-              additionalData.targetTemp = result.data.targetTemp;
-              additionalData.targetOriginal = result.data.targetOriginal;
-            }
-
-            if (result.data && result.data.savings) {
-              additionalData.savings = result.data.savings;
-            }
-
-            // Add any other relevant data
-            if (result.data && result.data.reason) {
-              additionalData.reason = result.data.reason;
-            }
-
-            if (result.data && result.data.cop) {
-              additionalData.cop = result.data.cop;
-            }
-
-            // Create the timeline entry using our standardized helper
-            await this.timelineHelper.addTimelineEntry(
-              TimelineEventType.HOURLY_OPTIMIZATION_RESULT,
-              {}, // No specific details needed
-              false, // Don't create notification for success
-              additionalData
-            );
-          }
-        } catch (timelineErr) {
-          this.logger.error('Failed to create success timeline entry', timelineErr as Error);
-        }
-
-        this.logger.marker('HOURLY OPTIMIZATION COMPLETED SUCCESSFULLY');
-        return result;
-      } else {
-        throw new Error(result.error || 'Unknown error');
-      }
-    } catch (err) {
-      const error = err as Error;
-      this.logger.error('Hourly optimization error', error, {
-        timestamp: new Date().toISOString(),
-        component: 'hourlyOptimizer'
+      // Log optimization details
+      this.logger.optimization('Optimization successful (via Optimizer service)', {
+        targetTemp: resultData.targetTemp,
+        originalTemp: resultData.targetOriginal,
+        savings: resultData.savings,
+        reason: resultData.reason,
+        cop: resultData.cop,
+        thermalModelUsed: !!resultData.thermalModel,
       });
 
-      // Check if we have cached data we can use as fallback
-      try {
-        const lastResult = this.homey.settings.get('last_optimization_result');
-        if (lastResult) {
-          this.logger.warn('Using cached optimization result as fallback', {
-            lastResultTimestamp: lastResult.timestamp || 'unknown',
-            error: error.message
-          });
-
-          // Send notification about the fallback
-          try {
-            if (this.timelineHelper) {
-              await this.timelineHelper.addTimelineEntry(
-                TimelineEventType.HOURLY_OPTIMIZATION_ERROR,
-                {
-                  error: `${error.message}. Using cached settings as fallback.`,
-                  warning: true
-                },
-                true // Create notification for warnings
-              );
-            } else {
-              // Fallback to direct notification
-              await this.homey.notifications.createNotification({
-                excerpt: `HourlyOptimizer error: ${error.message}. Using cached settings as fallback.`
-              });
-            }
-          } catch (notifyErr) {
-            this.logger.error('Failed to send notification', notifyErr as Error);
-          }
-
-          this.logger.marker('HOURLY OPTIMIZATION COMPLETED WITH FALLBACK');
-          return { ...lastResult, fallback: true };
-        }
-      } catch (fallbackErr) {
-        this.logger.error('Failed to use fallback optimization result', fallbackErr as Error);
+      // Create success timeline entry
+      if (this.timelineHelper) {
+        const additionalData: Record<string, any> = {
+          targetTemp: resultData.targetTemp,
+          targetOriginal: resultData.targetOriginal,
+          savings: resultData.savings,
+          reason: resultData.reason,
+          cop: resultData.cop,
+        };
+        await this.timelineHelper.addTimelineEntry(
+          TimelineEventType.HOURLY_OPTIMIZATION_RESULT, {}, false, additionalData
+        ).catch(err => this.logger.error('Failed to create success timeline entry', err));
       }
 
-      // Send notification about the failure
-      try {
+      this.logger.marker('HOURLY OPTIMIZATION COMPLETED SUCCESSFULLY (via appOptimizer service)');
+      return { success: true, data: resultData }; // For API compatibility if anything relies on this structure
+    } catch (err) {
+      const error = err as Error;
+      this.logger.error('Hourly optimization error (via Optimizer service)', error, {
+        timestamp: new Date().toISOString(),
+        component: 'appOptimizer.runHourlyOptimization'
+      });
+
+      // Fallback logic (simplified, as Optimizer might handle some internal fallbacks or not)
+      const lastResult = this.homey.settings.get('last_optimization_result') as OptimizationResult | undefined;
+      if (lastResult) {
+        this.logger.warn('Using cached optimization result as fallback due to Optimizer service error', {
+          lastResultTimestamp: lastResult.timestamp || 'unknown',
+          error: error.message
+        });
         if (this.timelineHelper) {
           await this.timelineHelper.addTimelineEntry(
             TimelineEventType.HOURLY_OPTIMIZATION_ERROR,
-            { error: error.message },
-            true // Create notification for errors
-          );
-        } else {
-          // Fallback to direct notification
-          await this.homey.notifications.createNotification({
-            excerpt: `HourlyOptimizer error: ${error.message}`
-          });
+            { error: `${error.message}. Using cached settings as fallback.`, warning: true }, true
+          ).catch(timelineErr => this.logger.error('Failed to send fallback notification', timelineErr));
         }
-      } catch (notifyErr) {
-        this.logger.error('Failed to send notification', notifyErr as Error);
+        this.logger.marker('HOURLY OPTIMIZATION COMPLETED WITH FALLBACK (after Optimizer service error)');
+        return { success: true, data: lastResult, fallback: true };
       }
 
-      this.logger.marker('HOURLY OPTIMIZATION FAILED');
-      throw error; // Re-throw to propagate the error
+      // Send failure notification
+      if (this.timelineHelper) {
+        await this.timelineHelper.addTimelineEntry(
+          TimelineEventType.HOURLY_OPTIMIZATION_ERROR, { error: error.message }, true
+        ).catch(timelineErr => this.logger.error('Failed to send failure notification', timelineErr));
+      }
+      this.logger.marker('HOURLY OPTIMIZATION FAILED (via appOptimizer service)');
+      throw error; // Re-throw for the API handler to catch if necessary
     }
   }
 
@@ -1049,80 +1108,46 @@ export default class HeatOptimizerApp extends App {
    * Run the weekly calibration process
    */
   public async runWeeklyCalibration() {
-    this.log('Starting weekly calibration');
-    this.log('===== WEEKLY CALIBRATION STARTED =====');
+    this.logger.log('Starting weekly calibration (via Optimizer service)');
+    this.logger.marker('===== WEEKLY CALIBRATION STARTED (via Optimizer service) =====');
+
+    if (!this.appOptimizer) {
+      this.logger.error('Optimizer service not initialized. Cannot run weekly calibration.');
+      this.logger.marker('WEEKLY CALIBRATION FAILED (Optimizer not initialized)');
+      if (this.timelineHelper) {
+        await this.timelineHelper.addTimelineEntry(
+          TimelineEventType.WEEKLY_CALIBRATION_ERROR,
+          { error: 'Optimizer service not initialized.' }, true
+        ).catch(err => this.logger.error('Failed to create error timeline entry', err));
+      }
+      throw new Error('Optimizer service not initialized.');
+    }
 
     try {
-      // Call the API implementation
-      const api = require('../api.js');
-      const result = await api.getRunWeeklyCalibration({ homey: this.homey });
+      const calibrationData = await this.appOptimizer.runWeeklyCalibration();
 
-      if (result.success) {
-        // Create success timeline entry
-        try {
-          if (this.timelineHelper) {
-            // Prepare additional data for the timeline entry
-            const additionalData: Record<string, any> = {};
-
-            if (result.data && result.data.oldK && result.data.newK) {
-              additionalData.oldK = result.data.oldK;
-              additionalData.newK = result.data.newK;
-            }
-
-            if (result.data && result.data.method) {
-              additionalData.method = result.data.method;
-            }
-
-            // Add any other relevant data
-            if (result.data && result.data.newS) {
-              additionalData.newS = result.data.newS;
-            }
-
-            if (result.data && result.data.thermalCharacteristics) {
-              additionalData.thermalCharacteristics = result.data.thermalCharacteristics;
-            }
-
-            // Create the timeline entry using our standardized helper
-            await this.timelineHelper.addTimelineEntry(
-              TimelineEventType.WEEKLY_CALIBRATION_RESULT,
-              {}, // No specific details needed
-              false, // Don't create notification for success
-              additionalData
-            );
-          }
-        } catch (timelineErr) {
-          this.error('Failed to create success timeline entry', timelineErr as Error);
-        }
-
-        this.log('===== WEEKLY CALIBRATION COMPLETED SUCCESSFULLY =====');
-        return result;
-      } else {
-        throw new Error(result.error || 'Unknown error');
+      // Create success timeline entry
+      if (this.timelineHelper) {
+        const additionalData: Record<string, any> = { ...calibrationData };
+        await this.timelineHelper.addTimelineEntry(
+          TimelineEventType.WEEKLY_CALIBRATION_RESULT, {}, false, additionalData
+        ).catch(err => this.logger.error('Failed to create success timeline entry', err));
       }
+
+      this.logger.log('===== WEEKLY CALIBRATION COMPLETED SUCCESSFULLY (via Optimizer service) =====');
+      return { success: true, data: calibrationData }; // For API compatibility
     } catch (err) {
       const error = err as Error;
-      this.error('Weekly calibration error', error);
+      this.logger.error('Weekly calibration error (via Optimizer service)', error);
 
       // Send notification
-      try {
-        if (this.timelineHelper) {
-          await this.timelineHelper.addTimelineEntry(
-            TimelineEventType.WEEKLY_CALIBRATION_ERROR,
-            { error: error.message },
-            true // Create notification for errors
-          );
-        } else {
-          // Fallback to direct notification
-          await this.homey.notifications.createNotification({
-            excerpt: `WeeklyCalibration error: ${error.message}`
-          });
-        }
-      } catch (notifyErr) {
-        this.error('Failed to send notification', notifyErr as Error);
+      if (this.timelineHelper) {
+        await this.timelineHelper.addTimelineEntry(
+          TimelineEventType.WEEKLY_CALIBRATION_ERROR, { error: error.message }, true
+        ).catch(timelineErr => this.logger.error('Failed to send notification', timelineErr));
       }
-
-      this.error('===== WEEKLY CALIBRATION FAILED =====');
-      throw error; // Re-throw to propagate the error
+      this.logger.marker('===== WEEKLY CALIBRATION FAILED (via Optimizer service) =====');
+      throw error; // Re-throw for the API handler
     }
   }
 
@@ -1222,17 +1247,19 @@ export default class HeatOptimizerApp extends App {
       this.cleanupCronJobs();
 
       // Stop thermal model service
-      try {
-        // Get the optimizer instance from the API
-        const api = require('../api.js');
-        if (api.optimizer && api.optimizer.thermalModelService) {
-          this.log('Stopping thermal model service...');
-          api.optimizer.thermalModelService.stop();
-          this.log('Thermal model service stopped');
-        }
-      } catch (thermalModelError) {
-        this.error('Error stopping thermal model service:', thermalModelError as Error);
+      if (this.thermalModelService && typeof this.thermalModelService.stop === 'function') {
+        this.logger.log('Stopping thermal model service...');
+        this.thermalModelService.stop();
+        this.logger.log('Thermal model service stopped');
+      } else {
+        this.logger.warn('Thermal model service not available or stop method missing during uninit.');
       }
+
+      if (this.melcloudApi && typeof this.melcloudApi.cleanup === 'function') {
+        this.logger.log('Cleaning up MelCloud API resources...');
+        this.melcloudApi.cleanup();
+      }
+
 
       // Clean up any other resources
       if (this.copHelper) {
@@ -1264,34 +1291,26 @@ export default class HeatOptimizerApp extends App {
     try {
       // Wait a bit to ensure all services are initialized
       setTimeout(async () => {
-        this.log('Running initial data cleanup to optimize memory usage...');
-
-        try {
-          // Get the optimizer instance from the API
-          const api = require('../api.js');
-
-          // Run thermal data cleanup if available
-          if (api.optimizer && api.optimizer.thermalModelService) {
-            const result = api.optimizer.thermalModelService.forceDataCleanup();
-
+        this.logger.log('Running initial data cleanup to optimize memory usage...');
+        if (this.thermalModelService && typeof this.thermalModelService.forceDataCleanup === 'function') {
+          try {
+            const result = this.thermalModelService.forceDataCleanup();
             if (result.success) {
-              this.log(`Initial data cleanup successful. Memory usage reduced from ${result.memoryUsageBefore}KB to ${result.memoryUsageAfter}KB`);
-
-              // Log memory usage statistics
-              const memoryStats = api.optimizer.thermalModelService.getMemoryUsage();
-              this.log(`Current thermal model data: ${memoryStats.dataPointCount} data points, ${memoryStats.aggregatedDataCount} aggregated points`);
+              this.logger.log(`Initial data cleanup successful. Memory usage reduced from ${result.memoryUsageBefore}KB to ${result.memoryUsageAfter}KB`);
+              const memoryStats = this.thermalModelService.getMemoryUsage();
+              this.logger.log(`Current thermal model data: ${memoryStats.dataPointCount} data points, ${memoryStats.aggregatedDataCount} aggregated points`);
             } else {
-              this.error(`Initial data cleanup failed: ${result.message}`);
+              this.logger.error(`Initial data cleanup failed: ${result.message}`);
             }
-          } else {
-            this.log('Thermal model service not yet available for initial cleanup');
+          } catch (error) {
+            this.logger.error('Error during initial data cleanup:', error as Error);
           }
-        } catch (error) {
-          this.error('Error during initial data cleanup:', error as Error);
+        } else {
+          this.logger.warn('Thermal model service not available for initial cleanup or forceDataCleanup method missing.');
         }
-      }, 2 * 60 * 1000); // Run 2 minutes after startup to ensure all services are initialized
+      }, 2 * 60 * 1000); // Run 2 minutes after startup
     } catch (error) {
-      this.error('Error scheduling initial data cleanup:', error as Error);
+      this.logger.error('Error scheduling initial data cleanup:', error as Error);
     }
   }
 }

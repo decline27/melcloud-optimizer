@@ -54,6 +54,11 @@ export interface OptimizationResult {
     isSummerMode: boolean;
     autoSeasonalMode: boolean;
   };
+  tank?: { // Optional: For devices with tank temperature control
+    targetTemp?: number;
+    originalTargetTemp?: number;
+    reason?: string;
+  };
 }
 
 // MELCloud API types

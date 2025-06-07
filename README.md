@@ -5,14 +5,14 @@ This app connects your Mitsubishi Electric heat pump (via MELCloud) with Homey a
 ## Features
 
 - **Hourly Optimization**: Automatically adjusts your heat pump's target temperature based on current electricity prices
-- **Price-Based Control**: Increases temperature during cheap hours and decreases during expensive hours
-- **Advanced Thermal Learning Model**: Uses a data-driven thermal model that adapts to your home's specific characteristics
-- **Weather Integration**: Incorporates weather data to adjust temperature based on outdoor conditions
-- **Data Persistence**: Thermal model data persists across app reinstallations, ensuring continuous learning
-- **Hot Water Tank Control**: Optimizes hot water tank temperature based on electricity prices
-- **Comfort Profile**: Adjusts temperature based on time of day and sleep patterns
-- **Notifications**: Keeps you informed about temperature changes and price levels
-- **Manual Triggers**: Buttons in the settings page to manually trigger hourly optimization and weekly calibration for testing
+- **Price-Based Control**: Increases temperature during cheap hours and decreases during expensive hours.
+- **Advanced Thermal Learning Model**: Uses a data-driven thermal model that adapts to your home's specific characteristics.
+- **Enhanced Weather Integration**: Incorporates current and forecasted weather (temperature, wind) to dynamically adjust thermal inertia estimates and pre-heating aggressiveness.
+- **Configurable Comfort Profiles**: Allows users to define day/night periods and preferred temperature reductions for night time, including smart pre-heating for day start.
+- **Data Persistence**: Thermal model data persists across app reinstallations, ensuring continuous learning.
+- **Smart Hot Water Tank Optimization**: Optimizes hot water tank temperature based on electricity price levels (CHEAP, NORMAL, EXPENSIVE), using user-defined min/max temperatures.
+- **Notifications**: Keeps you informed about temperature changes and price levels.
+- **Manual Triggers**: Buttons in the settings page to manually trigger hourly optimization and weekly calibration for testing.
 - **Console Logging**: Detailed logs in the terminal for debugging and monitoring
 - **API Integration**: Exposes API endpoints for integration with other apps and services
 
@@ -42,12 +42,13 @@ The app runs on two schedules:
 1. **Hourly Optimization** (every hour at minute 5):
    - Fetches current electricity prices from Tibber
    - Determines the price level (VERY_CHEAP, CHEAP, NORMAL, EXPENSIVE, VERY_EXPENSIVE)
-   - Retrieves weather data for your location
-   - Reads the current indoor and outdoor temperatures from MELCloud
-   - Applies comfort profile adjustments based on time of day
-   - Calculates a new target temperature based on price level, weather, and thermal model
-   - Optimizes hot water tank temperature if enabled
-   - Stores the data in the thermal learning model
+   - Retrieves current and forecasted weather data (temperature, wind, etc.).
+   - Reads the current indoor/outdoor temperatures and setpoints (room & tank) from MELCloud.
+   - Applies **Comfort Profile**: Adjusts the target room temperature based on user-defined day/night schedules, night temperature reduction, and pre-heating for the day period.
+   - Integrates **Weather Data**: Dynamically adjusts the building's effective thermal inertia and the aggressiveness of pre-heating based on current and forecasted outdoor temperature and wind conditions.
+   - Calculates a new target room temperature using the thermal model, considering prices, comfort profile effective target, and weather impacts.
+   - Optimizes **Hot Water Tank Temperature**: If enabled, sets the tank to min/max temperatures during expensive/cheap periods, or a conservative mid-range temperature during normal price periods.
+   - Stores relevant data (temperatures, setpoints, prices, weather) in the thermal learning model.
    - Logs the data for future analysis and creates timeline entries
 
 2. **Weekly Calibration** (Sunday at 2:05 AM):
@@ -85,10 +86,11 @@ The app runs on two schedules:
 - **Temperature Step**: Tank temperature change increment (default: 2°C)
 
 ### Comfort Profile
-- **Day Start Hour**: Hour when day mode begins (default: 7)
-- **Day End Hour**: Hour when night mode begins (default: 23)
-- **Night Temperature Reduction**: Temperature reduction during night hours (default: 2°C)
-- **Pre-Heat Hours**: Hours to start pre-heating before day mode begins (default: 2)
+- **Enable Comfort Profile**: (`comfort_profile_enabled`) Enable or disable the comfort profile feature. (Default: true)
+- **Day Start Hour**: (`comfort_day_start_hour`) The hour when the "day" comfort period begins (0-23). (Default: 7)
+- **Day End Hour**: (`comfort_day_end_hour`) The hour when the "day" comfort period ends (0-23). (Default: 22)
+- **Night Temperature Reduction**: (`comfort_night_temp_reduction`) Degrees (°C) to reduce the target room temperature during the "night" period. (Default: 2°C, Min: 0, Max: 5, Step: 0.5)
+- **Pre-heat Hours**: (`comfort_preheat_hours`) Number of hours before the "day" period starts to begin pre-heating the room to the day target temperature. (Default: 1 hour, Min: 0, Max: 3, Step: 0.5)
 
 ### Weather Settings
 - **Use Weather Data**: Enable/disable weather data integration
@@ -292,10 +294,10 @@ The app now includes a sophisticated thermal learning model that:
 
 ### Hot Water Tank Control
 
-- **Tank Temperature Optimization**: Adjusts hot water tank temperature based on electricity prices
-- **Configurable Settings**: Set minimum and maximum tank temperatures and step size
-- **Price-Based Control**: Increases tank temperature during cheap hours, decreases during expensive hours
-- **Correct API Implementation**: Uses the proper effective flag value (`0x1000000000020`) for tank temperature control
+- **Hot Water Tank Control**: Optimizes hot water tank temperature based on electricity prices.
+- **Configurable Settings**: User can set minimum and maximum desired tank temperatures, and the temperature adjustment step.
+- **Price-Based Control**: Sets tank to max temperature during CHEAP price periods, min temperature during EXPENSIVE periods, and a conservative mid-range during NORMAL price periods.
+- **Correct API Implementation**: Uses the `setDeviceTankTemperature` method with appropriate flags (`EffectiveFlags: 0x1000000000020`) for controlling ATW device tank temperatures.
 
 ### MELCloud API Integration Improvements
 

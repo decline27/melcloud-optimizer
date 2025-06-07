@@ -98,5 +98,8 @@
       "method": "GET",
       "path": "/runThermalDataCleanup"
     }
-  }
+  },
+  "settings": [
+    "settings/comfort.json"
+  ]
 }

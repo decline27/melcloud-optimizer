@@ -337,32 +337,72 @@ export class ThermalModelService {
     outdoorTemp: number,
     weatherForecast: WeatherData,
     comfortProfile: {
+      enabled: boolean; // Added
       dayStart: number;
       dayEnd: number;
       nightTempReduction: number;
       preHeatHours: number;
     }
   ): OptimizationRecommendation {
-    // Note: outdoorTemp, weatherForecast, and comfortProfile parameters are currently not used
-    // but are included for future enhancements and API consistency
-
-    // Prevent unused parameter warnings by referencing them
-    void(outdoorTemp); void(weatherForecast); void(comfortProfile);
+    // Note: outdoorTemp (current device outdoor temp) and weatherForecast (external forecast) are now used.
     try {
       const characteristics = this.analyzer.getThermalCharacteristics();
       const now = DateTime.now();
+      const currentHour = now.hour;
 
-      // Default recommendation
+      let effectiveTargetTemp = targetTemp;
+      const preheatTargetTemp = targetTemp; // Original target is the goal for pre-heating
+      let comfortExplanation = "";
+
+      if (comfortProfile.enabled) {
+        this.homey.log(`Comfort profile enabled: Day ${comfortProfile.dayStart}-${comfortProfile.dayEnd}, Reduction ${comfortProfile.nightTempReduction}°C, PreHeat ${comfortProfile.preHeatHours}h`);
+        let isDayTime = false;
+        if (comfortProfile.dayStart <= comfortProfile.dayEnd) { // Normal day period e.g., 7 to 22
+          isDayTime = currentHour >= comfortProfile.dayStart && currentHour < comfortProfile.dayEnd;
+        } else { // Overnight day period e.g., 22 to 7 (day is 22-23 and 0-6)
+          isDayTime = currentHour >= comfortProfile.dayStart || currentHour < comfortProfile.dayEnd;
+        }
+
+        if (!isDayTime) {
+          effectiveTargetTemp = targetTemp - comfortProfile.nightTempReduction;
+          comfortExplanation = `Night reduction active (target ${effectiveTargetTemp.toFixed(1)}°C). `;
+          this.homey.log(`Comfort profile: Night period. Effective target: ${effectiveTargetTemp}°C (Original: ${targetTemp}°C)`);
+
+          // Check for pre-heating for the upcoming day period
+          const hoursUntilDayStart = (comfortProfile.dayStart - currentHour + 24) % 24;
+          if (comfortProfile.preHeatHours > 0 && hoursUntilDayStart > 0 && hoursUntilDayStart <= comfortProfile.preHeatHours) {
+            // We are in the pre-heat window for the day period
+            // The goal is to reach `preheatTargetTemp` (original targetTemp) by `comfortProfile.dayStart`
+            // The optimization logic below should consider this.
+            // For now, we adjust effectiveTargetTemp if preheating for day is more important than night reduction.
+            // This implies that if we need to preheat for the day, we ignore the night reduction.
+            effectiveTargetTemp = preheatTargetTemp;
+            comfortExplanation = `Pre-heating for day period (target ${preheatTargetTemp.toFixed(1)}°C). `;
+            this.homey.log(`Comfort profile: Pre-heating for day start. Aiming for ${preheatTargetTemp}°C.`);
+          }
+        } else {
+          comfortExplanation = `Day period active (target ${targetTemp.toFixed(1)}°C). `;
+          this.homey.log(`Comfort profile: Day period. Target: ${targetTemp}°C`);
+        }
+      } else {
+        this.homey.log('Comfort profile: Disabled. Using original target temperature.');
+        comfortExplanation = "Comfort profile disabled. ";
+      }
+
+      // Default recommendation - uses effectiveTargetTemp which reflects comfort profile adjustments
       const defaultRecommendation: OptimizationRecommendation = {
-        recommendedTemperature: targetTemp,
+        recommendedTemperature: effectiveTargetTemp,
         recommendedStartTime: now.toISO(),
-        estimatedSavings: 0,
+        estimatedSavings: 0, // Will be calculated later if optimization occurs
         confidence: characteristics.modelConfidence,
-        explanation: "Recommendation based on thermal model with limited data."
+        explanation: comfortProfile.enabled ?
+                       `${comfortExplanation}Maintaining temperature based on comfort profile and current conditions.` :
+                       "Maintaining target temperature based on current conditions (comfort profile disabled)."
       };
 
-      // If model confidence is too low, return default recommendation
+      // If model confidence is too low, return default recommendation (already adjusted for comfort profile)
       if (characteristics.modelConfidence < 0.2) {
+        this.homey.log("Low model confidence, returning default recommendation.");
         return defaultRecommendation;
       }
 
@@ -371,28 +411,52 @@ export class ThermalModelService {
       const cheapPeriods = priceForecasts.filter(p => p.price < avgPrice * 0.8);
       const expensivePeriods = priceForecasts.filter(p => p.price > avgPrice * 1.2);
 
-      // If no price variation, return default
+      // If no price variation, return default (already adjusted for comfort)
       if (cheapPeriods.length === 0 || expensivePeriods.length === 0) {
-        return {
-          ...defaultRecommendation,
-          explanation: "No significant price variations found for optimization."
-        };
+        this.homey.log("No significant price variations, returning default recommendation.");
+        defaultRecommendation.explanation = comfortExplanation + "No significant price variations for optimization.";
+        return defaultRecommendation;
       }
 
       // Calculate thermal inertia (how long the house retains heat)
-      // Based on cooling rate and thermal mass
-      const thermalInertiaHours = (1 / characteristics.coolingRate) * characteristics.thermalMass;
+      // Base calculation using learned characteristics
+      let thermalInertiaHours = (1 / characteristics.coolingRate) * characteristics.thermalMass;
+      let weatherExplanation = ""; // For logging and user messages
+
+      // Dynamically adjust thermal inertia based on current/forecasted weather
+      const currentOutdoorTemp = weatherForecast?.temperature ?? outdoorTemp; // Prioritize forecast temp
+      const currentWindSpeed = weatherForecast?.windSpeed ?? 0;
+
+      if (currentOutdoorTemp < 0) {
+        thermalInertiaHours *= 0.75;
+        weatherExplanation += `Significantly reduced thermal inertia due to very cold conditions (${currentOutdoorTemp.toFixed(1)}°C). `;
+      } else if (currentOutdoorTemp < 10) {
+        thermalInertiaHours *= 0.9;
+        weatherExplanation += `Slightly reduced thermal inertia due to cool conditions (${currentOutdoorTemp.toFixed(1)}°C). `;
+      }
+
+      if (currentWindSpeed > 15) { // m/s
+        thermalInertiaHours *= 0.8;
+        weatherExplanation += `Reduced thermal inertia due to high wind (${currentWindSpeed.toFixed(1)} m/s). `;
+      } else if (currentWindSpeed > 7) {
+        thermalInertiaHours *= 0.9;
+        weatherExplanation += `Slightly reduced thermal inertia due to wind (${currentWindSpeed.toFixed(1)} m/s). `;
+      }
+      if (weatherExplanation) {
+        this.homey.log(`WeatherImpact: ${weatherExplanation} Original inertia: ${((1 / characteristics.coolingRate) * characteristics.thermalMass).toFixed(2)}h, Adjusted: ${thermalInertiaHours.toFixed(2)}h`);
+      }
+
 
       // Find if we're approaching an expensive period
       const upcomingExpensivePeriod = expensivePeriods.find(p =>
         DateTime.fromISO(p.time) > now &&
-        DateTime.fromISO(p.time).diff(now).as('hours') < 6
+        DateTime.fromISO(p.time).diff(now).as('hours') < 6 // Consider expensive periods within the next 6 hours
       );
 
       // Find if we're in a cheap period now
       const inCheapPeriod = cheapPeriods.some(p =>
         DateTime.fromISO(p.time) <= now &&
-        DateTime.fromISO(p.time).plus({ hours: 1 }) > now
+        DateTime.fromISO(p.time).plus({ hours: 1 }) > now // Current hour is within a cheap period
       );
 
       // Find next cheap period
@@ -400,103 +464,143 @@ export class ThermalModelService {
         DateTime.fromISO(p.time) > now
       );
 
-      let recommendation: OptimizationRecommendation;
+      let recommendation: OptimizationRecommendation = { ...defaultRecommendation }; // Start with default
 
       if (inCheapPeriod && upcomingExpensivePeriod) {
-        // We're in a cheap period before an expensive one - pre-heat
-        const preHeatTemp = Math.min(targetTemp + 1.5, targetTemp + (characteristics.thermalMass * 2));
+        // We're in a cheap period before an expensive one - pre-heat.
+        let preHeatBuffer = 1.5; // Default buffer
+        let weatherPreHeatExplanation = "";
+        if (currentOutdoorTemp < 5) { preHeatBuffer += 0.5; weatherPreHeatExplanation += `Colder (${currentOutdoorTemp.toFixed(1)}°C). `; }
+        if (currentWindSpeed > 10) { preHeatBuffer += 0.5; weatherPreHeatExplanation += `Windy (${currentWindSpeed.toFixed(1)}m/s). `; }
+
+        const calculatedPreHeatTemp = Math.min(preheatTargetTemp + preHeatBuffer, preheatTargetTemp + (characteristics.thermalMass * 2.5)); // Max buffer, e.g. thermalMass * 2.5
+
+        let explanation = `${comfortExplanation}${weatherExplanation}Pre-heating to ${calculatedPreHeatTemp.toFixed(1)}°C during cheap electricity (due to ${weatherPreHeatExplanation || 'standard conditions'}) to save during upcoming expensive period.`;
 
         recommendation = {
-          recommendedTemperature: preHeatTemp,
+          recommendedTemperature: calculatedPreHeatTemp,
           recommendedStartTime: now.toISO(),
-          estimatedSavings: this.calculateSavings(targetTemp, preHeatTemp, upcomingExpensivePeriod.price),
+          estimatedSavings: this.calculateSavings(effectiveTargetTemp, calculatedPreHeatTemp, upcomingExpensivePeriod.price),
           confidence: characteristics.modelConfidence,
-          explanation: `Pre-heating to ${preHeatTemp.toFixed(1)}°C during cheap electricity period to save during upcoming expensive period.`
+          explanation: explanation
         };
+        this.homey.log(`PriceLogic: Cheap period before expensive. Pre-heating to ${calculatedPreHeatTemp.toFixed(1)}°C. ${weatherPreHeatExplanation}`);
       } else if (upcomingExpensivePeriod) {
-        // Expensive period coming up - prepare by pre-heating if we have time
+        // Expensive period coming up - prepare by pre-heating if we have time, using dynamicThermalInertiaHours.
         const hoursUntilExpensive = DateTime.fromISO(upcomingExpensivePeriod.time).diff(now).as('hours');
 
-        if (hoursUntilExpensive < thermalInertiaHours) {
-          // We have time to pre-heat
-          const preHeatTemp = Math.min(targetTemp + 1, targetTemp + (characteristics.thermalMass * 1.5));
+        if (hoursUntilExpensive < thermalInertiaHours) { // Use dynamically adjusted inertia
+          let preHeatBuffer = 1.0; // Default buffer
+          let weatherPreHeatExplanation = "";
+          if (currentOutdoorTemp < 5) { preHeatBuffer += 0.5; weatherPreHeatExplanation += `Colder (${currentOutdoorTemp.toFixed(1)}°C). `; }
+          if (currentWindSpeed > 10) { preHeatBuffer += 0.5; weatherPreHeatExplanation += `Windy (${currentWindSpeed.toFixed(1)}m/s). `; }
+
+          const calculatedPreHeatTemp = Math.min(preheatTargetTemp + preHeatBuffer, preheatTargetTemp + (characteristics.thermalMass * 2.0));
+          let explanation = `${comfortExplanation}${weatherExplanation}Pre-heating to ${calculatedPreHeatTemp.toFixed(1)}°C (due to ${weatherPreHeatExplanation || 'standard conditions'}) to prepare for upcoming expensive electricity.`;
 
           recommendation = {
-            recommendedTemperature: preHeatTemp,
+            recommendedTemperature: calculatedPreHeatTemp,
             recommendedStartTime: now.toISO(),
-            estimatedSavings: this.calculateSavings(targetTemp, preHeatTemp, upcomingExpensivePeriod.price),
-            confidence: characteristics.modelConfidence * (hoursUntilExpensive / thermalInertiaHours),
-            explanation: `Pre-heating to ${preHeatTemp.toFixed(1)}°C to prepare for upcoming expensive electricity period.`
+            estimatedSavings: this.calculateSavings(effectiveTargetTemp, calculatedPreHeatTemp, upcomingExpensivePeriod.price),
+            confidence: characteristics.modelConfidence * (hoursUntilExpensive / thermalInertiaHours), // Confidence based on dynamic inertia
+            explanation: explanation
           };
+          this.homey.log(`PriceLogic: Upcoming expensive period. Pre-heating to ${calculatedPreHeatTemp.toFixed(1)}°C. ${weatherPreHeatExplanation} Dynamic Inertia: ${thermalInertiaHours.toFixed(2)}h`);
         } else {
-          // Too far away to pre-heat now
-          // Ensure time is valid before using it
-          let preHeatTime: string = now.toISO();
-
-          if (upcomingExpensivePeriod && typeof upcomingExpensivePeriod.time === 'string') {
-            try {
-              const result = DateTime.fromISO(upcomingExpensivePeriod.time)
-                .minus({ hours: thermalInertiaHours })
-                .toISO();
-              // Ensure we never assign null (TypeScript safety)
-              if (result) {
-                preHeatTime = result;
-              }
-            } catch (err) {
-              this.homey.error('Error calculating preheat time:', err);
-            }
-          }
-
-          recommendation = {
-            ...defaultRecommendation,
-            recommendedStartTime: preHeatTime,
-            explanation: "Maintaining normal temperature now, will pre-heat before expensive period."
-          };
+          // Too far away to pre-heat now for price reasons.
+          recommendation.explanation = `${comfortExplanation}${weatherExplanation}Maintaining temperature. Will pre-heat later if needed for expensive period. Dynamic Inertia: ${thermalInertiaHours.toFixed(2)}h`;
+          this.homey.log(`PriceLogic: Expensive period too far. Using default recommendation logic. Dynamic Inertia: ${thermalInertiaHours.toFixed(2)}h`);
         }
       } else if (nextCheapPeriod) {
-        // Cheap period coming up - consider waiting for heating
+        // Cheap period coming up - consider waiting for heating if it doesn't compromise comfort too much.
         const hoursUntilCheap = DateTime.fromISO(nextCheapPeriod.time).diff(now).as('hours');
 
-        if (hoursUntilCheap < 3 && currentTemp > targetTemp - 1.5) {
-          // Close enough to cheap period and temperature is acceptable
-          const reducedTemp = Math.max(targetTemp - 1, targetTemp - (characteristics.thermalMass * 1.5));
+        // Only reduce if current temp is above the (potentially night-reduced) effectiveTargetTemp minus a small buffer
+        // And if not currently in a pre-heat window for the day start.
+        let canReduceForUpcomingCheap = currentTemp > effectiveTargetTemp - 0.5; // Check against current effective target
+        if (comfortProfile.enabled) {
+            const hoursUntilDayStart = (comfortProfile.dayStart - currentHour + 24) % 24;
+            if (comfortProfile.preHeatHours > 0 && hoursUntilDayStart > 0 && hoursUntilDayStart <= comfortProfile.preHeatHours) {
+                canReduceForUpcomingCheap = false; // Don't reduce if we are pre-heating for day
+            }
+        }
 
-          // Ensure we have a valid time
-          const startTime = typeof nextCheapPeriod.time === 'string' ?
-            nextCheapPeriod.time : now.toISO();
+        if (hoursUntilCheap < 3 && canReduceForUpcomingCheap) {
+          // Reduce temperature slightly, but not below a comfortable minimum or the night-reduced target.
+          const reducedTemp = Math.max(effectiveTargetTemp - 1, effectiveTargetTemp - (characteristics.thermalMass * 0.5), this.homey.app.minComfortTemp || 18); // Ensure a floor
 
           recommendation = {
             recommendedTemperature: reducedTemp,
-            recommendedStartTime: startTime,
-            estimatedSavings: this.calculateSavings(targetTemp, reducedTemp, avgPrice),
+            recommendedStartTime: nextCheapPeriod.time, // Start heating when cheap period begins
+            estimatedSavings: this.calculateSavings(effectiveTargetTemp, reducedTemp, avgPrice), // Savings vs current effective target
             confidence: characteristics.modelConfidence * 0.8,
-            explanation: `Temporarily reducing temperature to ${reducedTemp.toFixed(1)}°C until cheaper electricity period begins.`
+            explanation: `${comfortExplanation}${weatherExplanation}Temporarily reducing to ${reducedTemp.toFixed(1)}°C until cheaper electricity at ${DateTime.fromISO(nextCheapPeriod.time).toFormat('HH:mm')}.`
           };
+          this.homey.log(`PriceLogic: Upcoming cheap period. Reducing to ${reducedTemp.toFixed(1)}°C. ${weatherExplanation}`);
         } else {
-          // Too long to wait or temperature would drop too much
-          recommendation = {
-            ...defaultRecommendation,
-            explanation: "Maintaining target temperature as waiting for cheaper electricity would impact comfort."
-          };
+          // Default recommendation applies (already set).
+          recommendation.explanation = `${comfortExplanation}${weatherExplanation}Maintaining temperature. Waiting for cheaper electricity would impact comfort or is too far.`;
+          this.homey.log(`PriceLogic: Cheap period too far or would impact comfort. Using default recommendation logic. ${weatherExplanation}`);
         }
       } else {
-        // No special price patterns detected
-        recommendation = {
-          ...defaultRecommendation,
-          explanation: "Maintaining target temperature based on current conditions."
-        };
+        // No special price patterns. Default recommendation applies.
+        recommendation.explanation = `${comfortExplanation}${weatherExplanation}Maintaining temperature based on current conditions.`;
+        this.homey.log(`PriceLogic: No specific price patterns. Using default recommendation logic. ${weatherExplanation}`);
+      }
+
+      // Final check: if comfort profile demands pre-heating for day, and price logic decided lower, override.
+      // This pre-heating for day start should also consider weather for its aggressiveness if needed,
+      // but for now, it simply ensures the target is met.
+      if (comfortProfile.enabled) {
+        let isDayTime = false;
+        if (comfortProfile.dayStart <= comfortProfile.dayEnd) { isDayTime = currentHour >= comfortProfile.dayStart && currentHour < comfortProfile.dayEnd; }
+        else { isDayTime = currentHour >= comfortProfile.dayStart || currentHour < comfortProfile.dayEnd; }
+
+        const hoursUntilDayStart = (comfortProfile.dayStart - currentHour + 24) % 24;
+        if (!isDayTime && comfortProfile.preHeatHours > 0 && hoursUntilDayStart > 0 && hoursUntilDayStart <= comfortProfile.preHeatHours) {
+          // Determine if weather conditions warrant a more aggressive pre-heat to reach dayTarget by dayStart
+          let dayPreHeatTarget = preheatTargetTemp;
+          let weatherDayPreHeatExplanation = "";
+          if (currentOutdoorTemp < 2) { // More aggressive if very cold for day pre-heat
+            dayPreHeatTarget += 0.5;
+            weatherDayPreHeatExplanation += `More aggressive day pre-heat due to very cold (${currentOutdoorTemp.toFixed(1)}°C). `;
+          }
+          if (currentWindSpeed > 12) {
+             dayPreHeatTarget += 0.5;
+             weatherDayPreHeatExplanation += `More aggressive day pre-heat due to high wind (${currentWindSpeed.toFixed(1)}m/s). `;
+          }
+          dayPreHeatTarget = Math.min(dayPreHeatTarget, preheatTargetTemp + 1.5); // Cap day pre-heat adjustment
+
+
+          if (recommendation.recommendedTemperature < dayPreHeatTarget) {
+            this.homey.log(`OVERRIDE: Comfort pre-heat for day start. Setting to ${dayPreHeatTarget.toFixed(1)}°C from ${recommendation.recommendedTemperature.toFixed(1)}°C. ${weatherDayPreHeatExplanation}`);
+            recommendation.recommendedTemperature = dayPreHeatTarget;
+            recommendation.explanation = `${comfortExplanation}${weatherExplanation}${weatherDayPreHeatExplanation}Pre-heating to ${dayPreHeatTarget.toFixed(1)}°C for upcoming day period, overriding other optimizations.`;
+            recommendation.estimatedSavings = 0;
+          }
+        }
+      }
+
+      // Ensure final recommended temperature is within global min/max if defined in Homey App settings
+      if (this.homey.app.minDeviceTemp && recommendation.recommendedTemperature < this.homey.app.minDeviceTemp) {
+        recommendation.recommendedTemperature = this.homey.app.minDeviceTemp;
+      }
+      if (this.homey.app.maxDeviceTemp && recommendation.recommendedTemperature > this.homey.app.maxDeviceTemp) {
+        recommendation.recommendedTemperature = this.homey.app.maxDeviceTemp;
       }
 
       return recommendation;
 
     } catch (error) {
       this.homey.error('Error generating heating recommendation:', error);
+      // Fallback uses original targetTemp if comfortProfile is not available or parsing fails
+      const fallbackTemp = comfortProfile && comfortProfile.enabled === false ? targetTemp : (comfortProfile ? targetTemp - (comfortProfile.nightTempReduction ?? 0) : targetTemp);
       return {
-        recommendedTemperature: targetTemp,
+        recommendedTemperature: fallbackTemp,
         recommendedStartTime: DateTime.now().toISO(),
         estimatedSavings: 0,
         confidence: 0,
-        explanation: "Error generating recommendation, using default settings."
+        explanation: "Error generating recommendation, using default settings adjusted for comfort profile if possible."
       };
     }
   }

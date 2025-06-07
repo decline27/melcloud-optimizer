@@ -1,14 +1,7 @@
 import * as https from 'https';
 import { URL } from 'url';
-import { Logger } from '../util/logger';
-import { DeviceInfo, MelCloudDevice, HomeySettings } from '../types';
+import { DeviceInfo, MelCloudDevice, HomeySettings, HomeyLogger } from '../types'; // Use HomeyLogger
 import { ErrorHandler, AppError, ErrorCategory } from '../util/error-handler';
-
-// Add global declaration for homeySettings and logger
-declare global {
-  var homeySettings: HomeySettings;
-  var logger: Logger;
-}
 
 /**
  * MELCloud API Service
@@ -19,7 +12,8 @@ export class MelCloudApi {
   private baseUrl = 'https://app.melcloud.com/Mitsubishi.Wifi.Client/';
   private contextKey: string | null = null;
   private devices: any[] = [];
-  private logger: Logger;
+  private logger: HomeyLogger; // Use HomeyLogger type
+  private settings: HomeySettings; // Store settings
   private lastApiCallTime: number = 0;
   private minApiCallInterval: number = 2000; // 2 seconds minimum between calls
   private cache: Map<string, { data: any; timestamp: number }> = new Map();
@@ -32,39 +26,16 @@ export class MelCloudApi {
 
   /**
    * Constructor
-   * @param logger Logger instance
+   * @param logger HomeyLogger instance
+   * @param settings HomeySettings instance (or a simplified getter for credentials)
    */
-  constructor(logger?: Logger) {
-    // Use the provided logger or try to get the global logger
-    if (logger) {
-      this.logger = logger;
-    } else if (global.logger) {
-      this.logger = global.logger;
-    } else {
-      // Create a default console logger if none provided (for tests)
-      this.logger = {
-        log: (message: string, ...args: any[]) => console.log(message, ...args),
-        info: (message: string, ...args: any[]) => console.log(`INFO: ${message}`, ...args),
-        error: (message: string, error?: Error | unknown, context?: Record<string, any>) => console.error(message, error, context),
-        debug: (message: string, ...args: any[]) => console.debug(message, ...args),
-        warn: (message: string, context?: Record<string, any>) => console.warn(message, context),
-        api: (message: string, context?: Record<string, any>) => console.log(`API: ${message}`, context),
-        optimization: (message: string, context?: Record<string, any>) => console.log(`OPTIMIZATION: ${message}`, context),
-        notify: async (message: string) => Promise.resolve(),
-        marker: (message: string) => console.log(`===== ${message} =====`),
-        sendToTimeline: async (message: string, type?: 'info' | 'warning' | 'error') => Promise.resolve(),
-        setLogLevel: () => {},
-        setTimelineLogging: () => {},
-        getLogLevel: () => 1, // INFO level
-        enableCategory: () => {},
-        disableCategory: () => {},
-        isCategoryEnabled: () => true,
-        formatValue: (value: any) => typeof value === 'object' ? JSON.stringify(value) : String(value)
-      };
-    }
+  constructor(logger: HomeyLogger, settings: HomeySettings) {
+    this.logger = logger;
+    this.settings = settings; // Store settings
 
     // Initialize error handler
-    this.errorHandler = new ErrorHandler(this.logger);
+    this.errorHandler = new ErrorHandler(this.logger as any); // Cast for now if Logger and HomeyLogger are not identical
+    this.logger.log?.('MelCloudApi initialized with provided logger and settings.');
   }
 
   /**
@@ -199,12 +170,13 @@ export class MelCloudApi {
     this.reconnectAttempts++;
 
     try {
-      // Get credentials from global settings
-      const email = global.homeySettings?.get('melcloud_user');
-      const password = global.homeySettings?.get('melcloud_pass');
+      // Get credentials from instance settings
+      const email = this.settings.get('melcloud_user');
+      const password = this.settings.get('melcloud_pass');
 
       if (!email || !password) {
-        throw new Error('MELCloud credentials not available');
+        this.logger.error?.('MELCloud credentials (melcloud_user, melcloud_pass) not found in settings.');
+        throw new Error('MELCloud credentials not available in settings');
       }
 
       this.logger.log(`Attempting to reconnect to MELCloud (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
@@ -664,6 +636,109 @@ export class MelCloudApi {
     this.reconnectAttempts = 0;
     this.contextKey = null;
   }
+
+  /**
+   * Set device hot water tank temperature
+   * @param deviceId Device ID
+   * @param buildingId Building ID
+   * @param temperature Target tank temperature
+   * @returns Promise resolving to success
+   */
+  async setDeviceTankTemperature(deviceId: string, buildingId: number, temperature: number): Promise<boolean> {
+    try {
+      if (!this.contextKey) {
+        const connected = await this.ensureConnected();
+        if (!connected) {
+          throw new Error('Not logged in to MELCloud for setDeviceTankTemperature');
+        }
+      }
+
+      this.logger.log(`Setting tank temperature for device ${deviceId} to ${temperature}°C`);
+
+      try {
+        // First get current state to ensure device supports tank temp and to have a base state
+        const currentState = await this.getDeviceState(deviceId, buildingId);
+
+        if (currentState.SetTankWaterTemperature === undefined) {
+          this.logger.error(`Device ${deviceId} does not support tank temperature control (SetTankWaterTemperature is undefined).`);
+          return false;
+        }
+
+        // Create a new state object based on current state to modify
+        // Important: MELCloud API expects many fields. Start with a full state.
+        const newState = { ...currentState };
+
+        newState.SetTankWaterTemperature = temperature;
+        // EffectiveFlags are crucial for ATW (Air To Water) devices.
+        // 0x1000000000020 seems to be a common value for tank temperature changes for some models.
+        // This might need adjustment based on specific device type or API version.
+        // Bitmask: Bit 5 (0x20) for Tank Water Temperature. Bit 36 (0x1000000000000) might indicate a specific command type or source.
+        // For safety, if EffectiveFlags already has bits set for other purposes, they should be preserved.
+        // However, for a targeted tank temp set, this specific flag combination is often used.
+        // A more robust approach might involve reading device capabilities to form flags,
+        // but this is a common value found in community observations.
+        newState.EffectiveFlags = 0x1000000000020; // This flag signals to change Tank Water Temperature
+        newState.HasPendingCommand = true; // Signal that there's a command to execute
+        newState.Power = true; // Ensure device is on, required for some operations
+
+        this.logApiCall('POST', 'Device/SetAtw', { deviceId, temperature, flags: newState.EffectiveFlags });
+
+        // Send update with retry. Endpoint for ATW devices is SetAtw
+        const data = await this.retryableRequest(
+          () => this.throttledApiCall<any>('POST', 'Device/SetAtw', { // Use SetAtw endpoint
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(newState), // Send the modified full state
+          })
+        );
+
+        // Response for SetAtw might be different from SetAta.
+        // Often, a successful SetAtw returns the updated device state or a simple success indicator.
+        // Assuming 'data' itself being non-null and not having ErrorId indicates success.
+        const success = data && data.ErrorId === undefined && data.ErrorMessage === undefined;
+
+
+        if (success) {
+          this.logger.log(`Successfully set tank temperature for device ${deviceId} to ${temperature}°C`);
+          // Update local cache of device state if SetAtw returns the new state
+          if(typeof data === 'object' && data !== null && data.DeviceID === deviceId) {
+             this.setCachedData(`device_state_${deviceId}_${buildingId}`, data);
+          } else {
+            // Invalidate cache for this device as its state has changed
+             this.cache.delete(`device_state_${deviceId}_${buildingId}`);
+          }
+        } else {
+          this.logger.error(`Failed to set tank temperature for device ${deviceId}. Response: ${JSON.stringify(data)}`);
+        }
+
+        return success;
+      } catch (error) {
+        const appError = this.createApiError(error, {
+          operation: 'setDeviceTankTemperature',
+          deviceId,
+          buildingId,
+          temperature
+        });
+
+        if (appError.category === ErrorCategory.AUTHENTICATION) {
+          this.logger.warn(`Authentication error in MELCloud setDeviceTankTemperature for device ${deviceId}, attempting to reconnect`);
+          await this.ensureConnected(); // Attempt to re-login
+        }
+        this.errorHandler.logError(appError);
+        throw appError;
+      }
+    } catch (error) {
+      if (error instanceof AppError) { throw error; }
+      const appError = this.createApiError(error, {
+        operation: 'setDeviceTankTemperature',
+        deviceId, buildingId, temperature, outerCatch: true
+      });
+      this.errorHandler.logError(appError);
+      throw appError;
+    }
+  }
+
 
   /**
    * Set device temperature

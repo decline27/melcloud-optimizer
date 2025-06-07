@@ -1,45 +1,66 @@
-The hourly optimization algorithm adjusts heat pump temperatures based on electricity prices and a thermal learning model:
+The hourly optimization algorithm adjusts heat pump temperatures based on electricity prices, a thermal learning model, user-defined comfort profiles, and current/forecasted weather conditions. This process is primarily managed by the `Optimizer` service, which utilizes the `ThermalModelService`, `MelCloudApi`, `TibberApi`, and `WeatherApi`.
 
-1. Data Collection:
-   - Fetches current electricity prices from Tibber
-   - Gets current indoor temperature from MELCloud
-   - Retrieves current target temperatures (Zone1, Zone2, and tank) from heat pump
-   - Calculates price statistics (current, average, min, max)
-   - Retrieves weather data from Met.no API
-   - Considers time of day for comfort profile adjustments
+1.  **Data Collection & Preparation:**
+    *   Fetches current device state from MELCloud (`MelCloudApi`), including indoor temperatures, current setpoints (room and tank), and outdoor temperature.
+    *   Retrieves current and upcoming electricity prices from Tibber (`TibberApi`). This includes current price and a forecast for the next hours.
+    *   Calculates price statistics (average, min, max for the forecast period).
+    *   Fetches current weather conditions and forecast (if available) from a weather service (`WeatherApi`). This includes temperature, wind speed, humidity, etc.
+    *   Loads user-configured settings, including temperature constraints, COP parameters, comfort profile settings, and tank control settings.
 
-2. Zone1 Temperature Calculation:
-   - Normalizes price between 0 and 1: (currentPrice - minPrice) / (maxPrice - minPrice)
-   - Inverts normalized price (1 - normalizedPrice) so lower prices = higher temperatures
-   - Uses temperature constraints (minTemp=19°C, maxTemp=21°C, step=1°C)
-   - Calculates target temperature:
-     midTemp + (invertedPrice - 0.5) * tempRange
-   - Applies K-factor from thermal learning model to adjust responsiveness
-   - Applies weather adjustment based on outdoor conditions
-   - Applies comfort profile adjustments based on time of day
-   - Limits temperature change to the configured step size
-   - Rounds to nearest supported increment (MELCloud supports 0.5°C increments)
+2.  **Comfort Profile Application (`ThermalModelService` & `Optimizer`):**
+    *   If the **Comfort Profile** is enabled (`comfort_profile_enabled`):
+        *   The system determines if the current time falls into the "day" or "night" period based on `comfort_day_start_hour` and `comfort_day_end_hour`. This handles normal (e.g., 07:00-22:00) and overnight (e.g., 22:00-07:00) day definitions.
+        *   **Night Time Adjustment:** If it's currently "night," the primary `targetTemp` (user's desired day temperature) is effectively reduced by `comfort_night_temp_reduction` degrees. This becomes the `effectiveTargetTemp` for the heating recommendation logic.
+        *   **Day Start Pre-heating:** If `comfort_preheat_hours` is greater than zero, the system checks if the current time is within this pre-heating window before `comfort_day_start_hour`.
+            *   If inside the pre-heat window, the `effectiveTargetTemp` is restored to the original `targetTemp` (overriding any night reduction) to ensure the home is warm by the start of the day period.
+            *   The aggressiveness of this pre-heating can also be influenced by current weather conditions (see Weather Integration).
+    *   If the Comfort Profile is disabled, the `effectiveTargetTemp` remains the user's main `targetTemp`.
 
-3. Zone2 Temperature Calculation (if enabled):
-   - Uses the same algorithm as Zone1 but with Zone2-specific constraints
-   - Only applied if the device supports Zone2 and it's enabled in settings
+3.  **Weather Integration (`ThermalModelService` & `Optimizer`):**
+    *   Current outdoor temperature (from device sensor) and forecasted weather (`weatherForecast` from `WeatherApi` - temperature, wind speed) are used to make the optimization more adaptive.
+    *   **Dynamic Thermal Inertia:** The building's learned thermal inertia (how long it retains heat, derived from `coolingRate` and `thermalMass` by `ThermalAnalyzer`) is dynamically adjusted.
+        *   Very cold forecasted temperatures or high wind speeds will reduce the *effective* thermal inertia, meaning the system assumes the house will lose heat faster. This can influence decisions like whether to pre-heat before an expensive period (a shorter effective inertia might mean pre-heating is less effective or needs to start earlier/be more aggressive).
+    *   **Pre-heating Aggressiveness:** When the system decides to pre-heat (either for comfort day start or before an expensive price period):
+        *   The target pre-heat temperature buffer (how much above the target to heat) can be increased if the forecasted outdoor temperature is low or wind speed is high. This helps ensure the desired temperature is reached and maintained despite adverse conditions.
+    *   Weather conditions are logged and included in the `explanation` of the heating recommendation if they significantly influence the decision.
 
-4. Tank Temperature Calculation (if enabled):
-   - Uses a simplified algorithm based on price levels
-   - Sets tank temperature to minimum when prices are high (EXPENSIVE, VERY_EXPENSIVE)
-   - Sets tank temperature to maximum when prices are low (CHEAP, VERY_CHEAP)
-   - Uses medium temperature for normal prices (NORMAL)
-   - Uses tank-specific temperature constraints (default: min=41°C, max=53°C, step=2°C)
+4.  **Room Temperature Optimization (Zone1 - `ThermalModelService` & `Optimizer`):**
+    *   The core recommendation for room temperature is generated by `ThermalModelService.getHeatingRecommendation`, considering:
+        *   Electricity price forecasts (`priceForecasts`).
+        *   The `effectiveTargetTemp` (adjusted by comfort profile).
+        *   Current indoor temperature.
+        *   Outdoor temperature and weather forecast (for dynamic adjustments as described above).
+        *   Learned thermal characteristics of the building (`heatingRate`, `coolingRate`, `thermalMass`, etc., from `ThermalAnalyzer`).
+    *   The logic aims to:
+        *   Pre-heat during cheap periods if an expensive period is upcoming, using the dynamically adjusted thermal inertia and weather-adjusted pre-heat buffer.
+        *   Potentially reduce heating if an expensive period is active and current temperature allows, or if a cheap period is imminent (while respecting comfort profile's effective target).
+        *   Maintain `effectiveTargetTemp` if no strong price signals or if model confidence is low.
+    *   The final `recommendedTemperature` from `ThermalModelService` is then further constrained by the `Optimizer`:
+        *   Clamped by user-defined `minTemp` and `maxTemp`.
+        *   Change from current setpoint is limited by `tempStep` to avoid drastic changes (unless a large jump is needed for specific price events and comfort pre-heating).
+        *   Rounded to the nearest supported increment (e.g., 0.5°C for MELCloud).
+    *   COP (Coefficient of Performance) data, if available and `copWeight > 0`, can also influence the target temperature calculated by the basic price algorithm (fallback in `Optimizer`). Higher COP might lead to slightly higher target temperatures during favorable price conditions.
 
-5. Optimization Decision:
-   - Compares new targets with current temperatures
-   - Considers price trend for the next hours
-   - Provides recommendation based on current and upcoming prices
-   - Only changes temperatures if differences are significant
+5.  **Zone2 Temperature Calculation (if applicable):**
+    *   If Zone2 is enabled and supported, its temperature is typically controlled by MELCloud's own linking with Zone1 or a separate simpler algorithm, not detailed here as primary focus is Zone1. (Note: The current implementation primarily focuses on Zone1 optimization via `Optimizer` service).
 
-6. Data Storage:
-   - Stores optimization result in thermal model data
-   - Persists data to survive app reinstallations
-   - Includes metrics like indoor/outdoor temperature, prices, weather conditions
-   - Logs to Homey timeline for user visibility
-   - Creates detailed timeline entries with optimization results
+6.  **Tank Temperature Optimization (`Optimizer`):**
+    *   Active if `enable_tank_control` is true in settings and the device reports `SetTankWaterTemperature`.
+    *   The target tank temperature is determined based on the current electricity price level relative to the day's average (or using Tibber's price levels if available, e.g., CHEAP, NORMAL, EXPENSIVE).
+        *   **CHEAP price:** Aims to set tank temperature to `max_tank_temp`.
+        *   **EXPENSIVE price:** Aims to set tank temperature to `min_tank_temp`.
+        *   **NORMAL price:** Aims for a conservative temperature (e.g., `min_tank_temp` plus one `tank_temp_step`) or maintains the current temperature if it's already in an acceptable mid-range, to save energy.
+    *   The change is applied respecting `tank_temp_step` for gradual adjustments during NORMAL price periods.
+    *   The final target is clamped between `min_tank_temp` and `max_tank_temp`.
+    *   The `MelCloudApi.setDeviceTankTemperature` method is called if the new target differs from the current one.
+
+7.  **Applying Changes & Reporting:**
+    *   If the newly calculated and constrained room target temperature for Zone1 differs from the current setpoint, `MelCloudApi.setDeviceTemperature` is called.
+    *   If the new tank target temperature differs, `MelCloudApi.setDeviceTankTemperature` is called.
+    *   The outcome of the optimization (new targets, reasons, price info, savings estimates, etc.) is compiled into an `OptimizationResult` object.
+    *   This result is logged, and key details are sent to the Homey timeline for user visibility.
+
+8.  **Data Storage & Learning (`ThermalModelService` & `Optimizer`):**
+    *   Relevant data from the optimization cycle (temperatures, setpoints, weather, energy prices, heating state) is collected as a `ThermalDataPoint`.
+    *   This data point is passed to `ThermalModelService`, which uses its `ThermalDataCollector` to store it.
+    *   Periodically (e.g., via `runWeeklyCalibration`), the `ThermalAnalyzer` within `ThermalModelService` updates the building's thermal model characteristics using the collected data, improving future predictions.

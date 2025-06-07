@@ -31,6 +31,19 @@ export class Optimizer {
   private autoSeasonalMode: boolean = true;
   private summerMode: boolean = false;
 
+  // Comfort profile settings
+  private comfortProfileEnabled: boolean = true;
+  private comfortDayStartHour: number = 7;
+  private comfortDayEndHour: number = 22;
+  private comfortNightTempReduction: number = 2;
+  private comfortPreHeatHours: number = 1;
+
+  // Tank control settings
+  private enableTankControl: boolean = false;
+  private minTankTemp: number = 40;
+  private maxTankTemp: number = 55;
+  private tankTempStep: number = 1;
+
   /**
    * Constructor
    * @param melCloud MELCloud API instance
@@ -77,7 +90,97 @@ export class Optimizer {
         this.logger.error('Failed to initialize COP helper:', error);
         this.copHelper = null;
       }
+
+      // Load comfort profile settings
+      try {
+        this.comfortProfileEnabled = homey.settings.get('comfort_profile_enabled') ?? true;
+        this.comfortDayStartHour = homey.settings.get('comfort_day_start_hour') ?? 7;
+        this.comfortDayEndHour = homey.settings.get('comfort_day_end_hour') ?? 22;
+        this.comfortNightTempReduction = homey.settings.get('comfort_night_temp_reduction') ?? 2;
+        this.comfortPreHeatHours = homey.settings.get('comfort_preheat_hours') ?? 1;
+        this.logger.log(`Comfort profile settings loaded - Enabled: ${this.comfortProfileEnabled}, DayStart: ${this.comfortDayStartHour}, DayEnd: ${this.comfortDayEndHour}, NightReduction: ${this.comfortNightTempReduction}, PreHeat: ${this.comfortPreHeatHours}`);
+      } catch (error) {
+        this.logger.error('Failed to load comfort profile settings:', error);
+      }
+
+      // Load tank control settings
+      try {
+        this.enableTankControl = homey.settings.get('enable_tank_control') ?? false;
+        this.minTankTemp = homey.settings.get('min_tank_temp') ?? 40;
+        this.maxTankTemp = homey.settings.get('max_tank_temp') ?? 55;
+        this.tankTempStep = homey.settings.get('tank_temp_step') ?? 1; // Assuming a setting for this, or default to 1
+        this.logger.log(`Tank control settings loaded - Enabled: ${this.enableTankControl}, Min: ${this.minTankTemp}, Max: ${this.maxTankTemp}, Step: ${this.tankTempStep}`);
+      } catch (error) {
+        this.logger.error('Failed to load tank control settings:', error);
+      }
     }
+  }
+
+  /**
+   * Set tank temperature constraints and control status
+   * @param enable Whether tank control is enabled
+   * @param minTemp Minimum tank temperature
+   * @param maxTemp Maximum tank temperature
+   * @param tempStep Tank temperature step
+   * @throws Error if validation fails
+   */
+  public setTankTemperatureConstraints(enable: boolean, minTemp: number, maxTemp: number, tempStep: number): void {
+    this.enableTankControl = validateBoolean(enable, 'enableTankControl');
+    this.minTankTemp = validateNumber(minTemp, 'minTankTemp', { min: 30, max: 70 }); // Example validation range
+    this.maxTankTemp = validateNumber(maxTemp, 'maxTankTemp', { min: 30, max: 70 });
+    this.tankTempStep = validateNumber(tempStep, 'tankTempStep', { min: 1, max: 5 });
+
+    if (this.maxTankTemp <= this.minTankTemp) {
+      throw new Error(`Invalid tank temperature range: maxTankTemp (${maxTemp}) must be greater than minTankTemp (${minTemp})`);
+    }
+
+    if (this.homey) {
+      try {
+        this.homey.settings.set('enable_tank_control', this.enableTankControl);
+        this.homey.settings.set('min_tank_temp', this.minTankTemp);
+        this.homey.settings.set('max_tank_temp', this.maxTankTemp);
+        this.homey.settings.set('tank_temp_step', this.tankTempStep);
+      } catch (error) {
+        this.logger.error('Failed to save tank temperature settings to Homey settings:', error);
+      }
+    }
+    this.logger.log(`Tank temperature constraints updated - Enabled: ${this.enableTankControl}, Min: ${this.minTankTemp}°C, Max: ${this.maxTankTemp}°C, Step: ${this.tankTempStep}°C`);
+  }
+
+  /**
+   * Set comfort profile settings
+   * @param enabled Whether comfort profile is enabled
+   * @param dayStartHour Hour when 'day' comfort period begins
+   * @param dayEndHour Hour when 'day' comfort period ends
+   * @param nightTempReduction Degrees to reduce target temperature during 'night' period
+   * @param preHeatHours Hours before 'day' period starts to begin pre-heating
+   * @throws Error if validation fails
+   */
+  public setComfortProfileSettings(
+    enabled: boolean,
+    dayStartHour: number,
+    dayEndHour: number,
+    nightTempReduction: number,
+    preHeatHours: number
+  ): void {
+    this.comfortProfileEnabled = validateBoolean(enabled, 'comfortProfileEnabled');
+    this.comfortDayStartHour = validateNumber(dayStartHour, 'comfortDayStartHour', { min: 0, max: 23 });
+    this.comfortDayEndHour = validateNumber(dayEndHour, 'comfortDayEndHour', { min: 0, max: 23 });
+    this.comfortNightTempReduction = validateNumber(nightTempReduction, 'comfortNightTempReduction', { min: 0, max: 5, step: 0.5 });
+    this.comfortPreHeatHours = validateNumber(preHeatHours, 'comfortPreHeatHours', { min: 0, max: 3, step: 0.5 });
+
+    if (this.homey) {
+      try {
+        this.homey.settings.set('comfort_profile_enabled', this.comfortProfileEnabled);
+        this.homey.settings.set('comfort_day_start_hour', this.comfortDayStartHour);
+        this.homey.settings.set('comfort_day_end_hour', this.comfortDayEndHour);
+        this.homey.settings.set('comfort_night_temp_reduction', this.comfortNightTempReduction);
+        this.homey.settings.set('comfort_preheat_hours', this.comfortPreHeatHours);
+      } catch (error) {
+        this.logger.error('Failed to save comfort profile settings to Homey settings:', error);
+      }
+    }
+    this.logger.log(`Comfort profile settings updated - Enabled: ${this.comfortProfileEnabled}, DayStart: ${this.comfortDayStartHour}, DayEnd: ${this.comfortDayEndHour}, NightReduction: ${this.comfortNightTempReduction}, PreHeat: ${this.comfortPreHeatHours}`);
   }
 
   /**
@@ -258,10 +361,11 @@ export class Optimizer {
         try {
           // Get comfort profile (if available)
           const comfortProfile = {
-            dayStart: 7,
-            dayEnd: 23,
-            nightTempReduction: 2,
-            preHeatHours: 2
+            enabled: this.comfortProfileEnabled,
+            dayStart: this.comfortDayStartHour,
+            dayEnd: this.comfortDayEndHour,
+            nightTempReduction: this.comfortNightTempReduction,
+            preHeatHours: this.comfortPreHeatHours
           };
 
           // Get thermal model recommendation
@@ -372,6 +476,94 @@ export class Optimizer {
         }
       }
 
+      // Tank Temperature Optimization
+      let tankOptimizationResult: OptimizationResult['tank'] = undefined;
+      if (this.enableTankControl && deviceState.SetTankWaterTemperature !== undefined) {
+        const currentTankTarget = deviceState.SetTankWaterTemperature;
+        let newTankTarget = currentTankTarget;
+        let tankReason = `Keeping tank temperature at ${currentTankTarget}°C.`;
+
+        // Determine target based on price level (assuming priceData.current has a 'level' like CHEAP, NORMAL, EXPENSIVE)
+        // This part needs TibberApi to provide price levels. For now, let's use a placeholder based on price vs avg.
+        const priceLevel = priceData.current.price < priceAvg * 0.8 ? 'CHEAP' :
+                           priceData.current.price > priceAvg * 1.2 ? 'EXPENSIVE' : 'NORMAL';
+
+        this.logger.log(`Tank Opt: Current Target: ${currentTankTarget}°C, Price Level: ${priceLevel}`);
+
+        if (priceLevel === 'CHEAP') {
+          newTankTarget = this.maxTankTemp;
+          tankReason = `Price is CHEAP, setting tank to MAX: ${newTankTarget}°C.`;
+        } else if (priceLevel === 'EXPENSIVE') {
+          newTankTarget = this.minTankTemp;
+          tankReason = `Price is EXPENSIVE, setting tank to MIN: ${newTankTarget}°C.`;
+        } else { // NORMAL price
+          // Aim for a mid-range temperature, or a user-defined 'normal' tank temp if available
+          // For now, let's keep it simple: if it's normal, maybe we just leave it or aim for a mid point.
+          // Let's try to keep it closer to minTankTemp to save energy unless cheap.
+          const normalTarget = this.minTankTemp + this.tankTempStep; // e.g. min + one step
+          if (currentTankTarget > normalTarget + this.tankTempStep) { // Only adjust if significantly higher than normal target
+             newTankTarget = normalTarget;
+             tankReason = `Price is NORMAL, adjusting tank to a conservative ${newTankTarget}°C.`;
+          } else if (currentTankTarget < this.minTankTemp) {
+             newTankTarget = this.minTankTemp; // Ensure it's at least min
+             tankReason = `Price is NORMAL, ensuring tank is at least MIN: ${newTankTarget}°C.`;
+          } else {
+            // Keep current if it's already in a reasonable normal range
+            newTankTarget = currentTankTarget;
+            tankReason = `Price is NORMAL, tank temperature ${currentTankTarget}°C is acceptable.`;
+          }
+        }
+
+        // Apply step logic if not jumping to absolute min/max due to CHEAP/EXPENSIVE
+        if (priceLevel === 'NORMAL') {
+            if (Math.abs(newTankTarget - currentTankTarget) > this.tankTempStep * 1.5) { // Allow slightly larger jump for normal adjustments
+                 newTankTarget = currentTankTarget + (newTankTarget > currentTankTarget ? this.tankTempStep : -this.tankTempStep);
+                 // Re-evaluate reason if stepped
+                 tankReason = `Price is NORMAL, stepping tank temperature towards ${newTankTarget > currentTankTarget ? 'higher' : 'lower'} setpoint: ${newTankTarget}°C.`;
+            }
+        }
+
+
+        // Round to nearest step (already done by direct set to min/max or step adjustments)
+        // newTankTarget = Math.round(newTankTarget / this.tankTempStep) * this.tankTempStep; // Might not be needed if logic above handles steps
+
+        // Clamp
+        newTankTarget = Math.max(this.minTankTemp, Math.min(this.maxTankTemp, newTankTarget));
+
+        this.logger.log(`Tank Opt: Calculated New Target: ${newTankTarget}°C (before step check for NORMAL)`);
+
+
+        if (newTankTarget !== currentTankTarget) {
+          try {
+            await this.melCloud.setDeviceTankTemperature(this.deviceId, this.buildingId, newTankTarget);
+            this.logger.log(`Tank temperature changed from ${currentTankTarget}°C to ${newTankTarget}°C: ${tankReason}`);
+            tankOptimizationResult = {
+              targetTemp: newTankTarget,
+              originalTargetTemp: currentTankTarget,
+              reason: tankReason,
+            };
+          } catch (tankError) {
+            this.logger.error('Error setting tank temperature:', tankError);
+            tankOptimizationResult = {
+              targetTemp: currentTankTarget, // Revert to original on error
+              originalTargetTemp: currentTankTarget,
+              reason: `Error setting tank temp: ${isError(tankError) ? tankError.message : String(tankError)}`,
+            };
+          }
+        } else {
+          this.logger.log(`Tank temperature remains at ${currentTankTarget}°C: ${tankReason}`);
+           tankOptimizationResult = {
+            targetTemp: currentTankTarget,
+            originalTargetTemp: currentTankTarget,
+            reason: tankReason,
+          };
+        }
+      } else if (this.enableTankControl && deviceState.SetTankWaterTemperature === undefined) {
+         this.logger.warn(`Tank control is enabled in settings, but device ${this.deviceId} does not report SetTankWaterTemperature.`);
+         tankOptimizationResult = { reason: "Tank control enabled but device does not support/report tank temperature."};
+      }
+
+
       // Return result
       return {
         targetTemp: newTarget,
@@ -388,6 +580,7 @@ export class Optimizer {
         timestamp: new Date().toISOString(),
         kFactor: this.thermalModel.K,
         cop: copData,
+        tank: tankOptimizationResult,
         ...additionalInfo
       };
     } catch (error) {

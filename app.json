@@ -94,5 +94,80 @@
       "method": "GET",
       "path": "/runThermalDataCleanup"
     }
-  }
+  },
+  "settings": [
+    {
+      "id": "comfort_profile_enabled",
+      "type": "checkbox",
+      "label": {
+        "en": "Enable Comfort Profile"
+      },
+      "hint": {
+        "en": "Enable optimization based on day/night comfort preferences."
+      },
+      "value": true
+    },
+    {
+      "id": "comfort_day_start_hour",
+      "type": "number",
+      "label": {
+        "en": "Day Start Hour"
+      },
+      "hint": {
+        "en": "Hour when 'day' comfort period begins (0-23)."
+      },
+      "value": 7,
+      "attr": {
+        "min": 0,
+        "max": 23
+      }
+    },
+    {
+      "id": "comfort_day_end_hour",
+      "type": "number",
+      "label": {
+        "en": "Day End Hour"
+      },
+      "hint": {
+        "en": "Hour when 'day' comfort period ends (0-23)."
+      },
+      "value": 22,
+      "attr": {
+        "min": 0,
+        "max": 23
+      }
+    },
+    {
+      "id": "comfort_night_temp_reduction",
+      "type": "number",
+      "label": {
+        "en": "Night Temperature Reduction"
+      },
+      "hint": {
+        "en": "Degrees (°C) to reduce target temperature during 'night' period."
+      },
+      "value": 2,
+      "attr": {
+        "min": 0,
+        "max": 5,
+        "step": 0.5
+      }
+    },
+    {
+      "id": "comfort_preheat_hours",
+      "type": "number",
+      "label": {
+        "en": "Pre-heat Hours"
+      },
+      "hint": {
+        "en": "Hours before 'day' period starts to begin pre-heating."
+      },
+      "value": 1,
+      "attr": {
+        "min": 0,
+        "max": 3,
+        "step": 0.5
+      }
+    }
+  ]
 }
