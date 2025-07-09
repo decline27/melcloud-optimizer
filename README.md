@@ -84,6 +84,14 @@ The app runs on two schedules:
 - **Maximum Temperature**: Highest allowed tank temperature (default: 53°C)
 - **Temperature Step**: Tank temperature change increment (default: 2°C)
 
+### Hot Water Usage Pattern Analysis
+- **Enable Usage Pattern Analysis**: Enable/disable hot water usage pattern analysis and optimization
+- **Maximum Data Points**: Maximum number of data points to store (default: 1000)
+- **Data Retention**: Number of days to keep hot water usage data (default: 30 days)
+- **Reset Usage Patterns**: Reset learned patterns to default values
+- **Clear Data (Keep Patterns)**: Remove detailed data points but keep aggregated usage patterns
+- **Clear All Data**: Remove all collected usage data and reset patterns
+
 ### Comfort Profile
 - **Day Start Hour**: Hour when day mode begins (default: 7)
 - **Day End Hour**: Hour when night mode begins (default: 23)
@@ -198,6 +206,54 @@ You can also trigger operations programmatically using the app's API endpoints:
    }
    ```
 
+4. **Hot Water Usage Statistics API**: `GET /api/getHotWaterUsageStatistics`
+   - Returns detailed information about hot water usage patterns and statistics
+   - Example response:
+   ```json
+   {
+     "success": true,
+     "data": {
+       "statistics": {
+         "dataPointCount": 720,
+         "avgTankTemperature": 48.5,
+         "avgTargetTankTemperature": 50.2,
+         "totalHotWaterEnergyProduced": 42.8,
+         "totalHotWaterEnergyConsumed": 12.4,
+         "avgHotWaterCOP": 3.45,
+         "heatingActivePercentage": 28.5
+       },
+       "patterns": {
+         "hourlyUsagePattern": [0.8, 0.7, 0.5, 0.4, 0.3, 0.5, 1.8, 2.5, 1.9, 1.2, 1.0, 1.1, 1.2, 1.0, 0.9, 1.0, 1.1, 1.3, 1.8, 2.1, 1.7, 1.4, 1.2, 0.9],
+         "dailyUsagePattern": [0.9, 1.1, 1.0, 1.0, 0.9, 1.2, 1.4],
+         "confidence": 68,
+         "lastUpdated": "2025-04-26T08:00:00.000Z"
+       },
+       "predictions": [1.0, 0.9, 0.8, 0.7, 0.6, 0.8, 2.0, 2.6, 2.0, 1.3, 1.1, 1.2, 1.3, 1.1, 1.0, 1.1, 1.2, 1.4, 1.9, 2.2, 1.8, 1.5, 1.3, 1.0]
+     }
+   }
+   ```
+
+5. **Reset Hot Water Patterns API**: `GET /api/resetHotWaterPatterns`
+   - Resets hot water usage patterns to default values
+   - Example response:
+   ```json
+   {
+     "success": true,
+     "message": "Hot water usage patterns have been reset to defaults"
+   }
+   ```
+
+6. **Clear Hot Water Data API**: `POST /api/clearHotWaterData`
+   - Clears hot water usage data with option to keep aggregated patterns
+   - Request body: `{ "clearAggregated": true }` (optional, defaults to true)
+   - Example response:
+   ```json
+   {
+     "success": true,
+     "message": "Hot water usage data has been cleared including aggregated data"
+   }
+   ```
+
 ## Logging and Timeline
 
 The app provides comprehensive logging through multiple channels:
@@ -252,6 +308,19 @@ The app includes a "View Thermal Model Data" button in the settings page that sh
 
 This helps you understand how the thermal learning model is adapting to your home's specific characteristics over time.
 
+### Hot Water Usage Pattern Viewer
+
+The app includes hot water usage pattern visualization in the settings page that shows:
+
+- Usage patterns by hour of day (0-23)
+- Usage patterns by day of week (Sunday-Saturday)
+- Confidence level in the learned patterns
+- Predictions for the next 24 hours
+- Memory usage statistics
+- Data retention information
+
+This helps you understand your household's hot water usage patterns and how the system is optimizing tank temperature based on these patterns.
+
 ## Troubleshooting
 
 If the app isn't working as expected:
@@ -296,6 +365,14 @@ The app now includes a sophisticated thermal learning model that:
 - **Configurable Settings**: Set minimum and maximum tank temperatures and step size
 - **Price-Based Control**: Increases tank temperature during cheap hours, decreases during expensive hours
 - **Correct API Implementation**: Uses the proper effective flag value (`0x1000000000020`) for tank temperature control
+
+### Hot Water Usage Pattern Analysis
+
+- **Usage Pattern Detection**: Analyzes your hot water usage patterns based on time of day and day of week
+- **Predictive Optimization**: Optimizes tank temperature based on predicted usage patterns
+- **Data Management**: Options to manage data retention and memory usage
+- **Selective Data Clearing**: Ability to clear detailed data points while preserving learned usage patterns
+- **Pattern Visualization**: View and analyze your household's hot water usage patterns
 
 ### MELCloud API Integration Improvements
 

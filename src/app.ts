@@ -3,6 +3,7 @@ import { CronJob } from 'cron'; // Import CronJob
 import { COPHelper } from './services/cop-helper';
 import { TimelineHelper, TimelineEventType } from './util/timeline-helper';
 import { HomeyLogger, LogLevel, LogCategory } from './util/logger';
+import { HotWaterService } from './services/hot-water';
 import {
   LogEntry,
   ThermalModel,
@@ -23,6 +24,7 @@ export default class HeatOptimizerApp extends App {
   public weeklyJob?: CronJob;
   public copHelper?: COPHelper;
   public timelineHelper?: TimelineHelper;
+  public hotWaterService?: HotWaterService;
   public logger: HomeyLogger = new HomeyLogger(this, {
     level: LogLevel.INFO,
     logToTimeline: false,
@@ -158,6 +160,17 @@ export default class HeatOptimizerApp extends App {
       (global as any).copHelper = this.copHelper;
     } catch (error) {
       this.logger.error('Failed to initialize COP Helper', error as Error);
+    }
+    
+    // Initialize Hot Water Service
+    try {
+      this.hotWaterService = new HotWaterService(this.homey);
+      this.logger.info('Hot Water Service initialized');
+      
+      // Make it available globally
+      (global as any).hotWaterService = this.hotWaterService;
+    } catch (error) {
+      this.logger.error('Failed to initialize Hot Water Service', error as Error);
     }
 
     // Initialize Timeline Helper

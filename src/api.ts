@@ -108,4 +108,61 @@ export class Api {
       };
     }
   }
+
+  /**
+   * Reset hot water usage patterns to defaults
+   */
+  async resetHotWaterPatterns() {
+    this.app.log('API method resetHotWaterPatterns called');
+
+    try {
+      if (this.app.hotWaterService) {
+        this.app.hotWaterService.resetPatterns();
+        return {
+          success: true,
+          message: 'Hot water usage patterns have been reset to defaults'
+        };
+      } else {
+        return {
+          success: false,
+          message: 'Hot water service not available'
+        };
+      }
+    } catch (error) {
+      this.app.error('Error resetting hot water patterns:', error as Error);
+      return {
+        success: false,
+        message: `Error resetting hot water patterns: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
+  }
+
+  /**
+   * Clear all hot water usage data and reset patterns
+   * @param clearAggregated Whether to clear aggregated data as well (default: true)
+   */
+  async clearHotWaterData({ clearAggregated = true } = {}) {
+    this.app.log(`API method clearHotWaterData called (clearAggregated: ${clearAggregated})`);
+
+    try {
+      if (this.app.hotWaterService) {
+        await this.app.hotWaterService.clearData(clearAggregated);
+        return {
+          success: true,
+          message: `Hot water usage data has been cleared${clearAggregated ? ' including aggregated data' : ' (kept aggregated data)'}`
+        };
+      } else {
+        return {
+          success: false,
+          message: 'Hot water service not available'
+        };
+      }
+    } catch (error: unknown) {
+      this.app.error('Error clearing hot water data:', error instanceof Error ? error : String(error));
+      return {
+        success: false,
+        message: `Error clearing hot water data: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
+  }
 }

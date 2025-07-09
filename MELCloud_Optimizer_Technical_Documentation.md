@@ -230,8 +230,38 @@ The system provides detailed information through various interfaces:
    - Provides notifications for significant events
    - Explains the reasoning behind temperature changes
 
+## Hot Water Usage Pattern Analysis
+
+The system includes advanced hot water usage pattern analysis to optimize hot water tank temperature based on household usage patterns:
+
+1. **Data Collection**:
+   - Collects hot water usage data at regular intervals
+   - Stores tank temperature, target temperature, energy produced/consumed
+   - Manages data retention based on user-defined settings
+
+2. **Pattern Analysis**:
+   - Identifies usage patterns by hour of day (0-23)
+   - Analyzes patterns by day of week (0-6, Sunday-Saturday)
+   - Creates combined hourly-by-day patterns for more precise predictions
+   - Calculates confidence level based on data quantity and consistency
+
+3. **Predictive Optimization**:
+   - Predicts future hot water usage based on learned patterns
+   - Optimizes tank temperature to ensure hot water availability when needed
+   - Balances usage patterns with price-based optimization
+
+4. **Data Management**:
+   - Provides options to manage data retention and memory usage
+   - Allows selective clearing of detailed data while preserving learned patterns
+   - Includes memory usage monitoring to prevent excessive storage consumption
+
+5. **User Interface**:
+   - Displays usage patterns and predictions in the settings interface
+   - Provides controls for resetting patterns and managing data
+   - Shows memory usage statistics for transparency
+
 ## Conclusion
 
-The MELCloud Optimizer represents a sophisticated approach to heat pump management, balancing energy efficiency, cost savings, and comfort. By leveraging real-time data from multiple sources and employing advanced thermal modeling, the system continuously learns and adapts to provide optimal performance in varying conditions.
+The MELCloud Optimizer represents a sophisticated approach to heat pump management, balancing energy efficiency, cost savings, and comfort. By leveraging real-time data from multiple sources and employing advanced thermal modeling and hot water usage pattern analysis, the system continuously learns and adapts to provide optimal performance in varying conditions.
 
-The combination of price-based optimization, thermal learning, and weather integration allows the system to make intelligent decisions that maximize savings while maintaining comfort, demonstrating the potential of smart home technology to enhance energy efficiency and reduce costs.
+The combination of price-based optimization, thermal learning, weather integration, and hot water usage pattern analysis allows the system to make intelligent decisions that maximize savings while maintaining comfort, demonstrating the potential of smart home technology to enhance energy efficiency and reduce costs.

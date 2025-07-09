@@ -2446,27 +2446,76 @@ class Optimizer {
         this.logger.log('Tank water temperature optimization enabled');
 
         try {
-          // Calculate optimal tank temperature based on price
-          // For tank water, we use a simpler algorithm - higher temperature when electricity is cheap
-          // and lower temperature when electricity is expensive
+          // Collect hot water usage data if hot water service is available
+          if (this.logger.homey?.hotWaterService) {
+            try {
+              await this.logger.homey.hotWaterService.collectData(deviceState);
+              this.logger.log('Hot water usage data collected successfully');
+            } catch (dataCollectionError) {
+              this.logger.error('Failed to collect hot water usage data', dataCollectionError);
+              // Continue with optimization even if data collection fails
+            }
+          }
+          
           let newTankTarget;
           let tankReason;
+          
+          // Use hot water service for optimization if available
+          if (this.logger.homey?.hotWaterService) {
+            try {
+              // Get price threshold for optimization (default to 0.1)
+              const priceThreshold = this.logger.homey?.settings?.get('price_threshold') || 0.1;
+              
+              // Get optimal tank temperature based on usage patterns and price
+              newTankTarget = this.logger.homey.hotWaterService.getOptimalTankTemperature(
+                this.minTankTemp,
+                this.maxTankTemp,
+                currentPrice,
+                priceThreshold
+              );
+              
+              tankReason = `Optimized based on hot water usage patterns and current price (${currentPrice.toFixed(2)})`;
+              this.logger.log(`Hot water service recommended tank temperature: ${newTankTarget}°C`);
+            } catch (optimizationError) {
+              this.logger.error('Error using hot water service for optimization', optimizationError);
+              // Fall back to price-based optimization
+              this.logger.log('Falling back to price-based optimization');
+              
+              // Use Tibber price level for tank temperature optimization
+              const priceLevel = priceData.current.level || 'NORMAL';
 
-          // Use Tibber price level for tank temperature optimization
-          const priceLevel = priceData.current.level || 'NORMAL';
-
-          if (priceLevel === 'VERY_CHEAP' || priceLevel === 'CHEAP') {
-            // When electricity is cheap, heat the tank to maximum temperature
-            newTankTarget = this.maxTankTemp;
-            tankReason = `Tibber price level is ${priceLevel}, increasing tank temperature to maximum`;
-          } else if (priceLevel === 'EXPENSIVE' || priceLevel === 'VERY_EXPENSIVE') {
-            // When electricity is expensive, reduce tank temperature to minimum
-            newTankTarget = this.minTankTemp;
-            tankReason = `Tibber price level is ${priceLevel}, reducing tank temperature to minimum`;
+              if (priceLevel === 'VERY_CHEAP' || priceLevel === 'CHEAP') {
+                // When electricity is cheap, heat the tank to maximum temperature
+                newTankTarget = this.maxTankTemp;
+                tankReason = `Tibber price level is ${priceLevel}, increasing tank temperature to maximum`;
+              } else if (priceLevel === 'EXPENSIVE' || priceLevel === 'VERY_EXPENSIVE') {
+                // When electricity is expensive, reduce tank temperature to minimum
+                newTankTarget = this.minTankTemp;
+                tankReason = `Tibber price level is ${priceLevel}, reducing tank temperature to minimum`;
+              } else {
+                // For normal prices, use a middle temperature
+                newTankTarget = (this.minTankTemp + this.maxTankTemp) / 2;
+                tankReason = `Tibber price level is ${priceLevel}, setting tank temperature to middle value`;
+              }
+            }
           } else {
-            // For normal prices, use a middle temperature
-            newTankTarget = (this.minTankTemp + this.maxTankTemp) / 2;
-            tankReason = `Tibber price level is ${priceLevel}, setting tank temperature to middle value`;
+            // Fall back to price-based optimization if hot water service is not available
+            // Use Tibber price level for tank temperature optimization
+            const priceLevel = priceData.current.level || 'NORMAL';
+
+            if (priceLevel === 'VERY_CHEAP' || priceLevel === 'CHEAP') {
+              // When electricity is cheap, heat the tank to maximum temperature
+              newTankTarget = this.maxTankTemp;
+              tankReason = `Tibber price level is ${priceLevel}, increasing tank temperature to maximum`;
+            } else if (priceLevel === 'EXPENSIVE' || priceLevel === 'VERY_EXPENSIVE') {
+              // When electricity is expensive, reduce tank temperature to minimum
+              newTankTarget = this.minTankTemp;
+              tankReason = `Tibber price level is ${priceLevel}, reducing tank temperature to minimum`;
+            } else {
+              // For normal prices, use a middle temperature
+              newTankTarget = (this.minTankTemp + this.maxTankTemp) / 2;
+              tankReason = `Tibber price level is ${priceLevel}, setting tank temperature to middle value`;
+            }
           }
 
           // Apply step constraint (don't change by more than tankTempStep)
