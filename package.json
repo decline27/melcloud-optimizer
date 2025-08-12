@@ -1,6 +1,6 @@
 {
   "name": "com.melcloud.optimize",
-  "version": "1.0.0",
+  "version": "12.5.0",
   "description": "Heat Pump Optimizer for Homey SDK 3.0 (TypeScript)",
   "main": "index.js",
   "scripts": {

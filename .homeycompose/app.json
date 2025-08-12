@@ -1,7 +1,7 @@
 {
   "id": "com.melcloud.optimize",
-  "version": "1.0.9",
-  "compatibility": ">=5.0.0",
+  "version": "12.5.0",
+  "compatibility": ">=12.0.0",
   "sdk": 3,
   "platforms": [
     "local"
@@ -28,6 +28,46 @@
   },
   "brandColor": "#1E88E5",
   "support": "https://github.com/decline27/melcloud-optimizer/issues",
+  "capabilities": {
+    "heating_cop": {
+      "type": "number",
+      "title": {
+        "en": "Heating COP"
+      },
+      "desc": {
+        "en": "Coefficient of Performance for heating system"
+      },
+      "units": {
+        "en": "COP"
+      },
+      "decimals": 2,
+      "min": 0,
+      "max": 10,
+      "getable": true,
+      "setable": false,
+      "uiComponent": "sensor",
+      "icon": "/assets/icon.svg"
+    },
+    "hotwater_cop": {
+      "type": "number",
+      "title": {
+        "en": "Hot Water COP"
+      },
+      "desc": {
+        "en": "Coefficient of Performance for hot water system"
+      },
+      "units": {
+        "en": "COP"
+      },
+      "decimals": 2,
+      "min": 0,
+      "max": 10,
+      "getable": true,
+      "setable": false,
+      "uiComponent": "sensor",
+      "icon": "/assets/icon.svg"
+    }
+  },
   "flow": {
     "triggers": [],
     "conditions": [],

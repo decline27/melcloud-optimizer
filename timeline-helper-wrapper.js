@@ -214,14 +214,30 @@ class TimelineHelperWrapper {
 
           // Add details if available
           if (additionalData) {
+            console.log('Timeline Debug - additionalData:', JSON.stringify(additionalData, null, 2));
+            
             // Add heating temperature information if available
             if (additionalData.targetTemp !== undefined && additionalData.targetOriginal !== undefined) {
+              console.log('Timeline Debug - Adding temperature info:', additionalData.targetOriginal, '→', additionalData.targetTemp);
               message += ` from ${additionalData.targetOriginal}°C to ${additionalData.targetTemp}°C`;
+            } else {
+              console.log('Timeline Debug - Temperature data missing. targetTemp:', additionalData.targetTemp, 'targetOriginal:', additionalData.targetOriginal);
             }
 
             // Add hot water tank temperature information if available
             if (additionalData.tankTemp !== undefined && additionalData.tankOriginal !== undefined) {
+              console.log('Timeline Debug - Adding hot water tank info:', additionalData.tankOriginal, '→', additionalData.tankTemp);
               message += `. Hot water tank: ${additionalData.tankOriginal}°C to ${additionalData.tankTemp}°C`;
+            } else {
+              console.log('Timeline Debug - Hot water tank data missing. tankTemp:', additionalData.tankTemp, 'tankOriginal:', additionalData.tankOriginal);
+            }
+
+            // Add Zone2 temperature information if available
+            if (additionalData.zone2Temp !== undefined && additionalData.zone2Original !== undefined) {
+              console.log('Timeline Debug - Adding Zone2 info:', additionalData.zone2Original, '→', additionalData.zone2Temp);
+              message += `. Zone2: ${additionalData.zone2Original}°C to ${additionalData.zone2Temp}°C`;
+            } else {
+              console.log('Timeline Debug - Zone2 data missing. zone2Temp:', additionalData.zone2Temp, 'zone2Original:', additionalData.zone2Original);
             }
 
             // Add savings information if available - prioritize daily savings over hourly

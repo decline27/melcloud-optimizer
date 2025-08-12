@@ -1,0 +1,17 @@
+{
+  "type": "number",
+  "title": {
+    "en": "Heating COP (Efficiency)"
+  },
+  "units": {
+    "en": "COP"
+  },
+  "decimals": 2,
+  "min": 0,
+  "max": 10,
+  "getable": true,
+  "setable": false,
+  "uiComponent": "sensor",
+  "icon": "/assets/heating_cop.svg",
+  "insights": true
+}

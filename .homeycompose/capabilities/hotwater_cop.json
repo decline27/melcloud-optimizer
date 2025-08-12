@@ -1,0 +1,16 @@
+{
+  "type": "number",
+  "title": {
+    "en": "Hot Water COP (Efficiency)"
+  },
+  "units": {
+    "en": "COP"
+  },
+  "decimals": 2,
+  "min": 0,
+  "max": 10,
+  "getable": true,
+  "setable": false,
+  "uiComponent": "sensor",
+  "insights": true
+}

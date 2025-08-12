@@ -1,0 +1,217 @@
+{
+  "name": {
+    "en": "MELCloud Boiler"
+  },
+  "class": "thermostat",
+  "capabilities": [
+    "measure_temperature",
+    "measure_temperature.outdoor",
+    "measure_temperature.zone2",
+    "measure_temperature.tank",
+    "target_temperature",
+    "target_temperature.zone2", 
+    "target_temperature.tank",
+    "onoff",
+    "meter_power.heating_consumed",
+    "meter_power.heating_produced",
+    "meter_power.hotwater_consumed", 
+    "meter_power.hotwater_produced",
+    "meter_power.heating",
+    "meter_power.produced_heating",
+    "meter_power.hotwater",
+    "meter_power.produced_hotwater",
+    "heating_cop",
+    "hotwater_cop",
+    "thermostat_mode",
+    "alarm_generic.offline"
+  ],
+  "capabilitiesOptions": {
+    "measure_temperature": {
+      "title": {
+        "en": "Indoor Temperature (Zone 1)"
+      },
+      "units": {
+        "en": "°C"
+      }
+    },
+    "measure_temperature.outdoor": {
+      "title": {
+        "en": "Outdoor Temperature"
+      },
+      "units": {
+        "en": "°C"
+      }
+    },
+    "measure_temperature.zone2": {
+      "title": {
+        "en": "Indoor Temperature (Zone 2)"
+      },
+      "units": {
+        "en": "°C"
+      }
+    },
+    "measure_temperature.tank": {
+      "title": {
+        "en": "Hot Water Tank Temperature"
+      },
+      "units": {
+        "en": "°C"
+      }
+    },
+    "target_temperature": {
+      "title": {
+        "en": "Target Temperature (Zone 1)"
+      },
+      "min": 10,
+      "max": 30,
+      "step": 0.5,
+      "units": {
+        "en": "°C"
+      }
+    },
+    "target_temperature.zone2": {
+      "title": {
+        "en": "Target Temperature (Zone 2)"
+      },
+      "min": 10,
+      "max": 30,
+      "step": 0.5,
+      "units": {
+        "en": "°C"
+      }
+    },
+    "target_temperature.tank": {
+      "title": {
+        "en": "Target Tank Temperature"
+      },
+      "min": 30,
+      "max": 60,
+      "step": 1,
+      "units": {
+        "en": "°C"
+      }
+    },
+    "meter_power.heating_consumed": {
+      "title": {
+        "en": "Daily Heating Energy Consumed"
+      },
+      "units": {
+        "en": "kWh"
+      }
+    },
+    "meter_power.heating_produced": {
+      "title": {
+        "en": "Daily Heating Energy Produced"
+      },
+      "units": {
+        "en": "kWh"
+      }
+    },
+    "meter_power.hotwater_consumed": {
+      "title": {
+        "en": "Daily Hot Water Energy Consumed"
+      },
+      "units": {
+        "en": "kWh"
+      }
+    },
+    "meter_power.hotwater_produced": {
+      "title": {
+        "en": "Daily Hot Water Energy Produced"
+      },
+      "units": {
+        "en": "kWh"
+      }
+    },
+    "meter_power.heating": {
+      "title": {
+        "en": "Total Heating Energy Consumed"
+      },
+      "units": {
+        "en": "kWh"
+      }
+    },
+    "meter_power.produced_heating": {
+      "title": {
+        "en": "Total Heating Energy Produced"
+      },
+      "units": {
+        "en": "kWh"
+      }
+    },
+    "meter_power.hotwater": {
+      "title": {
+        "en": "Total Hot Water Energy Consumed"
+      },
+      "units": {
+        "en": "kWh"
+      }
+    },
+    "meter_power.produced_hotwater": {
+      "title": {
+        "en": "Total Hot Water Energy Produced"
+      },
+      "units": {
+        "en": "kWh"
+      }
+    },
+    "thermostat_mode": {
+      "title": {
+        "en": "Operation Mode"
+      }
+    },
+    "alarm_generic.offline": {
+      "title": {
+        "en": "Device Offline"
+      }
+    }
+  },
+  "platforms": [
+    "local"
+  ],
+  "connectivity": [
+    "cloud"
+  ],
+  "images": {
+    "small": "{{driverAssetsPath}}/images/small.png",
+    "large": "{{driverAssetsPath}}/images/large.png",
+    "xlarge": "{{driverAssetsPath}}/images/xlarge.png"
+  },
+  "pair": [
+    {
+      "id": "list_devices",
+      "template": "list_devices",
+      "navigation": {
+        "next": "add_devices"
+      }
+    },
+    {
+      "id": "add_devices",
+      "template": "add_devices"
+    }
+  ],
+  "settings": [
+    {
+      "id": "device_id",
+      "type": "text",
+      "label": {
+        "en": "MELCloud Device ID"
+      },
+      "value": "",
+      "hint": {
+        "en": "The MELCloud device ID for this boiler"
+      }
+    },
+    {
+      "id": "building_id",
+      "type": "number",
+      "label": {
+        "en": "MELCloud Building ID"
+      },
+      "value": 0,
+      "hint": {
+        "en": "The MELCloud building ID for this boiler"
+      }
+    }
+  ]
+}
