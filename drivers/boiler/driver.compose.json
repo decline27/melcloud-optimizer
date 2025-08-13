@@ -2,7 +2,7 @@
   "name": {
     "en": "MELCloud Boiler"
   },
-  "class": "thermostat",
+  "class": "heatpump",
   "capabilities": [
     "onoff",
     "hot_water_mode",
