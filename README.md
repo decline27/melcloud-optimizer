@@ -431,6 +431,16 @@ homey app build
 homey app install
 ```
 
+## Documentation
+
+Comprehensive documentation is available in the [`/docs`](docs/) directory:
+
+- **[Complete Documentation Index](docs/README.md)** - Overview of all documentation
+- **[Technical Documentation](docs/technical-documentation.md)** - Comprehensive technical details
+- **[API Guide](docs/api/api-guide.md)** - API endpoint reference
+- **[Development Guide](docs/development/logging-guide.md)** - Logging and debugging
+- **[Algorithm Details](docs/algorithms/)** - How the optimization algorithms work
+
 ## License
 
 This app is licensed under the GNU General Public License v3.0.

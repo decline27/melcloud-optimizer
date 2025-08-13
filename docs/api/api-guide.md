@@ -30,11 +30,7 @@ The app exposes API endpoints that can be called directly from the settings page
 
 ## API Endpoints
 
-### Test Logging
-- **Endpoint**: `/testLogging`
-- **Method**: GET
-- **Description**: Runs the test logging function
-- **Response**: `{ success: true, message: 'Test logging completed' }`
+### Run Optimizer
 
 ### Run Hourly Optimization
 - **Endpoint**: `/runHourlyOptimizer`

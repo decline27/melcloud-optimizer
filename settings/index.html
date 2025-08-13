@@ -112,16 +112,6 @@
         <input class="homey-form-input" id="max_temp" type="number" min="20" max="26" step="0.5" value="24" />
         <p class="homey-form-helper">The maximum temperature that will be set during optimization. Suggested default: 22°C - comfortable temperature during low-price periods without excessive energy use.</p>
       </div>
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="temp_step_max">Maximum Temperature Step (°C)</label>
-        <input class="homey-form-input" id="temp_step_max" type="number" min="0.1" max="2.0" step="0.1" value="0.5" />
-        <p class="homey-form-helper">Controls how much the temperature can change in one step. Suggested default: 0.5°C - provides smooth transitions while still allowing the system to respond to price changes. MELCloud supports 0.5°C increments.</p>
-      </div>
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="initial_k">Initial K Factor</label>
-        <input class="homey-form-input" id="initial_k" type="number" min="0.1" max="1.0" step="0.05" value="0.3" />
-        <p class="homey-form-helper">Initial thermal response factor. Suggested default: 0.3 - good starting point for most homes. Lower values (0.1-0.2) for well-insulated homes, higher values (0.4-0.5) for poorly insulated homes. This will be automatically calibrated over time based on your home's actual thermal behavior.</p>
-      </div>
     </fieldset>
 
     <fieldset class="homey-form-fieldset">
@@ -729,8 +719,6 @@
         const tibberTokenElement = document.getElementById("tibber_token");
         const minTempElement = document.getElementById("min_temp");
         const maxTempElement = document.getElementById("max_temp");
-        const tempStepMaxElement = document.getElementById("temp_step_max");
-        const initialKElement = document.getElementById("initial_k");
         const useWeatherDataElement = document.getElementById("use_weather_data");
         const latitudeElement = document.getElementById("latitude");
         const longitudeElement = document.getElementById("longitude");
@@ -824,16 +812,6 @@
         Homey.get("max_temp", function (err, value) {
           if (err) return Homey.alert(err);
           if (value !== undefined) maxTempElement.value = value;
-        });
-
-        Homey.get("temp_step_max", function (err, value) {
-          if (err) return Homey.alert(err);
-          if (value !== undefined) tempStepMaxElement.value = value;
-        });
-
-        Homey.get("initial_k", function (err, value) {
-          if (err) return Homey.alert(err);
-          if (value !== undefined) initialKElement.value = value;
         });
 
         Homey.get("log_level", function (err, value) {
@@ -1235,14 +1213,6 @@
           });
 
           Homey.set("max_temp", parseFloat(maxTempElement.value), function (err) {
-            if (err) return Homey.alert(err);
-          });
-
-          Homey.set("temp_step_max", parseFloat(tempStepMaxElement.value), function (err) {
-            if (err) return Homey.alert(err);
-          });
-
-          Homey.set("initial_k", parseFloat(initialKElement.value), function (err) {
             if (err) return Homey.alert(err);
           });
 

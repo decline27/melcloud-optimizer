@@ -9,7 +9,7 @@ The buttons in the settings page don't directly call functions in the app. Inste
 ### Flow:
 
 1. **Button Press in Settings Page**:
-   When you press a button (like "Test Logging"), it calls `Homey.set('test_logging', true)` to set a setting value.
+   When you press a button (like "Run Hourly Optimization"), it calls `Homey.set('trigger_hourly_optimization', true)` to set a setting value.
 
 2. **Setting Value Changed**:
    The setting value is changed in Homey's settings storage.
@@ -23,18 +23,13 @@ The buttons in the settings page don't directly call functions in the app. Inste
 4. **App Runs Appropriate Function**:
    The `onSettingsChanged` method checks which setting was changed and runs the appropriate function:
    ```typescript
-   else if (key === 'test_logging') {
-     // Run the test logging function
-     this.testLogging();
+   if (key === 'trigger_hourly_optimization') {
+     // Run the hourly optimization function
+     this.runHourlyOptimizer();
    }
    ```
 
 ## Button Functions
-
-### Test Logging Button
-- Sets the `test_logging` setting to true
-- Triggers the `testLogging()` function in the app
-- Logs various information to the terminal
 
 ### Run Hourly Optimization Button
 - Sets the `trigger_hourly_optimization` setting to true

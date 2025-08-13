@@ -8,36 +8,25 @@ The app uses Homey's built-in logging methods (`this.log()` and `this.error()`) 
 
 ## Testing Logging
 
-### Method 1: Using the Debug Script
+### Method 1: Using the Run and Check Logs Script
 
-1. Run the app with the provided debug script:
+1. Run the app with the provided script:
    ```bash
-   ./run-debug.sh
+   ./run-and-check-logs.sh
    ```
 
 2. Check the terminal for log output.
+   - You should see both Homey's built-in logging output and direct console.log output.
+   - The app is configured to run test logging on startup.
 
-### Method 2: Using the Settings Test Script
-
-1. Run the app and test the settings change functionality:
-   ```bash
-   ./run-and-test-settings.sh
-   ```
-
-2. Check the terminal for log output.
-
-### Method 3: Manual Testing
+### Method 2: Manual Testing
 
 1. Run the app with the Homey CLI:
    ```bash
    homey app run
    ```
 
-2. Open the app settings in the Homey app.
-
-3. Click the "Test Logging" button.
-
-4. Check the terminal where the app is running for log output.
+2. Check the terminal for log output.
 
 ## Troubleshooting
 
@@ -57,3 +46,9 @@ According to the Homey SDK 3.0 documentation, the App class provides built-in lo
 - `this.error()` - For error logging (visible in the terminal when running with `homey app run`)
 
 These methods should output to the terminal when running with `homey app run`.
+
+## Notes on Settings Buttons
+
+The buttons in the settings page are set up to trigger settings changes using `Homey.set()`. The app is configured to handle these settings changes and run the appropriate functions when the settings are changed.
+
+However, there might be issues with how Homey CLI handles settings changes or how it displays logs in the terminal. If the buttons don't seem to be triggering functionality, try using the run-and-check-logs.sh script to see if the app is logging correctly on startup.

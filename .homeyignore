@@ -7,6 +7,10 @@
 !index.js
 !assets/icon.svg
 !assets/images/*.png
+!drivers/boiler/assets/images/*.png
+!drivers/boiler/driver.ts
+!drivers/boiler/device.ts
+!capabilities/*.json
 !locales/*.json
 !settings/*.html
 

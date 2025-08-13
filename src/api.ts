@@ -12,15 +12,6 @@ export class Api {
   }
 
   /**
-   * Run test logging
-   */
-  async testLogging() {
-    this.app.log('API method testLogging called');
-    this.app.testLogging();
-    return { success: true, message: 'Test logging completed' };
-  }
-
-  /**
    * Run hourly optimizer
    */
   async runHourlyOptimizer() {

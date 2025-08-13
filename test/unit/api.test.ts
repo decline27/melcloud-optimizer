@@ -16,9 +16,8 @@ describe('Api', () => {
     mockApp = new HeatOptimizerApp() as jest.Mocked<HeatOptimizerApp>;
 
     // Mock app methods
-    mockApp.log = jest.fn();
-    mockApp.error = jest.fn();
-    mockApp.testLogging = jest.fn();
+    (mockApp as any).log = jest.fn();
+    (mockApp as any).error = jest.fn();
     mockApp.runHourlyOptimizer = jest.fn().mockResolvedValue({ success: true });
     mockApp.runWeeklyCalibration = jest.fn().mockResolvedValue({ success: true });
 
@@ -26,21 +25,11 @@ describe('Api', () => {
     api = new Api(mockApp);
   });
 
-  describe('testLogging', () => {
-    it('should call app.testLogging and return success', async () => {
-      const result = await api.testLogging();
-
-      expect(mockApp.log).toHaveBeenCalledWith('API method testLogging called');
-      expect(mockApp.testLogging).toHaveBeenCalled();
-      expect(result).toEqual({ success: true, message: 'Test logging completed' });
-    });
-  });
-
   describe('runHourlyOptimizer', () => {
     it('should call app.runHourlyOptimizer and return success', async () => {
       const result = await api.runHourlyOptimizer();
 
-      expect(mockApp.log).toHaveBeenCalledWith('API method runHourlyOptimizer called');
+      expect((mockApp as any).log).toHaveBeenCalledWith('API method runHourlyOptimizer called');
       expect(mockApp.runHourlyOptimizer).toHaveBeenCalled();
       expect(result).toEqual({ success: true, message: 'Hourly optimization completed' });
     });
@@ -56,7 +45,7 @@ describe('Api', () => {
         expect(error.message).toBe('Optimization error');
       }
 
-      expect(mockApp.log).toHaveBeenCalledWith('API method runHourlyOptimizer called');
+      expect((mockApp as any).log).toHaveBeenCalledWith('API method runHourlyOptimizer called');
       expect(mockApp.runHourlyOptimizer).toHaveBeenCalled();
     });
   });
@@ -65,7 +54,7 @@ describe('Api', () => {
     it('should call app.runWeeklyCalibration and return success', async () => {
       const result = await api.runWeeklyCalibration();
 
-      expect(mockApp.log).toHaveBeenCalledWith('API method runWeeklyCalibration called');
+      expect((mockApp as any).log).toHaveBeenCalledWith('API method runWeeklyCalibration called');
       expect(mockApp.runWeeklyCalibration).toHaveBeenCalled();
       expect(result).toEqual({ success: true, message: 'Weekly calibration completed' });
     });
@@ -81,7 +70,7 @@ describe('Api', () => {
         expect(error.message).toBe('Calibration error');
       }
 
-      expect(mockApp.log).toHaveBeenCalledWith('API method runWeeklyCalibration called');
+      expect((mockApp as any).log).toHaveBeenCalledWith('API method runWeeklyCalibration called');
       expect(mockApp.runWeeklyCalibration).toHaveBeenCalled();
     });
   });

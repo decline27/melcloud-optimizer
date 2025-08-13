@@ -187,10 +187,6 @@ export default class HeatOptimizerApp extends App {
     // Initialize cron jobs
     this.initializeCronJobs();
 
-    // Always run test logging on startup for debugging
-    this.logger.info('Running test logging on startup...');
-    this.testLogging();
-
     // Monitor memory usage in development mode
     if (process.env.NODE_ENV === 'development') {
       this.monitorMemoryUsage();
@@ -598,31 +594,6 @@ export default class HeatOptimizerApp extends App {
         }
       }
     }
-    // Handle test logging trigger
-    else if (key === 'test_logging') {
-      this.log('Detected test_logging setting change');
-
-      const trigger = this.homey.settings.get('test_logging') as boolean;
-      this.log(`test_logging value: ${trigger}`);
-
-      if (trigger === true) {
-        // Direct log using Homey's built-in logging
-        this.log('===== TEST LOGGING TRIGGERED =====');
-        this.log('Manually triggering test logging via settings');
-
-        try {
-          // Run the test logging
-          this.testLogging();
-          this.log('===== TEST LOGGING COMPLETED =====');
-        } catch (err) {
-          this.error('Error in test logging', err as Error);
-          this.error('===== TEST LOGGING FAILED =====');
-        } finally {
-          // Clear the trigger flag
-          await this.homey.settings.unset('test_logging');
-        }
-      }
-    }
     // Handle manual weekly calibration trigger
     else if (key === 'trigger_weekly_calibration') {
       this.log('Detected trigger_weekly_calibration setting change');
@@ -721,62 +692,7 @@ export default class HeatOptimizerApp extends App {
     this.memoryUsageInterval = memoryUsageInterval;
   }
 
-  /**
-   * Test logging functionality
-   */
-  public testLogging() {
-    // Test all log levels and categories
-    this.logger.marker('TEST LOGGING STARTED');
 
-    // Test different log levels
-    this.logger.debug('This is a test debug message');
-    this.logger.info('This is a test info message');
-    this.logger.warn('This is a test warning message', { source: 'testLogging' });
-    this.logger.error('This is a test error message', new Error('Test error'), { source: 'testLogging' });
-
-    // Test specialized log categories
-    this.logger.api('This is a test API log message', { endpoint: '/test', method: 'GET' });
-    this.logger.optimization('This is a test optimization log message', { factor: 0.75, reason: 'testing' });
-
-    // Log system information
-    this.logger.info('System Information:');
-    const systemInfo = {
-      appId: this.id,
-      appVersion: this.manifest.version,
-      homeyVersion: this.homey.version,
-      homeyPlatform: this.homey.platform,
-      nodeVersion: process.version,
-      memoryUsage: process.memoryUsage()
-    };
-
-    // Test object formatting
-    this.logger.info('System Info Object:', systemInfo);
-
-    // Log current date and time
-    this.logger.info('Current Date/Time:', new Date().toISOString());
-
-    // Test timeline entry
-    if (this.timelineHelper) {
-      this.timelineHelper.createInfoEntry('MELCloud Optimizer', 'Test logging entry', false)
-        .then(() => this.logger.info('Timeline test entry created'))
-        .catch(err => this.logger.error('Failed to create timeline test entry', err));
-    } else {
-      this.logger.warn('Timeline helper not available, skipping timeline test');
-    }
-
-    // Test array formatting
-    const testArray = Array.from({ length: 20 }, (_, i) => `item-${i}`);
-    this.logger.debug('Test array formatting:', testArray);
-
-    // Test error formatting
-    try {
-      throw new Error('Test error with stack trace');
-    } catch (error) {
-      this.logger.error('Caught test error', error);
-    }
-
-    this.logger.marker('TEST LOGGING COMPLETED');
-  }
 
   /**
    * Run the hourly optimization process
