@@ -28,6 +28,9 @@ module.exports = class BoilerDevice extends Homey.Device {
   private deviceId!: string;
   private buildingId!: number;
   private energyReportInterval?: NodeJS.Timeout;
+  private hasZone2: boolean = false;
+  private zone2Checked: boolean = false;
+  private energyBasedZone2Check: boolean = false;
 
   /**
    * onInit is called when the device is initialized.
@@ -83,10 +86,10 @@ module.exports = class BoilerDevice extends Homey.Device {
     // Ensure all required capabilities are available
     await this.ensureCapabilities();
 
-    // Set up capability listeners
-    this.setupCapabilityListeners();
+    // Set up initial capability listeners (Zone 1 and common capabilities)
+    this.setupInitialCapabilityListeners();
 
-    // Start data fetching
+    // Start data fetching (Zone 2 check and setup will happen here)
     await this.startDataFetching();
   }
 
@@ -95,22 +98,32 @@ module.exports = class BoilerDevice extends Homey.Device {
    */
   private async ensureCapabilities() {
     const requiredCapabilities = [
+      'onoff',
+      'hot_water_mode',
       'measure_temperature',
       'measure_temperature.outdoor',
-      'measure_temperature.zone2',
       'measure_temperature.tank',
       'target_temperature',
-      'target_temperature.zone2',
       'target_temperature.tank',
-      'onoff',
+      'thermostat_mode',
+      'operational_state',
+      'operational_state.hot_water',
+      'operational_state.zone1',
       'meter_power.heating',
       'meter_power.produced_heating',
       'meter_power.hotwater',
       'meter_power.produced_hotwater',
       'heating_cop',
       'hotwater_cop',
-      'thermostat_mode',
       'alarm_generic.offline'
+    ];
+
+    // Zone 2 capabilities - added conditionally
+    const zone2Capabilities = [
+      'measure_temperature.zone2',
+      'target_temperature.zone2',
+      'thermostat_mode.zone2',
+      'operational_state.zone2'
     ];
 
     this.logger.log('Checking required capabilities...');
@@ -134,14 +147,112 @@ module.exports = class BoilerDevice extends Homey.Device {
         this.logger.debug(`Capability ${capability} already exists`);
       }
     }
+
+    // Initially add Zone 2 capabilities (will be removed if not needed)
+    for (const capability of zone2Capabilities) {
+      if (!this.hasCapability(capability)) {
+        try {
+          await this.addCapability(capability);
+          this.logger.log(`Added Zone 2 capability: ${capability}`);
+        } catch (error) {
+          this.logger.error(`Failed to add Zone 2 capability ${capability}:`, error);
+        }
+      }
+    }
     
     this.logger.log('Capability check completed');
   }
 
   /**
-   * Set up capability listeners for device control
+   * Remove Zone 2 capabilities if not supported by the device
    */
-  private setupCapabilityListeners() {
+  private async removeZone2Capabilities() {
+    const zone2Capabilities = [
+      'measure_temperature.zone2',
+      'target_temperature.zone2', 
+      'thermostat_mode.zone2',
+      'operational_state.zone2'
+    ];
+
+    this.logger.log('Removing Zone 2 capabilities as device does not support Zone 2');
+    
+    for (const capability of zone2Capabilities) {
+      if (this.hasCapability(capability)) {
+        try {
+          await this.removeCapability(capability);
+          this.logger.log(`Removed Zone 2 capability: ${capability}`);
+        } catch (error) {
+          this.logger.error(`Failed to remove Zone 2 capability ${capability}:`, error);
+        }
+      }
+    }
+  }
+
+  /**
+   * Add Zone 2 capabilities if supported by the device
+   */
+  private async ensureZone2Capabilities() {
+    const zone2Capabilities = [
+      'measure_temperature.zone2',
+      'target_temperature.zone2', 
+      'thermostat_mode.zone2',
+      'operational_state.zone2'
+    ];
+
+    this.logger.log('Adding Zone 2 capabilities as device supports Zone 2');
+    
+    for (const capability of zone2Capabilities) {
+      if (!this.hasCapability(capability)) {
+        try {
+          await this.addCapability(capability);
+          this.logger.log(`Added Zone 2 capability: ${capability}`);
+        } catch (error) {
+          this.logger.error(`Failed to add Zone 2 capability ${capability}:`, error);
+        }
+      }
+    }
+  }
+
+  /**
+   * Check if device supports Zone 2 based on device data
+   */
+  private checkZone2Support(deviceState: any): boolean {
+    // Check if Zone 2 temperature data is valid (above -30°C)
+    // Invalid readings like -39°C indicate Zone 2 sensor is not connected
+    const hasValidZone2Temperature = deviceState.RoomTemperatureZone2 !== undefined && 
+                                   deviceState.RoomTemperatureZone2 !== null &&
+                                   deviceState.RoomTemperatureZone2 > -30;
+    
+    // Check if Zone 2 has a custom name (indicates user configuration)
+    const hasZone2Name = deviceState.Zone2Name !== undefined && 
+                        deviceState.Zone2Name !== null && 
+                        deviceState.Zone2Name.trim() !== '';
+
+    // Check if Zone 2 is idle (if both zones are idle, might indicate single zone)
+    const zone1Idle = deviceState.IdleZone1 === true;
+    const zone2Idle = deviceState.IdleZone2 === true;
+    const bothZonesIdle = zone1Idle && zone2Idle;
+
+    // Zone 2 is considered available if:
+    // 1. Temperature reading is valid (above -30°C), OR
+    // 2. Zone 2 has a custom name
+    // Additional consideration: If both zones are idle and temp is invalid, likely single zone
+    const hasZone2 = (hasValidZone2Temperature || hasZone2Name) && 
+                     !(bothZonesIdle && !hasValidZone2Temperature && !hasZone2Name);
+    
+    this.logger.log(`Zone 2 support check:`);
+    this.logger.log(`  - Temperature: ${deviceState.RoomTemperatureZone2}°C (valid: ${hasValidZone2Temperature})`);
+    this.logger.log(`  - Zone name: "${deviceState.Zone2Name}" (has name: ${hasZone2Name})`);
+    this.logger.log(`  - Zone 1 idle: ${zone1Idle}, Zone 2 idle: ${zone2Idle}`);
+    this.logger.log(`  - Final result: ${hasZone2}`);
+    
+    return hasZone2;
+  }
+
+  /**
+   * Set up initial capability listeners for device control (Zone 1 and common capabilities)
+   */
+  private setupInitialCapabilityListeners() {
     // Listen for target temperature changes (Zone 1)
     this.registerCapabilityListener('target_temperature', async (value: number) => {
       this.logger.log(`Target temperature (Zone 1) changed to ${value}°C`);
@@ -153,10 +264,11 @@ module.exports = class BoilerDevice extends Homey.Device {
         }
 
         if (this.melCloudApi) {
-          const success = await this.melCloudApi.setDeviceTemperature(
+          const success = await this.melCloudApi.setZoneTemperature(
             this.deviceId,
             this.buildingId,
-            value
+            value,
+            1
           );
 
           if (success) {
@@ -175,27 +287,6 @@ module.exports = class BoilerDevice extends Homey.Device {
       }
     });
 
-    // Listen for Zone 2 target temperature changes (if available)
-    if (this.hasCapability('target_temperature.zone2')) {
-      this.registerCapabilityListener('target_temperature.zone2', async (value: number) => {
-        this.logger.log(`Target temperature (Zone 2) changed to ${value}°C`);
-        
-        try {
-          if (this.melCloudApi) {
-            // Note: This would need to be implemented in the MELCloud API service
-            // For now, we'll just log and return the value
-            this.logger.log(`Zone 2 temperature control not yet implemented: ${value}°C`);
-            return value;
-          } else {
-            throw new Error('MELCloud API not available');
-          }
-        } catch (error) {
-          this.logger.error('Error setting target temperature (Zone 2):', error);
-          throw error;
-        }
-      });
-    }
-
     // Listen for tank target temperature changes (if available)
     if (this.hasCapability('target_temperature.tank')) {
       this.registerCapabilityListener('target_temperature.tank', async (value: number) => {
@@ -203,10 +294,19 @@ module.exports = class BoilerDevice extends Homey.Device {
         
         try {
           if (this.melCloudApi) {
-            // Note: This would need to be implemented in the MELCloud API service
-            // For now, we'll just log and return the value
-            this.logger.log(`Tank temperature control not yet implemented: ${value}°C`);
-            return value;
+            const success = await this.melCloudApi.setTankTemperature(
+              this.deviceId,
+              this.buildingId,
+              value
+            );
+
+            if (success) {
+              this.logger.log(`Successfully set target tank temperature to ${value}°C`);
+              return value;
+            } else {
+              this.logger.error('Failed to set target tank temperature');
+              throw new Error('Failed to set target tank temperature');
+            }
           } else {
             throw new Error('MELCloud API not available');
           }
@@ -217,20 +317,175 @@ module.exports = class BoilerDevice extends Homey.Device {
       });
     }
 
-    // Listen for on/off changes (if applicable)
-    this.registerCapabilityListener('onoff', async (value: boolean) => {
-      this.logger.log(`Device power changed to ${value ? 'on' : 'off'}`);
-      // Note: Actual implementation would depend on MELCloud API capabilities
-      // For now, we'll just log and return the value
-      return value;
+    // Listen for hot water mode changes
+    this.registerCapabilityListener('hot_water_mode', async (value: string) => {
+      this.logger.log(`Hot water mode changed to ${value}`);
+      
+      try {
+        if (this.melCloudApi) {
+          const forced = value === 'forced';
+          this.logger.log(`Setting hot water mode to: ${value} (forced: ${forced})`);
+          
+          const success = await this.melCloudApi.setHotWaterMode(this.deviceId, this.buildingId, forced);
+          
+          if (success) {
+            this.logger.log(`Successfully set hot water mode to ${value}`);
+            return value;
+          } else {
+            this.logger.error(`Failed to set hot water mode to ${value}`);
+            throw new Error(`Failed to set hot water mode to ${value}`);
+          }
+        } else {
+          throw new Error('MELCloud API not available');
+        }
+      } catch (error) {
+        this.logger.error('Error setting hot water mode:', error);
+        throw error;
+      }
     });
 
-    // Listen for thermostat mode changes
-    if (this.hasCapability('thermostat_mode')) {
-      this.registerCapabilityListener('thermostat_mode', async (value: string) => {
-        this.logger.log(`Operation mode changed to ${value}`);
-        // Note: This would need to be implemented in the MELCloud API service
-        return value;
+    // Listen for on/off changes
+    this.registerCapabilityListener('onoff', async (value: boolean) => {
+      this.logger.log(`Device power changed to ${value ? 'on' : 'off'}`);
+      
+      try {
+        if (this.melCloudApi) {
+          const success = await this.melCloudApi.setDevicePower(this.deviceId, this.buildingId, value);
+          
+          if (success) {
+            this.logger.log(`Successfully set power to ${value ? 'on' : 'off'}`);
+            return value;
+          } else {
+            this.logger.error(`Failed to set power to ${value ? 'on' : 'off'}`);
+            throw new Error(`Failed to set power to ${value ? 'on' : 'off'}`);
+          }
+        } else {
+          throw new Error('MELCloud API not available');
+        }
+      } catch (error) {
+        this.logger.error('Error setting power state:', error);
+        throw error;
+      }
+    });
+
+    // Listen for thermostat mode changes (Zone 1)
+    this.registerCapabilityListener('thermostat_mode', async (value: string) => {
+      this.logger.log(`Thermostat mode (Zone 1) changed to ${value}`);
+      
+      try {
+        if (this.melCloudApi) {
+          const modeMap: { [key: string]: number } = {
+            'room': 0,
+            'flow': 1,
+            'curve': 2
+          };
+          
+          const mode = modeMap[value];
+          if (mode === undefined) {
+            throw new Error(`Invalid thermostat mode: ${value}`);
+          }
+          
+          const success = await this.melCloudApi.setOperationMode(this.deviceId, this.buildingId, mode, 1);
+          
+          if (success) {
+            this.logger.log(`Successfully set thermostat mode (Zone 1) to ${value}`);
+            return value;
+          } else {
+            this.logger.error(`Failed to set thermostat mode (Zone 1) to ${value}`);
+            throw new Error(`Failed to set thermostat mode (Zone 1) to ${value}`);
+          }
+        } else {
+          throw new Error('MELCloud API not available');
+        }
+      } catch (error) {
+        this.logger.error('Error setting thermostat mode:', error);
+        throw error;
+      }
+    });
+  }
+
+  /**
+   * Set up Zone 2 capability listeners (only if Zone 2 is supported)
+   */
+  private async setupZone2CapabilityListeners() {
+    // Only set up listeners after Zone 2 check is complete
+    if (!this.zone2Checked) {
+      this.logger.log('Zone 2 check not completed yet, skipping Zone 2 listeners setup');
+      return;
+    }
+
+    if (!this.hasZone2) {
+      this.logger.log('Device does not support Zone 2, skipping Zone 2 listeners setup');
+      return;
+    }
+
+    this.logger.log('Setting up Zone 2 capability listeners');
+
+    // Listen for Zone 2 target temperature changes (if available)
+    if (this.hasCapability('target_temperature.zone2')) {
+      this.registerCapabilityListener('target_temperature.zone2', async (value: number) => {
+        this.logger.log(`Target temperature (Zone 2) changed to ${value}°C`);
+        
+        try {
+          if (this.melCloudApi) {
+            const success = await this.melCloudApi.setZoneTemperature(
+              this.deviceId,
+              this.buildingId,
+              value,
+              2
+            );
+
+            if (success) {
+              this.logger.log(`Successfully set target temperature (Zone 2) to ${value}°C`);
+              return value;
+            } else {
+              this.logger.error('Failed to set target temperature (Zone 2)');
+              throw new Error('Failed to set target temperature (Zone 2)');
+            }
+          } else {
+            throw new Error('MELCloud API not available');
+          }
+        } catch (error) {
+          this.logger.error('Error setting target temperature (Zone 2):', error);
+          throw error;
+        }
+      });
+    }
+
+    // Listen for Zone 2 thermostat mode changes (if available)
+    if (this.hasCapability('thermostat_mode.zone2')) {
+      this.registerCapabilityListener('thermostat_mode.zone2', async (value: string) => {
+        this.logger.log(`Thermostat mode (Zone 2) changed to ${value}`);
+        
+        try {
+          if (this.melCloudApi) {
+            const modeMap: { [key: string]: number } = {
+              'room': 0,
+              'flow': 1,
+              'curve': 2
+            };
+            
+            const mode = modeMap[value];
+            if (mode === undefined) {
+              throw new Error(`Invalid thermostat mode: ${value}`);
+            }
+            
+            const success = await this.melCloudApi.setOperationMode(this.deviceId, this.buildingId, mode, 2);
+            
+            if (success) {
+              this.logger.log(`Successfully set thermostat mode (Zone 2) to ${value}`);
+              return value;
+            } else {
+              this.logger.error(`Failed to set thermostat mode (Zone 2) to ${value}`);
+              throw new Error(`Failed to set thermostat mode (Zone 2) to ${value}`);
+            }
+          } else {
+            throw new Error('MELCloud API not available');
+          }
+        } catch (error) {
+          this.logger.error('Error setting Zone 2 thermostat mode:', error);
+          throw error;
+        }
       });
     }
   }
@@ -305,6 +560,21 @@ module.exports = class BoilerDevice extends Homey.Device {
    */
   private async updateCapabilities(deviceState: MelCloudDevice) {
     try {
+      // Check Zone 2 support on first data fetch
+      if (!this.zone2Checked) {
+        this.hasZone2 = this.checkZone2Support(deviceState);
+        this.zone2Checked = true;
+        
+        if (!this.hasZone2) {
+          this.logger.log('Device does not support Zone 2, removing Zone 2 capabilities');
+          await this.removeZone2Capabilities();
+        } else {
+          this.logger.log('Device supports Zone 2, keeping Zone 2 capabilities');
+          // Set up Zone 2 capability listeners now that we know Zone 2 is supported
+          await this.setupZone2CapabilityListeners();
+        }
+      }
+
       // Log the complete device state for debugging
       this.logger.log('MELCloud device state keys:', Object.keys(deviceState));
       this.logger.log('MELCloud device state:', JSON.stringify(deviceState, null, 2));
@@ -391,6 +661,12 @@ module.exports = class BoilerDevice extends Homey.Device {
 
       // Update device state information
       await this.updateDeviceStateInfo(deviceState);
+
+      // Update hot water mode
+      await this.updateHotWaterMode(deviceState);
+
+      // Update operational states
+      await this.updateOperationalStates(deviceState);
 
       this.logger.debug('Device capabilities updated successfully');
 
@@ -554,6 +830,27 @@ module.exports = class BoilerDevice extends Homey.Device {
 
       this.logger.log('Energy data retrieved:', energyTotals);
 
+      // Check Zone 2 support from energy API if not already done
+      if (!this.energyBasedZone2Check && energyTotals.HasZone2 !== undefined) {
+        this.energyBasedZone2Check = true;
+        const energyHasZone2 = energyTotals.HasZone2;
+        
+        this.logger.log(`Energy API reports Zone 2 support: ${energyHasZone2}`);
+        
+        // If energy API says no Zone 2 but we detected it from device state, remove Zone 2 capabilities
+        if (!energyHasZone2 && this.hasZone2) {
+          this.logger.log('Energy API indicates no Zone 2 support, overriding device state detection');
+          this.hasZone2 = false;
+          await this.removeZone2Capabilities();
+        } else if (energyHasZone2 && !this.hasZone2) {
+          this.logger.log('Energy API indicates Zone 2 support, adding Zone 2 capabilities');
+          this.hasZone2 = true;
+          // Re-add Zone 2 capabilities and set up listeners
+          await this.ensureZone2Capabilities();
+          await this.setupZone2CapabilityListeners();
+        }
+      }
+
       // Update energy capabilities directly (API already returns kWh values)
       if (this.hasCapability('meter_power.heating_consumed')) {
         await this.setCapabilityValue('meter_power.heating_consumed', energyTotals.TotalHeatingConsumed || 0);
@@ -644,20 +941,23 @@ module.exports = class BoilerDevice extends Homey.Device {
    */
   private async updateDeviceStateInfo(deviceState: MelCloudDevice) {
     try {
-      // Update operation mode
-      if (deviceState.OperationMode !== undefined && this.hasCapability('thermostat_mode')) {
-        const modeMap: { [key: number]: string } = {
-          1: 'heat',
-          2: 'cool', 
-          3: 'auto',
-          7: 'off',
-          8: 'dry'
-        };
-        const mode = modeMap[deviceState.OperationMode] || 'auto';
+      // For ATW devices, use OperationModeZone1 for thermostat_mode instead of OperationMode
+      if (deviceState.OperationModeZone1 !== undefined && this.hasCapability('thermostat_mode')) {
+        const thermostatMode = this.convertOperationMode(deviceState.OperationModeZone1);
         const currentMode = this.getCapabilityValue('thermostat_mode');
-        if (currentMode !== mode) {
-          await this.setCapabilityValue('thermostat_mode', mode);
-          this.logger.debug(`Updated operation mode: ${mode} (${deviceState.OperationMode})`);
+        if (currentMode !== thermostatMode) {
+          await this.setCapabilityValue('thermostat_mode', thermostatMode);
+          this.logger.debug(`Updated thermostat mode (Zone 1): ${thermostatMode} (${deviceState.OperationModeZone1})`);
+        }
+      }
+
+      // Update Zone 2 thermostat mode if available
+      if (deviceState.OperationModeZone2 !== undefined && this.hasCapability('thermostat_mode.zone2')) {
+        const thermostatModeZone2 = this.convertOperationMode(deviceState.OperationModeZone2);
+        const currentModeZone2 = this.getCapabilityValue('thermostat_mode.zone2');
+        if (currentModeZone2 !== thermostatModeZone2) {
+          await this.setCapabilityValue('thermostat_mode.zone2', thermostatModeZone2);
+          this.logger.debug(`Updated thermostat mode (Zone 2): ${thermostatModeZone2} (${deviceState.OperationModeZone2})`);
         }
       }
 
@@ -679,6 +979,156 @@ module.exports = class BoilerDevice extends Homey.Device {
     } catch (error) {
       this.logger.error('Error updating device state info:', error);
     }
+  }
+
+  /**
+   * Update hot water mode capability based on device state
+   */
+  private async updateHotWaterMode(deviceState: MelCloudDevice) {
+    try {
+      if (deviceState.ForcedHotWaterMode !== undefined && this.hasCapability('hot_water_mode')) {
+        const hotWaterMode = deviceState.ForcedHotWaterMode ? 'forced' : 'auto';
+        const currentMode = this.getCapabilityValue('hot_water_mode');
+        if (currentMode !== hotWaterMode) {
+          await this.setCapabilityValue('hot_water_mode', hotWaterMode);
+          this.logger.log(`Updated hot water mode: ${hotWaterMode}`);
+        }
+      }
+    } catch (error) {
+      this.logger.error('Error updating hot water mode:', error);
+    }
+  }
+
+  /**
+   * Update operational state capabilities
+   */
+  private async updateOperationalStates(deviceState: MelCloudDevice) {
+    try {
+      // Main operational state based on OperationMode
+      if (deviceState.OperationMode !== undefined && this.hasCapability('operational_state')) {
+        const operationState = this.getOperationModeState(deviceState.OperationMode);
+        const currentState = this.getCapabilityValue('operational_state');
+        if (currentState !== operationState) {
+          await this.setCapabilityValue('operational_state', operationState);
+          this.logger.log(`Updated operational state: ${operationState}`);
+        }
+      }
+
+      // Hot water operational state
+      if (this.hasCapability('operational_state.hot_water')) {
+        const hotWaterState = this.getHotWaterOperationalState(deviceState);
+        const currentHotWaterState = this.getCapabilityValue('operational_state.hot_water');
+        if (currentHotWaterState !== hotWaterState) {
+          await this.setCapabilityValue('operational_state.hot_water', hotWaterState);
+          this.logger.log(`Updated hot water state: ${hotWaterState}`);
+        }
+      }
+
+      // Zone 1 operational state
+      if (this.hasCapability('operational_state.zone1')) {
+        const zone1State = this.getZoneOperationalState(deviceState, 'Zone1');
+        const currentZone1State = this.getCapabilityValue('operational_state.zone1');
+        if (currentZone1State !== zone1State) {
+          await this.setCapabilityValue('operational_state.zone1', zone1State);
+          this.logger.log(`Updated Zone 1 state: ${zone1State}`);
+        }
+      }
+
+      // Zone 2 operational state
+      if (this.hasCapability('operational_state.zone2')) {
+        const zone2State = this.getZoneOperationalState(deviceState, 'Zone2');
+        const currentZone2State = this.getCapabilityValue('operational_state.zone2');
+        if (currentZone2State !== zone2State) {
+          await this.setCapabilityValue('operational_state.zone2', zone2State);
+          this.logger.log(`Updated Zone 2 state: ${zone2State}`);
+        }
+      }
+
+    } catch (error) {
+      this.logger.error('Error updating operational states:', error);
+    }
+  }
+
+  /**
+   * Convert MELCloud operation mode to our thermostat mode values
+   */
+  private convertOperationMode(operationMode: number): string {
+    // Map MELCloud operation modes to our thermostat mode values
+    // These mappings should match the actual MELCloud API values
+    switch (operationMode) {
+      case 0: return 'room';    // Room temperature control
+      case 1: return 'flow';    // Flow temperature control  
+      case 2: return 'curve';   // Curve control
+      default: return 'room';   // Default to room control
+    }
+  }
+
+  /**
+   * Get main operation mode state
+   */
+  private getOperationModeState(operationMode: number): string {
+    switch (operationMode) {
+      case 0: return 'idle';
+      case 1: return 'heating';
+      case 2: return 'cooling'; 
+      case 3: return 'defrost';
+      case 5: return 'dhw';       // Domestic hot water
+      case 6: return 'legionella';
+      default: return 'idle';
+    }
+  }
+
+  /**
+   * Get hot water operational state
+   */
+  private getHotWaterOperationalState(deviceState: MelCloudDevice): string {
+    if (deviceState.ProhibitHotWater) {
+      return 'prohibited';
+    }
+    
+    // Check if hot water is actively being produced
+    if (deviceState.OperationMode === 5) { // DHW mode
+      return 'dhw';
+    }
+    
+    // Check for legionella mode
+    if (deviceState.OperationMode === 6) {
+      return 'legionella';
+    }
+    
+    return 'idle';
+  }
+
+  /**
+   * Get zone operational state
+   */
+  private getZoneOperationalState(deviceState: MelCloudDevice, zone: 'Zone1' | 'Zone2'): string {
+    const zoneInCoolMode = deviceState[`${zone}InCoolMode` as keyof MelCloudDevice];
+    const zoneInHeatMode = deviceState[`${zone}InHeatMode` as keyof MelCloudDevice];
+    const prohibitCooling = deviceState[`ProhibitCooling${zone}` as keyof MelCloudDevice];
+    const prohibitHeating = deviceState[`ProhibitHeating${zone}` as keyof MelCloudDevice];
+    const idle = deviceState[`Idle${zone}` as keyof MelCloudDevice];
+
+    // Check for prohibited states
+    if ((zoneInCoolMode && prohibitCooling) || (zoneInHeatMode && prohibitHeating)) {
+      return 'prohibited';
+    }
+
+    // Check for defrost mode
+    if (deviceState.DefrostMode) {
+      return 'defrost';
+    }
+
+    // Check for cooling/heating
+    if (zoneInCoolMode && !idle) {
+      return 'cooling';
+    }
+    
+    if (zoneInHeatMode && !idle) {
+      return 'heating';
+    }
+
+    return 'idle';
   }
 
   /**

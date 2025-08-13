@@ -1016,6 +1016,7 @@ export class MelCloudApi extends BaseApiService {
     CoP?: number[];  // Include CoP array from API
     AverageHeatingCOP?: number;  // Calculated average heating COP
     AverageHotWaterCOP?: number; // Calculated average hot water COP
+    HasZone2?: boolean; // Include Zone 2 support flag from API
   }> {
     try {
       // Try with a broader date range - last 7 days to increase chances of getting data
@@ -1052,6 +1053,7 @@ export class MelCloudApi extends BaseApiService {
         CoP: energyData?.CoP || [],
         AverageHeatingCOP: 0,
         AverageHotWaterCOP: 0,
+        HasZone2: energyData?.HasZone2 || false,
       };
 
       // Calculate average COP values if CoP array is available
@@ -1085,7 +1087,423 @@ export class MelCloudApi extends BaseApiService {
         TotalHotWaterProduced: 0,
         TotalCoolingConsumed: 0,
         TotalCoolingProduced: 0,
+        HasZone2: false,
       };
+    }
+  }
+
+  /**
+   * Set hot water mode for ATW device
+   * @param deviceId Device ID
+   * @param buildingId Building ID
+   * @param forced True for forced mode, false for auto mode
+   * @returns Promise resolving to success
+   */
+  async setHotWaterMode(deviceId: string, buildingId: number, forced: boolean): Promise<boolean> {
+    try {
+      if (!this.contextKey) {
+        const connected = await this.ensureConnected();
+        if (!connected) {
+          throw new Error('Not logged in to MELCloud');
+        }
+      }
+
+      this.logger.log(`Setting hot water mode for device ${deviceId} to ${forced ? 'forced' : 'auto'}`);
+
+      try {
+        // First get current state
+        const currentState = await this.getDeviceState(deviceId, buildingId);
+
+        // Update hot water mode
+        currentState.ForcedHotWaterMode = forced;
+
+        this.logApiCall('POST', 'Device/SetAtw', { deviceId, forcedHotWaterMode: forced });
+
+        // Send update with retry
+        const data = await this.retryableRequest(
+          () => this.throttledApiCall<any>('POST', 'Device/SetAtw', {
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(currentState),
+          })
+        );
+
+        const success = data !== null;
+
+        if (success) {
+          this.logger.log(`Successfully set hot water mode for device ${deviceId} to ${forced ? 'forced' : 'auto'}`);
+        } else {
+          this.logger.error(`Failed to set hot water mode for device ${deviceId}`);
+        }
+
+        return success;
+      } catch (error) {
+        const appError = this.createApiError(error, {
+          operation: 'setHotWaterMode',
+          deviceId,
+          buildingId,
+          forced
+        });
+
+        if (appError.category === ErrorCategory.AUTHENTICATION) {
+          this.logger.warn(`Authentication error in MELCloud setHotWaterMode for device ${deviceId}, attempting to reconnect`);
+          await this.ensureConnected();
+        }
+
+        this.errorHandler.logError(appError);
+        throw appError;
+      }
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      const appError = this.createApiError(error, {
+        operation: 'setHotWaterMode',
+        deviceId,
+        buildingId,
+        forced
+      });
+
+      this.errorHandler.logError(appError);
+      throw appError;
+    }
+  }
+
+  /**
+   * Set operation mode for ATW device
+   * @param deviceId Device ID
+   * @param buildingId Building ID
+   * @param mode Operation mode (0=room, 1=flow, 2=curve)
+   * @param zone Zone number (1 or 2)
+   * @returns Promise resolving to success
+   */
+  async setOperationMode(deviceId: string, buildingId: number, mode: number, zone: number = 1): Promise<boolean> {
+    try {
+      if (!this.contextKey) {
+        const connected = await this.ensureConnected();
+        if (!connected) {
+          throw new Error('Not logged in to MELCloud');
+        }
+      }
+
+      const modeNames = ['room', 'flow', 'curve'];
+      const modeName = modeNames[mode] || 'unknown';
+      this.logger.log(`Setting operation mode for device ${deviceId} zone ${zone} to ${modeName} (${mode})`);
+
+      try {
+        // First get current state
+        const currentState = await this.getDeviceState(deviceId, buildingId);
+
+        // Update operation mode for the specified zone
+        if (zone === 1) {
+          currentState.OperationModeZone1 = mode;
+        } else if (zone === 2) {
+          currentState.OperationModeZone2 = mode;
+        } else {
+          throw new Error(`Invalid zone: ${zone}. Must be 1 or 2.`);
+        }
+
+        this.logApiCall('POST', 'Device/SetAtw', { deviceId, mode, zone });
+
+        // Send update with retry
+        const data = await this.retryableRequest(
+          () => this.throttledApiCall<any>('POST', 'Device/SetAtw', {
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(currentState),
+          })
+        );
+
+        const success = data !== null;
+
+        if (success) {
+          this.logger.log(`Successfully set operation mode for device ${deviceId} zone ${zone} to ${modeName}`);
+        } else {
+          this.logger.error(`Failed to set operation mode for device ${deviceId} zone ${zone}`);
+        }
+
+        return success;
+      } catch (error) {
+        const appError = this.createApiError(error, {
+          operation: 'setOperationMode',
+          deviceId,
+          buildingId,
+          mode,
+          zone
+        });
+
+        if (appError.category === ErrorCategory.AUTHENTICATION) {
+          this.logger.warn(`Authentication error in MELCloud setOperationMode for device ${deviceId}, attempting to reconnect`);
+          await this.ensureConnected();
+        }
+
+        this.errorHandler.logError(appError);
+        throw appError;
+      }
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      const appError = this.createApiError(error, {
+        operation: 'setOperationMode',
+        deviceId,
+        buildingId,
+        mode,
+        zone
+      });
+
+      this.errorHandler.logError(appError);
+      throw appError;
+    }
+  }
+
+  /**
+   * Set device power state
+   * @param deviceId Device ID
+   * @param buildingId Building ID
+   * @param power True for on, false for off
+   * @returns Promise resolving to success
+   */
+  async setDevicePower(deviceId: string, buildingId: number, power: boolean): Promise<boolean> {
+    try {
+      if (!this.contextKey) {
+        const connected = await this.ensureConnected();
+        if (!connected) {
+          throw new Error('Not logged in to MELCloud');
+        }
+      }
+
+      this.logger.log(`Setting power for device ${deviceId} to ${power ? 'on' : 'off'}`);
+
+      try {
+        // First get current state
+        const currentState = await this.getDeviceState(deviceId, buildingId);
+
+        // Update power state
+        currentState.Power = power;
+
+        this.logApiCall('POST', 'Device/SetAtw', { deviceId, power });
+
+        // Send update with retry
+        const data = await this.retryableRequest(
+          () => this.throttledApiCall<any>('POST', 'Device/SetAtw', {
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(currentState),
+          })
+        );
+
+        const success = data !== null;
+
+        if (success) {
+          this.logger.log(`Successfully set power for device ${deviceId} to ${power ? 'on' : 'off'}`);
+        } else {
+          this.logger.error(`Failed to set power for device ${deviceId}`);
+        }
+
+        return success;
+      } catch (error) {
+        const appError = this.createApiError(error, {
+          operation: 'setDevicePower',
+          deviceId,
+          buildingId,
+          power
+        });
+
+        if (appError.category === ErrorCategory.AUTHENTICATION) {
+          this.logger.warn(`Authentication error in MELCloud setDevicePower for device ${deviceId}, attempting to reconnect`);
+          await this.ensureConnected();
+        }
+
+        this.errorHandler.logError(appError);
+        throw appError;
+      }
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      const appError = this.createApiError(error, {
+        operation: 'setDevicePower',
+        deviceId,
+        buildingId,
+        power
+      });
+
+      this.errorHandler.logError(appError);
+      throw appError;
+    }
+  }
+
+  /**
+   * Set zone temperature for ATW device
+   * @param deviceId Device ID
+   * @param buildingId Building ID
+   * @param temperature Target temperature
+   * @param zone Zone number (1 or 2)
+   * @returns Promise resolving to success
+   */
+  async setZoneTemperature(deviceId: string, buildingId: number, temperature: number, zone: number = 1): Promise<boolean> {
+    try {
+      if (!this.contextKey) {
+        const connected = await this.ensureConnected();
+        if (!connected) {
+          throw new Error('Not logged in to MELCloud');
+        }
+      }
+
+      this.logger.log(`Setting temperature for device ${deviceId} zone ${zone} to ${temperature}°C`);
+
+      try {
+        // First get current state
+        const currentState = await this.getDeviceState(deviceId, buildingId);
+
+        // Update temperature for the specified zone
+        if (zone === 1) {
+          currentState.SetTemperatureZone1 = temperature;
+        } else if (zone === 2) {
+          currentState.SetTemperatureZone2 = temperature;
+        } else {
+          throw new Error(`Invalid zone: ${zone}. Must be 1 or 2.`);
+        }
+
+        this.logApiCall('POST', 'Device/SetAtw', { deviceId, temperature, zone });
+
+        // Send update with retry
+        const data = await this.retryableRequest(
+          () => this.throttledApiCall<any>('POST', 'Device/SetAtw', {
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(currentState),
+          })
+        );
+
+        const success = data !== null;
+
+        if (success) {
+          this.logger.log(`Successfully set temperature for device ${deviceId} zone ${zone} to ${temperature}°C`);
+        } else {
+          this.logger.error(`Failed to set temperature for device ${deviceId} zone ${zone}`);
+        }
+
+        return success;
+      } catch (error) {
+        const appError = this.createApiError(error, {
+          operation: 'setZoneTemperature',
+          deviceId,
+          buildingId,
+          temperature,
+          zone
+        });
+
+        if (appError.category === ErrorCategory.AUTHENTICATION) {
+          this.logger.warn(`Authentication error in MELCloud setZoneTemperature for device ${deviceId}, attempting to reconnect`);
+          await this.ensureConnected();
+        }
+
+        this.errorHandler.logError(appError);
+        throw appError;
+      }
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      const appError = this.createApiError(error, {
+        operation: 'setZoneTemperature',
+        deviceId,
+        buildingId,
+        temperature,
+        zone
+      });
+
+      this.errorHandler.logError(appError);
+      throw appError;
+    }
+  }
+
+  /**
+   * Set tank water temperature for ATW device
+   * @param deviceId Device ID
+   * @param buildingId Building ID
+   * @param temperature Target tank temperature
+   * @returns Promise resolving to success
+   */
+  async setTankTemperature(deviceId: string, buildingId: number, temperature: number): Promise<boolean> {
+    try {
+      if (!this.contextKey) {
+        const connected = await this.ensureConnected();
+        if (!connected) {
+          throw new Error('Not logged in to MELCloud');
+        }
+      }
+
+      this.logger.log(`Setting tank temperature for device ${deviceId} to ${temperature}°C`);
+
+      try {
+        // First get current state
+        const currentState = await this.getDeviceState(deviceId, buildingId);
+
+        // Update tank temperature
+        currentState.SetTankWaterTemperature = temperature;
+
+        this.logApiCall('POST', 'Device/SetAtw', { deviceId, tankTemperature: temperature });
+
+        // Send update with retry
+        const data = await this.retryableRequest(
+          () => this.throttledApiCall<any>('POST', 'Device/SetAtw', {
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(currentState),
+          })
+        );
+
+        const success = data !== null;
+
+        if (success) {
+          this.logger.log(`Successfully set tank temperature for device ${deviceId} to ${temperature}°C`);
+        } else {
+          this.logger.error(`Failed to set tank temperature for device ${deviceId}`);
+        }
+
+        return success;
+      } catch (error) {
+        const appError = this.createApiError(error, {
+          operation: 'setTankTemperature',
+          deviceId,
+          buildingId,
+          temperature
+        });
+
+        if (appError.category === ErrorCategory.AUTHENTICATION) {
+          this.logger.warn(`Authentication error in MELCloud setTankTemperature for device ${deviceId}, attempting to reconnect`);
+          await this.ensureConnected();
+        }
+
+        this.errorHandler.logError(appError);
+        throw appError;
+      }
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      const appError = this.createApiError(error, {
+        operation: 'setTankTemperature',
+        deviceId,
+        buildingId,
+        temperature
+      });
+
+      this.errorHandler.logError(appError);
+      throw appError;
     }
   }
 }

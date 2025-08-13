@@ -4,6 +4,8 @@
   },
   "class": "thermostat",
   "capabilities": [
+    "onoff",
+    "hot_water_mode",
     "measure_temperature",
     "measure_temperature.outdoor",
     "measure_temperature.zone2",
@@ -11,7 +13,12 @@
     "target_temperature",
     "target_temperature.zone2", 
     "target_temperature.tank",
-    "onoff",
+    "thermostat_mode",
+    "thermostat_mode.zone2",
+    "operational_state",
+    "operational_state.hot_water",
+    "operational_state.zone1",
+    "operational_state.zone2",
     "meter_power.heating_consumed",
     "meter_power.heating_produced",
     "meter_power.hotwater_consumed", 
@@ -22,7 +29,6 @@
     "meter_power.produced_hotwater",
     "heating_cop",
     "hotwater_cop",
-    "thermostat_mode",
     "alarm_generic.offline"
   ],
   "capabilitiesOptions": {
@@ -158,7 +164,228 @@
     "thermostat_mode": {
       "title": {
         "en": "Operation Mode"
-      }
+      },
+      "type": "enum",
+      "values": [
+        {
+          "id": "room",
+          "title": {
+            "en": "Room Temperature"
+          }
+        },
+        {
+          "id": "flow",
+          "title": {
+            "en": "Flow Temperature"
+          }
+        },
+        {
+          "id": "curve",
+          "title": {
+            "en": "Curve"
+          }
+        }
+      ]
+    },
+    "thermostat_mode.zone2": {
+      "title": {
+        "en": "Operation Mode - Zone 2"
+      },
+      "type": "enum",
+      "values": [
+        {
+          "id": "room",
+          "title": {
+            "en": "Room Temperature"
+          }
+        },
+        {
+          "id": "flow",
+          "title": {
+            "en": "Flow Temperature"
+          }
+        },
+        {
+          "id": "curve",
+          "title": {
+            "en": "Curve"
+          }
+        }
+      ]
+    },
+    "hot_water_mode": {
+      "title": {
+        "en": "Hot Water Mode"
+      },
+      "type": "enum",
+      "values": [
+        {
+          "id": "auto",
+          "title": {
+            "en": "Automatic"
+          }
+        },
+        {
+          "id": "forced",
+          "title": {
+            "en": "Forced"
+          }
+        }
+      ]
+    },
+    "operational_state": {
+      "title": {
+        "en": "Operational State"
+      },
+      "getable": true,
+      "setable": false,
+      "type": "enum",
+      "values": [
+        {
+          "id": "cooling",
+          "title": {
+            "en": "Cooling"
+          }
+        },
+        {
+          "id": "defrost",
+          "title": {
+            "en": "Defrost"
+          }
+        },
+        {
+          "id": "heating",
+          "title": {
+            "en": "Heating"
+          }
+        },
+        {
+          "id": "idle",
+          "title": {
+            "en": "Idle"
+          }
+        },
+        {
+          "id": "prohibited",
+          "title": {
+            "en": "Prohibited"
+          }
+        }
+      ]
+    },
+    "operational_state.hot_water": {
+      "title": {
+        "en": "Hot Water State"
+      },
+      "getable": true,
+      "setable": false,
+      "type": "enum",
+      "values": [
+        {
+          "id": "dhw",
+          "title": {
+            "en": "Hot Water"
+          }
+        },
+        {
+          "id": "idle",
+          "title": {
+            "en": "Idle"
+          }
+        },
+        {
+          "id": "legionella",
+          "title": {
+            "en": "Legionella"
+          }
+        },
+        {
+          "id": "prohibited",
+          "title": {
+            "en": "Prohibited"
+          }
+        }
+      ]
+    },
+    "operational_state.zone1": {
+      "title": {
+        "en": "Zone 1 State"
+      },
+      "getable": true,
+      "setable": false,
+      "type": "enum",
+      "values": [
+        {
+          "id": "cooling",
+          "title": {
+            "en": "Cooling"
+          }
+        },
+        {
+          "id": "defrost",
+          "title": {
+            "en": "Defrost"
+          }
+        },
+        {
+          "id": "heating",
+          "title": {
+            "en": "Heating"
+          }
+        },
+        {
+          "id": "idle",
+          "title": {
+            "en": "Idle"
+          }
+        },
+        {
+          "id": "prohibited",
+          "title": {
+            "en": "Prohibited"
+          }
+        }
+      ]
+    },
+    "operational_state.zone2": {
+      "title": {
+        "en": "Zone 2 State"
+      },
+      "getable": true,
+      "setable": false,
+      "type": "enum",
+      "values": [
+        {
+          "id": "cooling",
+          "title": {
+            "en": "Cooling"
+          }
+        },
+        {
+          "id": "defrost",
+          "title": {
+            "en": "Defrost"
+          }
+        },
+        {
+          "id": "heating",
+          "title": {
+            "en": "Heating"
+          }
+        },
+        {
+          "id": "idle",
+          "title": {
+            "en": "Idle"
+          }
+        },
+        {
+          "id": "prohibited",
+          "title": {
+            "en": "Prohibited"
+          }
+        }
+      ]
     },
     "alarm_generic.offline": {
       "title": {
