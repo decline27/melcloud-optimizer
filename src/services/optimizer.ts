@@ -9,6 +9,7 @@ import {
   WeatherData,
   ThermalModel,
   OptimizationResult,
+  PricePoint,
   HomeyApp,
   isError
 } from '../types';
@@ -1103,7 +1104,7 @@ export class Optimizer {
 
     // Find cheapest hours in the next 24 hours
     const prices = priceData.prices.slice(0, 24); // Next 24 hours
-    const sortedPrices = [...prices].sort((a: any, b: any) => a.price - b.price);
+    const sortedPrices = [...prices].sort((a: PricePoint, b: PricePoint) => a.price - b.price);
     const cheapestHours = sortedPrices.slice(0, 4); // Top 4 cheapest hours
 
     // Update COP range for adaptive normalization
@@ -1111,7 +1112,7 @@ export class Optimizer {
     const hotWaterEfficiency = this.normalizeCOP(hotWaterCOP);
 
     // Current price percentile
-    const currentPercentile = prices.filter((p: any) => p.price <= currentPrice).length / prices.length;
+    const currentPercentile = prices.filter((p: PricePoint) => p.price <= currentPrice).length / prices.length;
 
     // Improved COP-based hot water optimization
     if (hotWaterEfficiency > 0.8) {

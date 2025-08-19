@@ -1,4 +1,6 @@
 import { DateTime } from 'luxon';
+import { HomeyApp } from '../types';
+import { Logger } from '../util/logger';
 
 // Constants for storage keys
 const COP_SNAPSHOTS_DAILY = 'cop_snapshots_daily';
@@ -10,19 +12,19 @@ const COP_SNAPSHOTS_MONTHLY = 'cop_snapshots_monthly';
  * for MELCloud heat pumps
  */
 export class COPHelper {
-  private device: any; // Homey device instance
-  private homey: any; // Homey app instance
+  private device: any; // TODO: Type this properly when device interface is available
+  private homey: any; // TODO: Update HomeyApp interface to include scheduler property
   private dailyJob: any;
   private weeklyJob: any;
   private monthlyJob: any;
-  private logger: any;
+  private logger: Logger;
 
   /**
    * Constructor
    * @param homey Homey app instance
    * @param logger Logger instance
    */
-  constructor(homey: any, logger: any) {
+  constructor(homey: any, logger: Logger) {
     this.homey = homey;
     this.logger = logger;
 

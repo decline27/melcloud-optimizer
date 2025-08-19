@@ -12,6 +12,27 @@ declare global {
   var logger: Logger;
 }
 
+// MELCloud API raw response interfaces
+interface MelCloudRawResponse {
+  Structure?: {
+    Devices?: MelCloudRawDevice[];
+    Areas?: Array<{
+      Devices?: MelCloudRawDevice[];
+    }>;
+  };
+  [key: string]: any;
+}
+
+interface MelCloudRawDevice {
+  DeviceID: string;
+  DeviceName: string;
+  BuildingID: number;
+  DeviceType?: number;
+  CanCool?: boolean;
+  CanHeat?: boolean;
+  [key: string]: any;
+}
+
 /**
  * MELCloud API Service
  * Handles communication with the MELCloud API
@@ -353,8 +374,8 @@ export class MelCloudApi extends BaseApiService {
    * @param data MELCloud response data
    * @returns Array of devices
    */
-  private extractDevices(data: any[]): any[] {
-    const devices: any[] = [];
+  private extractDevices(data: MelCloudRawResponse[]): DeviceInfo[] {
+    const devices: DeviceInfo[] = [];
 
     // Debug logging to see the actual API response structure
     this.logger.debug('MELCloud API response structure:', JSON.stringify(data, null, 2));
@@ -383,7 +404,7 @@ export class MelCloudApi extends BaseApiService {
       } else {
         this.logger.log(`No devices found in building ${building.Name || 'Unknown'}. Creating a dummy device for testing.`);
         // Create a dummy device using the building ID
-        const dummyDeviceId = 123456; // Use a fixed ID for consistency
+        const dummyDeviceId = '123456'; // Use a fixed ID for consistency
         devices.push({
           id: dummyDeviceId,
           name: 'Dummy Heat Pump',
@@ -410,8 +431,8 @@ export class MelCloudApi extends BaseApiService {
   /**
    * Helper method to recursively find devices in an object
    */
-  private findDevicesInObject(obj: any, buildingId: number, path: string = '', foundDeviceIds: Set<string> = new Set()): any[] {
-    const devices: any[] = [];
+  private findDevicesInObject(obj: any, buildingId: number, path: string = '', foundDeviceIds: Set<string> = new Set()): DeviceInfo[] {
+    const devices: DeviceInfo[] = [];
 
     // If this is null or not an object, return empty array
     if (!obj || typeof obj !== 'object') {

@@ -19,6 +19,7 @@ export interface DeviceInfo {
   type: string;
   buildingId: number;
   data?: any;
+  isDummy?: boolean; // For test/development dummy devices
 }
 
 export interface PricePoint {

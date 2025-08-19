@@ -153,7 +153,7 @@ export default class HeatOptimizerApp extends App {
 
     // Initialize COP Helper
     try {
-      this.copHelper = new COPHelper(this.homey, this);
+      this.copHelper = new COPHelper(this.homey, this.logger);
       this.logger.info('COP Helper initialized');
 
       // Make it available globally
