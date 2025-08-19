@@ -109,9 +109,11 @@ describe('MelCloudApi', () => {
           expect(mockRequestObject.write).toHaveBeenCalledWith(expect.stringContaining('"Password":"password"'));
         });
 
-      // Emit data and end events to simulate response
-      mockResponse.emit('data', JSON.stringify(responseData));
-      mockResponse.emit('end');
+      // Emit data and end events to simulate response asynchronously
+      setTimeout(() => {
+        mockResponse.emit('data', JSON.stringify(responseData));
+        mockResponse.emit('end');
+      }, 10);
 
       // Wait for the test to complete
       return testPromise;
