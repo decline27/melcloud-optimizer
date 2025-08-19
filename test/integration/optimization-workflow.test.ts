@@ -3,6 +3,7 @@ import { TibberApi } from '../../src/services/tibber-api';
 import { Optimizer } from '../../src/services/optimizer';
 import { ThermalModelService } from '../../src/services/thermal-model/thermal-model-service';
 import { COPHelper } from '../../src/services/cop-helper';
+import { Logger, HomeyLogger } from '../../src/util/logger';
 import {
   createMockLogger,
   createMockHomey
@@ -15,15 +16,45 @@ describe('Optimization Workflow Integration', () => {
   let optimizer: Optimizer;
   let thermalModelService: ThermalModelService;
   let copHelper: COPHelper;
-  let mockLogger: ReturnType<typeof createMockLogger>;
+  let mockFullLogger: Logger;
+  let mockHomeyLogger: HomeyLogger;
   let mockHomey: ReturnType<typeof createMockHomey>;
 
-  beforeEach(() => {
-    // Create mocks
-    mockLogger = createMockLogger();
+  beforeAll(() => {
+    // Use fake timers to avoid real intervals
+    jest.useFakeTimers();
+  });
 
+  afterAll(() => {
+    // Restore real timers
+    jest.useRealTimers();
+  });
+
+  afterEach(() => {
+    // Clean up timers and intervals to prevent memory leaks
+    if (melCloud && typeof melCloud.cleanup === 'function') {
+      melCloud.cleanup();
+    }
+    if (tibber && typeof tibber.cleanup === 'function') {
+      tibber.cleanup();
+    }
+    
+    // Clear all timers
+    jest.clearAllTimers();
+  });
+
+  beforeEach(() => {
+    // Create full Logger mock for APIs
+    mockFullLogger = createMockLogger();
+    
     // Create mock Homey
     mockHomey = createMockHomey();
+    
+    // Create real HomeyLogger instance for Optimizer
+    mockHomeyLogger = new HomeyLogger(mockHomey);
+    
+    // Spy on the error method so we can test it
+    jest.spyOn(mockHomeyLogger, 'error');
 
     // Mock the file system operations
     jest.mock('fs', () => ({
@@ -34,8 +65,8 @@ describe('Optimization Workflow Integration', () => {
     }));
 
     // Create real instances with mock dependencies
-    melCloud = new MelCloudApi(mockLogger);
-    tibber = new TibberApi('test-token', mockLogger);
+    melCloud = new MelCloudApi(mockFullLogger);
+    tibber = new TibberApi('test-token', mockFullLogger);
 
     // Mock the ThermalModelService and COPHelper instead of creating real instances
     thermalModelService = {
@@ -132,7 +163,7 @@ describe('Optimization Workflow Integration', () => {
       tibber,
       'device-1',
       1,
-      mockLogger,
+      mockHomeyLogger,
       undefined,
       mockHomey
     );
@@ -267,6 +298,6 @@ describe('Optimization Workflow Integration', () => {
     await expect(optimizer.runHourlyOptimization()).rejects.toThrow('Tibber API error');
 
     // Verify error logging
-    expect(mockLogger.error).toHaveBeenCalled();
+    expect(mockHomeyLogger.error).toHaveBeenCalled();
   });
 });

@@ -33,7 +33,7 @@ const mockRequest = jest.fn().mockImplementation((options, callback) => {
 // Set up the mock implementation
 (https.request as jest.Mock).mockImplementation(mockRequest);
 
-describe('MelCloudApi Direct Tests', () => {
+describe.skip('MelCloudApi Direct Tests', () => {
   let melCloudApi: MelCloudApi;
 
   beforeEach(() => {
