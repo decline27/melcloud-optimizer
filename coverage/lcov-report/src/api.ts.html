@@ -23,9 +23,9 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">36.66% </span>
+                <span class="strong">3.33% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>11/30</span>
+                <span class='fraction'>1/30</span>
             </div>
         
             
@@ -37,16 +37,16 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">66.66% </span>
+                <span class="strong">0% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>4/6</span>
+                <span class='fraction'>0/6</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">36.66% </span>
+                <span class="strong">3.33% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>11/30</span>
+                <span class='fraction'>1/30</span>
             </div>
         
             
@@ -184,34 +184,34 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -294,35 +294,35 @@
 export class Api {
   private app: HeatOptimizerApp;
 &nbsp;
-  constructor(app: HeatOptimizerApp) {
-    this.app = app;
+<span class="fstat-no" title="function not covered" >  constructor(a</span>pp: HeatOptimizerApp) {
+<span class="cstat-no" title="statement not covered" >    this.app = app;</span>
   }
 &nbsp;
   /**
    * Run test logging
    */
-  async testLogging() {
-    this.app.log('API method testLogging called');
-    this.app.testLogging();
-    return { success: true, message: 'Test logging completed' };
+  async <span class="fstat-no" title="function not covered" >testLogging(</span>) {
+<span class="cstat-no" title="statement not covered" >    this.app.log('API method testLogging called');</span>
+<span class="cstat-no" title="statement not covered" >    this.app.testLogging();</span>
+<span class="cstat-no" title="statement not covered" >    return { success: true, message: 'Test logging completed' };</span>
   }
 &nbsp;
   /**
    * Run hourly optimizer
    */
-  async runHourlyOptimizer() {
-    this.app.log('API method runHourlyOptimizer called');
-    await this.app.runHourlyOptimizer();
-    return { success: true, message: 'Hourly optimization completed' };
+  async <span class="fstat-no" title="function not covered" >runHourlyOptimizer(</span>) {
+<span class="cstat-no" title="statement not covered" >    this.app.log('API method runHourlyOptimizer called');</span>
+<span class="cstat-no" title="statement not covered" >    await this.app.runHourlyOptimizer();</span>
+<span class="cstat-no" title="statement not covered" >    return { success: true, message: 'Hourly optimization completed' };</span>
   }
 &nbsp;
   /**
    * Run weekly calibration
    */
-  async runWeeklyCalibration() {
-    this.app.log('API method runWeeklyCalibration called');
-    await this.app.runWeeklyCalibration();
-    return { success: true, message: 'Weekly calibration completed' };
+  async <span class="fstat-no" title="function not covered" >runWeeklyCalibration(</span>) {
+<span class="cstat-no" title="statement not covered" >    this.app.log('API method runWeeklyCalibration called');</span>
+<span class="cstat-no" title="statement not covered" >    await this.app.runWeeklyCalibration();</span>
+<span class="cstat-no" title="statement not covered" >    return { success: true, message: 'Weekly calibration completed' };</span>
   }
 &nbsp;
   /**
@@ -403,7 +403,7 @@ export class Api {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2025-05-23T10:47:56.202Z
+                at 2025-08-19T18:05:48.653Z
             </div>
         <script src="../prettify.js"></script>
         <script>
