@@ -23,9 +23,9 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">3.17% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/315</span>
+                <span class='fraction'>10/315</span>
             </div>
         
             
@@ -44,9 +44,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">3.31% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/302</span>
+                <span class='fraction'>10/302</span>
             </div>
         
             
@@ -878,25 +878,22 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -922,7 +919,10 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -1683,22 +1683,22 @@
  * Implements data retention policies and memory management to prevent memory leaks.
  */
 &nbsp;
-<span class="cstat-no" title="statement not covered" >import { DateTime } from 'luxon';</span>
-<span class="cstat-no" title="statement not covered" >import * as fs from 'fs';</span>
-<span class="cstat-no" title="statement not covered" >import * as path from 'path';</span>
+import { DateTime } from 'luxon';
+import * as fs from 'fs';
+import * as path from 'path';
 &nbsp;
 // Settings key for thermal data storage
-const THERMAL_DATA_SETTINGS_KEY = <span class="cstat-no" title="statement not covered" >'thermal_model_data';</span>
+const THERMAL_DATA_SETTINGS_KEY = 'thermal_model_data';
 // Settings key for aggregated historical data
-const AGGREGATED_DATA_SETTINGS_KEY = <span class="cstat-no" title="statement not covered" >'thermal_model_aggregated_data';</span>
+const AGGREGATED_DATA_SETTINGS_KEY = 'thermal_model_aggregated_data';
 // Backup file path (as fallback)
-const BACKUP_FILE_NAME = <span class="cstat-no" title="statement not covered" >'thermal-data-backup.json';</span>
+const BACKUP_FILE_NAME = 'thermal-data-backup.json';
 // Maximum number of data points to keep in memory
-const DEFAULT_MAX_DATA_POINTS = <span class="cstat-no" title="statement not covered" >2016;</span> // ~2 weeks of data at 10-minute intervals
+const DEFAULT_MAX_DATA_POINTS = 2016; // ~2 weeks of data at 10-minute intervals
 // Maximum age of data points in days
-const MAX_DATA_AGE_DAYS = <span class="cstat-no" title="statement not covered" >30;</span>
+const MAX_DATA_AGE_DAYS = 30;
 // Maximum size of data to store in settings (bytes)
-const MAX_SETTINGS_DATA_SIZE = <span class="cstat-no" title="statement not covered" >500000;</span> // ~500KB
+const MAX_SETTINGS_DATA_SIZE = 500000; // ~500KB
 &nbsp;
 export interface ThermalDataPoint {
   timestamp: string;
@@ -1727,7 +1727,7 @@ export interface AggregatedDataPoint {
   dataPointCount: number;
 }
 &nbsp;
-<span class="cstat-no" title="statement not covered" >export class T</span>hermalDataCollector {
+export class ThermalDataCollector {
   private <span class="cstat-no" title="statement not covered" >dataPoints: ThermalDataPoint[] = [];</span>
   private <span class="cstat-no" title="statement not covered" >aggregatedData: AggregatedDataPoint[] = [];</span>
   private backupFilePath: string;
@@ -2485,7 +2485,7 @@ export interface AggregatedDataPoint {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2025-08-19T18:28:50.257Z
+                at 2025-08-19T18:34:02.893Z
             </div>
         <script src="../../../prettify.js"></script>
         <script>
