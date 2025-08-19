@@ -3,8 +3,9 @@ import { TibberApi } from '../../src/services/tibber-api';
 import { ThermalModelService } from '../../src/services/thermal-model/thermal-model-service';
 import { COPHelper } from '../../src/services/cop-helper';
 
-// Mock logger
+// Mock logger with all HomeyLogger properties
 export const createMockLogger = () => ({
+  // Core Logger interface methods
   log: jest.fn(),
   info: jest.fn(),
   error: jest.fn(),
@@ -21,7 +22,21 @@ export const createMockLogger = () => ({
   enableCategory: jest.fn(),
   disableCategory: jest.fn(),
   isCategoryEnabled: jest.fn().mockReturnValue(true),
-  formatValue: jest.fn(value => typeof value === 'object' ? JSON.stringify(value) : String(value))
+  formatValue: jest.fn(value => typeof value === 'object' ? JSON.stringify(value) : String(value)),
+  
+  // HomeyLogger specific properties
+  app: jest.fn(),
+  logLevel: 1,
+  logToTimeline: false,
+  logPrefix: '[Test] ',
+  sourceModule: 'TestModule',
+  includeTimestamps: true,
+  includeSourceModule: true,
+  verboseMode: false,
+  enabledCategories: new Set(['general']),
+  
+  // Private methods (need to be public in mock for TypeScript)
+  getLogPrefix: jest.fn().mockReturnValue('[Test] ')
 });
 
 // Mock MELCloud API

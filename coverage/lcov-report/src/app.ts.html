@@ -23,9 +23,9 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">1.32% </span>
+                <span class="strong">0% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>7/527</span>
+                <span class='fraction'>0/527</span>
             </div>
         
             
@@ -37,16 +37,16 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">3.7% </span>
+                <span class="strong">0% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>1/27</span>
+                <span class='fraction'>0/27</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">1.33% </span>
+                <span class="strong">0% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>7/523</span>
+                <span class='fraction'>0/523</span>
             </div>
         
             
@@ -1403,11 +1403,11 @@
 <a name='L1338'></a><a href='#L1338'>1338</a>
 <a name='L1339'></a><a href='#L1339'>1339</a>
 <a name='L1340'></a><a href='#L1340'>1340</a>
-<a name='L1341'></a><a href='#L1341'>1341</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
+<a name='L1341'></a><a href='#L1341'>1341</a></td><td class="line-coverage quiet"><span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -1422,13 +1422,13 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">11x</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -2743,11 +2743,11 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import { App } from 'homey';
-import { CronJob } from 'cron'; // Import CronJob
-import { COPHelper } from './services/cop-helper';
-import { TimelineHelper, TimelineEventType } from './util/timeline-helper';
-import { HomeyLogger, LogLevel, LogCategory } from './util/logger';
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js"><span class="cstat-no" title="statement not covered" >import { App } from 'homey';</span>
+<span class="cstat-no" title="statement not covered" >import { CronJob } from 'cron'; </span>// Import CronJob
+<span class="cstat-no" title="statement not covered" >import { COPHelper } from './services/cop-helper';</span>
+<span class="cstat-no" title="statement not covered" >import { TimelineHelper, TimelineEventType } from './util/timeline-helper';</span>
+<span class="cstat-no" title="statement not covered" >import { HomeyLogger, LogLevel, LogCategory } from './util/logger';</span>
 import {
   LogEntry,
   ThermalModel,
@@ -2762,13 +2762,13 @@ import {
  *
  * This app optimizes heat pump operation based on electricity prices and thermal models
  */
-export default class HeatOptimizerApp extends App {
+<span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >export default class H</span></span>eatOptimizerApp extends App {
   // Make these public so they can be accessed from the API
   public hourlyJob?: CronJob;
   public weeklyJob?: CronJob;
   public copHelper?: COPHelper;
   public timelineHelper?: TimelineHelper;
-  public logger: HomeyLogger = new HomeyLogger(this, {
+  public <span class="cstat-no" title="statement not covered" >logger: HomeyLogger = new HomeyLogger(this, {</span>
     level: LogLevel.INFO,
     logToTimeline: false,
     prefix: 'App',
@@ -4090,7 +4090,7 @@ export default class HeatOptimizerApp extends App {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2025-08-19T18:17:10.436Z
+                at 2025-08-19T18:28:50.257Z
             </div>
         <script src="../prettify.js"></script>
         <script>
