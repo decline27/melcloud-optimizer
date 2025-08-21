@@ -132,7 +132,7 @@ describe('Optimization Workflow Integration', () => {
       tibber,
       'device-1',
       1,
-      mockLogger,
+      mockLogger as any,
       undefined,
       mockHomey
     );

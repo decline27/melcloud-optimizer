@@ -39,6 +39,10 @@ describe('Optimizer Edge Cases', () => {
     optimizer.setTemperatureConstraints(18, 22, 0.5);
     optimizer.setCOPSettings(0.3, true, false);
 
+    // Disable COP adjustments for pure price-based calculations
+    (optimizer as any).copWeight = 0;
+    (optimizer as any).copHelper = null;
+
     // Set the services using reflection to avoid TypeScript errors
     // This is only for testing purposes
     Object.defineProperty(optimizer, 'thermalModelService', {

@@ -1,23 +1,37 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
-  roots: ['<rootDir>/src/', '<rootDir>/test/'],
-  testMatch: ['**/__tests__/**/*.ts', '**/?(*.)+(spec|test).ts'],
+  
+  // Test file patterns
+  testMatch: [
+    '<rootDir>/test/**/*.test.ts',
+    '<rootDir>/test/**/*.spec.ts'
+  ],
+  
+  // TypeScript transformation
   transform: {
     '^.+\\.ts$': 'ts-jest',
   },
-  moduleFileExtensions: ['ts', 'js', 'json', 'node'],
+  
+  // Module settings
+  moduleFileExtensions: ['ts', 'js', 'json'],
+  moduleNameMapper: {
+    '^homey$': '<rootDir>/test/mocks/homey.mock.ts',
+    'node-fetch': '<rootDir>/test/mocks/node-fetch.mock.ts',
+  },
+  
+  // Coverage settings
   collectCoverage: true,
   coverageDirectory: 'coverage',
   collectCoverageFrom: [
     'src/**/*.ts',
     '!src/**/*.d.ts',
-    '!src/index.ts',
+    '!src/**/*.test.ts',
+    '!src/**/*.spec.ts',
   ],
-  // Phase 1 coverage thresholds (current phase)
-  // Phase 1: 45% statements/lines, 35% branches, 45% functions
-  // Phase 2: 65% statements/lines, 50% branches, 65% functions
-  // Phase 3: 80% statements/lines, 60% branches, 80% functions
+  coverageReporters: ['text', 'lcov', 'html'],
+  
+  // Coverage thresholds
   coverageThreshold: {
     global: {
       branches: 35,
@@ -26,17 +40,14 @@ module.exports = {
       statements: 45,
     },
   },
-  moduleNameMapper: {
-    '^homey$': '<rootDir>/test/mocks/homey.mock.ts',
-    'node-fetch': '<rootDir>/test/mocks/node-fetch.mock.ts',
-  },
-  transformIgnorePatterns: [
-    '/node_modules/(?!(node-fetch)/).+\\.js$'
-  ],
-  // Set a longer timeout for tests that might take longer
-  testTimeout: 10000,
-  // Force exit after tests complete to avoid hanging
+  
+  // Test execution settings
+  testTimeout: 5000,
+  verbose: true,
   forceExit: true,
-  // Detect open handles to help identify what's keeping the process alive
-  detectOpenHandles: true,
+  
+  // Handle ES modules
+  transformIgnorePatterns: [
+    'node_modules/(?!(node-fetch)/)'
+  ],
 };

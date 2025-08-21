@@ -1,0 +1,13 @@
+{
+  "melcloud": {
+    "email": "your-melcloud-email@example.com",
+    "password": "your-melcloud-password"
+  },
+  "tibber": {
+    "token": "your-tibber-api-token"
+  },
+  "test": {
+    "skipIntegration": false,
+    "timeout": 30000
+  }
+}

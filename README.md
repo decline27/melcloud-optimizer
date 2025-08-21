@@ -403,11 +403,17 @@ The app has been rewritten in TypeScript for improved code quality and maintaina
 
 ### Running Tests
 
-This app includes a comprehensive test suite. To run the tests:
+This app includes a comprehensive test suite with both unit and integration tests:
 
 ```bash
 # Run all tests
 npm test
+
+# Run only unit tests (fast, no API calls)
+npm run test:unit
+
+# Run only integration tests (requires real credentials)
+npm run test:integration
 
 # Run tests with watch mode (for development)
 npm run test:watch
@@ -416,10 +422,23 @@ npm run test:watch
 npm run test:coverage
 ```
 
+#### Test Configuration
+
+For integration tests that use real APIs, copy the example configuration:
+
+```bash
+cp test/config.example.json test/config.json
+```
+
+Then add your real credentials to `test/config.json`. This file is gitignored for security.
+
+See [test/README.md](test/README.md) for detailed testing documentation.
+
 The test suite includes:
-- Unit tests for core functionality
-- Unit tests for the thermal model
-- Unit tests for the optimizer logic
+- **Unit tests**: Core functionality with mocks (fast)
+- **Integration tests**: Real API connections (slow, optional)
+- **Thermal model tests**: Physics-based calculations
+- **Optimizer logic tests**: Price-based decision making
 
 ### Building and Installing
 
