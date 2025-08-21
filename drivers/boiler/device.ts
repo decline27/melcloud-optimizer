@@ -4,6 +4,7 @@ import { MelCloudApi } from '../../src/services/melcloud-api';
 import { ErrorHandler } from '../../src/util/error-handler';
 import { HomeyLogger, LogLevel } from '../../src/util/logger';
 import { MelCloudDevice } from '../../src/types';
+import { CircuitBreaker, CircuitState } from '../../src/util/circuit-breaker'; // Task 2.2
 
 /**
  * Energy data interface for ATW devices
@@ -31,6 +32,34 @@ module.exports = class BoilerDevice extends Homey.Device {
   private hasZone2: boolean = false;
   private zone2Checked: boolean = false;
   private energyBasedZone2Check: boolean = false;
+  
+  // Power command debouncing properties (Task 1.1)
+  private powerCommandDebounce?: NodeJS.Timeout;
+  private lastPowerCommand?: { value: boolean; timestamp: number };
+  private readonly POWER_COMMAND_DELAY = 3000; // 3 seconds minimum
+
+  // Task 2.1: Configurable polling intervals with smart adaptive polling
+  private pollingConfig = {
+    dataInterval: 300000,     // 5 minutes (optimized from 120000 / 2 minutes)
+    energyInterval: 900000,   // 15 minutes (optimized from 300000 / 5 minutes)
+    fastPollDuration: 600000, // 10 minutes of fast polling after commands
+    fastPollInterval: 60000   // 1 minute during fast poll mode
+  };
+  
+  private fastPollUntil?: number;
+  private currentDataInterval: number = this.pollingConfig.dataInterval;
+  private currentEnergyInterval: number = this.pollingConfig.energyInterval;
+
+  // Task 2.2: Circuit breaker pattern for API protection
+  private apiCircuitBreaker?: CircuitBreaker;
+  private energyCircuitBreaker?: CircuitBreaker;
+  private lastSuccessfulUpdate?: Date;
+  private circuitBreakerMetrics = {
+    dataCallFailures: 0,
+    energyCallFailures: 0,
+    lastFailureTime: null as Date | null,
+    degradedModeActive: false
+  };
 
   /**
    * onInit is called when the device is initialized.
@@ -82,6 +111,12 @@ module.exports = class BoilerDevice extends Homey.Device {
       this.setUnavailable('Failed to initialize MELCloud API');
       return;
     }
+
+    // Task 2.1: Initialize configurable polling intervals
+    this.initializePollingConfiguration();
+
+    // Task 2.2: Initialize circuit breakers for API protection
+    this.initializeCircuitBreakers();
 
     // Ensure all required capabilities are available
     await this.ensureCapabilities();
@@ -273,6 +308,10 @@ module.exports = class BoilerDevice extends Homey.Device {
 
           if (success) {
             this.logger.log(`Successfully set target temperature (Zone 1) to ${value}°C`);
+            
+            // Task 2.1: Enable fast polling after temperature change for better responsiveness
+            this.enableFastPolling('temperature command (Zone 1)');
+            
             return value;
           } else {
             this.logger.error('Failed to set target temperature (Zone 1)');
@@ -302,6 +341,10 @@ module.exports = class BoilerDevice extends Homey.Device {
 
             if (success) {
               this.logger.log(`Successfully set target tank temperature to ${value}°C`);
+              
+              // Task 2.1: Enable fast polling after temperature change for better responsiveness
+              this.enableFastPolling('tank temperature command');
+              
               return value;
             } else {
               this.logger.error('Failed to set target tank temperature');
@@ -344,28 +387,40 @@ module.exports = class BoilerDevice extends Homey.Device {
       }
     });
 
-    // Listen for on/off changes
+    // Listen for on/off changes (with debouncing - Task 1.1)
     this.registerCapabilityListener('onoff', async (value: boolean) => {
       this.logger.log(`Device power changed to ${value ? 'on' : 'off'}`);
       
-      try {
-        if (this.melCloudApi) {
-          const success = await this.melCloudApi.setDevicePower(this.deviceId, this.buildingId, value);
+      // Check if we need to debounce this command
+      const now = Date.now();
+      if (this.lastPowerCommand) {
+        const timeSinceLastCommand = now - this.lastPowerCommand.timestamp;
+        
+        if (timeSinceLastCommand < this.POWER_COMMAND_DELAY) {
+          const remainingDelay = this.POWER_COMMAND_DELAY - timeSinceLastCommand;
+          this.logger.log(`Power command debounced. Waiting ${remainingDelay}ms before executing.`);
           
-          if (success) {
-            this.logger.log(`Successfully set power to ${value ? 'on' : 'off'}`);
-            return value;
-          } else {
-            this.logger.error(`Failed to set power to ${value ? 'on' : 'off'}`);
-            throw new Error(`Failed to set power to ${value ? 'on' : 'off'}`);
+          // Clear any existing debounce timer
+          if (this.powerCommandDebounce) {
+            clearTimeout(this.powerCommandDebounce);
           }
-        } else {
-          throw new Error('MELCloud API not available');
+          
+          // Set up a new debounced command
+          return new Promise<boolean>((resolve, reject) => {
+            this.powerCommandDebounce = setTimeout(async () => {
+              try {
+                const result = await this.executePowerCommand(value);
+                resolve(result);
+              } catch (error) {
+                reject(error);
+              }
+            }, remainingDelay);
+          });
         }
-      } catch (error) {
-        this.logger.error('Error setting power state:', error);
-        throw error;
       }
+      
+      // Execute command immediately if no recent command
+      return await this.executePowerCommand(value);
     });
 
     // Listen for thermostat mode changes (Zone 1)
@@ -491,22 +546,57 @@ module.exports = class BoilerDevice extends Homey.Device {
   }
 
   /**
-   * Start fetching data from MELCloud API every 2 minutes
+   * Execute power command with tracking for debouncing (Task 1.1) and fast polling trigger (Task 2.1)
+   */
+  private async executePowerCommand(value: boolean): Promise<boolean> {
+    try {
+      if (!this.melCloudApi) {
+        throw new Error('MELCloud API not available');
+      }
+
+      // Check if device is actually offline (Task 1.3)
+      if (this.hasCapability('alarm_generic.offline')) {
+        const isOffline = this.getCapabilityValue('alarm_generic.offline');
+        if (isOffline) {
+          this.logger.warn(`Attempting to send power command to offline device. Command may not be executed.`);
+          // Still attempt the command as the device might come back online
+        }
+      }
+
+      // Update tracking before making the call
+      this.lastPowerCommand = { value, timestamp: Date.now() };
+      
+      const success = await this.melCloudApi.setDevicePower(this.deviceId, this.buildingId, value);
+      
+      if (success) {
+        this.logger.log(`Successfully set power to ${value ? 'on' : 'off'}`);
+        
+        // Task 2.1: Enable fast polling after power command for better responsiveness
+        this.enableFastPolling('power command');
+        
+        return value;
+      } else {
+        this.logger.error(`Failed to set power to ${value ? 'on' : 'off'}`);
+        throw new Error(`Failed to set power to ${value ? 'on' : 'off'}`);
+      }
+    } catch (error) {
+      this.logger.error('Error setting power state:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Task 2.1: Start fetching data from MELCloud API with adaptive polling intervals
+   * Task 2.2: Use circuit breaker protected data fetching
    */
   private async startDataFetching() {
-    // Initial fetch
-    await this.fetchDeviceData();
+    // Initial fetch with circuit breaker protection
+    await this.fetchDeviceDataWithProtection();
 
-    // Set up interval for every 2 minutes (120,000 ms)
-    this.updateInterval = setInterval(async () => {
-      try {
-        await this.fetchDeviceData();
-      } catch (error) {
-        this.logger.error('Error during scheduled data fetch:', error);
-      }
-    }, 120000); // 2 minutes
+    // Start adaptive polling instead of fixed interval
+    this.scheduleNextDataFetch();
 
-    this.logger.log('Started data fetching every 2 minutes');
+    this.logger.log(`Started adaptive data fetching with circuit breaker protection (normal: ${this.currentDataInterval}ms, fast: ${this.pollingConfig.fastPollInterval}ms)`);
   }
 
   /**
@@ -556,6 +646,33 @@ module.exports = class BoilerDevice extends Homey.Device {
   }
 
   /**
+   * Check if device is actually offline based on LastCommunication timestamp (Task 1.3)
+   * @param deviceState Device state from MELCloud
+   * @returns True if device is actually offline
+   */
+  private isActuallyOffline(deviceState: any): boolean {
+    // If no LastCommunication field, fall back to deviceState.Offline
+    if (!deviceState.LastCommunication) {
+      this.logger.log('No LastCommunication field available, falling back to deviceState.Offline');
+      return deviceState.Offline || false;
+    }
+
+    try {
+      const lastComm = new Date(deviceState.LastCommunication);
+      const staleness = Date.now() - lastComm.getTime();
+      const isStale = staleness > 300000; // 5 minutes threshold
+      
+      this.logger.log(`Device communication check: lastComm=${lastComm.toISOString()}, staleness=${Math.round(staleness/1000)}s, isStale=${isStale}`);
+      
+      return isStale;
+    } catch (error) {
+      this.logger.error('Error parsing LastCommunication timestamp:', error);
+      // Fall back to original offline status on parse error
+      return deviceState.Offline || false;
+    }
+  }
+
+  /**
    * Update device capabilities based on MELCloud device state
    */
   private async updateCapabilities(deviceState: MelCloudDevice) {
@@ -579,9 +696,14 @@ module.exports = class BoilerDevice extends Homey.Device {
       this.logger.log('MELCloud device state keys:', Object.keys(deviceState));
       this.logger.log('MELCloud device state:', JSON.stringify(deviceState, null, 2));
       
-      // Set device as online
+      // Set device online/offline status using improved detection (Task 1.3)
       if (this.hasCapability('alarm_generic.offline')) {
-        await this.setCapabilityValue('alarm_generic.offline', deviceState.Offline || false);
+        const actuallyOffline = this.isActuallyOffline(deviceState);
+        await this.setCapabilityValue('alarm_generic.offline', actuallyOffline);
+        
+        if (actuallyOffline) {
+          this.logger.warn('Device detected as actually offline based on LastCommunication timestamp');
+        }
       }
 
       // Update power state
@@ -792,24 +914,21 @@ module.exports = class BoilerDevice extends Homey.Device {
   }
 
   /**
-   * Start energy reporting interval
+   * Task 2.1: Start energy reporting with configurable interval
+   * Task 2.2: Use circuit breaker protected energy fetching
    */
   private startEnergyReporting() {
     if (this.energyReportInterval) {
       clearInterval(this.energyReportInterval);
     }
     
-    // Report energy data every 5 minutes (300,000 ms)
+    // Report energy data using configured interval (default 15 minutes)
     this.energyReportInterval = setInterval(async () => {
-      try {
-        // Fetch and update energy data
-        await this.fetchEnergyDataFromApi();
-      } catch (error) {
-        this.logger.error('Error during energy reporting:', error);
-      }
-    }, 300000); // 5 minutes
+      // Task 2.2: Use circuit breaker protected energy fetch
+      await this.fetchEnergyDataWithProtection();
+    }, this.currentEnergyInterval);
 
-    this.logger.log('Energy reporting started (every 5 minutes)');
+    this.logger.log(`Energy reporting started with circuit breaker protection (every ${this.currentEnergyInterval / 60000} minutes)`);
   }
 
   /**
@@ -1168,6 +1287,240 @@ module.exports = class BoilerDevice extends Homey.Device {
   }
 
   /**
+   * Task 2.2: Initialize circuit breakers for API protection
+   */
+  private initializeCircuitBreakers() {
+    try {
+      // Main API calls circuit breaker
+      this.apiCircuitBreaker = new CircuitBreaker(
+        `API-${this.deviceId}`,
+        this.logger,
+        {
+          failureThreshold: 3,        // Open after 3 consecutive failures
+          resetTimeout: 60000,        // Try again after 1 minute
+          halfOpenSuccessThreshold: 2, // Close after 2 successes
+          timeout: 15000,             // 15 second request timeout
+          monitorInterval: 300000     // Log status every 5 minutes
+        }
+      );
+
+      // Energy reporting circuit breaker (more lenient)
+      this.energyCircuitBreaker = new CircuitBreaker(
+        `Energy-${this.deviceId}`,
+        this.logger,
+        {
+          failureThreshold: 5,        // More tolerant for energy calls
+          resetTimeout: 300000,       // 5 minute reset timeout
+          halfOpenSuccessThreshold: 1,
+          timeout: 20000,
+          monitorInterval: 600000     // Log status every 10 minutes
+        }
+      );
+
+      this.logger.log('Circuit breakers initialized for API protection');
+      
+    } catch (error) {
+      this.logger.error('Error initializing circuit breakers:', error);
+      // Continue without circuit breakers if initialization fails
+    }
+  }
+
+  /**
+   * Task 2.2: Protected API data fetching with circuit breaker
+   */
+  private async fetchDeviceDataWithProtection() {
+    try {
+      if (!this.apiCircuitBreaker) {
+        // Fallback to direct call if circuit breaker not available
+        return await this.fetchDeviceData();
+      }
+
+      const deviceData = await this.apiCircuitBreaker.execute(async () => {
+        return await this.fetchDeviceData();
+      });
+
+      // Success - update metrics and clear degraded mode
+      this.lastSuccessfulUpdate = new Date();
+      this.circuitBreakerMetrics.degradedModeActive = false;
+      await this.setAvailable();
+      
+      return deviceData;
+      
+    } catch (error) {
+      this.circuitBreakerMetrics.dataCallFailures++;
+      this.circuitBreakerMetrics.lastFailureTime = new Date();
+      
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('circuit') && errorMessage.includes('open')) {
+        // Circuit breaker is open - enter degraded mode
+        await this.enterDegradedMode('API circuit breaker is open');
+        this.logger.warn('Entering degraded mode due to API circuit breaker activation');
+      } else {
+        // Regular API error
+        this.logger.error('API call failed:', error);
+      }
+      
+      throw error;
+    }
+  }
+
+  /**
+   * Task 2.2: Protected energy data fetching with circuit breaker
+   */
+  private async fetchEnergyDataWithProtection() {
+    try {
+      if (!this.energyCircuitBreaker) {
+        this.logger.warn('Energy circuit breaker not initialized, using direct call');
+        return await this.fetchEnergyDataFromApi();
+      }
+
+      await this.energyCircuitBreaker.execute(async () => {
+        await this.fetchEnergyDataFromApi();
+      });
+      
+    } catch (error) {
+      this.circuitBreakerMetrics.energyCallFailures++;
+      
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('circuit') && errorMessage.includes('open')) {
+        this.logger.warn('Energy circuit breaker is open, skipping energy updates');
+        // Don't fail the device for energy circuit breaker - just log and continue
+      } else {
+        this.logger.error('Energy API call failed:', error);
+      }
+    }
+  }
+
+  /**
+   * Task 2.2: Enter degraded mode during API failures
+   */
+  private async enterDegradedMode(reason: string) {
+    this.circuitBreakerMetrics.degradedModeActive = true;
+    
+    // Set device as warning state but not unavailable
+    await this.setWarning(`Degraded mode: ${reason}`);
+    
+    // Disable non-essential polling temporarily
+    if (this.energyReportInterval) {
+      clearInterval(this.energyReportInterval);
+      this.logger.log('Energy reporting paused during degraded mode');
+    }
+    
+    // Notify user
+    try {
+      await this.homey.notifications.createNotification({
+        excerpt: `${this.getName()} is in degraded mode: ${reason}`
+      });
+    } catch (err) {
+      this.logger.error('Failed to send notification:', err);
+    }
+  }
+
+  /**
+   * Task 2.2: Get circuit breaker status for monitoring
+   */
+  private getCircuitBreakerStatus() {
+    return {
+      apiState: this.apiCircuitBreaker?.getState() || 'unknown',
+      energyState: this.energyCircuitBreaker?.getState() || 'unknown',
+      degradedMode: this.circuitBreakerMetrics.degradedModeActive,
+      lastSuccessfulUpdate: this.lastSuccessfulUpdate,
+      failureCounts: {
+        data: this.circuitBreakerMetrics.dataCallFailures,
+        energy: this.circuitBreakerMetrics.energyCallFailures
+      }
+    };
+  }
+
+  /**
+   * Task 2.1: Initialize configurable polling intervals
+   */
+  private initializePollingConfiguration() {
+    try {
+      // Get user-configured intervals from settings (in minutes, convert to ms)
+      const dataIntervalMinutes = this.getSetting('polling_data_interval') || 5;
+      const energyIntervalMinutes = this.getSetting('polling_energy_interval') || 15;
+      const adaptiveMode = this.getSetting('polling_adaptive_mode') !== false; // default true
+      
+      // Validate and apply intervals
+      this.currentDataInterval = Math.max(60000, dataIntervalMinutes * 60000); // Min 1 minute
+      this.currentEnergyInterval = Math.max(300000, energyIntervalMinutes * 60000); // Min 5 minutes
+      
+      // Update config
+      this.pollingConfig.dataInterval = this.currentDataInterval;
+      this.pollingConfig.energyInterval = this.currentEnergyInterval;
+      
+      this.logger.log(`Polling configuration initialized:`);
+      this.logger.log(`  - Data interval: ${dataIntervalMinutes} minutes (${this.currentDataInterval}ms)`);
+      this.logger.log(`  - Energy interval: ${energyIntervalMinutes} minutes (${this.currentEnergyInterval}ms)`);
+      this.logger.log(`  - Adaptive mode: ${adaptiveMode ? 'enabled' : 'disabled'}`);
+      
+      // Listen for settings changes
+      this.homey.settings.on('set', (key: string) => {
+        if (key.startsWith('polling_')) {
+          this.logger.log(`Polling setting changed: ${key}, reinitializing...`);
+          this.initializePollingConfiguration();
+        }
+      });
+      
+    } catch (error) {
+      this.logger.error('Error initializing polling configuration, using defaults:', error);
+      // Keep default values on error
+    }
+  }
+
+  /**
+   * Task 2.1: Check if fast polling should be used based on recent commands
+   */
+  private shouldUseFastPolling(): boolean {
+    const adaptiveMode = this.getSetting('polling_adaptive_mode') !== false;
+    const inFastPollWindow = this.fastPollUntil ? Date.now() < this.fastPollUntil : false;
+    
+    return adaptiveMode && inFastPollWindow;
+  }
+
+  /**
+   * Task 2.1: Enable fast polling for a period after user commands
+   */
+  private enableFastPolling(reason: string = 'user command') {
+    const adaptiveMode = this.getSetting('polling_adaptive_mode') !== false;
+    
+    if (adaptiveMode) {
+      this.fastPollUntil = Date.now() + this.pollingConfig.fastPollDuration;
+      this.logger.debug(`Fast polling enabled for 10 minutes after ${reason}`);
+      
+      // If currently using slow polling, restart with fast polling immediately
+      if (this.updateInterval && !this.shouldUseFastPolling()) {
+        clearTimeout(this.updateInterval);
+        this.scheduleNextDataFetch();
+      }
+    }
+  }
+
+  /**
+   * Task 2.1: Dynamically schedule next data fetch based on current polling mode
+   * Task 2.2: Use circuit breaker protected data fetching
+   */
+  private scheduleNextDataFetch() {
+    const interval = this.shouldUseFastPolling() 
+      ? this.pollingConfig.fastPollInterval 
+      : this.currentDataInterval;
+      
+    this.updateInterval = setTimeout(async () => {
+      try {
+        // Task 2.2: Use circuit breaker protected fetch
+        await this.fetchDeviceDataWithProtection();
+        this.scheduleNextDataFetch(); // Reschedule dynamically
+      } catch (error) {
+        this.logger.error('Error during scheduled data fetch:', error);
+        this.scheduleNextDataFetch(); // Continue despite errors
+      }
+    }, interval);
+    
+    this.logger.debug(`Next data fetch scheduled in ${interval}ms (${this.shouldUseFastPolling() ? 'fast' : 'normal'} mode)`);
+  }
+
+  /**
    * onRenamed is called when the user updates the device's name.
    */
   async onRenamed(name: string) {
@@ -1180,10 +1533,33 @@ module.exports = class BoilerDevice extends Homey.Device {
   async onDeleted() {
     this.logger.log('BoilerDevice has been deleted');
     
-    // Clean up interval
+    // Task 2.1: Clean up adaptive polling timeout (now using setTimeout instead of setInterval)
     if (this.updateInterval) {
-      clearInterval(this.updateInterval);
+      clearTimeout(this.updateInterval);
       this.updateInterval = undefined;
+    }
+
+    // Clean up energy report interval
+    if (this.energyReportInterval) {
+      clearInterval(this.energyReportInterval);
+      this.energyReportInterval = undefined;
+    }
+
+    // Clean up power command debounce timer (Task 1.1)
+    if (this.powerCommandDebounce) {
+      clearTimeout(this.powerCommandDebounce);
+      this.powerCommandDebounce = undefined;
+    }
+
+    // Task 2.1: Clear fast polling state
+    this.fastPollUntil = undefined;
+
+    // Task 2.2: Clean up circuit breakers
+    if (this.apiCircuitBreaker) {
+      this.apiCircuitBreaker.cleanup();
+    }
+    if (this.energyCircuitBreaker) {
+      this.energyCircuitBreaker.cleanup();
     }
 
     // Clean up MELCloud API

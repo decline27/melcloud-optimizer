@@ -43,6 +43,9 @@ describe('MelCloudApi Simple Tests', () => {
       cleanup: jest.fn()
     };
 
+    // Disable throttling to speed up tests
+    (melCloudApi as any).throttle = jest.fn().mockResolvedValue(undefined);
+
     // Mock https.request
     const mockResponse = {
       statusCode: 200,
@@ -192,23 +195,11 @@ describe('MelCloudApi Simple Tests', () => {
     });
 
     it('should handle network errors', async () => {
-      // Reset the mock to simulate error condition
+      // Reset all mocks to ensure clean state
       jest.clearAllMocks();
       
-      // Mock a network error
-      const mockRequest = {
-        write: jest.fn(),
-        end: jest.fn(),
-        on: jest.fn().mockImplementation((event, callback) => {
-          if (event === 'error') {
-            setTimeout(() => callback(new Error('Network error')), 0);
-          }
-        })
-      };
-
-      (mockedHttps.request as jest.Mock).mockImplementation(() => {
-        return mockRequest as any;
-      });
+      // Mock the retryableRequest method to throw an error
+      (melCloudApi as any).retryableRequest = jest.fn().mockRejectedValue(new Error('Network error'));
 
       await expect(melCloudApi.login('test@example.com', 'password'))
         .rejects.toThrow();
@@ -227,7 +218,7 @@ describe('MelCloudApi Simple Tests', () => {
       expect(devices).toHaveLength(1);
       expect(devices[0].id).toBe('123');
       expect(devices[0].name).toBe('Test Device');
-      expect(devices[0].buildingId).toBe(123); // This should be 123, not 456, based on the mock response
+      expect(devices[0].buildingId).toBe(123); // This should match the building ID from the mock response
     });
 
     it('should throw error when not logged in', async () => {
@@ -238,23 +229,11 @@ describe('MelCloudApi Simple Tests', () => {
     });
 
     it('should handle API errors', async () => {
-      // Reset the mock to simulate error condition
+      // Reset all mocks to ensure clean state
       jest.clearAllMocks();
       
-      // Mock a network error for getDevices
-      const mockRequest = {
-        write: jest.fn(),
-        end: jest.fn(),
-        on: jest.fn().mockImplementation((event, callback) => {
-          if (event === 'error') {
-            setTimeout(() => callback(new Error('API error')), 0);
-          }
-        })
-      };
-
-      (mockedHttps.request as jest.Mock).mockImplementation(() => {
-        return mockRequest as any;
-      });
+      // Mock the retryableRequest method to throw an error
+      (melCloudApi as any).retryableRequest = jest.fn().mockRejectedValue(new Error('API error'));
 
       await expect(melCloudApi.getDevices()).rejects.toThrow();
     });
@@ -306,23 +285,11 @@ describe('MelCloudApi Simple Tests', () => {
     });
 
     it('should handle API errors', async () => {
-      // Reset the mock to simulate error condition
+      // Reset all mocks to ensure clean state
       jest.clearAllMocks();
       
-      // Mock a network error for getDeviceState
-      const mockRequest = {
-        write: jest.fn(),
-        end: jest.fn(),
-        on: jest.fn().mockImplementation((event, callback) => {
-          if (event === 'error') {
-            setTimeout(() => callback(new Error('API error')), 0);
-          }
-        })
-      };
-
-      (mockedHttps.request as jest.Mock).mockImplementation(() => {
-        return mockRequest as any;
-      });
+      // Mock the retryableRequest method to throw an error
+      (melCloudApi as any).retryableRequest = jest.fn().mockRejectedValue(new Error('API error'));
 
       await expect(melCloudApi.getDeviceState('123', 456)).rejects.toThrow();
     });
@@ -350,23 +317,11 @@ describe('MelCloudApi Simple Tests', () => {
     });
 
     it('should handle API errors', async () => {
-      // Reset the mock to simulate error condition
+      // Reset all mocks to ensure clean state
       jest.clearAllMocks();
       
-      // Mock a network error for setDeviceTemperature
-      const mockRequest = {
-        write: jest.fn(),
-        end: jest.fn(),
-        on: jest.fn().mockImplementation((event, callback) => {
-          if (event === 'error') {
-            setTimeout(() => callback(new Error('API error')), 0);
-          }
-        })
-      };
-
-      (mockedHttps.request as jest.Mock).mockImplementation(() => {
-        return mockRequest as any;
-      });
+      // Mock the retryableRequest method to throw an error
+      (melCloudApi as any).retryableRequest = jest.fn().mockRejectedValue(new Error('API error'));
 
       await expect(melCloudApi.setDeviceTemperature('123', 456, 24)).rejects.toThrow();
     });

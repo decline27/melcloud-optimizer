@@ -26,6 +26,9 @@ export class MelCloudApi extends BaseApiService {
   private reconnectDelay: number = 5000; // 5 seconds initial delay
   private reconnectTimers: NodeJS.Timeout[] = [];
   private timeZoneHelper: TimeZoneHelper;
+  
+  // Request deduplication (Task 1.2)
+  private pendingRequests = new Map<string, Promise<any>>();
 
   /**
    * Constructor
@@ -141,10 +144,19 @@ export class MelCloudApi extends BaseApiService {
     this.reconnectTimers = [];
   }
 
-
+  /**
+   * Generate a unique key for request deduplication (Task 1.2)
+   * @param method HTTP method
+   * @param endpoint API endpoint
+   * @param options Request options
+   * @returns Unique request key
+   */
+  private getRequestKey(method: string, endpoint: string, options?: { body?: string }): string {
+    return `${method}:${endpoint}:${JSON.stringify(options?.body || {})}`;
+  }
 
   /**
-   * Throttled API call to prevent rate limiting
+   * Throttled API call to prevent rate limiting (enhanced with deduplication - Task 1.2)
    * @param method HTTP method
    * @param endpoint API endpoint
    * @param options Request options
@@ -158,8 +170,17 @@ export class MelCloudApi extends BaseApiService {
       body?: string;
     } = {}
   ): Promise<T> {
+    // Check for duplicate requests (Task 1.2)
+    const requestKey = this.getRequestKey(method, endpoint, options);
+    
+    // If same request is already pending, return existing promise
+    if (this.pendingRequests.has(requestKey)) {
+      this.logger.log(`Duplicate API call detected for ${method} ${endpoint}, returning existing promise`);
+      return this.pendingRequests.get(requestKey) as Promise<T>;
+    }
+
     // Use circuit breaker to protect against cascading failures
-    return this.circuitBreaker.execute(async () => {
+    const requestPromise = this.circuitBreaker.execute(async () => {
       // Throttle requests using the base class method
       await this.throttle();
 
@@ -236,6 +257,17 @@ export class MelCloudApi extends BaseApiService {
         req.end();
       });
     });
+
+    // Track the request promise (Task 1.2)
+    this.pendingRequests.set(requestKey, requestPromise);
+
+    // Clean up the tracking when request completes (success or failure)
+    requestPromise
+      .finally(() => {
+        this.pendingRequests.delete(requestKey);
+      });
+
+    return requestPromise;
   }
 
   /**
@@ -861,6 +893,9 @@ export class MelCloudApi extends BaseApiService {
   cleanup(): void {
     // Clear all reconnect timers using our helper method
     this.clearReconnectTimers();
+
+    // Clear pending requests tracking (Task 1.2)
+    this.pendingRequests.clear();
 
     // Reset state
     this.reconnectAttempts = 0;
