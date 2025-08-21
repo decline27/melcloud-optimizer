@@ -1,6 +1,6 @@
 {
   "id": "com.melcloud.optimize",
-  "version": "12.5.0",
+  "version": "12.5.2",
   "compatibility": ">=12.2.0",
   "sdk": 3,
   "platforms": [
@@ -74,7 +74,6 @@
     "actions": []
   },
   "api": {
-
     "getRunHourlyOptimizer": {
       "method": "GET",
       "path": "/runHourlyOptimizer"

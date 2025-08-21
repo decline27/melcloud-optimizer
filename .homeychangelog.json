@@ -25,5 +25,11 @@
   },
   "1.0.9": {
     "en": "new model optimasation for hot water usage "
+  },
+  "12.5.1": {
+    "en": "Improved MELCloud API reliability and device stability. Enhanced error handling and retry logic for better connection management."
+  },
+  "12.5.2": {
+    "en": "Improved MELCloud API reliability and device stability. Enhanced error handling and retry logic for better connection management."
   }
 }
