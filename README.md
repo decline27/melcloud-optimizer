@@ -634,7 +634,7 @@ npm test
 npm run dev
 
 # Deploy to Homey
-npm run install
+npm run homey:install
 ```
 
 ---

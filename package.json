@@ -17,7 +17,7 @@
     "test:ci": "jest --ci --coverage --watchAll=false",
     "clean": "rm -rf .homeybuild coverage",
     "validate": "homey app validate",
-    "install": "homey app install"
+    "homey:install": "homey app install"
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",
