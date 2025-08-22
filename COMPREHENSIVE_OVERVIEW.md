@@ -94,7 +94,7 @@ sequenceDiagram
     participant Cron as Cron Job
     participant App as HeatOptimizerApp
     participant API as API Layer
-    participant Opt as Optimizer
+    participant Optimizer as Optimizer Service
     participant MEL as MELCloud
     participant TIB as Tibber
     participant WEA as Weather
@@ -102,27 +102,27 @@ sequenceDiagram
     
     Cron->>App: Hourly Trigger
     App->>API: runHourlyOptimizer()
-    API->>Opt: runHourlyOptimization()
+    API->>Optimizer: runHourlyOptimization()
     
     par Data Collection
-        Opt->>MEL: getDeviceState()
-        MEL-->>Opt: Device Data
+        Optimizer->>MEL: getDeviceState()
+        MEL-->>Optimizer: Device Data
     and
-        Opt->>TIB: getPrices()
-        TIB-->>Opt: Price Data
+        Optimizer->>TIB: getPrices()
+        TIB-->>Optimizer: Price Data
     and
-        Opt->>WEA: getCurrentWeather()
-        WEA-->>Opt: Weather Data
+        Optimizer->>WEA: getCurrentWeather()
+        WEA-->>Optimizer: Weather Data
     end
     
-    Opt->>TM: getHeatingRecommendation()
-    TM-->>Opt: Thermal Advice
+    Optimizer->>TM: getHeatingRecommendation()
+    TM-->>Optimizer: Thermal Advice
     
-    Opt->>Opt: Calculate Optimal Temperature
-    Opt->>MEL: setDeviceTemperature()
-    MEL-->>Opt: Success/Failure
+    Optimizer->>Optimizer: Calculate Optimal Temperature
+    Optimizer->>MEL: setDeviceTemperature()
+    MEL-->>Optimizer: Success/Failure
     
-    Opt-->>API: Optimization Result
+    Optimizer-->>API: Optimization Result
     API-->>App: Result
     App->>App: Log to Timeline
 ```
