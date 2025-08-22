@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="500" height="500" viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background with gradient for boiler theme -->
+  <defs>
+    <linearGradient id="boilerGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#E53E3E;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#C53030;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="heatGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFA500;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#FF6B35;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Rounded background -->
+  <rect width="500" height="500" rx="100" fill="url(#boilerGradient)"/>
+  
+  <!-- Boiler/Heat pump unit outline -->
+  <rect x="150" y="120" width="200" height="260" rx="20" fill="white" stroke="#E53E3E" stroke-width="4"/>
+  
+  <!-- Heat waves/steam lines -->
+  <path d="M 180 100 Q 185 90 190 100 Q 195 90 200 100" stroke="url(#heatGradient)" stroke-width="3" fill="none"/>
+  <path d="M 210 95 Q 215 85 220 95 Q 225 85 230 95" stroke="url(#heatGradient)" stroke-width="3" fill="none"/>
+  <path d="M 240 100 Q 245 90 250 100 Q 255 90 260 100" stroke="url(#heatGradient)" stroke-width="3" fill="none"/>
+  <path d="M 270 95 Q 275 85 280 95 Q 285 85 290 95" stroke="url(#heatGradient)" stroke-width="3" fill="none"/>
+  <path d="M 300 100 Q 305 90 310 100 Q 315 90 320 100" stroke="url(#heatGradient)" stroke-width="3" fill="none"/>
+  
+  <!-- Mitsubishi diamond logo (smaller) -->
+  <g transform="translate(250,200) scale(0.8)">
+    <polygon points="-30,0 0,-20 30,0 0,20" fill="#E53E3E"/>
+    <polygon points="-15,-10 0,-20 15,-10 0,0" fill="white"/>
+    <polygon points="-15,10 0,0 15,10 0,20" fill="white"/>
+  </g>
+  
+  <!-- Control panel -->
+  <rect x="170" y="150" width="160" height="80" rx="10" fill="#F7FAFC" stroke="#E2E8F0" stroke-width="2"/>
+  
+  <!-- Temperature display -->
+  <circle cx="210" cy="190" r="20" fill="#E53E3E"/>
+  <text x="210" y="195" text-anchor="middle" fill="white" font-family="Arial" font-size="12" font-weight="bold">°C</text>
+  
+  <!-- Control buttons -->
+  <circle cx="260" cy="170" r="8" fill="#48BB78"/>
+  <circle cx="280" cy="170" r="8" fill="#ED8936"/>
+  <circle cx="300" cy="170" r="8" fill="#4299E1"/>
+  
+  <!-- Power indicator -->
+  <rect x="260" y="200" width="40" height="15" rx="7" fill="#48BB78"/>
+  <text x="280" y="210" text-anchor="middle" fill="white" font-family="Arial" font-size="8" font-weight="bold">ON</text>
+  
+  <!-- Pipes/connections -->
+  <rect x="140" y="250" width="20" height="8" rx="4" fill="#718096"/>
+  <rect x="340" y="250" width="20" height="8" rx="4" fill="#4299E1"/>
+  <rect x="140" y="280" width="20" height="8" rx="4" fill="#E53E3E"/>
+  <rect x="340" y="280" width="20" height="8" rx="4" fill="#E53E3E"/>
+</svg>
