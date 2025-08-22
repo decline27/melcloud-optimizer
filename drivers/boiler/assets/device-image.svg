@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="500" height="500" viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="deviceGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#F7FAFC;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#E2E8F0;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="panelGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#2D3748;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1A202C;stop-opacity:1" />
+    </linearGradient>
+    <radialGradient id="glowEffect" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#E53E3E;stop-opacity:0.8" />
+      <stop offset="100%" style="stop-color:#E53E3E;stop-opacity:0" />
+    </radialGradient>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="500" height="500" fill="#F0F4F8"/>
+  
+  <!-- Main heat pump unit -->
+  <rect x="100" y="150" width="300" height="200" rx="15" fill="url(#deviceGradient)" stroke="#CBD5E0" stroke-width="3"/>
+  
+  <!-- Top grille/vents -->
+  <rect x="120" y="130" width="260" height="30" rx="5" fill="#4A5568"/>
+  <rect x="130" y="135" width="240" height="4" rx="2" fill="#2D3748"/>
+  <rect x="130" y="142" width="240" height="4" rx="2" fill="#2D3748"/>
+  <rect x="130" y="149" width="240" height="4" rx="2" fill="#2D3748"/>
+  
+  <!-- Front control panel -->
+  <rect x="150" y="200" width="200" height="100" rx="10" fill="url(#panelGradient)"/>
+  
+  <!-- Display screen -->
+  <rect x="170" y="220" width="160" height="40" rx="5" fill="#000000"/>
+  <rect x="175" y="225" width="150" height="30" rx="3" fill="#1a365d"/>
+  
+  <!-- Temperature display -->
+  <text x="250" y="245" text-anchor="middle" fill="#4FC3F7" font-family="Arial, sans-serif" font-size="18" font-weight="bold">22°C</text>
+  
+  <!-- Status LEDs -->
+  <circle cx="190" cy="280" r="6" fill="#48BB78"/>
+  <circle cx="210" cy="280" r="6" fill="#FBD38D"/>
+  <circle cx="230" cy="280" r="6" fill="#90CDF4"/>
+  
+  <!-- Control buttons -->
+  <rect x="260" y="270" width="25" height="20" rx="3" fill="#4A5568"/>
+  <rect x="290" y="270" width="25" height="20" rx="3" fill="#4A5568"/>
+  <text x="272" y="282" text-anchor="middle" fill="white" font-family="Arial" font-size="8">+</text>
+  <text x="302" y="282" text-anchor="middle" fill="white" font-family="Arial" font-size="8">-</text>
+  
+  <!-- Mitsubishi logo -->
+  <g transform="translate(250,180) scale(0.6)">
+    <polygon points="-25,0 0,-15 25,0 0,15" fill="#E53E3E"/>
+    <polygon points="-12,-8 0,-15 12,-8 0,0" fill="white"/>
+    <polygon points="-12,8 0,0 12,8 0,15" fill="white"/>
+  </g>
+  
+  <!-- Side vents -->
+  <g transform="translate(85,200)">
+    <rect x="0" y="0" width="15" height="80" rx="7" fill="#718096"/>
+    <rect x="3" y="10" width="9" height="3" rx="1" fill="#4A5568"/>
+    <rect x="3" y="17" width="9" height="3" rx="1" fill="#4A5568"/>
+    <rect x="3" y="24" width="9" height="3" rx="1" fill="#4A5568"/>
+    <rect x="3" y="31" width="9" height="3" rx="1" fill="#4A5568"/>
+    <rect x="3" y="38" width="9" height="3" rx="1" fill="#4A5568"/>
+    <rect x="3" y="45" width="9" height="3" rx="1" fill="#4A5568"/>
+    <rect x="3" y="52" width="9" height="3" rx="1" fill="#4A5568"/>
+    <rect x="3" y="59" width="9" height="3" rx="1" fill="#4A5568"/>
+    <rect x="3" y="66" width="9" height="3" rx="1" fill="#4A5568"/>
+  </g>
+  
+  <g transform="translate(400,200)">
+    <rect x="0" y="0" width="15" height="80" rx="7" fill="#718096"/>
+    <rect x="3" y="10" width="9" height="3" rx="1" fill="#4A5568"/>
+    <rect x="3" y="17" width="9" height="3" rx="1" fill="#4A5568"/>
+    <rect x="3" y="24" width="9" height="3" rx="1" fill="#4A5568"/>
+    <rect x="3" y="31" width="9" height="3" rx="1" fill="#4A5568"/>
+    <rect x="3" y="38" width="9" height="3" rx="1" fill="#4A5568"/>
+    <rect x="3" y="45" width="9" height="3" rx="1" fill="#4A5568"/>
+    <rect x="3" y="52" width="9" height="3" rx="1" fill="#4A5568"/>
+    <rect x="3" y="59" width="9" height="3" rx="1" fill="#4A5568"/>
+    <rect x="3" y="66" width="9" height="3" rx="1" fill="#4A5568"/>
+  </g>
+  
+  <!-- Connection pipes -->
+  <rect x="80" y="320" width="340" height="12" rx="6" fill="#4A5568"/>
+  <circle cx="120" cy="326" r="8" fill="#4FC3F7"/>
+  <circle cx="380" cy="326" r="8" fill="#E53E3E"/>
+  
+  <!-- Base/feet -->
+  <rect x="110" y="360" width="40" height="15" rx="7" fill="#2D3748"/>
+  <rect x="350" y="360" width="40" height="15" rx="7" fill="#2D3748"/>
+  
+  <!-- Heat effect around unit -->
+  <ellipse cx="250" cy="250" rx="180" ry="120" fill="url(#glowEffect)" opacity="0.3"/>
+  
+  <!-- WiFi indicator -->
+  <g transform="translate(320,190) scale(0.8)">
+    <path d="M0,10 Q-8,2 -15,10 M0,10 Q-5,5 -10,10 M0,10 Q-2,8 -5,10" stroke="#48BB78" stroke-width="2" fill="none"/>
+    <circle cx="0" cy="10" r="2" fill="#48BB78"/>
+  </g>
+</svg>
