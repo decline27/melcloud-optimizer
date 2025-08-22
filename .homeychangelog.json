@@ -31,5 +31,8 @@
   },
   "12.5.2": {
     "en": "Improved MELCloud API reliability and device stability. Enhanced error handling and retry logic for better connection management."
+  },
+  "12.5.3": {
+    "en": "Improved MELCloud API reliability and device stability. Enhanced error handling and retry logic for better connection management."
   }
 }
