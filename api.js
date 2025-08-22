@@ -2177,6 +2177,16 @@ class Optimizer {
       // Get current device state
       const deviceState = await this.melCloud.getDeviceState(this.deviceId, this.buildingId);
 
+      // Debug: Log what temperature data we actually received
+      this.logger.log('=== DEVICE STATE TEMPERATURE DEBUG ===');
+      this.logger.log(`RoomTemperatureZone1: ${deviceState.RoomTemperatureZone1}`);
+      this.logger.log(`RoomTemperature: ${deviceState.RoomTemperature}`);
+      this.logger.log(`OutdoorTemperature: ${deviceState.OutdoorTemperature}`);
+      this.logger.log(`SetTemperatureZone1: ${deviceState.SetTemperatureZone1}`);
+      this.logger.log(`SetTemperature: ${deviceState.SetTemperature}`);
+      this.logger.log(`TankWaterTemperature: ${deviceState.TankWaterTemperature}`);
+      this.logger.log('=====================================');
+
       // Handle different device types
       let currentTemp;
       let currentTarget;
@@ -2186,23 +2196,53 @@ class Optimizer {
 
       if (deviceState.SetTemperatureZone1 !== undefined) {
         // This is an ATW device (like a boiler)
-        currentTemp = deviceState.RoomTemperatureZone1 || 21; // Default to 21 if not available
+        currentTemp = deviceState.RoomTemperatureZone1;
         currentTarget = deviceState.SetTemperatureZone1;
-        this.logger.log(`ATW device detected: Zone1 temp ${currentTarget}°C, Outdoor temp ${outdoorTemp || 'N/A'}°C`);
+        
+        // Log warnings if temperature data is missing
+        if (currentTemp === undefined || currentTemp === null) {
+          this.logger.log('WARNING: Indoor temperature (RoomTemperatureZone1) is not available from MELCloud device state');
+          currentTemp = 21; // Fallback to reasonable default
+        }
+        
+        if (outdoorTemp === undefined || outdoorTemp === null) {
+          this.logger.log('WARNING: Outdoor temperature is not available from MELCloud device state');
+          outdoorTemp = 10; // Fallback to reasonable default for Nordic climate
+        }
+        
+        this.logger.log(`ATW device detected: Zone1 temp ${currentTarget}°C, Indoor: ${currentTemp}°C, Outdoor temp ${outdoorTemp}°C`);
 
         // Check if tank water temperature is available
         if (deviceState.SetTankWaterTemperature !== undefined) {
-          currentTankTemp = deviceState.TankWaterTemperature || 45; // Default to 45 if not available
+          currentTankTemp = deviceState.TankWaterTemperature;
           currentTankTarget = deviceState.SetTankWaterTemperature;
+          
+          if (currentTankTemp === undefined || currentTankTemp === null) {
+            this.logger.log('WARNING: Tank water temperature is not available from MELCloud device state');
+            currentTankTemp = 45; // Fallback to reasonable default
+          }
+          
           this.logger.log(`Tank water temperature: Current ${currentTankTemp}°C, Target ${currentTankTarget}°C`);
         } else {
           this.logger.log('Tank water temperature not available for this device');
         }
       } else {
         // This is a regular device
-        currentTemp = deviceState.RoomTemperature || 21; // Default to 21 if not available
+        currentTemp = deviceState.RoomTemperature;
         currentTarget = deviceState.SetTemperature;
-        this.logger.log(`Regular device detected: Set temp ${currentTarget}°C, Outdoor temp ${outdoorTemp || 'N/A'}°C`);
+        
+        // Log warnings if temperature data is missing
+        if (currentTemp === undefined || currentTemp === null) {
+          this.logger.log('WARNING: Indoor temperature (RoomTemperature) is not available from MELCloud device state');
+          currentTemp = 21; // Fallback to reasonable default
+        }
+        
+        if (outdoorTemp === undefined || outdoorTemp === null) {
+          this.logger.log('WARNING: Outdoor temperature is not available from MELCloud device state');
+          outdoorTemp = 10; // Fallback to reasonable default for Nordic climate
+        }
+        
+        this.logger.log(`Regular device detected: Set temp ${currentTarget}°C, Indoor: ${currentTemp}°C, Outdoor temp ${outdoorTemp}°C`);
       }
 
       // Get electricity prices with enhanced forecasting
@@ -2571,7 +2611,7 @@ class Optimizer {
 
       this.logger.log(`Comfort profile calculation using local time: ${localTimeString} (Hour: ${currentHour})`);
 
-      // Create result object
+      // Create result object - use our cleaned temperature values
       const result = {
         targetTemp: newTarget,
         reason,
@@ -2579,8 +2619,8 @@ class Optimizer {
         priceAvg,
         priceMin,
         priceMax,
-        indoorTemp: currentTemp,
-        outdoorTemp: deviceState.OutdoorTemperature,
+        indoorTemp: currentTemp, // Use our cleaned currentTemp value
+        outdoorTemp: outdoorTemp, // Use our cleaned outdoorTemp value
         targetOriginal: currentTarget,
         savings,
         comfort,
@@ -3729,6 +3769,12 @@ class Optimizer {
           },
           savings: savings,
           comfort: comfort,
+          // Add compatibility fields for getThermalModelData
+          targetTemp: targetTemp,           // Expected by getThermalModelData
+          targetOriginal: currentTarget,    // Expected by getThermalModelData  
+          indoorTemp: currentTemp,          // Expected by getThermalModelData
+          outdoorTemp: outdoorTemp,         // Expected by getThermalModelData
+          priceNow: currentPrice,           // Expected by getThermalModelData
           comfortProfile: {
             factor: comfortFactor,
             currentHour,
@@ -3802,6 +3848,12 @@ class Optimizer {
           },
           savings: savings,
           comfort: comfort,
+          // Add compatibility fields for getThermalModelData
+          targetTemp: currentTarget,        // Expected by getThermalModelData
+          targetOriginal: currentTarget,    // Expected by getThermalModelData  
+          indoorTemp: currentTemp,          // Expected by getThermalModelData
+          outdoorTemp: outdoorTemp,         // Expected by getThermalModelData
+          priceNow: currentPrice,           // Expected by getThermalModelData
           comfortProfile: {
             factor: comfortFactor,
             currentHour,
