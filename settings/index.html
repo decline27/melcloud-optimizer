@@ -474,10 +474,10 @@
             if (data.lastOptimization) {
               const optDate = new Date(data.lastOptimization.timestamp).toLocaleString();
               message += `Last Optimization: ${optDate}\n`;
-              message += `Target Temperature: ${data.lastOptimization.targetTemp}°C (was ${data.lastOptimization.targetOriginal}°C)\n`;
-              message += `Indoor Temperature: ${data.lastOptimization.indoorTemp}°C\n`;
-              message += `Outdoor Temperature: ${data.lastOptimization.outdoorTemp}°C\n`;
-              message += `Current Price: ${data.lastOptimization.priceNow.toFixed(4)}\n`;
+              message += `Target Temperature: ${data.lastOptimization.targetTemp !== undefined ? data.lastOptimization.targetTemp : 'N/A'}°C (was ${data.lastOptimization.targetOriginal !== undefined ? data.lastOptimization.targetOriginal : 'N/A'}°C)\n`;
+              message += `Indoor Temperature: ${data.lastOptimization.indoorTemp !== undefined ? data.lastOptimization.indoorTemp : 'N/A'}°C\n`;
+              message += `Outdoor Temperature: ${data.lastOptimization.outdoorTemp !== undefined ? data.lastOptimization.outdoorTemp : 'N/A'}°C\n`;
+              message += `Current Price: ${data.lastOptimization.priceNow !== undefined ? data.lastOptimization.priceNow.toFixed(4) : 'N/A'}\n`;
             }
 
             // Show the data in an alert

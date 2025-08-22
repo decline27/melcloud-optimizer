@@ -4442,10 +4442,10 @@ module.exports = {
         const lastOpt = historicalData.optimizations[historicalData.optimizations.length - 1];
         const optDate = new Date(lastOpt.timestamp).toLocaleString();
         homey.app.log(`Last Optimization: ${optDate}`);
-        homey.app.log(`Target Temperature: ${lastOpt.targetTemp}°C (was ${lastOpt.targetOriginal}°C)`);
-        homey.app.log(`Indoor Temperature: ${lastOpt.indoorTemp}°C`);
-        homey.app.log(`Outdoor Temperature: ${lastOpt.outdoorTemp}°C`);
-        homey.app.log(`Current Price: ${lastOpt.priceNow.toFixed(4)}`);
+        homey.app.log(`Target Temperature: ${lastOpt.targetTemp !== undefined ? lastOpt.targetTemp : 'N/A'}°C (was ${lastOpt.targetOriginal !== undefined ? lastOpt.targetOriginal : 'N/A'}°C)`);
+        homey.app.log(`Indoor Temperature: ${lastOpt.indoorTemp !== undefined ? lastOpt.indoorTemp : 'N/A'}°C`);
+        homey.app.log(`Outdoor Temperature: ${lastOpt.outdoorTemp !== undefined ? lastOpt.outdoorTemp : 'N/A'}°C`);
+        homey.app.log(`Current Price: ${lastOpt.priceNow !== undefined ? lastOpt.priceNow.toFixed(4) : 'N/A'}`);
       } else {
         homey.app.log('No optimization data available yet');
       }
@@ -4455,7 +4455,11 @@ module.exports = {
       const recentPoints = historicalData.optimizations.slice(-5);
       recentPoints.forEach((point, index) => {
         const date = new Date(point.timestamp).toLocaleString();
-        homey.app.log(`[${index + 1}] ${date}: Indoor ${point.indoorTemp}°C, Outdoor ${point.outdoorTemp}°C, Target ${point.targetTemp}°C, Price ${point.priceNow.toFixed(4)}`);
+        const indoorTemp = point.indoorTemp !== undefined ? point.indoorTemp : 'N/A';
+        const outdoorTemp = point.outdoorTemp !== undefined ? point.outdoorTemp : 'N/A';
+        const targetTemp = point.targetTemp !== undefined ? point.targetTemp : 'N/A';
+        const price = point.priceNow !== undefined ? point.priceNow.toFixed(4) : 'N/A';
+        homey.app.log(`[${index + 1}] ${date}: Indoor ${indoorTemp}°C, Outdoor ${outdoorTemp}°C, Target ${targetTemp}°C, Price ${price}`);
       });
 
       homey.app.log('=============================');
