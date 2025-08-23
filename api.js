@@ -3909,6 +3909,9 @@ let historicalData = {
   lastCalibration: null
 };
 
+// NOTE: test helper attachment moved to after module.exports to avoid being
+// overwritten by the public export object.
+
 // Function to save historical data to persistent storage
 function saveHistoricalData(homey) {
   try {
@@ -5435,3 +5438,35 @@ module.exports = {
     }
   }
 };
+
+// Test helpers - only exposed when running in test environment
+if (process.env.NODE_ENV === 'test') {
+  // Ensure module.exports exists before attaching helpers
+  if (!module.exports) module.exports = {};
+
+  module.exports.__test = {
+    // Inject internal service instances (mocks) for deterministic unit tests
+    setServices({ melCloud: m, tibber: t, optimizer: o, weather: w }) {
+      if (m !== undefined) melCloud = m;
+      if (t !== undefined) tibber = t;
+      if (o !== undefined) optimizer = o;
+      if (w !== undefined) weather = w;
+    },
+    // Replace historical data map
+    setHistoricalData(data) {
+      historicalData = data;
+    },
+    // Reset to defaults
+    resetAll() {
+      melCloud = null;
+      tibber = null;
+      optimizer = null;
+      weather = null;
+      historicalData = { optimizations: [], lastCalibration: null };
+    },
+    // Expose internal state for assertions
+    getState() {
+      return { melCloud, tibber, optimizer, weather, historicalData };
+    }
+  };
+}
