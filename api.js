@@ -1434,17 +1434,62 @@ class TibberApi {
       time: price.startsAt,
       price: price.total,
       level: price.level || 'NORMAL', // Default to NORMAL if level is not provided
-    }));
+    // @ts-nocheck
+    /* eslint-disable */
+    // Compatibility shim for api.js
+    // This shim first tries to load compiled TypeScript output (common locations) and
+    // falls back to the legacy backup file `api.legacy.js` if compiled files are not present.
 
-    // Sort prices by time
-    prices.sort((a, b) => new Date(a.time) - new Date(b.time));
+    const path = require('path');
+    const fs = require('fs');
 
-    // Get current price
-    const current = priceInfo.current ? {
-      time: priceInfo.current.startsAt,
-      price: priceInfo.current.total,
-      level: priceInfo.current.level || 'NORMAL', // Default to NORMAL if level is not provided
-    } : null;
+    function tryRequire(filePath) {
+      try {
+        if (fs.existsSync(filePath)) {
+          return require(filePath);
+        }
+      } catch (err) {
+        // swallow and return null so caller can try next candidate
+      }
+      return null;
+    }
+
+    // Candidate compiled locations (project-dependent)
+    const candidates = [
+      path.join(__dirname, 'lib', 'index.js'),
+      path.join(__dirname, 'lib', 'api.js'),
+      path.join(__dirname, '.homeybuild', 'src', 'api.js'),
+      path.join(__dirname, '.homeybuild', 'api.js'),
+      path.join(__dirname, 'dist', 'api.js'),
+      path.join(__dirname, 'build', 'api.js')
+    ];
+
+    let impl = null;
+    for (const c of candidates) {
+      impl = tryRequire(c);
+      if (impl) {
+        // if module uses default export, normalize
+        impl = impl && impl.default ? impl.default : impl;
+        break;
+      }
+    }
+
+    if (!impl) {
+      // fallback to legacy backup
+      const legacyPath = path.join(__dirname, 'api.legacy.js');
+      impl = tryRequire(legacyPath);
+      if (!impl) {
+        // Last resort: throw an informative error
+        const msg = 'api.js shim: could not locate compiled TypeScript output nor api.legacy.js.\n' +
+          'Checked: ' + candidates.join(', ') + ', ' + legacyPath;
+        console.error(msg);
+        throw new Error(msg);
+      } else {
+        console.warn('api.js shim: loaded legacy backup at api.legacy.js');
+      }
+    }
+
+    module.exports = impl;
 
     // Log the price level from Tibber
     if (current && current.level) {
