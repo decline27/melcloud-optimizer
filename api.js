@@ -1,203 +1,95 @@
-// We can't import the TypeScript services directly in the API
-// Instead, we'll implement simplified versions of the services here
+// @ts-nocheck
+/* eslint-disable */
+// Minimal CommonJS shim for api.js — loads compiled TypeScript output or falls back to api.legacy.js
 
-// Import the HTTPS module and our timeline helper wrapper
-const https = require('https');
-const { TimelineHelperWrapper, TimelineEventType } = require('./timeline-helper-wrapper');
+const fs = require('fs');
+const path = require('path');
 
-/**
- * Helper function to pretty-print JSON data
- * @param {Object} data - The data to format
- * @param {string} [label] - Optional label for the output
- * @param {Object} [logger] - Logger object with log level
- * @param {number} [minLogLevel=0] - Minimum log level to print (0=DEBUG, 1=INFO, 2=WARN, 3=ERROR)
- * @returns {string} - Formatted string
- */
-function prettyPrintJson(data, label = '', logger = null, minLogLevel = 0) {
+function tryRequire(p) {
   try {
-    // Check if we should print based on log level
-    // Only print detailed JSON if we're in development mode or debug log level
-    const logLevel = logger?.homey?.settings?.get('log_level') || 1; // Default to INFO level
-    const isDevelopment = process.env.HOMEY_APP_MODE === 'development' || process.env.NODE_ENV === 'development';
+    if (fs.existsSync(p)) return require(p);
+  } catch (e) {
+    // ignore
+  }
+  return null;
+}
 
-    // Skip detailed output if we're in production and log level is higher than minLogLevel
-    if (!isDevelopment && logLevel > minLogLevel) {
-      return `[${label}] (Output suppressed in production mode with log level ${logLevel})`;
-    }
+const candidates = [
+  path.join(__dirname, 'lib', 'api.js'),
+  path.join(__dirname, 'lib', 'index.js'),
+  path.join(__dirname, '.homeybuild', 'src', 'api.js'),
+  path.join(__dirname, '.homeybuild', 'api.js'),
+  path.join(__dirname, 'dist', 'api.js'),
+  path.join(__dirname, 'build', 'api.js'),
+  path.join(__dirname, 'src', 'api.js')
+];
 
-    // Create a header with the label
-    const header = label ? `\n===== ${label} =====\n` : '\n';
+let impl = null;
+for (const c of candidates) {
+  impl = tryRequire(c);
+  if (impl) { impl = impl && impl.default ? impl.default : impl; break; }
+}
 
-    // Format the JSON with indentation
-    const formatted = JSON.stringify(data, null, 2);
-
-    // Add some visual separation
-    const footer = '\n' + '='.repeat(40) + '\n';
-
-    return header + formatted + footer;
-  } catch (error) {
-    return `Error formatting JSON: ${error.message}`;
+if (!impl) {
+  const legacy = tryRequire(path.join(__dirname, 'api.legacy.js'));
+  if (legacy) {
+    console.warn('api.js shim: loaded legacy api.legacy.js');
+    impl = legacy;
+  } else {
+    const msg = 'api.js shim: could not find compiled output or api.legacy.js. Checked: ' + candidates.join(', ');
+    console.error(msg);
+    throw new Error(msg);
   }
 }
 
-// Helper function for making HTTP requests with retry capability
-async function httpRequest(options, data = null, maxRetries = 3, retryDelay = 1000, logger = null) {
-  let lastError = null;
-  const logLevel = logger?.homey?.settings?.get('log_level') || 1; // Default to INFO level
-  const isDevelopment = process.env.HOMEY_APP_MODE === 'development' || process.env.NODE_ENV === 'development';
+module.exports = impl;
+// @ts-nocheck
+/* eslint-disable */
+// Compact compatibility shim for `api.js`.
+// Loads compiled TypeScript output (if present) or falls back to `api.legacy.js`.
 
-  // Helper function to log based on level
-  const log = (message, level = 1) => {
-    // Always log in development mode or if log level is appropriate
-    if (isDevelopment || logLevel <= level) {
-      if (logger && logger.log) {
-        logger.log(message);
-      } else {
-        console.log(message);
-      }
-    }
-  };
+const fs = require('fs');
+const path = require('path');
 
-  for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
-    try {
-      // If this is a retry, log it
-      if (attempt > 1) {
-        log(`Retry attempt ${attempt - 1}/${maxRetries} for ${options.method} request to ${options.hostname}${options.path}`, 1);
-      } else {
-        log(`Making ${options.method} request to ${options.hostname}${options.path}`, 1);
-      }
-
-      // Create a new promise for this attempt
-      const result = await new Promise((resolve, reject) => {
-        const req = https.request(options, (res) => {
-          let responseData = '';
-
-          // Log response status
-          log(`Response status: ${res.statusCode} ${res.statusMessage}`, 1);
-
-          res.on('data', (chunk) => {
-            responseData += chunk;
-          });
-
-          res.on('end', () => {
-            // Check if we got a redirect
-            if (res.statusCode >= 300 && res.statusCode < 400) {
-              const location = res.headers.location;
-              log(`Received redirect to: ${location}`, 1);
-              reject(new Error(`Received redirect to: ${location}`));
-              return;
-            }
-
-            // Check if we got an error
-            if (res.statusCode >= 400) {
-              log(`Error response: ${responseData.substring(0, 200)}...`, 1);
-              reject(new Error(`HTTP error ${res.statusCode}: ${res.statusMessage}`));
-              return;
-            }
-
-            // Try to parse as JSON
-            try {
-              // Only log response details in development mode or debug level
-              if (isDevelopment || logLevel <= 0) {
-                log(`Response data (first 100 chars): ${responseData.substring(0, 100)}...`, 0);
-              }
-
-              const parsedData = JSON.parse(responseData);
-
-              // We'll let the calling function handle the pretty printing of the full response
-              // since it has more context about what the data represents
-
-              resolve(parsedData);
-            } catch (error) {
-              log(`Failed to parse response as JSON. First 200 chars: ${responseData.substring(0, 200)}...`, 1);
-              reject(new Error(`Failed to parse response: ${error.message}`));
-            }
-          });
-        });
-
-        req.on('error', (error) => {
-          log(`Request error: ${error.message}`, 1);
-          reject(error);
-        });
-
-        // Set a timeout to prevent hanging requests
-        req.setTimeout(30000, () => {
-          req.destroy();
-          reject(new Error('Request timeout after 30 seconds'));
-        });
-
-        if (data) {
-          const dataStr = JSON.stringify(data);
-          // Only log request data in development mode or debug level
-          if (isDevelopment || logLevel <= 0) {
-            log(`Request data: ${dataStr.substring(0, 100)}...`, 0);
-          }
-          req.write(dataStr);
-        }
-
-        req.end();
-      });
-
-      // If we get here, the request was successful
-      return result;
-
-    } catch (error) {
-      lastError = error;
-
-      // Determine if we should retry based on the error
-      const isRetryable = (
-        // Network errors are retryable
-        error.code === 'ECONNRESET' ||
-        error.code === 'ETIMEDOUT' ||
-        error.code === 'ECONNREFUSED' ||
-        error.code === 'ENETUNREACH' ||
-        // Timeout errors are retryable
-        error.message.includes('timeout') ||
-        // Some HTTP errors are retryable (e.g., 500, 502, 503, 504)
-        (error.message.includes('HTTP error') &&
-         (error.message.includes('500') ||
-          error.message.includes('502') ||
-          error.message.includes('503') ||
-          error.message.includes('504')))
-      );
-
-      // If this error is not retryable, or we've used all our retries, throw the error
-      if (!isRetryable || attempt > maxRetries) {
-        log(`Request failed after ${attempt} attempt(s): ${error.message}`, 1);
-        throw error;
-      }
-
-      // Wait before retrying
-      log(`Waiting ${retryDelay}ms before retry...`, 1);
-      await new Promise(resolve => setTimeout(resolve, retryDelay));
-
-      // Increase the delay for the next retry (exponential backoff)
-      retryDelay *= 2;
-    }
+function tryRequire(p) {
+  try {
+    if (fs.existsSync(p)) return require(p);
+  } catch (e) {
+    /* swallow */
   }
-
-  // This should never happen, but just in case
-  throw lastError || new Error('Request failed for unknown reason');
+  return null;
 }
 
-// MELCloud API Service
-class MelCloudApi {
-  constructor() {
-    this.baseUrl = 'https://app.melcloud.com/Mitsubishi.Wifi.Client/';
-    this.contextKey = null;
-    this.devices = [];
-    this.logger = console; // Default logger
-    this.reconnectTimers = []; // Store reconnect timers for cleanup
-    this.cache = new Map(); // Cache for API responses
-  }
+const candidates = [
+  path.join(__dirname, 'lib', 'api.js'),
+  path.join(__dirname, 'lib', 'index.js'),
+  path.join(__dirname, '.homeybuild', 'src', 'api.js'),
+  path.join(__dirname, '.homeybuild', 'api.js'),
+  path.join(__dirname, 'dist', 'api.js'),
+  path.join(__dirname, 'build', 'api.js'),
+  path.join(__dirname, 'src', 'api.js')
+];
 
-  /**
-   * Set the logger instance
-   * @param {Object} logger - Logger instance
-   */
-  setLogger(logger) {
-    this.logger = logger;
+let impl = null;
+for (const c of candidates) {
+  impl = tryRequire(c);
+  if (impl) { impl = impl && impl.default ? impl.default : impl; break; }
+}
+
+if (!impl) {
+  const legacy = tryRequire(path.join(__dirname, 'api.legacy.js'));
+  if (legacy) {
+    console.warn('api.js shim: loaded legacy api.legacy.js');
+    impl = legacy;
+  } else {
+    const msg = 'api.js shim: could not find compiled output or api.legacy.js. Checked: ' + candidates.join(', ');
+    console.error(msg);
+    throw new Error(msg);
   }
+}
+
+module.exports = impl;
+
 
   /**
    * Get the current local time based on system settings
