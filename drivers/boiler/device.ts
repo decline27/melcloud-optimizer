@@ -1000,29 +1000,29 @@ module.exports = class BoilerDevice extends Homey.Device {
 
       // Update COP capabilities with proper error handling
       if (this.hasCapability('heating_cop')) {
-        // Use API-provided average COP if available, otherwise calculate from energy values
-        let heatingCOP = energyTotals.AverageHeatingCOP || 0;
-        if (heatingCOP === 0) {
+        // Prefer explicit field, then averageCOP, then legacy AverageHeatingCOP, then calculate
+        let heatingCOP = (energyTotals as any).heatingCOP ?? (energyTotals as any).averageCOP ?? energyTotals.AverageHeatingCOP ?? 0;
+        if (!heatingCOP || heatingCOP === 0) {
           heatingCOP = this.calculateCOP(
             energyTotals.TotalHeatingProduced || 0,
             energyTotals.TotalHeatingConsumed || 0
           );
         }
         await this.setCapabilityValue('heating_cop', heatingCOP);
-        this.logger.log(`Heating COP set: ${heatingCOP} ${energyTotals.AverageHeatingCOP ? '(from API)' : '(calculated)'}`);
+        this.logger.log(`Heating COP set: ${heatingCOP} ${((energyTotals as any).heatingCOP || energyTotals.AverageHeatingCOP) ? '(from API)' : '(calculated)'}`);
       }
 
       if (this.hasCapability('hotwater_cop')) {
-        // Use API-provided average COP if available, otherwise calculate from energy values
-        let hotWaterCOP = energyTotals.AverageHotWaterCOP || 0;
-        if (hotWaterCOP === 0) {
+        // Prefer explicit field, then averageCOP, then legacy AverageHotWaterCOP, then calculate
+        let hotWaterCOP = (energyTotals as any).hotWaterCOP ?? (energyTotals as any).averageCOP ?? energyTotals.AverageHotWaterCOP ?? 0;
+        if (!hotWaterCOP || hotWaterCOP === 0) {
           hotWaterCOP = this.calculateCOP(
             energyTotals.TotalHotWaterProduced || 0,
             energyTotals.TotalHotWaterConsumed || 0
           );
         }
         await this.setCapabilityValue('hotwater_cop', hotWaterCOP);
-        this.logger.log(`Hot Water COP set: ${hotWaterCOP} ${energyTotals.AverageHotWaterCOP ? '(from API)' : '(calculated)'}`);
+        this.logger.log(`Hot Water COP set: ${hotWaterCOP} ${((energyTotals as any).hotWaterCOP || energyTotals.AverageHotWaterCOP) ? '(from API)' : '(calculated)'}`);
       }
 
     } catch (error) {

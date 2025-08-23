@@ -28,6 +28,11 @@ interface RealEnergyData {
   CoP?: number[];
   AverageHeatingCOP?: number;
   AverageHotWaterCOP?: number;
+  // New explicit fields (preferred)
+  heatingCOP?: number | null;
+  hotWaterCOP?: number | null;
+  coolingCOP?: number | null;
+  averageCOP?: number | null;
 }
 
 /**
@@ -844,8 +849,12 @@ export class Optimizer {
         TotalCoolingConsumed: 0,
         TotalCoolingProduced: 0,
         CoP: energyData.CoP || [],
-        AverageHeatingCOP: enhancedCOPData.historical.heating,
-        AverageHotWaterCOP: enhancedCOPData.historical.hotWater
+  // Prefer explicit COP fields when present in the daily report
+  heatingCOP: (energyData as any).heatingCOP ?? (energyData as any).averageCOP ?? enhancedCOPData.historical.heating,
+  hotWaterCOP: (energyData as any).hotWaterCOP ?? (energyData as any).averageCOP ?? enhancedCOPData.historical.hotWater,
+  averageCOP: (energyData as any).averageCOP ?? null,
+  AverageHeatingCOP: enhancedCOPData.historical.heating,
+  AverageHotWaterCOP: enhancedCOPData.historical.hotWater
       };
 
       this.lastEnergyData = safeEnergyData;
@@ -915,10 +924,11 @@ export class Optimizer {
       try {
         const energyData = await this.melCloud.getDailyEnergyTotals(this.deviceId, this.buildingId);
         
-        const heatingConsumed = energyData.TotalHeatingConsumed || 0;
-        const hotWaterConsumed = energyData.TotalHotWaterConsumed || 0;
-        const realHeatingCOP = energyData.AverageHeatingCOP || 0;
-        const realHotWaterCOP = energyData.AverageHotWaterCOP || 0;
+  const heatingConsumed = energyData.TotalHeatingConsumed || 0;
+  const hotWaterConsumed = energyData.TotalHotWaterConsumed || 0;
+  // Prefer explicit fields if present, then averageCOP, then legacy Average* fields
+  const realHeatingCOP = ((energyData.heatingCOP ?? energyData.averageCOP ?? energyData.AverageHeatingCOP) as number) || 0;
+  const realHotWaterCOP = ((energyData.hotWaterCOP ?? energyData.averageCOP ?? energyData.AverageHotWaterCOP) as number) || 0;
         
         this.logger.log('Using fallback energy metrics calculation');
         

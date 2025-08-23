@@ -628,9 +628,10 @@ export class MelCloudApi extends BaseApiService {
           timestamp: new Date()
         },
         daily: energyTotals,
+        // Historical fields kept for backward compatibility, but prefer explicit fields when available
         historical: {
-          heating: energyTotals.AverageHeatingCOP || 0,
-          hotWater: energyTotals.AverageHotWaterCOP || 0
+          heating: (energyTotals.heatingCOP ?? energyTotals.averageCOP ?? energyTotals.AverageHeatingCOP) || 0,
+          hotWater: (energyTotals.hotWaterCOP ?? energyTotals.averageCOP ?? energyTotals.AverageHotWaterCOP) || 0
         },
         trends,
         predictions
@@ -1051,6 +1052,11 @@ export class MelCloudApi extends BaseApiService {
     CoP?: number[];  // Include CoP array from API
     AverageHeatingCOP?: number;  // Calculated average heating COP
     AverageHotWaterCOP?: number; // Calculated average hot water COP
+  // New explicit COP fields (preferred)
+  heatingCOP?: number | null;
+  hotWaterCOP?: number | null;
+  coolingCOP?: number | null;
+  averageCOP?: number | null;
     HasZone2?: boolean; // Include Zone 2 support flag from API
   }> {
     try {
@@ -1091,20 +1097,45 @@ export class MelCloudApi extends BaseApiService {
         HasZone2: energyData?.HasZone2 || false,
       };
 
-      // Calculate average COP values if CoP array is available
-      if (energyData?.CoP && Array.isArray(energyData.CoP)) {
+      // Preferred: calculate COP from totals (skip categories where consumption is 0)
+      const safeRatio = (produced: number, consumed: number): number | null => {
+        if (!consumed || consumed === 0) return null;
+        if (!produced && produced !== 0) return null;
+        return consumed > 0 ? produced / consumed : null;
+      };
+
+      const heatingCOP = safeRatio(result.TotalHeatingProduced || 0, result.TotalHeatingConsumed || 0);
+      const hotWaterCOP = safeRatio(result.TotalHotWaterProduced || 0, result.TotalHotWaterConsumed || 0);
+      const coolingCOP = safeRatio(result.TotalCoolingProduced || 0, result.TotalCoolingConsumed || 0);
+
+      // Determine averageCOP: if at least one category available, average those; otherwise fallback to CoP[] array
+      let averageCOP: number | null = null;
+      const availableCOPs: number[] = [];
+      if (heatingCOP !== null && !Number.isNaN(heatingCOP)) availableCOPs.push(heatingCOP);
+      if (hotWaterCOP !== null && !Number.isNaN(hotWaterCOP)) availableCOPs.push(hotWaterCOP);
+      if (coolingCOP !== null && !Number.isNaN(coolingCOP)) availableCOPs.push(coolingCOP);
+
+      if (availableCOPs.length > 0) {
+        averageCOP = availableCOPs.reduce((s, v) => s + v, 0) / availableCOPs.length;
+      } else if (energyData?.CoP && Array.isArray(energyData.CoP)) {
         const validCopValues = energyData.CoP.filter((cop: number | null) => cop !== null && cop > 0) as number[];
         if (validCopValues.length > 0) {
-          const averageCOP = validCopValues.reduce((sum, cop) => sum + cop, 0) / validCopValues.length;
-          
-          // For now, assume the average COP applies to both heating and hot water
-          // TODO: In future, we might want to separate these based on operation mode data
-          result.AverageHeatingCOP = Math.round(averageCOP * 100) / 100;
-          result.AverageHotWaterCOP = Math.round(averageCOP * 100) / 100;
-          
-          this.logger.info(`Calculated average COP: ${averageCOP} from ${validCopValues.length} valid values`);
+          averageCOP = validCopValues.reduce((sum, cop) => sum + cop, 0) / validCopValues.length;
+          this.logger.info(`Fallback average COP from CoP[]: ${averageCOP} from ${validCopValues.length} valid values`);
         }
       }
+
+      // Round and store both the new fields and preserve legacy Average* fields for compatibility
+      result.CoP = energyData?.CoP || [];
+      result.AverageHeatingCOP = heatingCOP !== null && !Number.isNaN(heatingCOP) ? Math.round(heatingCOP * 100) / 100 : (averageCOP !== null ? Math.round(averageCOP * 100) / 100 : 0);
+      result.AverageHotWaterCOP = hotWaterCOP !== null && !Number.isNaN(hotWaterCOP) ? Math.round(hotWaterCOP * 100) / 100 : (averageCOP !== null ? Math.round(averageCOP * 100) / 100 : 0);
+
+      // Add the new explicit COP fields requested
+      const rounded = (v: number | null) => (v === null || Number.isNaN(v) ? null : Math.round(v * 100) / 100);
+      (result as any).heatingCOP = rounded(heatingCOP);
+      (result as any).hotWaterCOP = rounded(hotWaterCOP);
+      (result as any).coolingCOP = rounded(coolingCOP);
+      (result as any).averageCOP = averageCOP !== null && !Number.isNaN(averageCOP) ? Math.round(averageCOP * 100) / 100 : null;
 
       return result;
     } catch (error) {
@@ -1114,7 +1145,7 @@ export class MelCloudApi extends BaseApiService {
         buildingId
       });
       
-      // Return zeros as fallback
+      // Return zeros as fallback (include new COP fields as null for consistency)
       return {
         TotalHeatingConsumed: 0,
         TotalHeatingProduced: 0,
@@ -1123,6 +1154,10 @@ export class MelCloudApi extends BaseApiService {
         TotalCoolingConsumed: 0,
         TotalCoolingProduced: 0,
         HasZone2: false,
+        heatingCOP: null,
+        hotWaterCOP: null,
+        coolingCOP: null,
+        averageCOP: null,
       };
     }
   }
