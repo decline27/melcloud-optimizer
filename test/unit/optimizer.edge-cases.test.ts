@@ -1,3 +1,8 @@
+// Prevent MelCloudApi network activity during these unit tests
+jest.mock('../../src/services/melcloud-api', () => ({
+  MelCloudApi: class {}
+}));
+
 import { Optimizer } from '../../src/services/optimizer';
 import {
   createMockLogger,

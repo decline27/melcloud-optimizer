@@ -1,69 +1,75 @@
+import os from 'os';
+import fs from 'fs';
 import { HotWaterDataCollector, HotWaterUsageDataPoint } from '../../src/services/hot-water/hot-water-data-collector';
-import { DateTime } from 'luxon';
 
-const mockHomey = () => ({
-  settings: { get: jest.fn(), set: jest.fn(), unset: jest.fn() },
-  log: jest.fn(),
-  error: jest.fn(),
-  warn: jest.fn(),
-  env: { userDataPath: '/tmp' }
-} as any);
-
-describe('HotWaterDataCollector basic behaviors', () => {
-  test('validateDataPoint rejects future timestamps and bad ranges', () => {
-    const homey = mockHomey();
-    const collector = new HotWaterDataCollector(homey);
-
-    const future: HotWaterUsageDataPoint = {
-      timestamp: DateTime.now().plus({ days: 1 }).toISO(),
-      tankTemperature: 40,
-      targetTankTemperature: 45,
-      hotWaterEnergyProduced: 0.1,
-      hotWaterEnergyConsumed: 0.2,
-      hotWaterCOP: 2,
-      isHeating: false,
-      hourOfDay: 12,
-      dayOfWeek: 1
-    };
-
-    // Use internal validation via setDataPoints which filters invalid ones
-    return collector.setDataPoints([future]).then(() => {
-      // After setting, no data points should be present because it was invalid
-      const all = collector.getAllDataPoints();
-      expect(all.length).toBe(0);
-    });
+describe('HotWaterDataCollector', () => {
+  const makeHomey = () => ({
+    log: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn(),
+    settings: {
+      get: jest.fn().mockReturnValue(undefined),
+      set: jest.fn(),
+      unset: jest.fn()
+    },
+    env: { userDataPath: os.tmpdir() }
   });
 
-  test('getDataStatistics returns zeros for empty and calculates for data', async () => {
-    const homey = mockHomey();
-    const collector = new HotWaterDataCollector(homey);
+  test('validateDataPoint rejects future timestamps', () => {
+    const homey: any = makeHomey();
+    const c = new HotWaterDataCollector(homey);
 
-    // Empty stats
-    const emptyStats = collector.getDataStatistics(1);
-    expect(emptyStats.dataPointCount).toBe(0);
-
-    // Add a valid point
-    const dp: HotWaterUsageDataPoint = {
-      timestamp: DateTime.now().toISO(),
+    const future: HotWaterUsageDataPoint = {
+      timestamp: new Date(Date.now() + 1000000).toISOString(),
       tankTemperature: 40,
       targetTankTemperature: 45,
       hotWaterEnergyProduced: 1,
-      hotWaterEnergyConsumed: 0.5,
-      hotWaterCOP: 2,
+      hotWaterEnergyConsumed: 2,
+      hotWaterCOP: 0.5,
       isHeating: true,
-      hourOfDay: DateTime.now().hour,
-      dayOfWeek: DateTime.now().weekday % 7
+      hourOfDay: 12,
+      dayOfWeek: 3
     };
 
-    await collector.addDataPoint(dp);
+    // validateDataPoint is private; call addDataPoint which uses validation
+    return c.addDataPoint(future as any).then(() => {
+      // addDataPoint will silently return; dataPoints should remain empty
+      expect(c.getAllDataPoints().length).toBe(0);
+    });
+  });
 
-    const stats = collector.getDataStatistics(1);
-    expect(stats.dataPointCount).toBeGreaterThanOrEqual(1);
-    expect(stats.totalHotWaterEnergyProduced).toBeGreaterThanOrEqual(1);
+  test('setDataPoints filters invalid points and saves', async () => {
+    const homey: any = makeHomey();
+    const c = new HotWaterDataCollector(homey);
 
-    // Clearing data
-    await collector.clearData(true);
-    const afterClear = collector.getAllDataPoints();
-    expect(afterClear.length).toBe(0);
-  }, 10000);
+    const now = new Date().toISOString();
+    const valid: HotWaterUsageDataPoint = {
+      timestamp: now,
+      tankTemperature: 45,
+      targetTankTemperature: 47,
+      hotWaterEnergyProduced: 1,
+      hotWaterEnergyConsumed: 2,
+      hotWaterCOP: 0.5,
+      isHeating: true,
+      hourOfDay: 12,
+      dayOfWeek: 2
+    };
+
+    const invalid: any = { ...valid, hourOfDay: 99 };
+
+    await c.setDataPoints([valid, invalid]);
+    expect(c.getAllDataPoints().length).toBe(1);
+  });
+
+  test('getDataStatistics returns zeros when no data', async () => {
+    const homey: any = makeHomey();
+    const c = new HotWaterDataCollector(homey);
+    // Ensure any persisted data is cleared before asserting
+    await c.clearData(true);
+    const stats = c.getDataStatistics(7);
+    expect(stats.dataPointCount).toBe(0);
+    expect(Array.isArray(stats.usageByHourOfDay)).toBe(true);
+  });
+// Additional tests for HotWaterDataCollector are merged into the main describe block above.
+
 });

@@ -16,9 +16,20 @@ jest.doMock('cron', () => ({
   }
 }));
 
+// Prevent MelCloudApi from making network requests during app import
+jest.mock('../../src/services/melcloud-api', () => ({
+  MelCloudApi: class {}
+}));
+
 import HeatOptimizerApp from '../../src/app';
 
-describe('HeatOptimizerApp cron initialization (mocked)', () => {
+describe('HeatOptimizerApp cron (mocked cron module)', () => {
+  const makeHomey = () => ({
+    settings: { get: jest.fn().mockReturnValue(undefined), set: jest.fn(), on: jest.fn() },
+    version: '1.0',
+    platform: 'test',
+  });
+
   let app: HeatOptimizerApp;
   let mockSettings: any;
 
@@ -47,6 +58,16 @@ describe('HeatOptimizerApp cron initialization (mocked)', () => {
 
     (app as any).log = jest.fn();
     (app as any).error = jest.fn();
+  });
+
+  test('cleanupCronJobs stops jobs without throwing when none exist', () => {
+    const homey: any = makeHomey();
+    const appNoJobs = new (HeatOptimizerApp as any)(homey);
+    // Ensure there are no jobs
+    appNoJobs.hourlyJob = undefined;
+    appNoJobs.weeklyJob = undefined;
+
+    expect(() => appNoJobs.cleanupCronJobs()).not.toThrow();
   });
 
   it('initializeCronJobs creates hourly and weekly jobs and handles DST', () => {

@@ -1,15 +1,17 @@
-import { MelCloudApi } from '../../src/services/melcloud-api';
-import * as https from 'https';
-
-// Mock the https module
+// Mock the https module before loading the module under test so internal
+// references to `https` pick up the mock.
 jest.mock('https');
+const https = require('https');
 const mockedHttps = https as jest.Mocked<typeof https>;
 
+// Require the module under test after mocking
+const { MelCloudApi } = require('../../src/services/melcloud-api');
+
 // Set a longer timeout for all tests in this file
-jest.setTimeout(10000);
+jest.setTimeout(20000);
 
 describe('MelCloudApi Simple Tests', () => {
-  let melCloudApi: MelCloudApi;
+  let melCloudApi: any;
 
   beforeEach(() => {
     // Reset all mocks

@@ -32,7 +32,7 @@
             <div class='fl pad1y space-right2'>
                 <span class="strong">0% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/372</span>
+                <span class='fraction'>0/380</span>
             </div>
         
             
@@ -1975,7 +1975,11 @@
 <a name='L1910'></a><a href='#L1910'>1910</a>
 <a name='L1911'></a><a href='#L1911'>1911</a>
 <a name='L1912'></a><a href='#L1912'>1912</a>
-<a name='L1913'></a><a href='#L1913'>1913</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L1913'></a><a href='#L1913'>1913</a>
+<a name='L1914'></a><a href='#L1914'>1914</a>
+<a name='L1915'></a><a href='#L1915'>1915</a>
+<a name='L1916'></a><a href='#L1916'>1916</a>
+<a name='L1917'></a><a href='#L1917'>1917</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
@@ -2549,6 +2553,10 @@
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -4471,53 +4479,53 @@ export class Optimiz<span class="cstat-no" title="statement not covered" >er {</
       // Calculate average demand per hour
       for (let i = 0; i &lt; 24; i++) {
         if (hourlyCount[i] &gt; 0) {
-          ho<span class="cstat-no" title="statement not covered" >urlyDemand[i] = hourlyDemand[i] / hour</span>lyCount[i];
+          hourlyDemand[i] = hourlyDemand[i] / hourlyCount[i];
         }
-      }<span class="cstat-no" title="statement not covered" ></span>
+      }
 &nbsp;
-      // Identify peak hours (above 80<span class="cstat-no" title="statement not covered" >th percentile)</span>
-      const sortedDemand = [...hourlyDe<span class="cstat-no" title="statement not covered" >mand].sort((a, b) =&gt; b - a);</span>
-      const peakThreshold = sortedDemand[Math.floor(sortedDemand.length * 0.2)];
+      // Ide<span class="cstat-no" title="statement not covered" >ntify peak hours (above 80th percentil</span>e)
+      const sortedDemand = [...hourlyDemand].sort((a, b) =&gt; b - a);
+      const peakThreshold = sortedDemand[Ma<span class="cstat-no" title="statement not covered" >th.floor(sortedDemand.length * 0.2)];</span>
       
-      const peakHours = hourlyDemand
-        .map((demand, hour) =&gt; ({ demand, hour }))
-        .filter(h =&gt; h.dema<span class="cstat-no" title="statement not covered" >nd &gt;= peakThreshold)</span>
-        .map<span class="cstat-no" title="statement not covered" >(h =&gt; h.hour);</span>
-<span class="cstat-no" title="statement not covered" ></span>
-      // Calcula<span class="cstat-no" title="statement not covered" >te minimum buffer (120% of peak </span>demand)
-      const maxDemand = Math.max(...hourlyDemand);
-      const minim<span class="cstat-no" title="statement not covered" >umBuffer = maxDemand * 1.2;</span>
+      const peakHours = hourlyDemand<span class="cstat-no" title="statement not covered" ></span>
+        .map((demand, hour) =&gt; ({ deman<span class="cstat-no" title="statement not covered" >d, hour }))</span>
+        .filter(h =&gt; h.demand &gt;= peakThreshold)
+        .map(h =&gt; h.hour);
+&nbsp;
+      // Calculate minimum buffer (120% of peak demand)
+      const maxDemand = Mat<span class="cstat-no" title="statement not covered" >h.max(...hourlyDemand);</span>
+      const <span class="cstat-no" title="statement not covered" >minimumBuffer = maxDemand * 1.2;</span>
 <span class="cstat-no" title="statement not covered" ></span>
       // Update <span class="cstat-no" title="statement not covered" >pattern</span>
       this.hotWaterUsagePattern = {
-        hourlyDemand,
+        hourlyDem<span class="cstat-no" title="statement not covered" >and,</span>
         peakHour<span class="cstat-no" title="statement not covered" >s,</span>
-        minimumBuffer,
-        lastLear<span class="cstat-no" title="statement not covered" >ningUpdate: new Date(),</span>
-        dataPoints: <span class="cstat-no" title="statement not covered" >usageHistory.length</span>
-      };
-<span class="cstat-no" title="statement not covered" ></span>
-      this.logger.lo<span class="cstat-no" title="statement not covered" >g('Hot water usage pattern updat</span>ed:', {
-        dataPoints: usageHistory.length,
+        minimumB<span class="cstat-no" title="statement not covered" >uffer,</span>
+        lastLearningUpdate: new Date(),
+        dataPoints: usageHistory.length
+      };<span class="cstat-no" title="statement not covered" ></span>
+&nbsp;
+      this.logge<span class="cstat-no" title="statement not covered" >r.log('Hot water usage pattern updated:', {</span>
+        dataPoints: <span class="cstat-no" title="statement not covered" >usageHistory.length,</span>
         peakHours: peakHours.join(', '),
-        maxDemand: m<span class="cstat-no" title="statement not covered" >axDemand.toFixed(2),</span>
-        minimumBuffer: minimumBuffer.toFixed(2)
+        maxDemand: ma<span class="cstat-no" title="statement not covered" >xDemand.toFixed(2),</span>
+        minimumBuffe<span class="cstat-no" title="statement not covered" >r: minimumBuffer.toFixed(2)</span>
       });
-<span class="cstat-no" title="statement not covered" ></span>
-    } catch (error) {
+&nbsp;
+    } catch (error) <span class="cstat-no" title="statement not covered" >{</span>
       this.logger.error('Error learning hot water usage pattern:', error);
     }
-  }
+  }<span class="cstat-no" title="statement not covered" ></span>
 &nbsp;
   /**
    * Optimize hot water scheduling based on usage patterns
    * @param currentHour Current hour (0-23)
-   * @param <span class="cstat-no" title="statement not covered" >priceData Next 24 hours price data</span>
-   * @param <span class="cstat-no" title="statement not covered" >hotWaterCOP Current hot water COP</span>
+   * @param priceData Next 24 hours price data
+   * @param hotWaterCOP Current hot water COP
    * @returns Hot water schedule recommendation
    */
-  private optimizeHotWaterSchedulingByPattern(
-    currentHour: number,
+  private op<span class="cstat-no" title="statement not covered" >timizeHotWaterSchedulingByPattern(</span>
+    currentH<span class="cstat-no" title="statement not covered" >our: number,</span>
     priceData: any[],
     hotWaterCOP: number
   ): HotWaterSchedule {
@@ -4525,36 +4533,36 @@ export class Optimiz<span class="cstat-no" title="statement not covered" >er {</
       const next24h = priceData.slice(0, 24);
       const schedulePoints: SchedulePoint[] = [];
 &nbsp;
-      // For<span class="cstat-no" title="statement not covered" > each peak deman</span>d hour, find optimal heating time
+      // For each peak demand hour, find optimal heating time
       this.hotWaterUsagePattern.peakHours.forEach(peakHour =&gt; {
         // Calculate when to start heating (2 hours before peak)
-        cons<span class="cstat-no" title="statement not covered" >t heatingDuration = 2;</span>
-        const startHour = (peakHour - heatingDuration + 24) % 24;
-        <span class="cstat-no" title="statement not covered" ></span>
-        // Find valid heating windo<span class="cstat-no" title="statement not covered" >w (4 hours before peak)</span>
-        const validHours = [];<span class="cstat-no" title="statement not covered" ></span>
-        for (let i = 0; i &lt; 4; i++) {<span class="cstat-no" title="statement not covered" ></span>
-          const hour = (peakHour - i + 24) % 24;
-          if (hour &gt;= currentHour || ho<span class="cstat-no" title="statement not covered" >ur &lt; currentHour - 12) { // Future hours only</span>
+        const heatingDuration = 2;
+        cons<span class="cstat-no" title="statement not covered" >t startHour = (p</span>eakHour - heatingDuration + 24) % 24;
+        
+        // Find valid heating window (4 hours before peak)
+        cons<span class="cstat-no" title="statement not covered" >t validHours = [];</span>
+        for (let i = 0; i &lt; 4; i++) {
+          co<span class="cstat-no" title="statement not covered" >nst hour = (peakHour - i + 24) % 24;</span>
+          if (hour &gt;= currentHour |<span class="cstat-no" title="statement not covered" >| hour &lt; currentHour - 12) { // Future hours only</span>
             validHours.push(hour);<span class="cstat-no" title="statement not covered" ></span>
           }<span class="cstat-no" title="statement not covered" ></span>
-        }<span class="cstat-no" title="statement not covered" ></span>
-&nbsp;
-        if (validHours.length &gt; 0) {
-          // Find cheapest hour in valid window
-          const cheapestHour = validHours.reduce((min, hour) =&gt; {
+        }
+<span class="cstat-no" title="statement not covered" ></span>
+        if (validHours.length &gt; 0) {<span class="cstat-no" title="statement not covered" ></span>
+          // Fin<span class="cstat-no" title="statement not covered" >d cheapest hour in valid window</span>
+          const <span class="cstat-no" title="statement not covered" >cheapestHour = validHours.reduce((min, hour) =&gt; {</span>
             const priceIndex = (hour - currentHour + 24) % 24;
             const minPriceIndex = (min - currentHour + 24) % 24;
             
             if (priceIndex &lt; next24h.length &amp;&amp; minPriceIndex &lt; next24h.length) {
               return next24h[priceIndex].price &lt; next24h[minPriceIndex].price ? hour : min;
             }
-            retu<span class="cstat-no" title="statement not covered" >rn min;</span>
-          });<span class="cstat-no" title="statement not covered" ></span>
+            return min;
+          });
 &nbsp;
           const priceIndex = (cheapestHour - currentHour + 24) % 24;
-          const pricePercentile = next24h.filter(p =&gt; p.price &lt;= next24h[priceIndex].price).length / next24h.length;
-&nbsp;
+          const <span class="cstat-no" title="statement not covered" >pricePercentile = next24h.filter(p =&gt; p.price &lt;= next24h[priceIndex].pric</span>e).length / next24h.length;
+<span class="cstat-no" title="statement not covered" ></span>
           schedulePoints.push({
             hour: cheapestHour,
             reason: `Prepare for peak demand at ${peakHour}:00`,
@@ -4564,182 +4572,186 @@ export class Optimiz<span class="cstat-no" title="statement not covered" >er {</
           });
         }
       });
-<span class="fstat-no" title="function not covered" ></span>
+&nbsp;
       // Sort by priority (highest first)
-      schedulePoints.sor<span class="cstat-no" title="statement not covered" >t((a, b) =&gt; b.priority - a.priorit</span>y);
-<span class="cstat-no" title="statement not covered" ></span>
-      // Determine current action
-      const currentAction = this<span class="cstat-no" title="statement not covered" >.determineCurrentHotWaterAction(</span>
-        curr<span class="cstat-no" title="statement not covered" >entHour,</span>
+      schedulePoints.sort((a, b) =&gt; b.priority - a.priority);
+&nbsp;
+<span class="fstat-no" title="function not covered" ></span>      // Determine current action
+      const currentAction = this.determineCurrentHotWaterAction(
+        currentHour,<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >        schedulePoints,</span>
+        hotWaterCOP,
+        next24h<span class="cstat-no" title="statement not covered" ></span>
+      );<span class="cstat-no" title="statement not covered" ></span>
+&nbsp;
+      // Calculate estimated savings
+      const estimatedSavings = this.calculateHotWaterScheduleSavings(
         schedulePoints,
         hotWaterCOP,
-        next24h
-      );
+        next24h<span class="cstat-no" title="statement not covered" ></span>
+      );<span class="cstat-no" title="statement not covered" ></span>
 &nbsp;
-      // Calculate estimat<span class="cstat-no" title="statement not covered" >ed savings</span>
-      const estimatedSav<span class="cstat-no" title="statement not covered" >ings = this.calculateHotWaterSched</span>uleSavings(
+      return {<span class="cstat-no" title="statement not covered" ></span>
         schedulePoints,
-        hotWaterCOP,<span class="cstat-no" title="statement not covered" ></span>
-        next24h
-      );
-&nbsp;
-      return {
-        schedulePoints,
-<span class="cstat-no" title="statement not covered" >        currentAction,</span>
+        currentAction,
         reasoning: `Predictive scheduling based on usage pattern (peaks: ${this.hotWaterUsagePattern.peakHours.join(', ')}h)`,
-        estimatedSavings<span class="cstat-no" title="statement not covered" ></span>
+        estimatedSavings
       };
 <span class="cstat-no" title="statement not covered" ></span>
-    } catch (error) {<span class="cstat-no" title="statement not covered" ></span>
-      this.logger.error('Error optimizing hot water scheduling:', error);
-      return {<span class="cstat-no" title="statement not covered" ></span>
-        schedulePoints: [],
+    } catch (error) {
+      this.logger.error('Error o<span class="cstat-no" title="statement not covered" >ptim</span>izing hot water scheduling:', error);
+      return {
+        sche<span class="cstat-no" title="statement not covered" >dulePoints: [],</span>
         currentAction: 'maintain',<span class="cstat-no" title="statement not covered" ></span>
-        reas<span class="cstat-no" title="statement not covered" >oning: 'Error in scheduling - maintaining current operation',</span>
-        estimate<span class="cstat-no" title="statement not covered" >dSavings: 0</span>
+        reasoning: 'Error in scheduling - maintaining current operation',
+        estimatedSavings: 0<span class="cstat-no" title="statement not covered" ></span>
       };
     }<span class="cstat-no" title="statement not covered" ></span>
   }<span class="cstat-no" title="statement not covered" ></span>
-&nbsp;
-  /**<span class="cstat-no" title="statement not covered" ></span>
-   * Determi<span class="cstat-no" title="statement not covered" >ne current hot water action based on schedule</span>
-   */
-  private det<span class="cstat-no" title="statement not covered" >ermineCurrentHotWaterAction(</span>
-    currentHour: number,
-    schedulePoints: SchedulePoin<span class="cstat-no" title="statement not covered" >t[],</span>
+<span class="cstat-no" title="statement not covered" ></span>
+  /**
+   * Determine cu<span class="cstat-no" title="statement not covered" >rrent hot water action based on schedule</span>
+   */<span class="cstat-no" title="statement not covered" ></span>
+  private determineCurrentHotWaterAction(
+    currentH<span class="cstat-no" title="statement not covered" >our: number,</span>
+    schedule<span class="cstat-no" title="statement not covered" >Points: SchedulePoint[],</span>
     hotWaterCOP: number,
-    priceDat<span class="cstat-no" title="statement not covered" >a: any[]</span>
-  ): 'heat_now' | 'delay' | 'maintain'<span class="cstat-no" title="statement not covered" > {</span>
-    
-    // Check if current hour is a sc<span class="cstat-no" title="statement not covered" >heduled heating time</span>
-    const isScheduledNow = schedulePoints.some(point =&gt; point.hour === currentHour);
+    priceData<span class="cstat-no" title="statement not covered" >: any[]</span>
+  ): 'heat_now' | 'delay' | 'maintain' {
     <span class="cstat-no" title="statement not covered" ></span>
-    if (isSc<span class="cstat-no" title="statement not covered" >heduledNow) {</span>
-      return 'heat_now';
-    }<span class="cstat-no" title="statement not covered" ></span>
-&nbsp;
-    // Check if w<span class="cstat-no" title="statement not covered" >e're approaching a peak and haven't heated yet</span>
+    // Check if current hour is a scheduled heating time
+    const is<span class="cstat-no" title="statement not covered" >ScheduledNow = schedulePoints.some(point =&gt; p</span>oint.hour === currentHour);
+    <span class="cstat-no" title="statement not covered" ></span>
+    if (isScheduledNow) {
+      return 'heat_now';<span class="cstat-no" title="statement not covered" ></span>
+    }
+<span class="cstat-no" title="statement not covered" ></span>
+    // Check<span class="cstat-no" title="statement not covered" > if we're approaching a peak and haven't heated yet</span>
     const nextPeak = this.hotWaterUsagePattern.peakHours.find(peak =&gt; {
-      const hour<span class="cstat-no" title="statement not covered" >sUntilPeak = (peak - currentH</span>our + 24) % 24;
+      const hour<span class="cstat-no" title="statement not covered" >sUntilPeak = (peak - current</span>Hour + 24) % 24;
       return hoursUntilPeak &lt;= 2 &amp;&amp; hoursUntilPeak &gt; 0;
     });<span class="cstat-no" title="statement not covered" ></span>
 &nbsp;
     if (nextPeak<span class="cstat-no" title="statement not covered" > &amp;&amp; hotWaterCOP &gt; 0) {</span>
       // Emergency heating before peak
-      return 'heat_now';
+      return 'hea<span class="cstat-no" title="statement not covered" >t_now';</span>
     }
 <span class="cstat-no" title="statement not covered" ></span>
     // Check if current price is exceptional
     const currentPrice = priceData[0]?.price || 0;
-    const avgPrice = priceData.reduce(<span class="cstat-no" title="statement not covered" >(sum, p) =&gt; sum + p.price, 0) / priceData.length;</span>
+    const avgPrice = priceData.reduce((sum, p) =&gt; sum + p.price, 0) / priceData.length;
     <span class="cstat-no" title="statement not covered" ></span>
-    if (curr<span class="cstat-no" title="statement not covered" >entPrice &lt; avgPrice * 0.7 &amp;&amp; hotWaterCOP &gt; 2.5) {</span>
+    if (currentPrice &lt; avgPrice * 0.7 &amp;&amp; hotWaterCOP &gt; 2.5) {
       // Very cheap electricity + decent COP
-      return 'heat_now';
-    }
+      return 'heat_now';<span class="cstat-no" title="statement not covered" ></span>
+    }<span class="cstat-no" title="statement not covered" ></span>
 <span class="cstat-no" title="statement not covered" ></span>
     return 'maintain';
-  }<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" ></span>
-  /**<span class="cstat-no" title="statement not covered" ></span>
-   * Calculate estimated savings from h<span class="cstat-no" title="statement not covered" >ot water schedule</span>
-   */<span class="cstat-no" title="statement not covered" ></span>
-  private calculateHotWaterScheduleS<span class="cstat-no" title="statement not covered" >avings(</span>
-    schedulePoints: SchedulePoint[],
-    hotWaterCOP: number,<span class="cstat-no" title="statement not covered" ></span>
-    priceDat<span class="cstat-no" title="statement not covered" >a: any[]</span>
-  ): number {<span class="cstat-no" title="statement not covered" ></span>
-    try {
-      if (schedul<span class="cstat-no" title="statement not covered" >ePoints.length === 0) return 0;</span>
-<span class="cstat-no" title="statement not covered" ></span>
-      const avgPrice = priceData.reduce((sum, p) =&gt; sum + p.price, 0) / priceData.length;
-      <span class="cstat-no" title="statement not covered" ></span>
-      let to<span class="cstat-no" title="statement not covered" >talSavings = 0;</span>
-      schedulePoints.forEach(point =&gt; {
-        const hourIndex = Math.min(point.hour, priceData.length - 1);
-<span class="cstat-no" title="statement not covered" >        const scheduledPrice = priceData[hourIndex]?.price || avgPrice;</span>
-        
-        // S<span class="cstat-no" title="statement not covered" >avings from schedul</span>ing during cheaper time
-        cons<span class="cstat-no" title="statement not covered" >t priceSavings = (avgPrice - scheduledPrice) * 2</span>; // 2 kWh typical heating
-        
-        // CO<span class="cstat-no" title="statement not covered" >P efficiency bonus</span>
-        const copEfficiency = this.normalizeCOP(point.cop);
-        cons<span class="cstat-no" title="statement not covered" >t efficiencyBonus =</span> 2 * 0.1 * copEfficiency; // Energy * rate * efficiency
-        <span class="cstat-no" title="statement not covered" ></span>
-        totalSavings += (priceSavings + efficiencyBonus) * point.priority;
-      });<span class="cstat-no" title="statement not covered" ></span>
-&nbsp;
-      return<span class="cstat-no" title="statement not covered" > Math.max(totalSavi</span>ngs, 0);
-    } catch <span class="cstat-no" title="statement not covered" >(error) {</span>
-      return 0;
-    }<span class="cstat-no" title="statement not covered" ></span>
   }
 &nbsp;
+  /**<span class="cstat-no" title="statement not covered" ></span>
+   * Calculate estimated savings from hot water schedule
+   */<span class="cstat-no" title="statement not covered" ></span>
+  private ca<span class="cstat-no" title="statement not covered" >lculateHotWaterScheduleSavings(</span>
+    schedulePoints: SchedulePoint[],<span class="cstat-no" title="statement not covered" ></span>
+    hotWaterCOP: number,<span class="cstat-no" title="statement not covered" ></span>
+    priceData: any[]<span class="cstat-no" title="statement not covered" ></span>
+  ): number {<span class="cstat-no" title="statement not covered" ></span>
+    try {
+      if (schedulePoints.length === 0) <span class="cstat-no" title="statement not covered" >re</span>turn 0;
+<span class="cstat-no" title="statement not covered" ></span>
+      const avgP<span class="cstat-no" title="statement not covered" >rice = priceData.reduce((sum</span>, p) =&gt; sum + p.price, 0) / priceData.length;
+      
+      let totalSa<span class="cstat-no" title="statement not covered" >vings = 0;</span>
+      schedulePo<span class="cstat-no" title="statement not covered" >ints.forEach(point =&gt; {</span>
+        const hourIndex = Math.min(point.hour, priceData.length - 1);
+        cons<span class="cstat-no" title="statement not covered" >t scheduledPrice = priceData[hourIndex]?.price || avgPrice;</span>
+        <span class="cstat-no" title="statement not covered" ></span>
+        // Savings from scheduling during cheaper time
+        const priceSavings = (avgPrice - scheduledPrice) * 2; // 2 kWh typical heating
+        <span class="cstat-no" title="statement not covered" ></span>
+        // COP efficiency bonus
+        cons<span class="cstat-no" title="statement not covered" >t copEfficiency = t</span>his.normalizeCOP(point.cop);
+        cons<span class="cstat-no" title="statement not covered" >t efficiencyBonus = 2 * 0.1 * copEfficiency; // </span>Energy * rate * efficiency
+        
+        total<span class="cstat-no" title="statement not covered" >Savings += (priceSavings + efficiencyBonus) * point.priority;</span>
+      });
+<span class="cstat-no" title="statement not covered" ></span>
+      return<span class="cstat-no" title="statement not covered" > Math.max(totalSavings, 0);</span>
+    } catch (error) {
+      return <span class="cstat-no" title="statement not covered" >0;</span>
+    }
+  }<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" ></span>
   /**
-   * Set COP settings
+   * Set<span class="cstat-no" title="statement not covered" > COP settings</span>
    * @param copWeight Weight given to COP in optimization
    * @param autoSeasonalMode Whether to automatically switch between summer and winter modes
    * @param summerMode Whether to use summer mode (only used when autoSeasonalMode is false)
-   *<span class="fstat-no" title="function not covered" > @</span>throws Error if validation fails
-   */<span class="cstat-no" title="statement not covered" ></span>
-  setCOP<span class="cstat-no" title="statement not covered" >Settings(copWeight: number, autoSeasonalMode: boolean, summerMode: boolean): void {</span>
-    // Valid<span class="cstat-no" title="statement not covered" >ate inputs</span>
-    this.copWeight = validateNumber(copWeight, 'copWeight', { min: 0, max: 1 });
-    this.autoSeasonalMode = validateBoolean(autoSeasonalMode, 'autoSeasonalMode');
-    this.summerMode = valida<span class="cstat-no" title="statement not covered" >teBoolean(summerMode, 's</span>ummerMode');
+   * @throws Error if validation fails
+   */
+  setCOPSettings(copWeight: number, autoSeasonalMode: boolean, summerMode: boolean): void {
+    // Validate inputs
+<span class="fstat-no" title="function not covered" >    th</span>is.copWeight = validateNumber(copWeight, 'copWeight', { min: 0, max: 1 });
+    this.autoSeasonalMod<span class="cstat-no" title="statement not covered" >e = validateBoolean(autoSeasonalMo</span>de, 'autoSeasonalMode');
+    this<span class="cstat-no" title="statement not covered" >.summerMode = validateBoolean(summerMode, 'summerMode');</span>
 <span class="cstat-no" title="statement not covered" ></span>
     // Save to Homey settings if available
-    if (this.homey) {<span class="cstat-no" title="statement not covered" ></span>
-      try {<span class="cstat-no" title="statement not covered" ><span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" ></span></span></span>
-        this.homey.settings.se<span class="cstat-no" title="statement not covered" >t('cop_weight', this.copW</span>eight);
+    if (this.homey) {
+      try {<span class="cstat-no" title="statement not covered" ></span>
+        this.homey.settings.set('cop_weig<span class="cstat-no" title="statement not covered" >ht', this.copWeight);</span>
         this.homey.settings.set('auto_seasonal_mode', this.autoSeasonalMode);
-<span class="cstat-no" title="statement not covered" >        this.homey.settings.set('summer_mo</span>de', this.summerMode);
-      } catch (error) {<span class="cstat-no" title="statement not covered" ></span>
-        this.logger.error('Failed to save COP settings to Homey settings:', error);
-      }<span class="cstat-no" title="statement not covered" ><span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" ></span></span></span>
-    }
+        this.homey.sett<span class="cstat-no" title="statement not covered" >ings.set('summer_mode', this.s</span>ummerMode);
+      } catch (error) {<span class="cstat-no" title="statement not covered" ><span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" ></span></span></span>
+        this.logger.error('Fai<span class="cstat-no" title="statement not covered" >led to save COP settings </span>to Homey settings:', error);
+      }
+    }<span class="cstat-no" title="statement not covered" ></span>
 <span class="cstat-no" title="statement not covered" ></span>
     this.logger.log(`COP settings updated - Weight: ${this.copWeight}, Auto Seasonal: ${this.autoSeasonalMode}, Summer Mode: ${this.summerMode}`);
-  }<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" ></span>
-  /**
+  }<span class="cstat-no" title="statement not covered" ><span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" ></span></span></span>
+&nbsp;
+  /**<span class="cstat-no" title="statement not covered" ></span>
    * Get real energy data from MELCloud API and calculate optimization metrics
-   * Uses enhanced COP data with real-time calculations and predictions
-   * @returns Promise resolving to optimization metrics
-   */<span class="cstat-no" title="statement not covered" ></span>
-  private async getRealEnergyMetrics()<span class="cstat-no" title="statement not covered" >: Promise&lt;Optimiz</span>ationMetrics | null&gt; {
-    try {<span class="cstat-no" title="statement not covered" ></span>
+   * Uses en<span class="cstat-no" title="statement not covered" >hanced COP data with real-time calculations and predictions</span>
+   * @returns Pr<span class="cstat-no" title="statement not covered" >omise resolving to optimization metrics</span>
+   */
+  private async getRealEnergyMetrics(): Promise&lt;OptimizationMetrics | null&gt; {
+    try {
       // Use enhanced COP data for more accurate optimization
-      const enhancedCOPData = await this.melCloud.getEnhancedCOPData(this.deviceId, this.buildingId);
-      
-      // Extract enhanced COP values
+      const enhan<span class="cstat-no" title="statement not covered" >cedCOPData = await this.melCloud.getEnhancedCOPData(this.deviceId, this.buildingId);</span>
+      <span class="cstat-no" title="statement not covered" ></span>
+      // Extract<span class="cstat-no" title="statement not covered" > enhanced COP values</span>
       const realHeatingCOP = enhancedCOPData.current.heating || 0;
       const realHotWaterCOP = enhancedCOPData.current.hotWater || 0;
-      <span class="cstat-no" title="statement not covered" ></span>
-      // Update COP ranges with current values
-      if (re<span class="cstat-no" title="statement not covered" >alHeatingCOP &gt; 0) this.updateCOPRange(realHeatingCOP);</span>
-      if (realHo<span class="cstat-no" title="statement not covered" >tWaterCOP &gt; 0) this.updateCOPRange(realHotWaterCOP);</span>
-&nbsp;
-      // Get daily energy totals
-      const energyData = enhancedCOPData.daily;
       
+      // Update COP ranges with current values
+      if (realHeatingCOP &gt; 0) this.updateCOPRange(realHeatingCOP);
+      if (realHotWaterCOP &gt; 0) this.updateCOPRange(realHotWaterCOP);
+<span class="cstat-no" title="statement not covered" ></span>
+      // Get daily energy totals
+      const <span class="cstat-no" title="statement not covered" >energyData = enhancedCOPData.daily;</span>
+      <span class="cstat-no" title="statement not covered" ></span>
       // Extract energy consumption data
-      const h<span class="cstat-no" title="statement not covered" >eatingConsumed = energyData.TotalHeatingConsumed || 0;</span>
+      const heatingConsumed = energyData.TotalHeatingConsumed || 0;
       const heatingProduced = energyData.TotalHeatingProduced || 0;
-      const <span class="cstat-no" title="statement not covered" >hotWaterConsumed = energyData.TotalHotWaterConsumed || 0;</span>
-      const hotW<span class="cstat-no" title="statement not covered" >aterProduced = energyData.TotalHotWaterProduced || 0;</span>
-&nbsp;
+      const hotWaterConsumed = energyData.TotalHotWaterConsumed || 0;
+      const hotWaterProduced = energyData.TotalHotWaterProduced || 0;
+<span class="cstat-no" title="statement not covered" ></span>
       // Create type-safe energy data object
-      const safeEnergyData: RealEnergyData = {
-        TotalHeatingConsumed: heatingConsumed,
+      const <span class="cstat-no" title="statement not covered" >safeEnergyData: RealEnergyData = {</span>
+        TotalHea<span class="cstat-no" title="statement not covered" >tingConsumed: heatingConsumed,</span>
         TotalHeatingProduced: heatingProduced,
-        TotalHotWaterConsumed: hotWate<span class="cstat-no" title="statement not covered" >rConsumed,</span>
-        TotalHot<span class="cstat-no" title="statement not covered" >WaterProduced: hotWaterProduced,</span>
+        TotalHotWaterConsumed: hotWaterConsumed,
+        TotalHotWaterProduced: hotWaterProduced,
         TotalCoolingConsumed: 0,
         TotalCoolingProduced: 0,
-        CoP: energyData.CoP || [],
-        AverageHeatingCOP: enhancedCOPData.historical.heating,
-        AverageHotWaterCOP: enhancedCOPData.historical.hotWater
+        CoP: energyData.CoP || [],<span class="cstat-no" title="statement not covered" ></span>
+  // Prefer expl<span class="cstat-no" title="statement not covered" >icit COP fields when present in the daily report</span>
+  heatingCOP: (energyData as any).heatingCOP ?? (energyData as any).averageCOP ?? enhancedCOPData.historical.heating,
+  hotWaterCOP: (energyData as any).hotWaterCOP ?? (energyData as any).averageCOP ?? enhancedCOPData.historical.hotWater,
+  averageCOP: (energyData as any).averageCOP ?? null,
+  AverageHeatingCOP: enhancedCOPData.historical.heating,
+  AverageHotWaterCOP: enhancedCOPData.historical.hotWater
       };
 <span class="cstat-no" title="statement not covered" ></span>
       this.lastEnergyData = safeEnergyData;
@@ -4812,8 +4824,8 @@ export class Optimiz<span class="cstat-no" title="statement not covered" >er {</
   const heatingConsumed = energyData.TotalHeatingConsumed || 0;
   const hotWaterConsumed = energyData.TotalHotWaterConsumed || 0;
   // Prefer explicit fields if present, then averageCOP, then legacy Average* fields
-  const realHeatingCOP = (energyData.heatingCOP ?? energyData.averageCOP ?? energyData.AverageHeatingCOP) || 0;
-  const realHotWaterCOP = (energyData.hotWaterCOP ?? energyData.averageCOP ?? energyData.AverageHotWaterCOP) || 0;
+  const realHeatingCOP = ((energyData.heatingCOP ?? energyData.averageCOP ?? energyData.AverageHeatingCOP) as number) || 0;
+  const realHotWaterCOP = ((energyData.hotWaterCOP ?? energyData.averageCOP ?? energyData.AverageHotWaterCOP) as number) || 0;
         <span class="cstat-no" title="statement not covered" ></span>
         this.log<span class="cstat-no" title="statement not covered" >ger.log('Using fallback energy metrics calculation');</span>
         <span class="cstat-no" title="statement not covered" ></span>
@@ -5806,7 +5818,7 @@ export class Optimiz<span class="cstat-no" title="statement not covered" >er {</
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2025-08-23T06:24:17.343Z
+                at 2025-08-23T07:50:26.518Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

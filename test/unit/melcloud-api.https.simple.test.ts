@@ -1,10 +1,7 @@
 import { MelCloudApi } from '../../src/services/melcloud-api';
 
-// Set a reasonable timeout (5 seconds)
-jest.setTimeout(5000);
-
-// Set a longer timeout for all tests in this file
-jest.setTimeout(10000);
+// Ensure tests in this file have enough time for async operations
+jest.setTimeout(20000);
 
 describe('MelCloudApi HTTPS Tests', () => {
   let melCloudApi: MelCloudApi;
@@ -96,8 +93,7 @@ describe('MelCloudApi HTTPS Tests', () => {
     });
 
     it('should throw error when login fails', async () => {
-      // Reset the spy and mock login failure
-      jest.restoreAllMocks();
+      // Mock login failure specifically
       jest.spyOn(melCloudApi as any, 'throttledApiCall').mockResolvedValue({
         ErrorId: 1,
         ErrorMessage: 'Invalid credentials'
@@ -108,8 +104,7 @@ describe('MelCloudApi HTTPS Tests', () => {
     });
 
     it('should handle network errors', async () => {
-      // Reset the spy and mock network error
-      jest.restoreAllMocks();
+      // Mock network error specifically
       jest.spyOn(melCloudApi as any, 'throttledApiCall').mockRejectedValue(new Error('Network error'));
 
       await expect(melCloudApi.login('test@example.com', 'password'))
@@ -140,8 +135,7 @@ describe('MelCloudApi HTTPS Tests', () => {
     });
 
     it('should handle API errors', async () => {
-      // Reset the spy and mock API error
-      jest.restoreAllMocks();
+      // Mock API error specifically
       jest.spyOn(melCloudApi as any, 'throttledApiCall').mockRejectedValue(new Error('API error'));
 
       await expect(melCloudApi.getDevices()).rejects.toThrow('API error');

@@ -1,3 +1,8 @@
+// Prevent the real MelCloudApi from executing any network code during these unit tests
+jest.mock('../../src/services/melcloud-api', () => ({
+  MelCloudApi: class {}
+}));
+
 import { TibberApi } from '../../src/services/tibber-api';
 import fetch from 'node-fetch';
 import { createMockLogger } from '../mocks/logger.mock';
