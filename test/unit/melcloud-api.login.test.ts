@@ -6,7 +6,7 @@ describe('MelCloudApi (login)', () => {
   beforeEach(() => jest.restoreAllMocks());
 
   test('login returns true when API responds with no error', async () => {
-    const api = new MelCloudApi(logger);
+  const api = new MelCloudApi(logger, { get: () => null, set: () => {} } as any);
 
     // Stub throttledApiCall to return successful login payload including Account.ContextKey
     jest.spyOn(MelCloudApi.prototype as any, 'throttledApiCall').mockResolvedValue({

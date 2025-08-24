@@ -705,6 +705,23 @@
         Homey.ready();
         console.log('Homey.ready() called');
 
+        // Wrap Homey.api to log requests and responses for debugging in the app console
+        try {
+          if (Homey.api && !Homey._api_wrapped) {
+            Homey._api_wrapped = true;
+            const _origApi = Homey.api.bind(Homey);
+            Homey.api = function(method, path, params, callback) {
+              try { console.log('[settings] API call ->', method, path, params); } catch (e) {}
+              return _origApi(method, path, params, function(err, result) {
+                try { console.log('[settings] API resp <-', path, { err: err && (err.message || err), result }); } catch (e) {}
+                if (typeof callback === 'function') callback(err, result);
+              });
+            };
+          }
+        } catch (e) {
+          console.error('Failed to wrap Homey.api for debugging', e);
+        }
+
         // Get elements
         const melcloudUserElement = document.getElementById("melcloud_user");
         const melcloudPassElement = document.getElementById("melcloud_pass");
@@ -1424,8 +1441,14 @@
       function resetHotWaterPatterns() {
         const resultElement = document.getElementById('hot_water_action_result');
         resultElement.textContent = 'Resetting hot water usage patterns...';
-        
-        Homey.api('POST', '/hot-water/reset-patterns', {}, function(err, result) {
+
+        if (!HomeyInstance || !HomeyInstance.api) {
+          console.error('HomeyInstance is not initialized');
+          resultElement.textContent = 'Error: Homey is not ready';
+          return;
+        }
+
+        HomeyInstance.api('POST', '/hot-water/reset-patterns', {}, function(err, result) {
           if (err) {
             resultElement.textContent = 'Error: ' + (err.message || 'Failed to reset patterns');
             return;
@@ -1433,17 +1456,23 @@
           resultElement.textContent = 'Hot water usage patterns have been reset to defaults.';
         });
       }
-      
+
       function clearHotWaterData(keepAggregated = false) {
         const actionText = keepAggregated ? 
           'clear detailed hot water usage data but keep aggregated patterns' : 
           'clear ALL hot water usage data including patterns';
-        
+
         if (confirm(`Are you sure you want to ${actionText}? This action cannot be undone.`)) {
           const resultElement = document.getElementById('hot_water_action_result');
           resultElement.textContent = `Clearing hot water usage data${keepAggregated ? ' (keeping aggregated data)' : ''}...`;
-          
-          Homey.api('POST', '/hot-water/clear-data', { clearAggregated: !keepAggregated }, function(err, result) {
+
+          if (!HomeyInstance || !HomeyInstance.api) {
+            console.error('HomeyInstance is not initialized');
+            resultElement.textContent = 'Error: Homey is not ready';
+            return;
+          }
+
+          HomeyInstance.api('POST', '/hot-water/clear-data', { clearAggregated: !keepAggregated }, function(err, result) {
             if (err) {
               resultElement.textContent = 'Error: ' + (err.message || 'Failed to clear data');
               return;

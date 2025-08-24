@@ -1,3 +1,7 @@
+// Ensure any previous module state is reset and mock https to avoid real network calls
+jest.resetModules();
+jest.mock('https');
+
 import { MelCloudApi } from '../../src/services/melcloud-api';
 import { createMockLogger } from '../mocks';
 
@@ -8,15 +12,8 @@ describe('MelCloudApi additional coverage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockLogger = createMockLogger();
-    api = new MelCloudApi(mockLogger);
-
-    // Ensure we start with no credentials unless explicitly set in a test
-    global.homeySettings = {
-      get: jest.fn().mockReturnValue(undefined),
-      set: jest.fn(),
-      unset: jest.fn(),
-      on: jest.fn()
-    } as any;
+    // Provide an empty settings provider to the constructor instead of mutating globals
+    api = new MelCloudApi(mockLogger, { get: () => undefined, set: () => {}, unset: () => {}, on: () => {} } as any);
   });
 
   afterEach(() => {

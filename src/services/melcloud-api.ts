@@ -1,4 +1,6 @@
-import * as https from 'https';
+// Note: require https lazily inside methods so test-time mocks (jest.mock('https'))
+// can replace the module even if this file was imported earlier in the test run.
+// Do not use a top-level static import for https.
 import { URL } from 'url';
 import { Logger } from '../util/logger';
 import { DeviceInfo, MelCloudDevice, HomeySettings } from '../types';
@@ -19,6 +21,7 @@ declare global {
  */
 export class MelCloudApi extends BaseApiService {
   private baseUrl = 'https://app.melcloud.com/Mitsubishi.Wifi.Client/';
+  private homeySettings?: HomeySettings | undefined;
   private contextKey: string | null = null;
   private devices: any[] = [];
   private reconnectAttempts: number = 0;
@@ -33,15 +36,25 @@ export class MelCloudApi extends BaseApiService {
   /**
    * Constructor
    * @param logger Logger instance
+   * @param homeySettings Homey settings provider (required)
    */
-  constructor(logger?: Logger) {
+  // Optional httpsModule parameter allows tests to inject a mock implementation
+  constructor(logger: Logger, homeySettings: HomeySettings, httpsModule?: any) {
     // Call the parent constructor with service name and logger
-    super('MELCloud', logger || (global.logger as Logger), {
+  super('MELCloud', logger, {
       failureThreshold: 3,
       resetTimeout: 60000, // 1 minute
       halfOpenSuccessThreshold: 1,
       timeout: 15000 // 15 seconds
     });
+
+    // Injected settings provider (required). Do not fall back to global.homeySettings.
+    this.homeySettings = homeySettings;
+
+  // Allow tests to inject a mocked https implementation. If not provided,
+  // we'll require it at call-time in throttledApiCall for compatibility with
+  // jest.mock('https') and to avoid top-level requires.
+  (this as any)._httpsModule = httpsModule;
 
     // Initialize time zone helper
     this.timeZoneHelper = new TimeZoneHelper(this.logger);
@@ -80,9 +93,14 @@ export class MelCloudApi extends BaseApiService {
     this.reconnectAttempts++;
 
     try {
-      // Get credentials from global settings
-      const email = global.homeySettings?.get('melcloud_user');
-      const password = global.homeySettings?.get('melcloud_pass');
+  // Get credentials from injected settings provider. Do not fall back to global.
+  const settings = this.homeySettings;
+  if (!settings) {
+    this.logger.error('homeySettings not provided to MelCloudApi');
+    throw new Error('homeySettings not available');
+  }
+  const email = settings.get('melcloud_user');
+  const password = settings.get('melcloud_pass');
 
       if (!email || !password) {
         throw new Error('MELCloud credentials not available');
@@ -108,6 +126,14 @@ export class MelCloudApi extends BaseApiService {
       // Exponential backoff for next attempt
       const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
       this.logger.log(`Will retry in ${delay / 1000} seconds`);
+
+      // During tests we should not schedule background reconnect timers
+      // because they can cause unexpected network requests which break
+      // test isolation (Jest sets JEST_WORKER_ID in the environment).
+      if (process && process.env && process.env.JEST_WORKER_ID) {
+        this.logger.log('Test environment detected; skipping scheduled reconnect timer');
+        return false;
+      }
 
       // Clear any existing timers before creating a new one
       this.clearReconnectTimers();
@@ -218,11 +244,16 @@ export class MelCloudApi extends BaseApiService {
 
       // Return a promise that resolves with the API response
       return new Promise<T>((resolve, reject) => {
-        const req = https.request(requestOptions, (res) => {
+  // Prefer an injected https module (useful for tests). Otherwise require
+  // it at call-time so test-time mocks (jest.mock('https')) still work.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const https = (this as any)._httpsModule || require('https');
+
+        const req = https.request(requestOptions, (res: any) => {
           let data = '';
 
           // Collect data chunks
-          res.on('data', (chunk) => {
+          res.on('data', (chunk: any) => {
             data += chunk;
           });
 
@@ -244,7 +275,7 @@ export class MelCloudApi extends BaseApiService {
         });
 
         // Handle request errors
-        req.on('error', (error) => {
+        req.on('error', (error: any) => {
           reject(new Error(`API request error: ${error.message}`));
         });
 

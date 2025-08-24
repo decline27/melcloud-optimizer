@@ -4,9 +4,9 @@ import { createMockLogger } from '../mocks';
 // Mock fetch globally
 global.fetch = jest.fn();
 
-// Set up global homeySettings
-global.homeySettings = {
-  get: jest.fn((key) => {
+// Provide a mock homeySettings object to pass into constructors
+const mockHomeySettings = {
+  get: jest.fn((key: string) => {
     const settings: Record<string, any> = {
       'melcloud_user': 'test@example.com',
       'melcloud_pass': 'password',
@@ -34,8 +34,8 @@ jest.mock('../../src/services/melcloud-api', () => {
   return {
     ...originalModule,
     MelCloudApi: class extends originalModule.MelCloudApi {
-      constructor(logger: any) {
-        super(logger);
+      constructor(logger: any, homeySettings: any) {
+        super(logger, homeySettings);
       }
 
       // Override the private throttledApiCall method
@@ -151,7 +151,7 @@ describe('MelCloudApi', () => {
     mockLogger = createMockLogger();
 
     // Create API instance
-    api = new MelCloudApi(mockLogger);
+  api = new MelCloudApi(mockLogger, { get: () => null, set: () => {} } as any);
   });
 
   afterEach(() => {

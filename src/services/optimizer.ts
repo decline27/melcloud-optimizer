@@ -199,7 +199,9 @@ export class Optimizer {
 
       // Initialize COP helper
       try {
-        this.copHelper = new COPHelper(homey, this.logger);
+        // Provide the melCloud instance to COPHelper to avoid global reads
+        const services: any = { melCloud: this.melCloud };
+        this.copHelper = new COPHelper(homey, this.logger, services);
         this.logger.log('COP helper initialized');
 
         // Load COP settings from Homey settings

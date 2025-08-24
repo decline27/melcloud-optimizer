@@ -19,7 +19,7 @@ describe('MelCloudApi Minimal Tests', () => {
     };
 
     // Create a new instance of MelCloudApi with the mock logger
-    melCloudApi = new MelCloudApi(mockLogger);
+  melCloudApi = new MelCloudApi(mockLogger, { get: () => null, set: () => {} } as any);
 
     // Mock the errorHandler to prevent errors
     (melCloudApi as any).errorHandler = {

@@ -1,6 +1,8 @@
 import { App } from 'homey';
 import { CronJob } from 'cron'; // Import CronJob
 import { COPHelper } from './services/cop-helper';
+import { MelCloudApi } from './services/melcloud-api';
+import { TibberApi } from './services/tibber-api';
 import { TimelineHelper, TimelineEventType } from './util/timeline-helper';
 import { HomeyLogger, LogLevel, LogCategory } from './util/logger';
 import { HotWaterService } from './services/hot-water';
@@ -23,6 +25,8 @@ export default class HeatOptimizerApp extends App {
   public hourlyJob?: CronJob;
   public weeklyJob?: CronJob;
   public copHelper?: COPHelper;
+  public melCloud?: MelCloudApi;
+  public tibber?: TibberApi;
   public timelineHelper?: TimelineHelper;
   public hotWaterService?: HotWaterService;
   public logger: HomeyLogger = new HomeyLogger(this, {
@@ -151,13 +155,35 @@ export default class HeatOptimizerApp extends App {
 
     // API is automatically registered by Homey
 
+    // Initialize MelCloud and Tibber API clients so they can be injected into other services
+    try {
+      // Create MELCloud API client and Tibber API client using app logger
+  this.melCloud = new MelCloudApi(this.logger, this.homey.settings);
+  this.tibber = new TibberApi(this.homey.settings.get('tibber_token'), this.logger, this.homey.settings);
+      this.logger.info('MelCloud and Tibber API clients initialized and attached to app');
+
+      // Inject services into compatibility helper so API and tests can use them
+      try {
+        const apiModule = require('../api.js');
+        if (apiModule && typeof apiModule.__test === 'object' && typeof apiModule.__test.setServices === 'function') {
+          apiModule.__test.setServices({ melCloud: this.melCloud, tibber: this.tibber, optimizer: (this as any).optimizer });
+        }
+      } catch (e) {
+        // ignore if api module not yet available or not writable
+      }
+    } catch (err) {
+      this.logger.error('Failed to initialize MelCloud/Tibber API clients', err as Error);
+    }
+
     // Initialize COP Helper
     try {
-      this.copHelper = new COPHelper(this.homey, this);
+      // Provide injected services to COPHelper to avoid relying on globals
+      const services: any = { melCloud: (this as any).melCloud, tibber: (this as any).tibber };
+      this.copHelper = new COPHelper(this.homey, this, services);
       this.logger.info('COP Helper initialized');
 
-      // Make it available globally
-      (global as any).copHelper = this.copHelper;
+      // Make it available globally (deprecated) -- prefer explicit injection
+      // (global as any).copHelper = this.copHelper;
     } catch (error) {
       this.logger.error('Failed to initialize COP Helper', error as Error);
     }
@@ -167,8 +193,8 @@ export default class HeatOptimizerApp extends App {
       this.hotWaterService = new HotWaterService(this.homey);
       this.logger.info('Hot Water Service initialized');
       
-      // Make it available globally
-      (global as any).hotWaterService = this.hotWaterService;
+  // Make it available globally (deprecated) -- prefer explicit injection
+  // (global as any).hotWaterService = this.hotWaterService;
     } catch (error) {
       this.logger.error('Failed to initialize Hot Water Service', error as Error);
     }
@@ -178,8 +204,8 @@ export default class HeatOptimizerApp extends App {
       this.timelineHelper = new TimelineHelper(this.homey, this.logger);
       this.logger.info('Timeline Helper initialized');
 
-      // Make it available globally
-      (global as any).timelineHelper = this.timelineHelper;
+  // Make it available globally (deprecated) -- prefer explicit injection
+  // (global as any).timelineHelper = this.timelineHelper;
     } catch (error) {
       this.logger.error('Failed to initialize Timeline Helper', error as Error);
     }
@@ -220,8 +246,8 @@ export default class HeatOptimizerApp extends App {
       includeSourceModule: true
     });
 
-    // Make the logger available globally for other modules
-    (global as any).logger = this.logger;
+  // Make the logger available globally for other modules (deprecated)
+  // (global as any).logger = this.logger;
 
     // Log initialization
     this.log(`Centralized logger initialized with level: ${LogLevel[logLevel]}`);

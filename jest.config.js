@@ -45,6 +45,7 @@ module.exports = {
   testTimeout: 5000,
   verbose: true,
   forceExit: true,
+  setupFilesAfterEnv: ['<rootDir>/test/jest.setup.ts'],
   
   // Handle ES modules
   transformIgnorePatterns: [

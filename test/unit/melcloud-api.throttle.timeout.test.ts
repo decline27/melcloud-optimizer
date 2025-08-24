@@ -23,7 +23,7 @@ describe('MelCloudApi throttledApiCall timeout and slow response', () => {
   beforeEach(() => {
     jest.resetModules();
     originalRequest = https.request;
-  api = new MelCloudApi(createMockLogger() as any);
+  api = new MelCloudApi(createMockLogger() as any, { get: () => null, set: () => {} } as any);
     // Stub circuitBreaker.execute to call the supplied function immediately
     (api as any).circuitBreaker = {
       execute: (fn: any) => fn(),

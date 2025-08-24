@@ -22,7 +22,7 @@ describe('Optimizer Enhanced Tests', () => {
 
   beforeEach(() => {
     // Create mock MelCloud API
-    mockMelCloud = new MelCloudApi() as jest.Mocked<MelCloudApi>;
+  mockMelCloud = new MelCloudApi({} as any, { get: () => null, set: () => {} } as any) as jest.Mocked<MelCloudApi>;
     mockMelCloud.getDeviceState = jest.fn().mockResolvedValue({
       DeviceID: 123,
       BuildingID: 456,
@@ -33,7 +33,7 @@ describe('Optimizer Enhanced Tests', () => {
     mockMelCloud.setDeviceTemperature = jest.fn().mockResolvedValue(true);
 
     // Create mock Tibber API
-    mockTibber = new TibberApi('test-token') as jest.Mocked<TibberApi>;
+  mockTibber = new TibberApi('test-token', {} as any, { get: () => null, set: () => {} } as any) as jest.Mocked<TibberApi>;
     mockTibber.getPrices = jest.fn().mockResolvedValue({
       current: { price: 0.15, time: '2023-01-01T12:00:00Z' },
       prices: [

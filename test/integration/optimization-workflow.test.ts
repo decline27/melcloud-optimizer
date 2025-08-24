@@ -34,8 +34,8 @@ describe('Optimization Workflow Integration', () => {
     }));
 
     // Create real instances with mock dependencies
-    melCloud = new MelCloudApi(mockLogger);
-    tibber = new TibberApi('test-token', mockLogger);
+  melCloud = new MelCloudApi(mockLogger, { get: () => null, set: () => {} } as any);
+  tibber = new TibberApi('test-token', mockLogger, { get: () => null, set: () => {} } as any);
 
     // Mock the ThermalModelService and COPHelper instead of creating real instances
     thermalModelService = {

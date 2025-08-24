@@ -8,9 +8,11 @@ class COPHelper {
    * @param {Object} homey - Homey app instance
    * @param {Object} logger - Logger instance
    */
-  constructor(homey, logger) {
+  constructor(homey, logger, services) {
     this.homey = homey;
     this.logger = logger;
+    // Optional injected runtime services (preferred over globals)
+    this.services = services || {};
     this.dailyJob = null;
     this.weeklyJob = null;
     this.monthlyJob = null;
@@ -119,8 +121,10 @@ class COPHelper {
         return null;
       }
 
-      // Get the MELCloud API instance from the global scope
-      const melCloud = global.melCloud;
+      // Prefer an injected melCloud service; fall back to legacy global if
+      // one hasn't been injected. Tests should inject services where
+      // possible rather than mutating globals.
+      const melCloud = this.services && this.services.melCloud ? this.services.melCloud : (global.melCloud);
       if (!melCloud) {
         this.logger.error('MELCloud API instance not available');
         return null;

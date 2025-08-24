@@ -17,7 +17,7 @@ describe('MelCloudApi throttledApiCall https edge cases (deterministic)', () => 
   beforeEach(() => {
     jest.clearAllMocks();
     mockLogger = createMockLogger();
-    api = new MelCloudApi(mockLogger as any);
+  api = new MelCloudApi(mockLogger as any, { get: () => null, set: () => {} } as any);
 
     // Make throttle a no-op for tests
     (api as any).throttle = jest.fn().mockResolvedValue(undefined);

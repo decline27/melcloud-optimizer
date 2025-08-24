@@ -42,8 +42,31 @@ describe('COPHelper', () => {
       error: jest.fn(),
     };
 
-    // Create COP helper instance
+    // Create COP helper instance (no injected services - should fall back to globals)
     copHelper = new COPHelper(mockHomey, mockLogger);
+  });
+
+  describe('constructor with injected services', () => {
+    it('should use injected melCloud when provided', async () => {
+      const mockMelCloud = { getCOPData: jest.fn().mockResolvedValue({ Device: {} }) };
+
+      // Provide injected services explicitly
+      // Ensure settings return valid device/building ids so getMELCloudData continues
+      mockSettings.get.mockImplementation((key: string) => {
+        if (key === 'device_id') return 'device-1';
+        if (key === 'building_id') return '1';
+        return null;
+      });
+
+      const injected = new COPHelper(mockHomey, mockLogger, { melCloud: mockMelCloud });
+
+      // Verify internal melCloud is the injected instance by calling a private method that uses it
+      const spy = jest.spyOn(mockMelCloud, 'getCOPData');
+      // Call getMELCloudData via any cast to access private method
+      await (injected as any).getMELCloudData();
+
+      expect(spy).toHaveBeenCalled();
+    });
   });
 
   describe('constructor', () => {

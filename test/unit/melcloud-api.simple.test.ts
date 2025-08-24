@@ -1,5 +1,7 @@
-// Mock the https module before loading the module under test so internal
-// references to `https` pick up the mock.
+// Reset module cache and mock the https module before loading the module under test
+// so internal references to `https` pick up the mock even if other tests loaded
+// the MELCloud module earlier in the suite.
+jest.resetModules();
 jest.mock('https');
 const https = require('https');
 const mockedHttps = https as jest.Mocked<typeof https>;
@@ -27,8 +29,8 @@ describe('MelCloudApi Simple Tests', () => {
       api: jest.fn()
     };
 
-    // Create a new instance of MelCloudApi with the mock logger
-    melCloudApi = new MelCloudApi(mockLogger as any);
+    // Create a new instance of MelCloudApi with the mock logger and inject the mocked https module
+  melCloudApi = new MelCloudApi(mockLogger as any, { get: () => null, set: () => {} } as any, mockedHttps);
 
     // Mock the errorHandler to prevent errors
     (melCloudApi as any).errorHandler = {

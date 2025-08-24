@@ -24,7 +24,7 @@ describe('TibberApi', () => {
     mockLogger = createMockLogger();
 
     // Create a new instance of TibberApi with the mock logger
-    tibberApi = new TibberApi(mockToken, mockLogger);
+  tibberApi = new TibberApi(mockToken, mockLogger as any, { get: () => null, set: () => {} } as any);
   });
 
   describe('getPrices', () => {

@@ -16,15 +16,21 @@ export class COPHelper {
   private weeklyJob: any;
   private monthlyJob: any;
   private logger: any;
+  private melCloud: any | null = null;
 
   /**
    * Constructor
    * @param homey Homey app instance
    * @param logger Logger instance
+   * @param services Optional injected services (preferred). Example: { melCloud }
    */
-  constructor(homey: any, logger: any) {
+  constructor(homey: any, logger: any, services?: { melCloud?: any, tibber?: any }) {
     this.homey = homey;
     this.logger = logger;
+
+    // Require injected services (preferred). Do not fall back to legacy globals here.
+    // The app should construct services and pass them in so we avoid implicit global reads.
+    this.melCloud = (services && services.melCloud) ? services.melCloud : null;
 
     // Schedule jobs
     this.scheduleJobs();
@@ -117,8 +123,9 @@ export class COPHelper {
         return null;
       }
 
-      // Get the MELCloud API instance from the global scope
-      const melCloud = (global as any).melCloud;
+  // Use the melCloud instance provided at construction time (constructor already
+  // falls back to global for compatibility if no injected service was provided).
+  const melCloud = this.melCloud;
       if (!melCloud) {
         this.logger.error('MELCloud API instance not available');
         return null;

@@ -25,7 +25,7 @@
             <div class='fl pad1y space-right2'>
                 <span class="strong">0% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/599</span>
+                <span class='fraction'>0/600</span>
             </div>
         
             
@@ -46,7 +46,7 @@
             <div class='fl pad1y space-right2'>
                 <span class="strong">0% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/579</span>
+                <span class='fraction'>0/580</span>
             </div>
         
             
@@ -1979,7 +1979,9 @@
 <a name='L1914'></a><a href='#L1914'>1914</a>
 <a name='L1915'></a><a href='#L1915'>1915</a>
 <a name='L1916'></a><a href='#L1916'>1916</a>
-<a name='L1917'></a><a href='#L1917'>1917</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L1917'></a><a href='#L1917'>1917</a>
+<a name='L1918'></a><a href='#L1918'>1918</a>
+<a name='L1919'></a><a href='#L1919'>1919</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
@@ -2062,6 +2064,8 @@
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
@@ -3980,56 +3984,56 @@ interface HotWat<span class="cstat-no" title="statement not covered" >erUsagePat
 }
 &nbsp;
 /**<span class="cstat-no" title="statement not covered" ></span>
- * Hot water sch<span class="cstat-no" title="statement not covered" >edule recommendation</span>
+ * Hot water schedule recommendation
  */<span class="cstat-no" title="statement not covered" ></span>
-interface HotWaterSchedule {
+interface HotWat<span class="cstat-no" title="statement not covered" >erSchedule {</span>
   schedulePoints<span class="cstat-no" title="statement not covered" >: SchedulePoint[];</span>
-  currentAction:<span class="cstat-no" title="statement not covered" > 'heat_now' | 'delay' | 'maintain';</span>
+  currentAction: 'heat_now' | 'delay' | 'maintain';
   reasoning: str<span class="cstat-no" title="statement not covered" >ing;</span>
   estimatedSavin<span class="cstat-no" title="statement not covered" >gs: number;</span>
-}
+}<span class="cstat-no" title="statement not covered" ></span>
 <span class="cstat-no" title="statement not covered" ></span>
 /**
- * Schedule point for hot water heating
- */<span class="cstat-no" title="statement not covered" ></span>
-interface Schedu<span class="cstat-no" title="statement not covered" >lePoint {</span>
-  hour: number;
-  reason: string;
+ * Schedule poin<span class="cstat-no" title="statement not covered" >t for hot water heating</span>
+ */
+interface SchedulePoint {
+  hour: number;<span class="cstat-no" title="statement not covered" ></span>
+  reason: string<span class="cstat-no" title="statement not covered" >;</span>
   priority: number; // 0-1, higher = more important
   cop: number;
   pricePercentile: number;
 }
-<span class="fstat-no" title="function not covered" ></span>
-interfac<span class="cstat-no" title="statement not covered" >e EnhancedOptimizationResult {</span>
-  success: b<span class="cstat-no" title="statement not covered" >oolean;</span>
-  action: 'tempe<span class="cstat-no" title="statement not covered" >rature_a</span>djusted' | 'no_change';
-  fromTemp: number;
-  toTemp: number;<span class="cstat-no" title="statement not covered" ></span>
-  reason: st<span class="cstat-no" title="statement not covered" >ring;</span>
-  priceData: {<span class="cstat-no" title="statement not covered" ></span>
-    current: number;<span class="cstat-no" title="statement not covered" ></span>
-    average: number;<span class="cstat-no" title="statement not covered" ></span>
-    min: num<span class="cstat-no" title="statement not covered" >ber;</span>
-    max: number;
-  };<span class="cstat-no" title="statement not covered" ><span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" ></span></span></span>
-  energyMetrics?: OptimizationMetrics;
-  hotWaterAction?: {
-    action: 'heat_now' | 'delay' | 'maintain';
-    reason: stri<span class="cstat-no" title="statement not covered" >ng;</span>
-    scheduledTime?: string;
-  };<span class="cstat-no" title="statement not covered" ><span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" ></span></span></span>
-}<span class="cstat-no" title="statement not covered" ></span>
 &nbsp;
-/**
- * Optimizer Service<span class="cstat-no" title="statement not covered" ></span>
+interface EnhancedOptimizationResult {
+  su<span class="fstat-no" title="function not covered" >cc</span>ess: boolean;
+  action<span class="cstat-no" title="statement not covered" >: 'temperature_adjusted' | 'no_change';</span>
+  fromTemp: <span class="cstat-no" title="statement not covered" >number;</span>
+  toTemp: number<span class="cstat-no" title="statement not covered" >;</span>
+  reason: string;
+  priceData: {<span class="cstat-no" title="statement not covered" ></span>
+    current:<span class="cstat-no" title="statement not covered" > number;</span>
+    average: number;<span class="cstat-no" title="statement not covered" ></span>
+    min: number;<span class="cstat-no" title="statement not covered" ></span>
+    max: number;<span class="cstat-no" title="statement not covered" ></span>
+  };<span class="cstat-no" title="statement not covered" ></span>
+  energyMetrics?: OptimizationMetrics;
+  hotWaterAction?: {<span class="cstat-no" title="statement not covered" ><span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" ></span></span></span>
+    action: 'heat_now' | 'delay' | 'maintain';
+    reason: string;
+    scheduledTime?: string;
+  };<span class="cstat-no" title="statement not covered" ></span>
+}
+<span class="cstat-no" title="statement not covered" ><span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" ></span></span></span>
+/**<span class="cstat-no" title="statement not covered" ></span>
+ * Optimizer Service
  * Handles the optimization logic for MELCloud devices based on electricity prices
- * and thermal characteristics of the home
+ * and thermal chara<span class="cstat-no" title="statement not covered" >cteristics of the home</span>
  */
-export class Optimiz<span class="cstat-no" title="statement not covered" >er {</span>
-  private thermalMod<span class="cstat-no" title="statement not covered" >el: ThermalModel = { K: 0.5 };</span>
+export class Optimizer {
+  private thermalModel: ThermalModel = { K: 0.5 };
   private minTemp: n<span class="cstat-no" title="statement not covered" >umber = 18;</span>
-  private maxTemp: number = 22;
-  private tempStep: number = 0.5;
+  private maxTemp: n<span class="cstat-no" title="statement not covered" >umber = 22;</span>
+  private tempStep: <span class="cstat-no" title="statement not covered" >number = 0.5;</span>
   private deadband: number = 0.3; // Minimum temperature change to trigger adjustment
   private thermalModelService: ThermalModelService | null = null;
   private useThermalLearning: boolean = false;
@@ -4037,9 +4041,9 @@ export class Optimiz<span class="cstat-no" title="statement not covered" >er {</
   private copWeight: number = 0.3;
   private autoSeasonalMode: boolean = true;
   private summerMode: boolean = false;
-  private en<span class="cstat-no" title="statement not covered" >hancedSavingsCalculator: EnhancedSavingsCalculator;</span>
+  private enhancedSavingsCalculator: EnhancedSavingsCalculator;
   private lastEnergyData: RealEnergyData | null = null;
-  private optimizationMetrics: OptimizationMetrics | null = null;
+  private op<span class="cstat-no" title="statement not covered" >timizationMetrics: OptimizationMetrics | null = null;</span>
 &nbsp;
   // Thermal mass optimization properties
   private thermalMassModel: ThermalMassModel = {
@@ -4047,56 +4051,58 @@ export class Optimiz<span class="cstat-no" title="statement not covered" >er {</
     heatLossRate: 0.8,           // Default: 0.8°C per hour heat loss
     maxPreheatingTemp: 23,       // Default: Max 23°C for preheating
     preheatingEfficiency: 0.85,  // Default: 85% efficiency for preheating
-<span class="fstat-no" title="function not covered" >    la</span>stCalibration: new Date()
+    lastCalibration: new Date()
   };
-  <span class="cstat-no" title="statement not covered" ></span>
+  <span class="fstat-no" title="function not covered" ></span>
   private hotWaterUsagePattern: HotWaterUsagePattern = {
-    hourlyDemand: new Arr<span class="cstat-no" title="statement not covered" >ay(24).fil</span>l(0.5), // Default: 0.5 kWh per hour
-    peak<span class="cstat-no" title="statement not covered" >Hours: [7, 8, 18, 19, 20],         // Default: Morning and evening peaks</span>
-    minimumB<span class="cstat-no" title="statement not covered" >uffer: 2.0,                     // Default: 2 kWh minimum</span>
-    lastLearningUpdate: new Date(),
-    data<span class="cstat-no" title="statement not covered" >Points: 0</span>
-  };<span class="cstat-no" title="statement not covered" ></span>
-&nbsp;
-  private thermalStrategyHistory: ThermalStrategy[] = [];
+    hourlyDemand: new Array<span class="cstat-no" title="statement not covered" >(24).fill(0.5), // Default: 0.5 kWh per hour</span>
+    peakHours: [7, 8, 18, 19, 20],         // Default: Morning and evening peaks
+    minimumBuffer: 2.0,  <span class="cstat-no" title="statement not covered" >          </span>         // Default: 2 kWh minimum
+    last<span class="cstat-no" title="statement not covered" >LearningUpdate: new Date(),</span>
+    dataPoin<span class="cstat-no" title="statement not covered" >ts: 0</span>
+  };
+<span class="cstat-no" title="statement not covered" ></span>
+  privat<span class="cstat-no" title="statement not covered" >e thermalStrategyHistory: ThermalStrategy[] = [];</span>
 &nbsp;
   /**
    * Constructor
    * @param melCloud MELCloud API instance
    * @param tibber Tibber API instance
    * @param deviceId MELCloud device ID
-   *<span class="fstat-no" title="function not covered" > @</span>param buildingId MELCloud building ID
+   * @param buildingId MELCloud building ID
    * @param logger Logger instance
-   * @pa<span class="cstat-no" title="statement not covered" >ram weatherApi Weather API instance (optional)</span>
-   * @pa<span class="cstat-no" title="statement not covered" >ram homey Homey app instance (optional, required for thermal learning)</span>
-   */
+   *<span class="fstat-no" title="function not covered" > @</span>param weatherApi Weather API instance (optional)
+   * @param homey Homey app instance (optional, required for thermal learning)
+   */<span class="cstat-no" title="statement not covered" ></span>
   constr<span class="cstat-no" title="statement not covered" >uctor(</span>
-    private <span class="cstat-no" title="statement not covered" >readonly melCloud: MelCloudApi,</span>
-    private readonly tibber: TibberApi,
-    priv<span class="cstat-no" title="statement not covered" >ate readonly deviceId: string,</span>
-    priv<span class="cstat-no" title="statement not covered" >ate readonly buildingId: number,</span>
-    private readonly logger: HomeyLogger,
-    private readonly weatherApi?: { getCurrentWeather(): Promise&lt;WeatherData&gt; },
+    private readonly melCloud: MelCloudApi,
+    priv<span class="cstat-no" title="statement not covered" >ate readonly tibber: TibberApi,</span>
+    private <span class="cstat-no" title="statement not covered" >readonly deviceId: string,</span>
+    private readonly buildingId: number,
+    priv<span class="cstat-no" title="statement not covered" >ate readonly logger: HomeyLogger,</span>
+    priv<span class="cstat-no" title="statement not covered" >ate readonly weatherApi?: { getCurrentWeather(): Promise&lt;WeatherData&gt; },</span>
     private readonly homey?: HomeyApp
   ) {
     // Initialize enhanced savings calculator with proper Logger instance
-<span class="fstat-no" title="function not covered" >    //</span> Use the existing logger since it already implements the Logger interface
-    this<span class="cstat-no" title="statement not covered" >.enhancedSavingsCalculator = new EnhancedSavingsCalculator(this.logger);</span>
-<span class="cstat-no" title="statement not covered" ></span>
-    // Initi<span class="cstat-no" title="statement not covered" >alize thermal learning model if homey instance is provided</span>
+    // Use the existing logger since it already implements the Logger interface
+    this.enhancedSavingsCalculator = new EnhancedSavingsCalculator(this.logger);
+<span class="fstat-no" title="function not covered" ></span>
+    // I<span class="cstat-no" title="statement not covered" >nitialize thermal learning model if homey instance is provided</span>
     if (home<span class="cstat-no" title="statement not covered" >y) {</span>
-      try {
-        this<span class="cstat-no" title="statement not covered" >.thermalModelService = new ThermalModelService(homey);</span>
-        this.use<span class="cstat-no" title="statement not covered" >ThermalLearning = true;</span>
-        this.logger.log('Thermal learning model initialized');
-      } catch (error) {
+      try {<span class="cstat-no" title="statement not covered" ></span>
+        this<span class="cstat-no" title="statement not covered" >.thermalModelService = new Th</span>ermalModelService(homey);
+        this.useThermalLearning = true;
+        this<span class="cstat-no" title="statement not covered" >.logger.log('Thermal learning model initialized');</span>
+      } catch (e<span class="cstat-no" title="statement not covered" >rror) {</span>
         this.logger.error('Failed to initialize thermal learning model:', error);
         this.useThermalLearning = false;
       }
 &nbsp;
       // Initialize COP helper
       try {
-<span class="fstat-no" title="function not covered" ></span>        this.copHelper = new COPHelper(homey, this.logger);
+        // Provide the melCloud instance to COPHelper to avoid global reads
+        const services: any = { melCloud: this.melCloud };
+<span class="fstat-no" title="function not covered" ></span>        this.copHelper = new COPHelper(homey, this.logger, services);
         this.logger.lo<span class="cstat-no" title="statement not covered" >g('COP helper initialized');</span>
 <span class="cstat-no" title="statement not covered" ></span>
         // L<span class="cstat-no" title="statement not covered" >oad COP sett</span>ings from Homey settings
@@ -5818,7 +5824,7 @@ export class Optimiz<span class="cstat-no" title="statement not covered" >er {</
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2025-08-23T07:50:26.518Z
+                at 2025-08-23T15:05:52.976Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

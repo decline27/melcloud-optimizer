@@ -76,14 +76,9 @@ module.exports = class BoilerDevice extends Homey.Device {
     this.logger.log('BoilerDevice has been initialized');
 
     // Set up global homeySettings for the API if not already set
-    if (!(global as any).homeySettings) {
-      (global as any).homeySettings = this.homey.settings;
-    }
-
-    // Set up global logger if not already set
-    if (!(global as any).logger) {
-      (global as any).logger = this.logger;
-    }
+  // Note: Do NOT write to Node globals here. Services should be injected explicitly
+  // by the app (see migration plan). Legacy code that relies on globals should use
+  // the compatibility shim (`api.__test.setServices`) during tests.
 
     // Get device configuration from store or settings
     const storeDeviceId = this.getStoreValue('melcloud_device_id');
@@ -104,7 +99,7 @@ module.exports = class BoilerDevice extends Homey.Device {
 
     // Initialize MELCloud API
     try {
-      this.melCloudApi = new MelCloudApi(this.logger);
+  this.melCloudApi = new MelCloudApi(this.logger, this.homey.settings);
       this.logger.log('MELCloud API initialized for device');
     } catch (error) {
       this.logger.error('Failed to initialize MELCloud API:', error);

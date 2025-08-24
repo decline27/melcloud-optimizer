@@ -28,8 +28,8 @@ describe('Optimizer', () => {
     jest.clearAllMocks();
 
     // Create mock instances
-    mockMelCloud = new MelCloudApi() as jest.Mocked<MelCloudApi>;
-    mockTibber = new TibberApi('test-token') as jest.Mocked<TibberApi>;
+  mockMelCloud = new MelCloudApi({} as any, { get: () => null, set: () => {} } as any) as jest.Mocked<MelCloudApi>;
+  mockTibber = new TibberApi('test-token', {} as any, { get: () => null, set: () => {} } as any) as jest.Mocked<TibberApi>;
     mockLogger = {
       log: jest.fn(),
       error: jest.fn(),

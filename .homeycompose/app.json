@@ -28,6 +28,13 @@
   },
   "brandColor": "#1E88E5",
   "support": "https://github.com/decline27/melcloud-optimizer/issues",
+  "pages": [
+    {
+      "id": "app_settings_page",
+      "title": { "en": "Advanced settings" },
+      "url": "/settings/index.html"
+    }
+  ],
   "capabilities": {
     "heating_cop": {
       "type": "number",
@@ -129,6 +136,22 @@
     "getMemoryUsage": {
       "method": "GET",
       "path": "/getMemoryUsage"
+    },
+    "runHourlyOptimizer": {
+      "method": "GET",
+      "path": "/runHourlyOptimizer"
+    },
+    "runWeeklyCalibration": {
+      "method": "GET",
+      "path": "/runWeeklyCalibration"
+    },
+    "resetHotWaterPatterns": {
+      "method": "POST",
+      "path": "/hot-water/reset-patterns"
+    },
+    "clearHotWaterData": {
+      "method": "POST",
+      "path": "/hot-water/clear-data"
     },
     "runThermalDataCleanup": {
       "method": "GET",

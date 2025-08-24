@@ -22,7 +22,7 @@ describe('MELCloud Integration Tests', () => {
     }
 
     const mockLogger = createMockLogger();
-    melCloudApi = new MelCloudApi(mockLogger);
+  melCloudApi = new MelCloudApi(mockLogger, (global as any).homeySettings || { get: () => null, set: () => {} } as any);
   });
 
   describe('Real API Connection', () => {

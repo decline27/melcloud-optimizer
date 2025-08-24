@@ -22,7 +22,7 @@ module.exports = class BoilerDriver extends Homey.Driver {
 
     // Initialize MELCloud API
     try {
-      this.melCloudApi = new MelCloudApi(this.logger);
+  this.melCloudApi = new MelCloudApi(this.logger, this.homey.settings);
       this.logger.log('MELCloud API initialized for driver');
     } catch (error) {
       this.logger.error('Failed to initialize MELCloud API:', error);
@@ -50,10 +50,8 @@ module.exports = class BoilerDriver extends Homey.Driver {
         throw new Error('MELCloud credentials not configured. Please configure them in the app settings first.');
       }
 
-      // Set up global homeySettings for the API (temporary)
-      if (!(global as any).homeySettings) {
-        (global as any).homeySettings = this.homey.settings;
-      }
+  // Use the injected settings on the driver instance (no global write needed)
+  // The MelCloudApi instance was constructed with the settings in onInit
 
       // Login and get devices
       await this.melCloudApi.login(email, password);

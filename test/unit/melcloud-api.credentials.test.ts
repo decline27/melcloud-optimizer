@@ -4,14 +4,12 @@ import * as path from 'path';
 import { HomeySettings } from '../../src/types';
 import { createMockLogger } from '../mocks/logger.mock';
 
-// Skip these tests if config file doesn't exist
+// Skip these tests if config file doesn't exist AND REAL_MELCLOUD env var is not set
 const configPath = path.join(__dirname, '../config.json');
-const hasConfig = fs.existsSync(configPath);
+const hasConfig = fs.existsSync(configPath) || process.env.REAL_MELCLOUD === '1';
 
-// Mock global homeySettings
-declare global {
-  var homeySettings: HomeySettings;
-}
+// Provide a runtime settings object for tests to pass into MelCloudApi
+let runtimeHomeySettings: any = null;
 
 // Only run these tests if credentials are available
 (hasConfig ? describe : describe.skip)('MelCloudApi with real credentials', () => {
@@ -21,16 +19,16 @@ declare global {
   let mockLogger: ReturnType<typeof createMockLogger>;
 
   beforeAll(() => {
-    // Save original homeySettings if it exists
-    originalHomeySettings = global.homeySettings;
+  // Save original homeySettings if it exists (for safety)
+  originalHomeySettings = (global as any).homeySettings;
 
     if (hasConfig) {
       try {
         const configContent = fs.readFileSync(configPath, 'utf8');
         config = JSON.parse(configContent);
 
-        // Set up global homeySettings for tests
-        global.homeySettings = {
+        // Prepare a settings-like object for tests to inject
+        runtimeHomeySettings = {
           get: (key: string) => {
             if (key === 'melcloud_user') return config.melcloud.email;
             if (key === 'melcloud_pass') return config.melcloud.password;
@@ -53,7 +51,7 @@ declare global {
     mockLogger = createMockLogger();
 
     // Create a new instance of MelCloudApi with the mock logger
-    melCloudApi = new MelCloudApi(mockLogger);
+  melCloudApi = new MelCloudApi(mockLogger, runtimeHomeySettings || { get: () => null, set: () => {} } as any);
   });
 
   afterEach(() => {
@@ -63,7 +61,7 @@ declare global {
 
   afterAll(() => {
     // Restore original homeySettings
-    global.homeySettings = originalHomeySettings;
+  try { (global as any).homeySettings = originalHomeySettings; } catch (e) { /* ignore */ }
   });
 
   it('should login successfully with real credentials', async () => {

@@ -5,10 +5,7 @@ import { ErrorHandler, AppError, ErrorCategory } from '../util/error-handler';
 import { BaseApiService } from './base-api-service';
 import { TimeZoneHelper } from '../util/time-zone-helper';
 
-// Add global declaration for logger
-declare global {
-  var logger: Logger;
-}
+// No global logger: this service requires an injected Logger instance.
 
 /**
  * Tibber API Service
@@ -18,20 +15,24 @@ export class TibberApi extends BaseApiService {
   private apiEndpoint = 'https://api.tibber.com/v1-beta/gql';
   private token: string;
   private timeZoneHelper: TimeZoneHelper;
+  private homeySettings?: any;
 
   /**
    * Constructor
    * @param token Tibber API token
-   * @param logger Logger instance
+   * @param logger Logger instance (required)
+   * @param homeySettings Homey settings provider (required)
    */
-  constructor(token: string, logger?: Logger) {
+  constructor(token: string, logger: Logger, homeySettings: any) {
     // Call the parent constructor with service name and logger
-    super('Tibber', logger || (global.logger as Logger), {
+  super('Tibber', logger, {
       failureThreshold: 3,
       resetTimeout: 60000, // 1 minute
       halfOpenSuccessThreshold: 1,
       timeout: 15000 // 15 seconds
     });
+
+  this.homeySettings = homeySettings;
 
     this.token = token;
 

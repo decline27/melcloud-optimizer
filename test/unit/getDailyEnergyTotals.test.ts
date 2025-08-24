@@ -13,7 +13,7 @@ describe('MelCloudApi.getDailyEnergyTotals', () => {
   let api: MelCloudApi;
 
   beforeEach(() => {
-    api = new MelCloudApi(logger);
+  api = new MelCloudApi(logger, { get: () => null, set: () => {} } as any);
   });
 
   test('All totals present and valid -> COPs from totals', async () => {
