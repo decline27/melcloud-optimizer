@@ -17,8 +17,16 @@ export class Api {
    */
   async runHourlyOptimizer() {
     this.app.log('API method runHourlyOptimizer called');
-    await this.app.runHourlyOptimizer();
-    return { success: true, message: 'Hourly optimization completed' };
+    try {
+      const result = await apiCore.getRunHourlyOptimizer({ homey: this.app.homey });
+      return result;
+    } catch (error) {
+      this.app.error('Error in runHourlyOptimizer:', error as Error);
+      return {
+        success: false,
+        message: `Error running hourly optimizer: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
   }
 
   /**
@@ -26,8 +34,84 @@ export class Api {
    */
   async runWeeklyCalibration() {
     this.app.log('API method runWeeklyCalibration called');
-    await this.app.runWeeklyCalibration();
-    return { success: true, message: 'Weekly calibration completed' };
+    try {
+      const result = await apiCore.getRunWeeklyCalibration({ homey: this.app.homey });
+      return result;
+    } catch (error) {
+      this.app.error('Error in runWeeklyCalibration:', error as Error);
+      return {
+        success: false,
+        message: `Error running weekly calibration: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
+  }
+
+  /**
+   * Get device list from MELCloud
+   */
+  async getDeviceList() {
+    this.app.log('API method getDeviceList called');
+    try {
+      const result = await apiCore.getDeviceList({ homey: this.app.homey });
+      return result;
+    } catch (error) {
+      this.app.error('Error in getDeviceList:', error as Error);
+      return {
+        success: false,
+        message: `Error getting device list: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
+  }
+
+  /**
+   * Get thermal model data
+   */
+  async getThermalModelData() {
+    this.app.log('API method getThermalModelData called');
+    try {
+      const result = await apiCore.getThermalModelData({ homey: this.app.homey });
+      return result;
+    } catch (error) {
+      this.app.error('Error in getThermalModelData:', error as Error);
+      return {
+        success: false,
+        message: `Error getting thermal model data: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
+  }
+
+  /**
+   * Start cron jobs
+   */
+  async getStartCronJobs() {
+    this.app.log('API method getStartCronJobs called');
+    try {
+      const result = await apiCore.getStartCronJobs({ homey: this.app.homey });
+      return result;
+    } catch (error) {
+      this.app.error('Error in getStartCronJobs:', error as Error);
+      return {
+        success: false,
+        message: `Error starting cron jobs: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
+  }
+
+  /**
+   * Check cron job status
+   */
+  async getCheckCronStatus() {
+    this.app.log('API method getCheckCronStatus called');
+    try {
+      const result = await apiCore.getCheckCronStatus({ homey: this.app.homey });
+      return result;
+    } catch (error) {
+      this.app.error('Error in getCheckCronStatus:', error as Error);
+      return {
+        success: false,
+        message: `Error checking cron status: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
   }
 
   /**
@@ -66,6 +150,17 @@ export class Api {
         message: `Error running thermal data cleanup: ${error instanceof Error ? error.message : String(error)}`
       };
     }
+  }
+
+  /**
+   * Hot water endpoints
+   */
+  async 'hot-water/reset-patterns'() {
+    return this.resetHotWaterPatterns();
+  }
+
+  async 'hot-water/clear-data'(params: { clearAggregated?: boolean } = {}) {
+    return this.clearHotWaterData(params);
   }
 
   /**
