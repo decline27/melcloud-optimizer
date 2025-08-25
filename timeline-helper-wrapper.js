@@ -153,6 +153,17 @@ const TimelineEventType = {
   CRON_JOB_STATUS: 'cron_job_status',
   CRON_JOB_INITIALIZED: 'cron_job_initialized',
 
+  // Additional events for API functions
+  DEVICE_LIST_RETRIEVED: 'device_list_retrieved',
+  OPTIMIZER_SETTINGS_UPDATED: 'optimizer_settings_updated',
+  THERMAL_MODEL_DATA_RETRIEVED: 'thermal_model_data_retrieved',
+  COP_DATA_RETRIEVED: 'cop_data_retrieved',
+  WEEKLY_COP_CALCULATED: 'weekly_cop_calculated',
+  MELCLOUD_STATUS_CHECK: 'melcloud_status_check',
+  TIBBER_STATUS_CHECK: 'tibber_status_check',
+  MEMORY_USAGE_CHECK: 'memory_usage_check',
+  DATA_CLEANUP: 'data_cleanup',
+
   // Custom message (for backward compatibility)
   CUSTOM: 'custom'
 };
