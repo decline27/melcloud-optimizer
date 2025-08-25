@@ -18,12 +18,18 @@ const THERMAL_DATA_SETTINGS_KEY = 'thermal_model_data';
 const AGGREGATED_DATA_SETTINGS_KEY = 'thermal_model_aggregated_data';
 // Backup file path (as fallback)
 const BACKUP_FILE_NAME = 'thermal-data-backup.json';
-// Maximum number of data points to keep in memory
-const DEFAULT_MAX_DATA_POINTS = 2016; // ~2 weeks of data at 10-minute intervals
+// Maximum number of data points to keep in memory (reduced for better memory management)
+const DEFAULT_MAX_DATA_POINTS = 1440; // ~1 week of data at 10-minute intervals (reduced from 2 weeks)
 // Maximum age of data points in days
-const MAX_DATA_AGE_DAYS = 30;
+const MAX_DATA_AGE_DAYS = 21; // Reduced from 30 days to 21 days
 // Maximum size of data to store in settings (bytes)
-const MAX_SETTINGS_DATA_SIZE = 500000; // ~500KB
+const MAX_SETTINGS_DATA_SIZE = 300000; // ~300KB (reduced from 500KB)
+// Memory management constants
+const MEMORY_CHECK_INTERVAL = 10 * 60 * 1000; // 10 minutes
+const AGGRESSIVE_CLEANUP_THRESHOLD = 85; // Memory percentage for aggressive cleanup
+const NORMAL_CLEANUP_THRESHOLD = 75; // Memory percentage for normal cleanup
+const LOW_MEMORY_THRESHOLD = 60; // Memory percentage to reset warning
+const MAX_AGGREGATED_DATA_POINTS = 60; // 60 days of daily aggregates
 
 export interface ThermalDataPoint {
   timestamp: string;
@@ -60,10 +66,52 @@ export class ThermalDataCollector {
   private initialized: boolean = false;
   private lastMemoryCheck: number = 0;
   private memoryWarningIssued: boolean = false;
+  private memoryCleanupInterval: NodeJS.Timeout | null = null;
+  private lastAggregationTime: number = 0;
+  private memoryStats: {
+    lastCleanup: Date;
+    cleanupCount: number;
+    peakMemoryMB: number;
+    averageMemoryMB: number;
+    memoryReadings: number[];
+  } = {
+    lastCleanup: new Date(),
+    cleanupCount: 0,
+    peakMemoryMB: 0,
+    averageMemoryMB: 0,
+    memoryReadings: []
+  };
 
   constructor(private homey: any) {
     this.backupFilePath = path.join(homey.env.userDataPath, BACKUP_FILE_NAME);
     this.loadStoredData();
+    this.startMemoryMonitoring();
+  }
+  
+  /**
+   * Start continuous memory monitoring
+   */
+  private startMemoryMonitoring(): void {
+    // Initial memory check
+    this.checkMemoryUsage();
+    
+    // Set up periodic memory monitoring
+    this.memoryCleanupInterval = setInterval(() => {
+      this.checkMemoryUsage();
+    }, MEMORY_CHECK_INTERVAL);
+    
+    this.homey.log('Thermal data collector: Memory monitoring started');
+  }
+  
+  /**
+   * Stop memory monitoring (for cleanup)
+   */
+  public cleanup(): void {
+    if (this.memoryCleanupInterval) {
+      clearInterval(this.memoryCleanupInterval);
+      this.memoryCleanupInterval = null;
+    }
+    this.homey.log('Thermal data collector: Cleanup completed');
   }
 
   /**
@@ -295,18 +343,128 @@ export class ThermalDataCollector {
 
         this.homey.log(`Memory usage: ${heapUsedMB}MB / ${heapTotalMB}MB (${usagePercentage}%)`);
 
-        // If memory usage is high, log a warning and trigger data cleanup
-        if (usagePercentage > 80 && !this.memoryWarningIssued) {
-          this.homey.error(`High memory usage detected: ${usagePercentage}%. Triggering data cleanup.`);
-          this.memoryWarningIssued = true;
-          this.aggregateOlderData();
-        } else if (usagePercentage < 70) {
-          // Reset warning flag when memory usage drops
-          this.memoryWarningIssued = false;
+        // Update memory statistics
+        this.updateMemoryStats(heapUsedMB);
+        
+        // Perform memory management based on usage levels
+        if (usagePercentage >= AGGRESSIVE_CLEANUP_THRESHOLD) {
+          if (!this.memoryWarningIssued) {
+            this.homey.error(`Critical memory usage: ${usagePercentage}%. Performing aggressive cleanup.`);
+            this.memoryWarningIssued = true;
+            this.performAggressiveCleanup();
+          }
+        } else if (usagePercentage >= NORMAL_CLEANUP_THRESHOLD) {
+          if (Date.now() - this.lastMemoryCheck > MEMORY_CHECK_INTERVAL) {
+            this.homey.log(`High memory usage: ${usagePercentage}%. Performing normal cleanup.`);
+            this.performNormalCleanup();
+            this.lastMemoryCheck = Date.now();
+          }
+        } else if (usagePercentage < LOW_MEMORY_THRESHOLD) {
+          // Reset warning flag when memory usage drops significantly
+          if (this.memoryWarningIssued) {
+            this.homey.log(`Memory usage normalized: ${usagePercentage}%`);
+            this.memoryWarningIssued = false;
+          }
         }
       }
     } catch (error) {
       this.homey.error(`Error checking memory usage: ${error}`);
+    }
+  }
+  
+  /**
+   * Update memory statistics for tracking
+   */
+  private updateMemoryStats(currentMemoryMB: number): void {
+    this.memoryStats.memoryReadings.push(currentMemoryMB);
+    
+    // Keep only last 100 readings for average calculation
+    if (this.memoryStats.memoryReadings.length > 100) {
+      this.memoryStats.memoryReadings = this.memoryStats.memoryReadings.slice(-100);
+    }
+    
+    // Update peak memory
+    this.memoryStats.peakMemoryMB = Math.max(this.memoryStats.peakMemoryMB, currentMemoryMB);
+    
+    // Calculate rolling average
+    this.memoryStats.averageMemoryMB = this.memoryStats.memoryReadings.reduce((sum, val) => sum + val, 0) / this.memoryStats.memoryReadings.length;
+  }
+  
+  /**
+   * Perform normal cleanup (less aggressive)
+   */
+  private performNormalCleanup(): void {
+    try {
+      const initialCount = this.dataPoints.length;
+      
+      // Remove data older than 14 days instead of 21
+      const fourteenDaysAgo = DateTime.now().minus({ days: 14 }).toISO();
+      this.dataPoints = this.dataPoints.filter(point => point.timestamp >= fourteenDaysAgo);
+      
+      // Aggregate data older than 7 days
+      this.aggregateOlderData(7);
+      
+      // Trim to max data points with some buffer
+      const maxPoints = Math.floor(DEFAULT_MAX_DATA_POINTS * 0.8); // 80% of max
+      if (this.dataPoints.length > maxPoints) {
+        this.dataPoints = this.dataPoints.slice(-maxPoints);
+      }
+      
+      this.memoryStats.cleanupCount++;
+      this.memoryStats.lastCleanup = new Date();
+      
+      const removedCount = initialCount - this.dataPoints.length;
+      this.homey.log(`Normal cleanup completed: removed ${removedCount} data points`);
+      
+      this.saveData();
+    } catch (error) {
+      this.homey.error('Error during normal cleanup:', error);
+    }
+  }
+  
+  /**
+   * Perform aggressive cleanup (more aggressive)
+   */
+  private performAggressiveCleanup(): void {
+    try {
+      const initialCount = this.dataPoints.length;
+      const initialAggregatedCount = this.aggregatedData.length;
+      
+      // Remove data older than 7 days
+      const sevenDaysAgo = DateTime.now().minus({ days: 7 }).toISO();
+      this.dataPoints = this.dataPoints.filter(point => point.timestamp >= sevenDaysAgo);
+      
+      // Aggregate data older than 3 days
+      this.aggregateOlderData(3);
+      
+      // Trim to 50% of max data points
+      const maxPoints = Math.floor(DEFAULT_MAX_DATA_POINTS * 0.5);
+      if (this.dataPoints.length > maxPoints) {
+        this.dataPoints = this.dataPoints.slice(-maxPoints);
+      }
+      
+      // Trim aggregated data more aggressively
+      const maxAggregated = Math.floor(MAX_AGGREGATED_DATA_POINTS * 0.7); // 70% of max
+      if (this.aggregatedData.length > maxAggregated) {
+        this.aggregatedData = this.aggregatedData.slice(-maxAggregated);
+      }
+      
+      // Force garbage collection if available
+      if (global.gc) {
+        global.gc();
+        this.homey.log('Forced garbage collection');
+      }
+      
+      this.memoryStats.cleanupCount++;
+      this.memoryStats.lastCleanup = new Date();
+      
+      const removedCount = initialCount - this.dataPoints.length;
+      const removedAggregatedCount = initialAggregatedCount - this.aggregatedData.length;
+      this.homey.log(`Aggressive cleanup completed: removed ${removedCount} data points, ${removedAggregatedCount} aggregated points`);
+      
+      this.saveData();
+    } catch (error) {
+      this.homey.error('Error during aggressive cleanup:', error);
     }
   }
 
@@ -356,16 +514,17 @@ export class ThermalDataCollector {
 
   /**
    * Aggregate older data to reduce memory usage while preserving historical patterns
+   * @param daysOld Number of days old data to aggregate (default: 7)
    */
-  private aggregateOlderData(): void {
+  private aggregateOlderData(daysOld: number = 7): void {
     try {
       // Only aggregate if we have enough data points
       if (this.dataPoints.length < 100) {
         return;
       }
 
-      // Keep the most recent 7 days of data at full resolution
-      const sevenDaysAgo = DateTime.now().minus({ days: 7 });
+      // Keep the most recent N days of data at full resolution
+      const cutoffDate = DateTime.now().minus({ days: daysOld });
 
       // Split data into recent (keep as is) and older (to be aggregated)
       const recentData: ThermalDataPoint[] = [];
@@ -373,7 +532,7 @@ export class ThermalDataCollector {
 
       this.dataPoints.forEach(point => {
         const pointDate = DateTime.fromISO(point.timestamp);
-        if (pointDate >= sevenDaysAgo) {
+        if (pointDate >= cutoffDate) {
           recentData.push(point);
         } else {
           olderData.push(point);

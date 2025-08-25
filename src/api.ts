@@ -1,4 +1,5 @@
 import HeatOptimizerApp from './app';
+import * as apiCore from './api-core';
 
 /**
  * API class for the MELCloud Optimizer app
@@ -36,29 +37,9 @@ export class Api {
     this.app.log('API method getMemoryUsage called');
 
     try {
-      // Get the optimizer instance from the API
-      const api = require('../api.js');
-
-      // Get memory usage from process
-      const processMemory = process.memoryUsage();
-
-      // Get thermal model memory usage if available
-      let thermalModelMemory = null;
-      if (api.optimizer && api.optimizer.thermalModelService) {
-        thermalModelMemory = api.optimizer.thermalModelService.getMemoryUsage();
-      }
-
-      return {
-        success: true,
-        processMemory: {
-          rss: Math.round(processMemory.rss / 1024 / 1024 * 100) / 100,
-          heapTotal: Math.round(processMemory.heapTotal / 1024 / 1024 * 100) / 100,
-          heapUsed: Math.round(processMemory.heapUsed / 1024 / 1024 * 100) / 100,
-          external: Math.round(processMemory.external / 1024 / 1024 * 100) / 100,
-        },
-        thermalModelMemory,
-        timestamp: new Date().toISOString()
-      };
+      // Get memory usage using TypeScript API
+      const result = await apiCore.getMemoryUsage(this.app.homey);
+      return result;
     } catch (error) {
       this.app.error('Error getting memory usage:', error as Error);
       return {
@@ -75,22 +56,9 @@ export class Api {
     this.app.log('API method runThermalDataCleanup called');
 
     try {
-      // Get the optimizer instance from the API
-      const api = require('../api.js');
-
-      // Run thermal data cleanup if available
-      if (api.optimizer && api.optimizer.thermalModelService) {
-        const result = api.optimizer.thermalModelService.forceDataCleanup();
-        return {
-          success: true,
-          ...result
-        };
-      } else {
-        return {
-          success: false,
-          message: 'Thermal model service not available'
-        };
-      }
+      // Run thermal data cleanup using TypeScript API
+      const result = await apiCore.runThermalDataCleanup(this.app.homey);
+      return result;
     } catch (error) {
       this.app.error('Error running thermal data cleanup:', error as Error);
       return {

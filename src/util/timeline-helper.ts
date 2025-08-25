@@ -164,6 +164,17 @@ export enum TimelineEventType {
   CRON_JOB_STATUS = 'cron_job_status',
   CRON_JOB_INITIALIZED = 'cron_job_initialized',
 
+  // API events
+  OPTIMIZER_SETTINGS_UPDATED = 'optimizer_settings_updated',
+  DEVICE_LIST_RETRIEVED = 'device_list_retrieved',
+  THERMAL_MODEL_DATA_RETRIEVED = 'thermal_model_data_retrieved',
+  COP_DATA_RETRIEVED = 'cop_data_retrieved',
+  WEEKLY_COP_CALCULATED = 'weekly_cop_calculated',
+  MELCLOUD_STATUS_CHECK = 'melcloud_status_check',
+  TIBBER_STATUS_CHECK = 'tibber_status_check',
+  MEMORY_USAGE_CHECK = 'memory_usage_check',
+  DATA_CLEANUP = 'data_cleanup',
+
   // Custom message (for backward compatibility)
   CUSTOM = 'custom'
 }
@@ -299,6 +310,71 @@ export class TimelineHelper {
       message: '🕓 Scheduled jobs initialized',
       type: TimelineEntryType.INFO,
       icon: 'mdi:calendar-clock',
+      createNotification: false
+    },
+
+    // API events
+    [TimelineEventType.OPTIMIZER_SETTINGS_UPDATED]: {
+      title: 'MELCloud Optimizer',
+      message: '⚙️ Settings updated',
+      type: TimelineEntryType.INFO,
+      icon: 'mdi:cog',
+      createNotification: false
+    },
+    [TimelineEventType.DEVICE_LIST_RETRIEVED]: {
+      title: 'MELCloud Optimizer',
+      message: '📱 Device list retrieved',
+      type: TimelineEntryType.INFO,
+      icon: 'mdi:devices',
+      createNotification: false
+    },
+    [TimelineEventType.THERMAL_MODEL_DATA_RETRIEVED]: {
+      title: 'MELCloud Optimizer',
+      message: '🌡️ Thermal model data retrieved',
+      type: TimelineEntryType.INFO,
+      icon: 'mdi:thermometer',
+      createNotification: false
+    },
+    [TimelineEventType.COP_DATA_RETRIEVED]: {
+      title: 'MELCloud Optimizer',
+      message: '📊 COP data retrieved',
+      type: TimelineEntryType.INFO,
+      icon: 'mdi:chart-line',
+      createNotification: false
+    },
+    [TimelineEventType.WEEKLY_COP_CALCULATED]: {
+      title: 'MELCloud Optimizer',
+      message: '📈 Weekly COP calculated',
+      type: TimelineEntryType.INFO,
+      icon: 'mdi:calendar-week',
+      createNotification: false
+    },
+    [TimelineEventType.MELCLOUD_STATUS_CHECK]: {
+      title: 'MELCloud Status',
+      message: '🔗 MELCloud connection status checked',
+      type: TimelineEntryType.INFO,
+      icon: 'mdi:cloud-check',
+      createNotification: false
+    },
+    [TimelineEventType.TIBBER_STATUS_CHECK]: {
+      title: 'Tibber Status',
+      message: '⚡ Tibber API status checked',
+      type: TimelineEntryType.INFO,
+      icon: 'mdi:lightning-bolt',
+      createNotification: false
+    },
+    [TimelineEventType.MEMORY_USAGE_CHECK]: {
+      title: 'System Health',
+      message: '💾 Memory usage checked',
+      type: TimelineEntryType.INFO,
+      icon: 'mdi:memory',
+      createNotification: false
+    },
+    [TimelineEventType.DATA_CLEANUP]: {
+      title: 'System Maintenance',
+      message: '🧹 Data cleanup completed',
+      type: TimelineEntryType.INFO,
+      icon: 'mdi:broom',
       createNotification: false
     },
 

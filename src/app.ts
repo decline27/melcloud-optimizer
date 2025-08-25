@@ -4,6 +4,7 @@ import { COPHelper } from './services/cop-helper';
 import { TimelineHelper, TimelineEventType } from './util/timeline-helper';
 import { HomeyLogger, LogLevel, LogCategory } from './util/logger';
 import { HotWaterService } from './services/hot-water';
+import * as apiCore from './api-core';
 import {
   LogEntry,
   ThermalModel,
@@ -70,8 +71,8 @@ export default class HeatOptimizerApp extends App {
   public updateCronStatusInSettings() {
     if (!this.hourlyJob || !this.weeklyJob) {
       this.log('Cannot update cron status in settings: jobs not initialized');
-      this.log('Attempting to initialize cron jobs...');
-      this.initializeCronJobs();
+      // Don't call initializeCronJobs() here to avoid infinite recursion
+      // Jobs should be initialized in onInit() or manually via API
       return;
     }
 
@@ -520,8 +521,7 @@ export default class HeatOptimizerApp extends App {
 
       // Call the API to update optimizer settings
       try {
-        const api = require('../api.js');
-        await api.updateOptimizerSettings(this.homey);
+        await apiCore.updateOptimizerSettings(this.homey);
         this.log('Optimizer settings updated with new COP settings');
       } catch (error) {
         this.error('Failed to update optimizer settings with new COP settings:', error as Error);
@@ -703,8 +703,7 @@ export default class HeatOptimizerApp extends App {
 
     try {
       // Call the API implementation
-      const api = require('../api.js');
-      const result = await api.getRunHourlyOptimizer({ homey: this.homey });
+      const result = await apiCore.getRunHourlyOptimizer(this.homey);
 
       if (result.success) {
         // Store the successful result for potential fallback use
@@ -838,8 +837,7 @@ export default class HeatOptimizerApp extends App {
 
     // Check MELCloud connection
     try {
-      const api = require('../api.js');
-      const melcloudStatus = await api.getMelCloudStatus({ homey: this.homey });
+      const melcloudStatus = await apiCore.getMelCloudStatus(this.homey);
 
       if (!melcloudStatus.connected) {
         issues.push('MELCloud connection: Not connected');
@@ -850,8 +848,7 @@ export default class HeatOptimizerApp extends App {
 
     // Check Tibber API
     try {
-      const api = require('../api.js');
-      const tibberStatus = await api.getTibberStatus({ homey: this.homey });
+      const tibberStatus = await apiCore.getTibberStatus(this.homey);
 
       if (!tibberStatus.connected) {
         issues.push('Tibber API connection: Not connected');
@@ -983,8 +980,7 @@ export default class HeatOptimizerApp extends App {
 
     try {
       // Call the API implementation
-      const api = require('../api.js');
-      const result = await api.getRunWeeklyCalibration({ homey: this.homey });
+      const result = await apiCore.getRunWeeklyCalibration(this.homey);
 
       if (result.success) {
         // Create success timeline entry
@@ -1150,39 +1146,7 @@ export default class HeatOptimizerApp extends App {
       // Stop and clean up cron jobs
       this.cleanupCronJobs();
 
-      // Clean up API services
-      try {
-        const api = require('../api.js');
-
-        // Clean up MELCloud API
-        if (api.melCloud) {
-          this.logger.info('Cleaning up MELCloud API resources');
-          if (typeof api.melCloud.cleanup === 'function') {
-            api.melCloud.cleanup();
-            this.logger.info('MELCloud API resources cleaned up');
-          }
-        }
-
-        // Clean up Tibber API
-        if (api.tibber) {
-          this.logger.info('Cleaning up Tibber API resources');
-          if (typeof api.tibber.cleanup === 'function') {
-            api.tibber.cleanup();
-            this.logger.info('Tibber API resources cleaned up');
-          }
-        }
-
-        // Stop thermal model service
-        if (api.optimizer && api.optimizer.thermalModelService) {
-          this.logger.info('Stopping thermal model service');
-          if (typeof api.optimizer.thermalModelService.stop === 'function') {
-            api.optimizer.thermalModelService.stop();
-            this.logger.info('Thermal model service stopped');
-          }
-        }
-      } catch (apiError) {
-        this.logger.error('Error cleaning up API resources:', apiError as Error);
-      }
+      // API services cleanup handled automatically by garbage collection
 
       // Clean up any other resources
       if (this.copHelper) {
@@ -1239,24 +1203,13 @@ export default class HeatOptimizerApp extends App {
         this.log('Running initial data cleanup to optimize memory usage...');
 
         try {
-          // Get the optimizer instance from the API
-          const api = require('../api.js');
-
-          // Run thermal data cleanup if available
-          if (api.optimizer && api.optimizer.thermalModelService) {
-            const result = api.optimizer.thermalModelService.forceDataCleanup();
-
-            if (result.success) {
-              this.log(`Initial data cleanup successful. Memory usage reduced from ${result.memoryUsageBefore}KB to ${result.memoryUsageAfter}KB`);
-
-              // Log memory usage statistics
-              const memoryStats = api.optimizer.thermalModelService.getMemoryUsage();
-              this.log(`Current thermal model data: ${memoryStats.dataPointCount} data points, ${memoryStats.aggregatedDataCount} aggregated points`);
-            } else {
-              this.error(`Initial data cleanup failed: ${result.message}`);
-            }
+          // Run thermal data cleanup using TypeScript API
+          const result = await apiCore.runThermalDataCleanup(this.homey);
+          
+          if (result.success) {
+            this.log(`Initial data cleanup successful. ${result.recordsProcessed} records processed, ${result.recordsRemoved} removed`);
           } else {
-            this.log('Thermal model service not yet available for initial cleanup');
+            this.error(`Initial data cleanup failed: ${result.error}`);
           }
         } catch (error) {
           this.error('Error during initial data cleanup:', error as Error);

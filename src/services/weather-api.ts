@@ -6,36 +6,104 @@
  * to enhance the MELCloud optimization algorithm with weather-based adjustments.
  */
 
-const https = require('https');
-const { URL } = require('url');
+import { HomeyApp } from '../types';
 
-class WeatherApi {
+export interface WeatherData {
+  time: string;
+  temperature?: number;
+  humidity?: number;
+  pressure?: number;
+  windSpeed?: number;
+  windDirection?: number;
+  cloudCover?: number;
+  precipitation?: number;
+  symbol?: string;
+  temperatureMax?: number;
+  temperatureMin?: number;
+}
+
+export interface WeatherLocation {
+  latitude: number;
+  longitude: number;
+  altitude: number;
+}
+
+export interface WeatherUnits {
+  temperature: string;
+  windSpeed: string;
+  precipitation: string;
+  pressure: string;
+  humidity: string;
+}
+
+export interface DailyWeather {
+  date: string;
+  temperatureMin: number;
+  temperatureMax: number;
+  temperatureAvg: number;
+  precipitation: number;
+  windSpeedAvg?: number;
+  symbol?: string;
+}
+
+export interface WeatherForecast {
+  location: WeatherLocation;
+  units: WeatherUnits;
+  current: WeatherData | null;
+  hourly: WeatherData[];
+  daily: DailyWeather[];
+}
+
+export interface WeatherAdjustment {
+  adjustment: number;
+  reason: string;
+  factors: {
+    outdoorTemp: number;
+    windSpeed: number;
+    cloudCover: number;
+    heatLoss: number;
+    solarGain: number;
+    priceRatio: number;
+  };
+}
+
+export interface WeatherTrend {
+  trend: 'warming' | 'cooling' | 'stable' | 'unknown';
+  details: string;
+  temperatureChange: number;
+  precipitation: number;
+}
+
+export class WeatherApi {
+  private userAgent: string;
+  private logger: { log: Function; error: Function };
+  private baseUrl: string = 'https://api.met.no/weatherapi/locationforecast/2.0';
+  private cachedForecasts: Map<string, { timestamp: number; data: WeatherForecast }> = new Map();
+  private cacheExpiryTime: number = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+
   /**
    * Create a new WeatherApi instance
-   * @param {string} userAgent - User agent string for API requests (required by Met.no)
-   * @param {Object} logger - Logger instance for logging messages
+   * @param userAgent - User agent string for API requests (required by Met.no)
+   * @param logger - Logger instance for logging messages
    */
-  constructor(userAgent, logger = console) {
+  constructor(userAgent?: string, logger: { log: Function; error: Function } = console) {
     this.userAgent = userAgent || 'MELCloudOptimizer/1.0 github.com/decline27/melcloud-optimizer';
     this.logger = logger;
-    this.baseUrl = 'https://api.met.no/weatherapi/locationforecast/2.0';
-    this.cachedForecasts = new Map(); // Cache forecasts to reduce API calls
-    this.cacheExpiryTime = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
   }
 
   /**
    * Get weather forecast for a specific location
-   * @param {number} latitude - Latitude in decimal degrees
-   * @param {number} longitude - Longitude in decimal degrees
-   * @param {number} altitude - Altitude in meters (optional)
-   * @returns {Promise<Object>} - Weather forecast data
+   * @param latitude - Latitude in decimal degrees
+   * @param longitude - Longitude in decimal degrees
+   * @param altitude - Altitude in meters (optional)
+   * @returns Weather forecast data
    */
-  async getForecast(latitude, longitude, altitude = null) {
+  async getForecast(latitude: number, longitude: number, altitude?: number): Promise<WeatherForecast> {
     try {
       this.logger.log(`Getting weather forecast for location: ${latitude}, ${longitude}, altitude: ${altitude || 'not specified'}`);
 
       // Create cache key based on coordinates (rounded to 2 decimal places)
-      const cacheKey = `${parseFloat(latitude).toFixed(2)},${parseFloat(longitude).toFixed(2)}`;
+      const cacheKey = `${parseFloat(latitude.toString()).toFixed(2)},${parseFloat(longitude.toString()).toFixed(2)}`;
 
       // Check if we have a valid cached forecast
       const cachedForecast = this.cachedForecasts.get(cacheKey);
@@ -47,7 +115,7 @@ class WeatherApi {
 
       // Build the API URL
       let url = `${this.baseUrl}/compact?lat=${latitude}&lon=${longitude}`;
-      if (altitude !== null) {
+      if (altitude !== null && altitude !== undefined) {
         url += `&altitude=${Math.round(altitude)}`;
       }
 
@@ -72,13 +140,13 @@ class WeatherApi {
 
   /**
    * Process the raw weather data from Met.no API
-   * @param {Object} data - Raw weather data from API
-   * @returns {Object} - Processed weather data
+   * @param data - Raw weather data from API
+   * @returns Processed weather data
    */
-  processWeatherData(data) {
+  private processWeatherData(data: any): WeatherForecast {
     try {
       // Extract relevant information from the API response
-      const result = {
+      const result: WeatherForecast = {
         location: {
           latitude: data.geometry.coordinates[1],
           longitude: data.geometry.coordinates[0],
@@ -111,7 +179,13 @@ class WeatherApi {
         }
 
         // Process daily forecast (aggregate by day for next 7 days)
-        const dailyMap = new Map();
+        const dailyMap = new Map<string, {
+          date: string;
+          temperatures: number[];
+          precipitations: number[];
+          windSpeeds: number[];
+          symbols: string[];
+        }>();
 
         for (const item of timeseries) {
           const date = new Date(item.time);
@@ -127,21 +201,23 @@ class WeatherApi {
             });
           }
 
-          const daily = dailyMap.get(dateKey);
-          const data = this.extractWeatherData(item);
+          const daily = dailyMap.get(dateKey)!;
+          const weatherData = this.extractWeatherData(item);
 
-          daily.temperatures.push(data.temperature);
-
-          if (data.precipitation !== undefined) {
-            daily.precipitations.push(data.precipitation);
+          if (weatherData.temperature !== undefined) {
+            daily.temperatures.push(weatherData.temperature);
           }
 
-          if (data.windSpeed !== undefined) {
-            daily.windSpeeds.push(data.windSpeed);
+          if (weatherData.precipitation !== undefined) {
+            daily.precipitations.push(weatherData.precipitation);
           }
 
-          if (data.symbol !== undefined) {
-            daily.symbols.push(data.symbol);
+          if (weatherData.windSpeed !== undefined) {
+            daily.windSpeeds.push(weatherData.windSpeed);
+          }
+
+          if (weatherData.symbol !== undefined) {
+            daily.symbols.push(weatherData.symbol);
           }
         }
 
@@ -173,17 +249,17 @@ class WeatherApi {
       return result;
     } catch (error) {
       this.logger.error('Error processing weather data:', error);
-      throw new Error(`Failed to process weather data: ${error.message}`);
+      throw new Error(`Failed to process weather data: ${(error as Error).message}`);
     }
   }
 
   /**
    * Extract weather data from a single timepoint
-   * @param {Object} timepoint - Single timepoint from the API
-   * @returns {Object} - Extracted weather data
+   * @param timepoint - Single timepoint from the API
+   * @returns Extracted weather data
    */
-  extractWeatherData(timepoint) {
-    const result = {
+  private extractWeatherData(timepoint: any): WeatherData {
+    const result: WeatherData = {
       time: timepoint.time
     };
 
@@ -235,18 +311,19 @@ class WeatherApi {
 
   /**
    * Find the most frequent item in an array
-   * @param {Array} arr - Array of items
-   * @returns {*} - Most frequent item
+   * @param arr - Array of items
+   * @returns Most frequent item
    */
-  getMostFrequent(arr) {
-    const counts = {};
-    let maxItem = null;
+  private getMostFrequent<T>(arr: T[]): T | undefined {
+    const counts: Record<string, number> = {};
+    let maxItem: T | undefined = undefined;
     let maxCount = 0;
 
     for (const item of arr) {
-      counts[item] = (counts[item] || 0) + 1;
-      if (counts[item] > maxCount) {
-        maxCount = counts[item];
+      const key = String(item);
+      counts[key] = (counts[key] || 0) + 1;
+      if (counts[key] > maxCount) {
+        maxCount = counts[key];
         maxItem = item;
       }
     }
@@ -256,11 +333,14 @@ class WeatherApi {
 
   /**
    * Make an HTTP request to the Met.no API
-   * @param {string} url - URL to request
-   * @returns {Promise<Object>} - Parsed JSON response
+   * @param url - URL to request
+   * @returns Parsed JSON response
    */
-  async makeRequest(url) {
+  private async makeRequest(url: string): Promise<any> {
     return new Promise((resolve, reject) => {
+      const https = require('https');
+      const { URL } = require('url');
+
       const urlObj = new URL(url);
       const options = {
         hostname: urlObj.hostname,
@@ -274,10 +354,10 @@ class WeatherApi {
 
       this.logger.log(`Making weather API request to: ${url}`);
 
-      const req = https.request(options, (res) => {
+      const req = https.request(options, (res: any) => {
         let data = '';
 
-        res.on('data', (chunk) => {
+        res.on('data', (chunk: any) => {
           data += chunk;
         });
 
@@ -287,7 +367,7 @@ class WeatherApi {
               const parsedData = JSON.parse(data);
               resolve(parsedData);
             } catch (error) {
-              reject(new Error(`Failed to parse weather API response: ${error.message}`));
+              reject(new Error(`Failed to parse weather API response: ${(error as Error).message}`));
             }
           } else {
             reject(new Error(`Weather API request failed with status code ${res.statusCode}: ${data}`));
@@ -295,7 +375,7 @@ class WeatherApi {
         });
       });
 
-      req.on('error', (error) => {
+      req.on('error', (error: Error) => {
         reject(new Error(`Weather API request error: ${error.message}`));
       });
 
@@ -305,12 +385,12 @@ class WeatherApi {
 
   /**
    * Calculate the heat loss coefficient based on weather conditions
-   * @param {number} indoorTemp - Indoor temperature in Celsius
-   * @param {number} outdoorTemp - Outdoor temperature in Celsius
-   * @param {number} windSpeed - Wind speed in m/s
-   * @returns {number} - Heat loss coefficient
+   * @param indoorTemp - Indoor temperature in Celsius
+   * @param outdoorTemp - Outdoor temperature in Celsius
+   * @param windSpeed - Wind speed in m/s
+   * @returns Heat loss coefficient
    */
-  calculateHeatLossCoefficient(indoorTemp, outdoorTemp, windSpeed) {
+  calculateHeatLossCoefficient(indoorTemp: number, outdoorTemp: number, windSpeed: number): number {
     // Basic heat loss is proportional to temperature difference
     const tempDiff = indoorTemp - outdoorTemp;
 
@@ -323,11 +403,11 @@ class WeatherApi {
 
   /**
    * Calculate the solar gain coefficient based on weather conditions
-   * @param {number} cloudCover - Cloud cover percentage (0-100)
-   * @param {string} symbol - Weather symbol code
-   * @returns {number} - Solar gain coefficient (0-1)
+   * @param cloudCover - Cloud cover percentage (0-100)
+   * @param symbol - Weather symbol code
+   * @returns Solar gain coefficient (0-1)
    */
-  calculateSolarGainCoefficient(cloudCover, symbol) {
+  calculateSolarGainCoefficient(cloudCover: number, symbol?: string): number {
     // Base solar gain is inverse of cloud cover
     let solarGain = 1 - (cloudCover / 100);
 
@@ -349,20 +429,37 @@ class WeatherApi {
 
   /**
    * Calculate the optimal temperature adjustment based on weather forecast
-   * @param {Object} forecast - Weather forecast data
-   * @param {number} currentIndoorTemp - Current indoor temperature
-   * @param {number} currentTargetTemp - Current target temperature
-   * @param {number} currentPrice - Current electricity price
-   * @param {number} avgPrice - Average electricity price
-   * @returns {Object} - Temperature adjustment recommendation
+   * @param forecast - Weather forecast data
+   * @param currentIndoorTemp - Current indoor temperature
+   * @param currentTargetTemp - Current target temperature
+   * @param currentPrice - Current electricity price
+   * @param avgPrice - Average electricity price
+   * @returns Temperature adjustment recommendation
    */
-  calculateWeatherBasedAdjustment(forecast, currentIndoorTemp, currentTargetTemp, currentPrice, avgPrice) {
+  calculateWeatherBasedAdjustment(
+    forecast: WeatherForecast,
+    currentIndoorTemp: number,
+    currentTargetTemp: number,
+    currentPrice: number,
+    avgPrice: number
+  ): WeatherAdjustment {
     if (!forecast || !forecast.current) {
-      return { adjustment: 0, reason: 'No weather data available' };
+      return {
+        adjustment: 0,
+        reason: 'No weather data available',
+        factors: {
+          outdoorTemp: 0,
+          windSpeed: 0,
+          cloudCover: 0,
+          heatLoss: 0,
+          solarGain: 0,
+          priceRatio: 1
+        }
+      };
     }
 
     // Get current weather conditions
-    const outdoorTemp = forecast.current.temperature;
+    const outdoorTemp = forecast.current.temperature || 0;
     const windSpeed = forecast.current.windSpeed || 0;
     const cloudCover = forecast.current.cloudCover || 50; // Default to 50% if not available
     const symbol = forecast.current.symbol;
@@ -410,18 +507,23 @@ class WeatherApi {
 
   /**
    * Get weather trend for the next 24 hours
-   * @param {Object} forecast - Weather forecast data
-   * @returns {Object} - Weather trend information
+   * @param forecast - Weather forecast data
+   * @returns Weather trend information
    */
-  getWeatherTrend(forecast) {
+  getWeatherTrend(forecast: WeatherForecast): WeatherTrend {
     if (!forecast || !forecast.hourly || forecast.hourly.length === 0) {
-      return { trend: 'unknown', details: 'No forecast data available' };
+      return {
+        trend: 'unknown',
+        details: 'No forecast data available',
+        temperatureChange: 0,
+        precipitation: 0
+      };
     }
 
     const hourly = forecast.hourly;
 
     // Calculate temperature trend
-    const temperatures = hourly.map(h => h.temperature).filter(t => t !== undefined);
+    const temperatures = hourly.map(h => h.temperature).filter(t => t !== undefined) as number[];
     const firstTemp = temperatures[0];
     const lastTemp = temperatures[temperatures.length - 1];
     const tempDiff = lastTemp - firstTemp;
@@ -432,7 +534,7 @@ class WeatherApi {
     const hasPrecipitation = totalPrecipitation > 0.5; // More than 0.5mm in 24h
 
     // Determine overall trend
-    let trend = 'stable';
+    let trend: 'warming' | 'cooling' | 'stable' | 'unknown' = 'stable';
     let details = '';
 
     if (tempDiff > 3) {
@@ -457,5 +559,3 @@ class WeatherApi {
     };
   }
 }
-
-module.exports = WeatherApi;

@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">13.84% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/65</span>
+                <span class='fraction'>9/65</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">18.18% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/33</span>
+                <span class='fraction'>6/33</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">10% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>0/10</span>
+                <span class='fraction'>1/10</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">14.06% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/64</span>
+                <span class='fraction'>9/64</span>
             </div>
         
             
@@ -300,15 +300,15 @@
 <a name='L235'></a><a href='#L235'>235</a>
 <a name='L236'></a><a href='#L236'>236</a>
 <a name='L237'></a><a href='#L237'>237</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -501,7 +501,7 @@
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -536,15 +536,15 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import fetch from 'node-fetch';
-import { Logger } from<span class="cstat-no" title="statement not covered" > '../util/logger';<span class="fstat-no" title="function not covered" ></span></span>
-impo<span class="cstat-no" title="statement not covered" >rt { TibberPriceInfo } from '../types';</span>
+import { Logger } from '../util/logger';
+import { TibberPriceInfo } from '../types';<span class="branch-1 cbranch-no" title="branch not covered" ></span>
 import { ErrorHandler, AppError, ErrorCategory } from '../util/error-handler';
-<span class="cstat-no" title="statement not covered" >import { BaseApiService } from './base-api-service';</span>
-<span class="cstat-no" title="statement not covered" >import { TimeZoneHelper } fr</span>om '../util/time-zone-helper';
-<span class="cstat-no" title="statement not covered" ></span>
-// Add global declaratio<span class="cstat-no" title="statement not covered" >n for logger</span>
-declare global {<span class="cstat-no" title="statement not covered" ></span>
-  var logger: Logger;<span class="cstat-no" title="statement not covered" ></span>
+import { BaseApiService } from './base-api-service';
+import { TimeZoneHelper } from '../util/time-zone-helper';
+&nbsp;
+// Add global declaration for logger
+declare global {
+  var logger: Logger;
 }
 &nbsp;
 /**
@@ -737,7 +737,7 @@ export class TibberApi extends BaseApiService {
       co<span class="cstat-no" title="statement not covered" >nst result: Tibbe</span>rPriceInfo = {
         current: priceInfo.current ? {
           time: priceInfo.current.startsAt,
-<span class="cstat-no" title="statement not covered" >          price: priceInfo.curr</span>ent.total,
+          price: priceInfo.current.total,
         } : {
           time: new Date().toISOString(),
           price: 0
@@ -778,7 +778,7 @@ export class TibberApi extends BaseApiService {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2025-08-23T07:50:26.518Z
+                at 2025-08-25T22:00:17.738Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">8.39% </span>
+                <span class="strong">5.71% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>47/560</span>
+                <span class='fraction'>32/560</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">6.96% </span>
+                <span class="strong">5.72% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>28/402</span>
+                <span class='fraction'>23/402</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">12.5% </span>
+                <span class="strong">7.81% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>8/64</span>
+                <span class='fraction'>5/64</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">7.67% </span>
+                <span class="strong">4.86% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>41/534</span>
+                <span class='fraction'>26/534</span>
             </div>
         
             
@@ -1695,23 +1695,23 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -1804,7 +1804,7 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -1815,11 +1815,11 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-yes">2x</span>
-<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
@@ -3272,25 +3272,25 @@ export class MelCloudApi extends BaseApiService <span class="fstat-no" title="fu
 &nbsp;
   /**
    * Check if an error is an authentication error
-   * @param error Error to check
+   *<span class="fstat-no" title="function not covered" > @</span>param error Error to check
    * @returns True if it's an authentication error
-   */<span class="branch-1 cbranch-no" title="branch not covered" ></span>
+   */<span class="cstat-no" title="statement not covered" ></span>
   private isAuthError(error: unknown): boolean {
     return error instanceof Error &amp;&amp;
       (error.message.includes('auth') ||
        error.message.includes('credentials') ||
        error.message.includes('login') ||
-       error.message.includes('Authentication') ||
-       error.message.includes('X-MitsContextKey'));
-  }
-&nbsp;
-  /**
-   * Ensure we have a valid connection to MELCloud
-   * Attempts to reconnect if not connected
+       e<span class="cstat-no" title="statement not covered" >rror.message.includes('Authentication') ||</span>
+       e<span class="cstat-no" title="statement not covered" >rror.message.includes('X</span>-MitsContextKey'));
+  }<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" ></span>
+  /**<span class="cstat-no" title="statement not covered" ></span>
+   * Ens<span class="cstat-no" title="statement not covered" >ure we have a valid connecti</span>on to MELCloud
+   * Att<span class="cstat-no" title="statement not covered" >empts to reconnect if not c</span>onnected
    */
-  private async ensureConnected(): Promise&lt;boolean&gt; {
+  privat<span class="cstat-no" title="statement not covered" >e async ensureConnected(): Promise</span>&lt;boolean&gt; {
     if (this.contextKey) {
-      return true; // Already connected
+      re<span class="cstat-no" title="statement not covered" >turn true; // Already connected</span>
     }
 &nbsp;
     if (this.reconnectAttempts &gt;= this.maxReconnectAttempts) {
@@ -3382,8 +3382,8 @@ export class MelCloudApi extends BaseApiService <span class="fstat-no" title="fu
    * Throttled API call to prevent rate limiting (enhanced with deduplication - Task 1.2)
    * @param method HTTP method
    * @param endpoint API endpoint
-   * @param options Request options
-   * @returns Promise resolving to API response
+   *<span class="fstat-no" title="function not covered" > @</span>param options Request options
+   * @re<span class="cstat-no" title="statement not covered" >turns Promise resolving to API response</span>
    */
   private async throttledApiCall&lt;T&gt;(
     method: string,
@@ -3392,13 +3392,13 @@ export class MelCloudApi extends BaseApiService <span class="fstat-no" title="fu
       headers?: Record&lt;string, string&gt;;
       body?: string;
     } = {}
-  ): Promise&lt;T&gt; {
+  ):<span class="fstat-no" title="function not covered" > P</span>romise&lt;T&gt; {<span class="branch-0 cbranch-no" title="branch not covered" ></span>
     // Check for duplicate requests (Task 1.2)
-    const requestKey = this.getRequestKey(method, endpoint, options);
+    const requestKey = this<span class="cstat-no" title="statement not covered" >.getRequestKey(method, endpoint, options);</span>
     
-    // I<span class="missing-if-branch" title="else path not taken" >E</span>f same request is already pending, return existing promise
-    if (this.pendingRequests.has(requestKey)) {
-      this.logger.log(`Duplicate API call detected for ${method} ${endpoint}, returning existing promise`);
+    // I<span class="cstat-no" title="statement not covered" >f same request is already pending, return existing promise</span>
+    if (this<span class="cstat-no" title="statement not covered" >.pendingRequests.has(requestKey)) {</span>
+      this.l<span class="cstat-no" title="statement not covered" >ogger.log(`Duplicate API call detected for ${</span>method} ${endpoint}, returning existing promise`);
       return this.pendingRequests.get(requestKey) as Promise&lt;T&gt;;
     }
 <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" ></span></span>
@@ -4807,7 +4807,7 @@ export class MelCloudApi extends BaseApiService <span class="fstat-no" title="fu
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2025-08-23T07:50:26.518Z
+                at 2025-08-25T22:00:17.738Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

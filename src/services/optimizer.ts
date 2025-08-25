@@ -209,6 +209,9 @@ export class Optimizer {
 
         this.logger.log(`COP settings loaded - Weight: ${this.copWeight}, Auto Seasonal: ${this.autoSeasonalMode}, Summer Mode: ${this.summerMode}`);
         
+        // Load persisted COP range data
+        this.loadCOPRange();
+        
         // Initialize thermal mass model from historical data
         this.initializeThermalMassFromHistory();
         
@@ -244,17 +247,16 @@ export class Optimizer {
         this.learnHotWaterUsage(hotWaterHistory);
         
         // Calibrate thermal mass based on energy consumption patterns
-        const avgHeatingConsumption = recentData.reduce((sum, day) => sum + (day.TotalHeatingConsumed || 0), 0) / recentData.length;
+        const heatingValues = recentData.map(day => day.TotalHeatingConsumed || 0);
+        const avgHeatingConsumption = this.safeAverage(heatingValues, 0);
         
         if (avgHeatingConsumption > 0) {
-          // Estimate thermal capacity based on daily consumption
-          // Typical relationship: higher consumption = larger thermal mass
-          this.thermalMassModel.thermalCapacity = Math.max(1.5, Math.min(4.0, avgHeatingConsumption / 10));
+          // Advanced thermal mass calibration using physics-based modeling
+          const calibrationResult = this.calibrateThermalMassAdvanced(recentData, avgHeatingConsumption);
           
-          // Estimate heat loss rate based on outdoor temperature correlation
-          // This would need outdoor temperature data for proper calculation
-          // For now, use a reasonable default based on consumption
-          this.thermalMassModel.heatLossRate = avgHeatingConsumption > 20 ? 1.0 : 0.6;
+          this.thermalMassModel.thermalCapacity = calibrationResult.thermalCapacity;
+          this.thermalMassModel.heatLossRate = calibrationResult.heatLossRate;
+          this.thermalMassModel.preheatingEfficiency = calibrationResult.preheatingEfficiency;
           
           this.thermalMassModel.lastCalibration = new Date();
           
@@ -316,43 +318,211 @@ export class Optimizer {
   }
 
   /**
-   * COP range tracking for adaptive normalization
+   * Enhanced COP range tracking with percentile-based learning
    */
-  private copRange: { minObserved: number; maxObserved: number; updateCount: number } = {
-    minObserved: 1,
-    maxObserved: 5,
-    updateCount: 0
+  private copRange: {
+    minObserved: number;
+    maxObserved: number;
+    updateCount: number;
+    observations: number[];
+    p5: number;  // 5th percentile
+    p95: number; // 95th percentile
+    lastPersistTime: Date;
+  } = {
+    minObserved: 2.0,  // More realistic starting range for heat pumps
+    maxObserved: 4.0,
+    updateCount: 0,
+    observations: [],
+    p5: 2.0,
+    p95: 4.0,
+    lastPersistTime: new Date()
+  };
+  
+  private readonly MAX_COP_OBSERVATIONS = 500;  // Limit memory usage
+  private readonly COP_RANGE_PERSIST_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
+  
+  /**
+   * Adaptive price threshold management
+   */
+  private priceThresholds: {
+    cheap: number;    // Below this percentile = cheap
+    expensive: number; // Above this percentile = expensive
+    moderate: number;  // Between cheap and moderate = good opportunity
+    lastUpdate: Date;
+    priceHistory: number[];
+    volatilityIndex: number;
+  } = {
+    cheap: 0.25,      // Start with 25th percentile
+    expensive: 0.75,  // Start with 75th percentile  
+    moderate: 0.40,   // Start with 40th percentile
+    lastUpdate: new Date(),
+    priceHistory: [],
+    volatilityIndex: 0.5
   };
 
   /**
-   * Update COP range based on observed values
+   * Update COP range based on observed values with percentile-based learning
    * @param cop Observed COP value
    */
   private updateCOPRange(cop: number): void {
-    if (cop > 0) {
-      this.copRange.minObserved = Math.min(this.copRange.minObserved, cop);
-      this.copRange.maxObserved = Math.max(this.copRange.maxObserved, cop);
-      this.copRange.updateCount++;
+    if (!cop || cop <= 0 || cop > 10 || !isFinite(cop)) {
+      // Filter out invalid COP values
+      return;
+    }
+
+    // Add to observations array
+    this.copRange.observations.push(cop);
+    this.copRange.updateCount++;
+    
+    // Keep only recent observations to prevent memory growth
+    if (this.copRange.observations.length > this.MAX_COP_OBSERVATIONS) {
+      this.copRange.observations = this.copRange.observations.slice(-this.MAX_COP_OBSERVATIONS);
+    }
+    
+    // Update min/max (for backward compatibility)
+    this.copRange.minObserved = Math.min(this.copRange.minObserved, cop);
+    this.copRange.maxObserved = Math.max(this.copRange.maxObserved, cop);
+    
+    // Recalculate percentiles every 10 observations
+    if (this.copRange.updateCount % 10 === 0) {
+      this.recalculateCOPPercentiles();
+    }
+    
+    // Log range updates periodically
+    if (this.copRange.updateCount % 50 === 0) {
+      this.logger.log(`COP range updated after ${this.copRange.updateCount} observations:`, {
+        percentileRange: `P5: ${this.copRange.p5.toFixed(2)} - P95: ${this.copRange.p95.toFixed(2)}`,
+        absoluteRange: `Min: ${this.copRange.minObserved.toFixed(2)} - Max: ${this.copRange.maxObserved.toFixed(2)}`,
+        observations: this.copRange.observations.length
+      });
+    }
+    
+    // Persist COP range periodically
+    const now = new Date();
+    if (now.getTime() - this.copRange.lastPersistTime.getTime() > this.COP_RANGE_PERSIST_INTERVAL) {
+      this.persistCOPRange();
+      this.copRange.lastPersistTime = now;
+    }
+  }
+  
+  /**
+   * Recalculate COP percentiles from observations
+   */
+  private recalculateCOPPercentiles(): void {
+    if (this.copRange.observations.length < 5) {
+      return; // Need at least 5 observations for meaningful percentiles
+    }
+    
+    const sorted = [...this.copRange.observations].sort((a, b) => a - b);
+    const length = sorted.length;
+    
+    // Calculate 5th and 95th percentiles
+    const p5Index = Math.floor(length * 0.05);
+    const p95Index = Math.floor(length * 0.95);
+    
+    this.copRange.p5 = sorted[p5Index] || sorted[0];
+    this.copRange.p95 = sorted[p95Index] || sorted[length - 1];
+    
+    // Ensure reasonable bounds
+    this.copRange.p5 = Math.max(0.5, this.copRange.p5);
+    this.copRange.p95 = Math.min(8.0, this.copRange.p95);
+    
+    // Ensure p95 > p5
+    if (this.copRange.p95 <= this.copRange.p5) {
+      this.copRange.p95 = this.copRange.p5 + 1.0;
+    }
+  }
+  
+  /**
+   * Persist COP range to Homey settings
+   */
+  private persistCOPRange(): void {
+    if (!this.homey) return;
+    
+    try {
+      const copRangeData = {
+        p5: this.copRange.p5,
+        p95: this.copRange.p95,
+        minObserved: this.copRange.minObserved,
+        maxObserved: this.copRange.maxObserved,
+        updateCount: this.copRange.updateCount,
+        observations: this.copRange.observations.slice(-100), // Keep last 100 observations
+        lastUpdate: new Date().toISOString()
+      };
       
-      // Log range updates periodically
-      if (this.copRange.updateCount % 50 === 0) {
-        this.logger.log(`COP range updated after ${this.copRange.updateCount} observations: ${this.copRange.minObserved.toFixed(2)} - ${this.copRange.maxObserved.toFixed(2)}`);
+      this.homey.settings.set('cop_range_data', copRangeData);
+      this.logger.log('COP range data persisted to settings');
+    } catch (error) {
+      this.logger.error('Failed to persist COP range data:', error);
+    }
+  }
+  
+  /**
+   * Load COP range from Homey settings
+   */
+  private loadCOPRange(): void {
+    if (!this.homey) return;
+    
+    try {
+      const copRangeData = this.homey.settings.get('cop_range_data');
+      if (copRangeData && typeof copRangeData === 'object') {
+        this.copRange.p5 = copRangeData.p5 || 2.0;
+        this.copRange.p95 = copRangeData.p95 || 4.0;
+        this.copRange.minObserved = copRangeData.minObserved || 2.0;
+        this.copRange.maxObserved = copRangeData.maxObserved || 4.0;
+        this.copRange.updateCount = copRangeData.updateCount || 0;
+        this.copRange.observations = Array.isArray(copRangeData.observations) 
+          ? copRangeData.observations.slice(-this.MAX_COP_OBSERVATIONS)
+          : [];
+        
+        this.logger.log('COP range data loaded from settings:', {
+          percentileRange: `P5: ${this.copRange.p5.toFixed(2)} - P95: ${this.copRange.p95.toFixed(2)}`,
+          observations: this.copRange.observations.length,
+          updateCount: this.copRange.updateCount
+        });
       }
+    } catch (error) {
+      this.logger.error('Failed to load COP range data:', error);
+      // Keep default values
     }
   }
 
   /**
-   * Normalize COP value using adaptive range
+   * Normalize COP value using percentile-based adaptive range
    * @param cop COP value to normalize
    * @returns Normalized COP (0-1)
    */
   private normalizeCOP(cop: number): number {
-    const range = this.copRange.maxObserved - this.copRange.minObserved;
-    if (range <= 0) return 0.5; // Default if no range established
+    if (!cop || cop <= 0 || !isFinite(cop)) {
+      return 0; // Poor COP
+    }
     
-    return Math.min(Math.max(
-      (cop - this.copRange.minObserved) / range, 0
-    ), 1);
+    // Use percentile range for more stable normalization
+    const range = this.copRange.p95 - this.copRange.p5;
+    if (range <= 0) {
+      return 0.5; // Default if no range established
+    }
+    
+    // Normalize using percentile range
+    const normalized = this.safeDivide(cop - this.copRange.p5, range, 0.5);
+    
+    // Clamp to 0-1 range but allow some values outside percentiles
+    return Math.min(Math.max(normalized, 0), 1);
+  }
+  
+  /**
+   * Get COP efficiency category for logging and decision making
+   * @param cop COP value
+   * @returns Efficiency category
+   */
+  private getCOPEfficiencyCategory(cop: number): 'excellent' | 'good' | 'fair' | 'poor' | 'very_poor' {
+    const normalized = this.normalizeCOP(cop);
+    
+    if (normalized >= 0.8) return 'excellent';
+    if (normalized >= 0.6) return 'good';
+    if (normalized >= 0.4) return 'fair';
+    if (normalized >= 0.2) return 'poor';
+    return 'very_poor';
   }
 
   /**
@@ -378,7 +548,11 @@ export class Optimizer {
       const cheapest6Hours = sortedPrices.slice(0, 6); // Top 6 cheapest hours
       
       // Calculate current price percentile
-      const currentPricePercentile = next24h.filter(p => p.price <= currentPrice).length / next24h.length;
+      const currentPricePercentile = this.safeDivide(
+        next24h.filter(p => p.price <= currentPrice).length,
+        next24h.length,
+        0.5
+      );
       
       // Get normalized COP efficiency
       const heatingEfficiency = this.normalizeCOP(copData.heating);
@@ -387,8 +561,11 @@ export class Optimizer {
       const tempDelta = this.thermalMassModel.maxPreheatingTemp - currentTemp;
       const preheatingEnergy = tempDelta * this.thermalMassModel.thermalCapacity;
       
-      // Strategy decision logic
-      if (currentPricePercentile <= 0.2 && heatingEfficiency > 0.7 && tempDelta > 0.5) {
+      // Update price thresholds based on recent price patterns
+      this.updatePriceThresholds(next24h.map(p => p.price));
+      
+      // Strategy decision logic using adaptive thresholds
+      if (currentPricePercentile <= this.priceThresholds.cheap && heatingEfficiency > 0.7 && tempDelta > 0.5) {
         // Very cheap period + good COP + room for preheating = PREHEAT
         const preheatingTarget = Math.min(
           targetTemp + (heatingEfficiency * 2.0), // More aggressive with higher COP
@@ -411,7 +588,7 @@ export class Optimizer {
           confidenceLevel: Math.min(heatingEfficiency + 0.2, 0.9)
         };
         
-      } else if (currentPricePercentile >= 0.8 && currentTemp > targetTemp - 0.5) {
+      } else if (currentPricePercentile >= this.priceThresholds.expensive && currentTemp > targetTemp - 0.5) {
         // Very expensive period + above target = COAST
         const coastingTarget = Math.max(
           targetTemp - 1.5,
@@ -420,7 +597,7 @@ export class Optimizer {
         
         // Calculate how long we can coast based on thermal mass
         const coastingHours = Math.min(
-          (currentTemp - coastingTarget) / this.thermalMassModel.heatLossRate,
+          this.safeDivide(currentTemp - coastingTarget, this.thermalMassModel.heatLossRate, 0),
           4 // Maximum 4 hours of coasting
         );
         
@@ -439,7 +616,7 @@ export class Optimizer {
           confidenceLevel: 0.8
         };
         
-      } else if (currentPricePercentile <= 0.3 && heatingEfficiency > 0.8 && currentTemp < targetTemp - 1.0) {
+      } else if (currentPricePercentile <= this.priceThresholds.moderate && heatingEfficiency > 0.8 && currentTemp < targetTemp - 1.0) {
         // Cheap period + excellent COP + below target = BOOST
         const boostTarget = Math.min(targetTemp + 0.5, this.maxTemp);
         
@@ -455,7 +632,7 @@ export class Optimizer {
           reasoning: `Excellent opportunity: cheap electricity (${(currentPricePercentile * 100).toFixed(0)}th percentile) + high COP (${copData.heating.toFixed(2)})`,
           estimatedSavings,
           duration: 1,
-          confidenceLevel: heatingEfficiency
+          confidenceLevel: Math.min(Math.max(heatingEfficiency, 0), 1)
         };
         
       } else {
@@ -491,12 +668,12 @@ export class Optimizer {
     currentPrice: number
   ): number {
     try {
-      const avgCheapPrice = cheapestHours.reduce((sum, h) => sum + h.price, 0) / cheapestHours.length;
+      const avgCheapPrice = this.safeAverage(cheapestHours.map(h => h.price), 0);
       const priceDifference = currentPrice - avgCheapPrice;
       
       // Energy for preheating
       const extraEnergy = (preheatingTarget - 20) * this.thermalMassModel.thermalCapacity;
-      const energyWithCOP = extraEnergy / copData.heating;
+      const energyWithCOP = this.safeDivide(extraEnergy, copData.heating, extraEnergy);
       
       // Savings from using cheaper electricity
       const savingsFromCheaperElectricity = energyWithCOP * priceDifference;
@@ -543,7 +720,7 @@ export class Optimizer {
     try {
       // Extra energy for boost
       const extraEnergy = (boostTarget - 20) * this.thermalMassModel.thermalCapacity;
-      const energyWithCOP = extraEnergy / copData.heating;
+      const energyWithCOP = this.safeDivide(extraEnergy, copData.heating, extraEnergy);
       
       // Value from using high COP period
       const copEfficiency = this.normalizeCOP(copData.heating);
@@ -582,7 +759,7 @@ export class Optimizer {
       // Calculate average demand per hour
       for (let i = 0; i < 24; i++) {
         if (hourlyCount[i] > 0) {
-          hourlyDemand[i] = hourlyDemand[i] / hourlyCount[i];
+          hourlyDemand[i] = this.safeDivide(hourlyDemand[i], hourlyCount[i], 0.5);
         }
       }
 
@@ -664,7 +841,11 @@ export class Optimizer {
           });
 
           const priceIndex = (cheapestHour - currentHour + 24) % 24;
-          const pricePercentile = next24h.filter(p => p.price <= next24h[priceIndex].price).length / next24h.length;
+          const pricePercentile = this.safeDivide(
+            next24h.filter(p => p.price <= next24h[priceIndex].price).length,
+            next24h.length,
+            0.5
+          );
 
           schedulePoints.push({
             hour: cheapestHour,
@@ -742,7 +923,7 @@ export class Optimizer {
 
     // Check if current price is exceptional
     const currentPrice = priceData[0]?.price || 0;
-    const avgPrice = priceData.reduce((sum, p) => sum + p.price, 0) / priceData.length;
+    const avgPrice = this.safeAverage(priceData.map(p => p.price), 0);
     
     if (currentPrice < avgPrice * 0.7 && hotWaterCOP > 2.5) {
       // Very cheap electricity + decent COP
@@ -763,7 +944,7 @@ export class Optimizer {
     try {
       if (schedulePoints.length === 0) return 0;
 
-      const avgPrice = priceData.reduce((sum, p) => sum + p.price, 0) / priceData.length;
+      const avgPrice = this.safeAverage(priceData.map(p => p.price), 0);
       
       let totalSavings = 0;
       schedulePoints.forEach(point => {
@@ -860,7 +1041,7 @@ export class Optimizer {
       this.lastEnergyData = safeEnergyData;
 
       // Calculate daily energy consumption (kWh/day averaged over the period)
-      const dailyEnergyConsumption = (heatingConsumed + hotWaterConsumed) / 7;
+      const dailyEnergyConsumption = this.safeDivide(heatingConsumed + hotWaterConsumed, 7, 0);
 
       // Calculate efficiency scores using adaptive COP normalization
       const heatingEfficiency = this.normalizeCOP(realHeatingCOP);
@@ -982,10 +1163,10 @@ export class Optimizer {
     const tempRange = this.maxTemp - this.minTemp;
     const midTemp = (this.maxTemp + this.minTemp) / 2;
 
-    // Normalize price between 0 and 1
+    // Normalize price between 0 and 1 with safe division
     const normalizedPrice = maxPrice === minPrice
       ? 0.5 
-      : (currentPrice - minPrice) / (maxPrice - minPrice);
+      : this.safeDivide(currentPrice - minPrice, maxPrice - minPrice, 0.5);
 
     // Calculate base target based on seasonal mode and real performance
     let targetTemp: number;
@@ -1121,7 +1302,11 @@ export class Optimizer {
     const hotWaterEfficiency = this.normalizeCOP(hotWaterCOP);
 
     // Current price percentile
-    const currentPercentile = prices.filter((p: any) => p.price <= currentPrice).length / prices.length;
+    const currentPercentile = this.safeDivide(
+      prices.filter((p: any) => p.price <= currentPrice).length,
+      prices.length,
+      0.5
+    );
 
     // Improved COP-based hot water optimization
     if (hotWaterEfficiency > 0.8) {
@@ -1225,11 +1410,18 @@ export class Optimizer {
 
       // Get electricity prices
       const priceData = await this.tibber.getPrices();
+      
+      // Validate price data structure
+      if (!priceData || !priceData.current || typeof priceData.current.price !== 'number') {
+        this.logger.error('Invalid price data received from Tibber API', priceData);
+        throw new Error('Invalid price data received from Tibber API');
+      }
+      
       const currentPrice = priceData.current.price;
 
       // Calculate price statistics
       const prices = priceData.prices.map((p: any) => p.price);
-      const priceAvg = prices.reduce((sum: number, price: number) => sum + price, 0) / prices.length;
+      const priceAvg = this.safeAverage(prices, 0);
       const priceMin = Math.min(...prices);
       const priceMax = Math.max(...prices);
 
@@ -1359,18 +1551,11 @@ export class Optimizer {
         }
       }
 
-      // Apply constraints
-      newTarget = Math.max(this.minTemp, Math.min(this.maxTemp, newTarget));
-
-      // Apply step constraint (don't change by more than tempStep)
-      const maxChange = this.tempStep;
+      // Apply safe temperature constraints
       const safeCurrentTarget = currentTarget ?? 20;
-      if (Math.abs(newTarget - safeCurrentTarget) > maxChange) {
-        newTarget = safeCurrentTarget + (newTarget > safeCurrentTarget ? maxChange : -maxChange);
-      }
-
-      // Round to nearest step
-      newTarget = Math.round(newTarget / this.tempStep) * this.tempStep;
+      const constraintResult = this.applySafeTemperatureConstraints(newTarget, safeCurrentTarget, reason);
+      newTarget = constraintResult.temp;
+      reason = constraintResult.reason;
 
       // Calculate savings and comfort impact
       const savings = this.calculateSavings(safeCurrentTarget, newTarget, currentPrice);
@@ -1450,10 +1635,30 @@ export class Optimizer {
 
       // Get Tibber price data
       const priceData = await this.tibber.getPrices();
+      
+      // Validate price data structure
+      if (!priceData || !priceData.current || typeof priceData.current.price !== 'number') {
+        this.logger.error('Invalid price data received from Tibber API', priceData);
+        throw new Error('Invalid price data received from Tibber API');
+      }
+      
+      if (!priceData.prices || !Array.isArray(priceData.prices) || priceData.prices.length === 0) {
+        this.logger.error('No price forecast data available', priceData);
+        throw new Error('No price forecast data available');
+      }
+      
       const currentPrice = priceData.current.price;
-      const avgPrice = priceData.prices.reduce((sum, p) => sum + p.price, 0) / priceData.prices.length;
-      const minPrice = Math.min(...priceData.prices.map((p: any) => p.price));
-      const maxPrice = Math.max(...priceData.prices.map((p: any) => p.price));
+      
+      // Filter out invalid price entries and calculate statistics safely
+      const validPrices = priceData.prices.filter(p => p && typeof p.price === 'number').map(p => p.price);
+      if (validPrices.length === 0) {
+        this.logger.error('No valid price data in forecast', priceData.prices);
+        throw new Error('No valid price data in forecast');
+      }
+      
+      const avgPrice = validPrices.reduce((sum, price) => sum + price, 0) / validPrices.length;
+      const minPrice = Math.min(...validPrices);
+      const maxPrice = Math.max(...validPrices);
 
       this.logger.log('Enhanced optimization state:', {
         currentTemp: currentTemp?.toFixed(1),
@@ -1476,25 +1681,11 @@ export class Optimizer {
       let targetTemp = optimizationResult.targetTemp;
       let adjustmentReason = optimizationResult.reason;
 
-      // Clamp to valid range
-      if (targetTemp < this.minTemp) {
-        targetTemp = this.minTemp;
-        adjustmentReason += ` (clamped to minimum ${this.minTemp}°C)`;
-      } else if (targetTemp > this.maxTemp) {
-        targetTemp = this.maxTemp;
-        adjustmentReason += ` (clamped to maximum ${this.maxTemp}°C)`;
-      }
-
-      // Apply step constraint (don't change by more than tempStep)
-      const maxChange = this.tempStep;
+      // Apply safe temperature constraints
       const safeCurrentTarget = currentTarget ?? 20;
-      if (Math.abs(targetTemp - safeCurrentTarget) > maxChange) {
-        targetTemp = safeCurrentTarget + (targetTemp > safeCurrentTarget ? maxChange : -maxChange);
-        adjustmentReason += ` (limited to ${maxChange}°C step)`;
-      }
-
-      // Round to nearest step
-      targetTemp = Math.round(targetTemp / this.tempStep) * this.tempStep;
+      const constraintResult = this.applySafeTemperatureConstraints(targetTemp, safeCurrentTarget, adjustmentReason);
+      targetTemp = constraintResult.temp;
+      adjustmentReason = constraintResult.reason;
 
       // Check if adjustment is needed
       const tempDifference = Math.abs(targetTemp - safeCurrentTarget);
@@ -1506,8 +1697,12 @@ export class Optimizer {
         tempDifference: tempDifference.toFixed(1),
         isSignificantChange,
         adjustmentReason,
-        priceNormalized: ((currentPrice - minPrice) / (maxPrice - minPrice)).toFixed(2),
-        pricePercentile: (priceData.prices.filter((p: any) => p.price <= currentPrice).length / priceData.prices.length * 100).toFixed(0) + '%'
+        priceNormalized: this.safeDivide(currentPrice - minPrice, maxPrice - minPrice, 0.5).toFixed(2),
+        pricePercentile: (this.safeDivide(
+          priceData.prices.filter((p: any) => p.price <= currentPrice).length,
+          priceData.prices.length,
+          0.5
+        ) * 100).toFixed(0) + '%'
       };
 
       if (optimizationResult.metrics) {
@@ -1781,10 +1976,10 @@ export class Optimizer {
     const tempRange = this.maxTemp - this.minTemp;
     const midTemp = (this.maxTemp + this.minTemp) / 2;
 
-    // Normalize price between 0 and 1 more efficiently
+    // Normalize price between 0 and 1 more efficiently with safe division
     const normalizedPrice = maxPrice === minPrice
       ? 0.5 // Handle edge case of equal prices
-      : (currentPrice - minPrice) / (maxPrice - minPrice);
+      : this.safeDivide(currentPrice - minPrice, maxPrice - minPrice, 0.5);
 
     // Invert (lower price = higher temperature)
     const invertedPrice = 1 - normalizedPrice;
@@ -1846,11 +2041,21 @@ export class Optimizer {
 
           this.logger.log(`Applied COP adjustment: ${copAdjustment.toFixed(2)}°C (COP: ${seasonalCOP.toFixed(2)}, Efficiency: ${(copEfficiencyFactor * 100).toFixed(0)}%, Weight: ${this.copWeight})`);
 
-          // In summer mode, further reduce heating temperature
+          // In summer mode, only reduce heating temperature if heating is the primary concern
           if (isSummerMode) {
-            const summerAdjustment = -0.5 * this.copWeight; // Reduce heating in summer
-            targetTemp += summerAdjustment;
-            this.logger.log(`Applied summer mode adjustment: ${summerAdjustment.toFixed(2)}°C`);
+            // Check if we have optimization metrics to determine focus
+            const shouldApplySummerHeatingReduction = !this.optimizationMetrics || 
+              this.optimizationMetrics.seasonalMode !== 'summer' || 
+              this.optimizationMetrics.optimizationFocus === 'heating' ||
+              this.optimizationMetrics.optimizationFocus === 'both';
+              
+            if (shouldApplySummerHeatingReduction) {
+              const summerAdjustment = -0.5 * this.copWeight; // Reduce heating in summer
+              targetTemp += summerAdjustment;
+              this.logger.log(`Applied summer mode heating adjustment: ${summerAdjustment.toFixed(2)}°C (optimization focus: ${this.optimizationMetrics?.optimizationFocus || 'unknown'})`);
+            } else {
+              this.logger.log(`Skipped summer mode heating adjustment - hot water optimization focus`);
+            }
           }
         }
       } catch (error) {
@@ -1912,5 +2117,348 @@ export class Optimizer {
 
     // Positive means improved comfort, negative means reduced comfort
     return oldDeviation - newDeviation;
+  }
+
+  /**
+   * Perform safe division with fallback for zero denominators
+   * @param numerator The numerator
+   * @param denominator The denominator
+   * @param fallback The fallback value if denominator is zero
+   * @returns Safe division result
+   */
+  private safeDivide(numerator: number, denominator: number, fallback: number = 0): number {
+    if (denominator === 0 || !isFinite(denominator) || isNaN(denominator)) {
+      return fallback;
+    }
+    const result = numerator / denominator;
+    return isFinite(result) ? result : fallback;
+  }
+
+  /**
+   * Calculate safe average from array with validation
+   * @param values Array of numbers
+   * @param fallback Fallback value if array is empty or invalid
+   * @returns Safe average
+   */
+  private safeAverage(values: number[], fallback: number = 0): number {
+    if (!values || values.length === 0) return fallback;
+    const validValues = values.filter(v => isFinite(v) && !isNaN(v));
+    if (validValues.length === 0) return fallback;
+    return this.safeDivide(validValues.reduce((sum, v) => sum + v, 0), validValues.length, fallback);
+  }
+
+  /**
+   * Apply safe temperature constraints with proper ordering
+   * @param targetTemp Target temperature to constrain
+   * @param currentTemp Current target temperature (for step limiting)
+   * @param reason Current reason string (will be modified if constraints applied)
+   * @returns Constrained temperature and updated reason
+   */
+  private applySafeTemperatureConstraints(targetTemp: number, currentTemp: number, reason: string): { temp: number; reason: string } {
+    let constrainedTemp = targetTemp;
+    let updatedReason = reason;
+    
+    // Step 1: Apply min/max bounds first
+    if (constrainedTemp < this.minTemp) {
+      constrainedTemp = this.minTemp;
+      updatedReason += ` (clamped to minimum ${this.minTemp}°C)`;
+    } else if (constrainedTemp > this.maxTemp) {
+      constrainedTemp = this.maxTemp;
+      updatedReason += ` (clamped to maximum ${this.maxTemp}°C)`;
+    }
+    
+    // Step 2: Apply step constraint but respect bounds
+    const maxChange = this.tempStep;
+    if (Math.abs(constrainedTemp - currentTemp) > maxChange) {
+      const stepLimitedTemp = currentTemp + (constrainedTemp > currentTemp ? maxChange : -maxChange);
+      
+      // Ensure step-limited temperature still respects bounds
+      constrainedTemp = Math.max(this.minTemp, Math.min(this.maxTemp, stepLimitedTemp));
+      updatedReason += ` (limited to ${maxChange}°C step)`;
+    }
+    
+    // Step 3: Round to nearest step and ensure still within bounds
+    constrainedTemp = Math.round(constrainedTemp / this.tempStep) * this.tempStep;
+    constrainedTemp = Math.max(this.minTemp, Math.min(this.maxTemp, constrainedTemp));
+    
+    // Step 4: Validate final temperature
+    if (isNaN(constrainedTemp) || constrainedTemp < 5 || constrainedTemp > 35) {
+      this.logger.error(`Invalid constrained temperature: ${constrainedTemp}, using fallback`, {
+        originalTarget: targetTemp,
+        currentTemp,
+        minTemp: this.minTemp,
+        maxTemp: this.maxTemp,
+        tempStep: this.tempStep
+      });
+      constrainedTemp = Math.max(this.minTemp, Math.min(this.maxTemp, currentTemp));
+      updatedReason += ` (fallback due to invalid constraint result)`;
+    }
+    
+    return { temp: constrainedTemp, reason: updatedReason };
+  }
+  
+  /**
+   * Advanced thermal mass calibration using physics-based modeling
+   */
+  private calibrateThermalMassAdvanced(
+    historicalData: any[], 
+    avgHeatingConsumption: number
+  ): { thermalCapacity: number; heatLossRate: number; preheatingEfficiency: number } {
+    try {
+      // Analyze energy consumption patterns to understand building characteristics
+      const consumptionAnalysis = this.analyzeConsumptionPatterns(historicalData);
+      
+      // Estimate thermal capacity using multiple factors
+      // Base thermal capacity on consumption, with corrections for efficiency and building type
+      let thermalCapacity = avgHeatingConsumption / 8; // Start with simplified relationship
+      
+      // Apply corrections based on consumption variability
+      if (consumptionAnalysis.variabilityCoeff > 0.3) {
+        // High variability suggests poor insulation or larger thermal mass
+        thermalCapacity *= 1.2;
+      } else if (consumptionAnalysis.variabilityCoeff < 0.15) {
+        // Low variability suggests good insulation or smaller thermal mass
+        thermalCapacity *= 0.8;
+      }
+      
+      // Apply seasonal correction if available
+      if (consumptionAnalysis.seasonalRatio > 2.0) {
+        // High seasonal variation suggests larger thermal mass
+        thermalCapacity *= 1.15;
+      }
+      
+      // Bound thermal capacity to realistic range (1.5 - 6.0 kWh/°C)
+      thermalCapacity = Math.max(1.5, Math.min(6.0, thermalCapacity));
+      
+      // Estimate heat loss rate using consumption efficiency analysis
+      let heatLossRate = this.estimateHeatLossRate(
+        avgHeatingConsumption, 
+        thermalCapacity, 
+        consumptionAnalysis
+      );
+      
+      // Estimate preheating efficiency based on historical performance
+      let preheatingEfficiency = this.estimatePreheatingEfficiency(
+        consumptionAnalysis,
+        thermalCapacity,
+        heatLossRate
+      );
+      
+      this.logger.log('Advanced thermal mass calibration completed:', {
+        thermalCapacity: thermalCapacity.toFixed(2),
+        heatLossRate: heatLossRate.toFixed(3),
+        preheatingEfficiency: preheatingEfficiency.toFixed(3),
+        consumptionAnalysis: {
+          variability: consumptionAnalysis.variabilityCoeff.toFixed(3),
+          seasonalRatio: consumptionAnalysis.seasonalRatio.toFixed(2),
+          avgDailyConsumption: avgHeatingConsumption.toFixed(1)
+        }
+      });
+      
+      return {
+        thermalCapacity,
+        heatLossRate,
+        preheatingEfficiency
+      };
+    } catch (error) {
+      this.logger.error('Error in advanced thermal mass calibration:', error);
+      // Fallback to simple calculation
+      return {
+        thermalCapacity: Math.max(1.5, Math.min(4.0, avgHeatingConsumption / 10)),
+        heatLossRate: avgHeatingConsumption > 20 ? 1.0 : 0.6,
+        preheatingEfficiency: 0.85
+      };
+    }
+  }
+  
+  /**
+   * Analyze consumption patterns to understand building characteristics
+   */
+  private analyzeConsumptionPatterns(historicalData: any[]): {
+    variabilityCoeff: number;
+    seasonalRatio: number;
+    trendSlope: number;
+    peakConsumption: number;
+    baselineConsumption: number;
+  } {
+    if (historicalData.length < 3) {
+      return {
+        variabilityCoeff: 0.2,
+        seasonalRatio: 1.5,
+        trendSlope: 0,
+        peakConsumption: 0,
+        baselineConsumption: 0
+      };
+    }
+    
+    const heatingConsumptions = historicalData.map(d => d.TotalHeatingConsumed || 0);
+    const validConsumptions = heatingConsumptions.filter(c => c > 0);
+    
+    if (validConsumptions.length === 0) {
+      return {
+        variabilityCoeff: 0.2,
+        seasonalRatio: 1.5,
+        trendSlope: 0,
+        peakConsumption: 0,
+        baselineConsumption: 0
+      };
+    }
+    
+    // Calculate coefficient of variation (standard deviation / mean)
+    const mean = this.safeAverage(validConsumptions, 0);
+    const variance = validConsumptions.reduce((sum, val) => {
+      return sum + Math.pow(val - mean, 2);
+    }, 0) / validConsumptions.length;
+    const stdDev = Math.sqrt(variance);
+    const variabilityCoeff = this.safeDivide(stdDev, mean, 0.2);
+    
+    // Estimate seasonal ratio (max consumption / min consumption)
+    const maxConsumption = Math.max(...validConsumptions);
+    const minConsumption = Math.min(...validConsumptions.filter(c => c > 0));
+    const seasonalRatio = this.safeDivide(maxConsumption, minConsumption, 1.5);
+    
+    // Simple trend analysis (first half vs second half)
+    const firstHalf = validConsumptions.slice(0, Math.floor(validConsumptions.length / 2));
+    const secondHalf = validConsumptions.slice(Math.floor(validConsumptions.length / 2));
+    const firstHalfAvg = this.safeAverage(firstHalf, 0);
+    const secondHalfAvg = this.safeAverage(secondHalf, 0);
+    const trendSlope = secondHalfAvg - firstHalfAvg;
+    
+    return {
+      variabilityCoeff,
+      seasonalRatio,
+      trendSlope,
+      peakConsumption: maxConsumption,
+      baselineConsumption: minConsumption
+    };
+  }
+  
+  /**
+   * Estimate heat loss rate using physical modeling
+   */
+  private estimateHeatLossRate(
+    avgConsumption: number, 
+    thermalCapacity: number, 
+    analysis: any
+  ): number {
+    // Base heat loss rate on consumption and thermal capacity relationship
+    // Heat loss rate = (average power / thermal capacity) / temperature difference
+    // Assuming average 15°C indoor/outdoor temperature difference
+    const avgPowerKW = avgConsumption / 24; // Convert daily kWh to average kW
+    const baseHeatLossRate = this.safeDivide(avgPowerKW, thermalCapacity * 15, 0.5);
+    
+    // Apply corrections based on consumption patterns
+    let correctedRate = baseHeatLossRate;
+    
+    // Higher variability often indicates poorer building envelope
+    if (analysis.variabilityCoeff > 0.3) {
+      correctedRate *= 1.25; // Increase heat loss rate
+    } else if (analysis.variabilityCoeff < 0.15) {
+      correctedRate *= 0.8; // Decrease heat loss rate (better insulation)
+    }
+    
+    // Bound to realistic range (0.3 - 2.0 °C/hour)
+    return Math.max(0.3, Math.min(2.0, correctedRate));
+  }
+  
+  /**
+   * Estimate preheating efficiency based on building characteristics
+   */
+  private estimatePreheatingEfficiency(
+    analysis: any,
+    thermalCapacity: number,
+    heatLossRate: number
+  ): number {
+    // Base efficiency starts at 85%
+    let efficiency = 0.85;
+    
+    // Better thermal mass (higher capacity, lower heat loss) = better efficiency
+    const thermalRatio = this.safeDivide(thermalCapacity, heatLossRate, 3);
+    
+    if (thermalRatio > 4) {
+      efficiency = 0.92; // Excellent building
+    } else if (thermalRatio > 3) {
+      efficiency = 0.88; // Good building
+    } else if (thermalRatio < 2) {
+      efficiency = 0.75; // Poor building
+    }
+    
+    // Lower consumption variability suggests better controllability
+    if (analysis.variabilityCoeff < 0.2) {
+      efficiency *= 1.05;
+    } else if (analysis.variabilityCoeff > 0.4) {
+      efficiency *= 0.95;
+    }
+    
+    // Bound to realistic range
+    return Math.max(0.6, Math.min(0.95, efficiency));
+  }
+  
+  /**
+   * Update adaptive price thresholds based on recent price patterns
+   */
+  private updatePriceThresholds(recentPrices: number[]): void {
+    if (!recentPrices || recentPrices.length < 24) {
+      return; // Need at least 24 hours of price data
+    }
+    
+    // Add recent prices to history
+    this.priceThresholds.priceHistory.push(...recentPrices);
+    
+    // Keep only last 7 days of price history (168 hours)
+    if (this.priceThresholds.priceHistory.length > 168) {
+      this.priceThresholds.priceHistory = this.priceThresholds.priceHistory.slice(-168);
+    }
+    
+    // Only update thresholds if we have enough historical data and it's been a while
+    const hoursSinceLastUpdate = (Date.now() - this.priceThresholds.lastUpdate.getTime()) / (1000 * 60 * 60);
+    if (this.priceThresholds.priceHistory.length >= 48 && hoursSinceLastUpdate >= 12) {
+      this.recalculatePriceThresholds();
+      this.priceThresholds.lastUpdate = new Date();
+    }
+  }
+  
+  /**
+   * Recalculate price thresholds based on historical volatility and patterns
+   */
+  private recalculatePriceThresholds(): void {
+    const prices = this.priceThresholds.priceHistory;
+    if (prices.length < 24) return;
+    
+    // Calculate price volatility (coefficient of variation)
+    const mean = this.safeAverage(prices, 0);
+    const variance = prices.reduce((sum, price) => {
+      return sum + Math.pow(price - mean, 2);
+    }, 0) / prices.length;
+    const stdDev = Math.sqrt(variance);
+    const volatilityIndex = this.safeDivide(stdDev, mean, 0.2);
+    
+    this.priceThresholds.volatilityIndex = volatilityIndex;
+    
+    // Adjust thresholds based on volatility
+    if (volatilityIndex > 0.4) {
+      // High volatility - use more extreme thresholds to capture real opportunities
+      this.priceThresholds.cheap = 0.15;      // 15th percentile
+      this.priceThresholds.expensive = 0.85;  // 85th percentile
+      this.priceThresholds.moderate = 0.30;   // 30th percentile
+    } else if (volatilityIndex > 0.25) {
+      // Moderate volatility - balanced approach
+      this.priceThresholds.cheap = 0.20;      // 20th percentile
+      this.priceThresholds.expensive = 0.80;  // 80th percentile
+      this.priceThresholds.moderate = 0.35;   // 35th percentile
+    } else {
+      // Low volatility - more conservative thresholds
+      this.priceThresholds.cheap = 0.30;      // 30th percentile
+      this.priceThresholds.expensive = 0.70;  // 70th percentile
+      this.priceThresholds.moderate = 0.45;   // 45th percentile
+    }
+    
+    this.logger.log('Price thresholds updated:', {
+      volatilityIndex: volatilityIndex.toFixed(3),
+      cheap: (this.priceThresholds.cheap * 100).toFixed(0) + 'th percentile',
+      moderate: (this.priceThresholds.moderate * 100).toFixed(0) + 'th percentile',
+      expensive: (this.priceThresholds.expensive * 100).toFixed(0) + 'th percentile',
+      priceHistoryDays: (prices.length / 24).toFixed(1)
+    });
   }
 }

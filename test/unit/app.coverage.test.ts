@@ -62,20 +62,22 @@ describe('HeatOptimizerApp focused coverage tests', () => {
     } as any;
   });
 
-  test('getCronStatus initializes jobs when missing and returns status object', () => {
+  test('getCronStatus returns status object with error when jobs not initialized', () => {
     // Ensure jobs are not initialized
     app.hourlyJob = undefined;
     app.weeklyJob = undefined;
 
     const status = app.getCronStatus();
 
-    // After calling, cron jobs should be initialized by updateCronStatusInSettings
-    expect((app as any).hourlyJob).toBeDefined();
-    expect((app as any).weeklyJob).toBeDefined();
+    // getCronStatus should not initialize jobs, just return status
+    expect(app.hourlyJob).toBeUndefined();
+    expect(app.weeklyJob).toBeUndefined();
 
     expect(status).toHaveProperty('hourlyJob');
     expect(status).toHaveProperty('weeklyJob');
     expect(status).toHaveProperty('lastHourlyRun');
+    expect(status.hourlyJob).toHaveProperty('error', 'Hourly job not initialized');
+    expect(status.weeklyJob).toHaveProperty('error', 'Weekly job not initialized');
   });
 
   test('onSettingsChanged handles log_level update', async () => {
