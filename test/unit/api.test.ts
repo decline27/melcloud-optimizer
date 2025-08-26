@@ -1,13 +1,15 @@
 import { Api } from '../../src/api';
 import HeatOptimizerApp from '../../src/app';
+import * as apiCore from '../../src/api-core';
 
 // Mock the HeatOptimizerApp
 jest.mock('../../src/app');
 
-// Mock the api.js file to prevent requiring the actual implementation
-jest.mock('../../api.js', () => ({
-  getRunHourlyOptimizer: jest.fn().mockResolvedValue({ success: true }),
-  getRunWeeklyCalibration: jest.fn().mockResolvedValue({ success: true }),
+// Mock the api-core module
+jest.mock('../../src/api-core', () => ({
+  getRunHourlyOptimizer: jest.fn().mockResolvedValue({ success: true, message: 'Hourly optimization completed' }),
+  getRunWeeklyCalibration: jest.fn().mockResolvedValue({ success: true, message: 'Weekly calibration completed' }),
+  getMemoryUsage: jest.fn().mockResolvedValue({ success: true, processMemory: { rss: 1024 }, timestamp: new Date().toISOString() }),
 }));
 
 describe('Api', () => {
@@ -24,8 +26,7 @@ describe('Api', () => {
     // Mock app methods
     (mockApp as any).log = jest.fn();
     (mockApp as any).error = jest.fn();
-    mockApp.runHourlyOptimizer = jest.fn().mockResolvedValue({ success: true });
-    mockApp.runWeeklyCalibration = jest.fn().mockResolvedValue({ success: true });
+    (mockApp as any).homey = {}; // Mock homey object
     (mockApp as any).hotWaterService = {
       resetPatterns: jest.fn(),
       clearData: jest.fn().mockResolvedValue(undefined)
@@ -40,52 +41,50 @@ describe('Api', () => {
   });
 
   describe('runHourlyOptimizer', () => {
-    it('should call app.runHourlyOptimizer and return success', async () => {
+    it('should call apiCore.getRunHourlyOptimizer and return success', async () => {
       const result = await api.runHourlyOptimizer();
 
       expect((mockApp as any).log).toHaveBeenCalledWith('API method runHourlyOptimizer called');
-      expect(mockApp.runHourlyOptimizer).toHaveBeenCalled();
+      expect(apiCore.getRunHourlyOptimizer).toHaveBeenCalledWith({ homey: (mockApp as any).homey });
       expect(result).toEqual({ success: true, message: 'Hourly optimization completed' });
     }, 5000); // 5 second timeout
 
-    it('should handle errors from app.runHourlyOptimizer', async () => {
-      // Make runHourlyOptimizer fail
-      mockApp.runHourlyOptimizer.mockRejectedValue(new Error('Optimization error'));
+    it('should handle errors from apiCore.getRunHourlyOptimizer', async () => {
+      // Make getRunHourlyOptimizer fail
+      (apiCore.getRunHourlyOptimizer as jest.Mock).mockRejectedValueOnce(new Error('Optimization error'));
 
-      try {
-        await api.runHourlyOptimizer();
-        fail('Should have thrown an error');
-      } catch (error: any) {
-        expect(error.message).toBe('Optimization error');
-      }
+      const result = await api.runHourlyOptimizer();
 
       expect((mockApp as any).log).toHaveBeenCalledWith('API method runHourlyOptimizer called');
-      expect(mockApp.runHourlyOptimizer).toHaveBeenCalled();
+      expect((mockApp as any).error).toHaveBeenCalledWith('Error in runHourlyOptimizer:', expect.any(Error));
+      expect(result).toEqual({ 
+        success: false, 
+        message: 'Error running hourly optimizer: Optimization error' 
+      });
     }, 5000); // 5 second timeout
   });
 
   describe('runWeeklyCalibration', () => {
-    it('should call app.runWeeklyCalibration and return success', async () => {
+    it('should call apiCore.getRunWeeklyCalibration and return success', async () => {
       const result = await api.runWeeklyCalibration();
 
       expect((mockApp as any).log).toHaveBeenCalledWith('API method runWeeklyCalibration called');
-      expect(mockApp.runWeeklyCalibration).toHaveBeenCalled();
+      expect(apiCore.getRunWeeklyCalibration).toHaveBeenCalledWith({ homey: (mockApp as any).homey });
       expect(result).toEqual({ success: true, message: 'Weekly calibration completed' });
     }, 5000); // 5 second timeout
 
-    it('should handle errors from app.runWeeklyCalibration', async () => {
-      // Make runWeeklyCalibration fail
-      mockApp.runWeeklyCalibration.mockRejectedValue(new Error('Calibration error'));
+    it('should handle errors from apiCore.getRunWeeklyCalibration', async () => {
+      // Make getRunWeeklyCalibration fail
+      (apiCore.getRunWeeklyCalibration as jest.Mock).mockRejectedValueOnce(new Error('Calibration error'));
 
-      try {
-        await api.runWeeklyCalibration();
-        fail('Should have thrown an error');
-      } catch (error: any) {
-        expect(error.message).toBe('Calibration error');
-      }
+      const result = await api.runWeeklyCalibration();
 
       expect((mockApp as any).log).toHaveBeenCalledWith('API method runWeeklyCalibration called');
-      expect(mockApp.runWeeklyCalibration).toHaveBeenCalled();
+      expect((mockApp as any).error).toHaveBeenCalledWith('Error in runWeeklyCalibration:', expect.any(Error));
+      expect(result).toEqual({
+        success: false,
+        message: 'Error running weekly calibration: Calibration error'
+      });
     }, 5000); // 5 second timeout
   });
 
@@ -94,6 +93,7 @@ describe('Api', () => {
       const result = await api.getMemoryUsage();
 
       expect((mockApp as any).log).toHaveBeenCalledWith('API method getMemoryUsage called');
+      expect(apiCore.getMemoryUsage).toHaveBeenCalledWith((mockApp as any).homey);
       expect(result.success).toBe(true);
       expect(result.processMemory).toBeDefined();
       expect(result.timestamp).toBeDefined();

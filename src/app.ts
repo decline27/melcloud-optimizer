@@ -1204,7 +1204,7 @@ export default class HeatOptimizerApp extends App {
 
         try {
           // Run thermal data cleanup using TypeScript API
-          const result = await apiCore.runThermalDataCleanup(this.homey);
+          const result = await apiCore.runThermalDataCleanup({ homey: this as any });
           
           if (result.success) {
             this.log(`Initial data cleanup successful. ${result.recordsProcessed} records processed, ${result.recordsRemoved} removed`);

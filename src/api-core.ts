@@ -783,11 +783,13 @@ export async function getRunHourlyOptimizer({ homey }: { homey: HomeyApp }): Pro
       const currentSetTemp = deviceState.SetTemperatureZone1;
       const currentTankTemp = deviceState.TankWaterTemperature;
       const currentSetTankTemp = deviceState.SetTankWaterTemperature;
+      const outdoorTemp = deviceState.OutdoorTemperature;
       
       log(`Current room temperature: ${currentTemp}°C`);
       log(`Current set temperature: ${currentSetTemp}°C`);
       log(`Current tank temperature: ${currentTankTemp}°C`);
       log(`Current set tank temperature: ${currentSetTankTemp}°C`);
+      log(`Current outdoor temperature: ${outdoorTemp}°C`);
 
       // Simple optimization logic based on price
       const currentPrice = priceData.current?.price || 0;
@@ -857,6 +859,7 @@ export async function getRunHourlyOptimizer({ homey }: { homey: HomeyApp }): Pro
         currentTankTemp,
         currentSetTankTemp,
         newTankTemp,
+        outdoorTemp,
         action,
         reason,
         currentPrice,
@@ -1042,12 +1045,28 @@ export async function getThermalModelData({ homey }: { homey: HomeyApp }): Promi
     let lastOptimization = null;
     if (historicalData.optimizations.length > 0) {
       const lastOpt = historicalData.optimizations[historicalData.optimizations.length - 1];
+      
+      // If outdoor temp is not available in historical data, try to get current outdoor temp
+      let outdoorTemp = lastOpt.outdoorTemp;
+      if (!outdoorTemp) {
+        try {
+          const deviceId = parseInt(homey.settings.get('device_id') || '0');
+          const buildingId = parseInt(homey.settings.get('building_id') || '0');
+          const deviceState = await melCloud.getDeviceState(deviceId, buildingId);
+          outdoorTemp = deviceState.OutdoorTemperature;
+          log(`Retrieved current outdoor temperature: ${outdoorTemp}°C for display`);
+        } catch (tempErr: any) {
+          log('Could not retrieve current outdoor temperature:', tempErr.message);
+          outdoorTemp = 'N/A';
+        }
+      }
+      
       lastOptimization = {
         timestamp: lastOpt.timestamp,
         targetTemp: lastOpt.newTemp,
         targetOriginal: lastOpt.currentSetTemp,
         indoorTemp: lastOpt.currentTemp,
-        outdoorTemp: lastOpt.outdoorTemp || 'N/A', // May not be available in all data
+        outdoorTemp: outdoorTemp,
         priceNow: lastOpt.currentPrice
       };
     }

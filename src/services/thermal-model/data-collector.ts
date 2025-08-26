@@ -83,7 +83,16 @@ export class ThermalDataCollector {
   };
 
   constructor(private homey: any) {
-    this.backupFilePath = path.join(homey.env.userDataPath, BACKUP_FILE_NAME);
+    try {
+      // Try to get user data path from various sources
+      const userDataPath = homey.env?.userDataPath || 
+                          homey.getUserDataPath?.() || 
+                          '/tmp';
+      this.backupFilePath = path.join(userDataPath, BACKUP_FILE_NAME);
+    } catch (error) {
+      // Fallback to a temp directory if path is unavailable
+      this.backupFilePath = path.join('/tmp', BACKUP_FILE_NAME);
+    }
     this.loadStoredData();
     this.startMemoryMonitoring();
   }

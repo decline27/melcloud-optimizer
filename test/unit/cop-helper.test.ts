@@ -9,6 +9,18 @@ jest.mock('luxon', () => ({
   }
 }));
 
+// Mock CronJob
+jest.mock('cron', () => ({
+  CronJob: jest.fn().mockImplementation((pattern, callback, onComplete, start) => {
+    return {
+      start: jest.fn(),
+      stop: jest.fn(),
+      destroy: jest.fn(),
+      running: start === true
+    };
+  })
+}));
+
 describe('COPHelper', () => {
   let copHelper: COPHelper;
   let mockHomey: any;
@@ -17,13 +29,16 @@ describe('COPHelper', () => {
   let mockScheduler: any;
 
   beforeEach(() => {
+    // Clear all mocks before each test
+    jest.clearAllMocks();
+    
     // Create mock settings
     mockSettings = {
       get: jest.fn(),
       set: jest.fn().mockResolvedValue(undefined),
     };
 
-    // Create mock scheduler
+    // Create mock scheduler (not used in new implementation but keeping for backward compatibility)
     mockScheduler = {
       scheduleTask: jest.fn().mockReturnValue({
         unregister: jest.fn()
@@ -53,23 +68,29 @@ describe('COPHelper', () => {
     });
 
     it('should handle errors during initialization', () => {
-      // Create a mock that throws an error
-      const errorMockHomey = {
-        settings: mockSettings,
-        scheduler: {
-          scheduleTask: jest.fn().mockImplementation(() => {
-            throw new Error('Scheduler error');
-          })
-        }
-      };
+      // Mock CronJob to throw an error
+      const { CronJob } = require('cron');
+      CronJob.mockImplementation(() => {
+        throw new Error('CronJob error');
+      });
 
       // Create COP helper with error-throwing mock
-      new COPHelper(errorMockHomey, mockLogger);
+      new COPHelper(mockHomey, mockLogger);
 
       expect(mockLogger.error).toHaveBeenCalledWith(
         'Error scheduling COP calculation jobs:',
         expect.any(Error)
       );
+      
+      // Reset the mock back to working state
+      CronJob.mockImplementation((pattern: any, callback: any, onComplete: any, start: any) => {
+        return {
+          start: jest.fn(),
+          stop: jest.fn(),
+          destroy: jest.fn(),
+          running: start === true
+        };
+      });
     });
   });
 

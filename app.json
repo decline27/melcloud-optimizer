@@ -30,11 +30,15 @@
   "brandColor": "#1E88E5",
   "support": "https://github.com/decline27/melcloud-optimizer/issues",
   "api": {
-    "getRunHourlyOptimizer": {
+    "getDeviceList": {
+      "method": "GET",
+      "path": "/getDeviceList"
+    },
+    "runHourlyOptimizer": {
       "method": "GET",
       "path": "/runHourlyOptimizer"
     },
-    "getRunWeeklyCalibration": {
+    "runWeeklyCalibration": {
       "method": "GET",
       "path": "/runWeeklyCalibration"
     },
@@ -49,10 +53,6 @@
     "getStartCronJobs": {
       "method": "GET",
       "path": "/getStartCronJobs"
-    },
-    "getDeviceList": {
-      "method": "GET",
-      "path": "/getDeviceList"
     },
     "getThermalModelData": {
       "method": "GET",

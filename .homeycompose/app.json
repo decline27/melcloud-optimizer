@@ -74,11 +74,15 @@
     "actions": []
   },
   "api": {
-    "getRunHourlyOptimizer": {
+    "getDeviceList": {
+      "method": "GET",
+      "path": "/getDeviceList"
+    },
+    "runHourlyOptimizer": {
       "method": "GET",
       "path": "/runHourlyOptimizer"
     },
-    "getRunWeeklyCalibration": {
+    "runWeeklyCalibration": {
       "method": "GET",
       "path": "/runWeeklyCalibration"
     },
@@ -93,10 +97,6 @@
     "getStartCronJobs": {
       "method": "GET",
       "path": "/getStartCronJobs"
-    },
-    "getDeviceList": {
-      "method": "GET",
-      "path": "/getDeviceList"
     },
     "getThermalModelData": {
       "method": "GET",
