@@ -914,6 +914,107 @@ module.exports = class BoilerDevice extends Homey.Device {
   }
 
   /**
+   * Update total energy capabilities by accumulating daily values over time
+   * This ensures that "Total" energy values are truly cumulative, not just daily values
+   */
+  private async updateTotalEnergyCapabilities(energyTotals: any) {
+    try {
+      const today = new Date().toDateString();
+      const lastUpdateDate = this.getStoreValue('last_energy_update_date');
+      
+      // Daily values from API (these are the actual daily consumption/production)
+      const dailyHeatingConsumed = energyTotals.TotalHeatingConsumed || 0;
+      const dailyHeatingProduced = energyTotals.TotalHeatingProduced || 0;
+      const dailyHotWaterConsumed = energyTotals.TotalHotWaterConsumed || 0;
+      const dailyHotWaterProduced = energyTotals.TotalHotWaterProduced || 0;
+
+      if (lastUpdateDate !== today) {
+        // New day - add yesterday's daily values to the running totals
+        const currentTotalHeatingConsumed = this.getCapabilityValue('meter_power.heating') || 0;
+        const currentTotalHeatingProduced = this.getCapabilityValue('meter_power.produced_heating') || 0;
+        const currentTotalHotWaterConsumed = this.getCapabilityValue('meter_power.hotwater') || 0;
+        const currentTotalHotWaterProduced = this.getCapabilityValue('meter_power.produced_hotwater') || 0;
+
+        // Get yesterday's daily values from store (if available)
+        const yesterdayHeatingConsumed = this.getStoreValue('yesterday_heating_consumed') || 0;
+        const yesterdayHeatingProduced = this.getStoreValue('yesterday_heating_produced') || 0;
+        const yesterdayHotWaterConsumed = this.getStoreValue('yesterday_hotwater_consumed') || 0;
+        const yesterdayHotWaterProduced = this.getStoreValue('yesterday_hotwater_produced') || 0;
+
+        // Add yesterday's values to totals (only if we have yesterday's data to avoid double-counting)
+        if (lastUpdateDate) {
+          const newTotalHeatingConsumed = currentTotalHeatingConsumed + yesterdayHeatingConsumed;
+          const newTotalHeatingProduced = currentTotalHeatingProduced + yesterdayHeatingProduced;
+          const newTotalHotWaterConsumed = currentTotalHotWaterConsumed + yesterdayHotWaterConsumed;
+          const newTotalHotWaterProduced = currentTotalHotWaterProduced + yesterdayHotWaterProduced;
+
+          if (this.hasCapability('meter_power.heating')) {
+            await this.setCapabilityValue('meter_power.heating', Math.round(newTotalHeatingConsumed * 100) / 100);
+            this.logger.log(`Updated total heating consumed: ${newTotalHeatingConsumed.toFixed(2)} kWh (+${yesterdayHeatingConsumed.toFixed(2)} from yesterday)`);
+          }
+          if (this.hasCapability('meter_power.produced_heating')) {
+            await this.setCapabilityValue('meter_power.produced_heating', Math.round(newTotalHeatingProduced * 100) / 100);
+            this.logger.log(`Updated total heating produced: ${newTotalHeatingProduced.toFixed(2)} kWh (+${yesterdayHeatingProduced.toFixed(2)} from yesterday)`);
+          }
+          if (this.hasCapability('meter_power.hotwater')) {
+            await this.setCapabilityValue('meter_power.hotwater', Math.round(newTotalHotWaterConsumed * 100) / 100);
+            this.logger.log(`Updated total hot water consumed: ${newTotalHotWaterConsumed.toFixed(2)} kWh (+${yesterdayHotWaterConsumed.toFixed(2)} from yesterday)`);
+          }
+          if (this.hasCapability('meter_power.produced_hotwater')) {
+            await this.setCapabilityValue('meter_power.produced_hotwater', Math.round(newTotalHotWaterProduced * 100) / 100);
+            this.logger.log(`Updated total hot water produced: ${newTotalHotWaterProduced.toFixed(2)} kWh (+${yesterdayHotWaterProduced.toFixed(2)} from yesterday)`);
+          }
+        } else {
+          // First run - initialize totals to current daily values if totals are not set
+          if (!this.getCapabilityValue('meter_power.heating')) {
+            await this.setCapabilityValue('meter_power.heating', dailyHeatingConsumed);
+            this.logger.log(`Initialized total heating consumed: ${dailyHeatingConsumed.toFixed(2)} kWh`);
+          }
+          if (!this.getCapabilityValue('meter_power.produced_heating')) {
+            await this.setCapabilityValue('meter_power.produced_heating', dailyHeatingProduced);
+            this.logger.log(`Initialized total heating produced: ${dailyHeatingProduced.toFixed(2)} kWh`);
+          }
+          if (!this.getCapabilityValue('meter_power.hotwater')) {
+            await this.setCapabilityValue('meter_power.hotwater', dailyHotWaterConsumed);
+            this.logger.log(`Initialized total hot water consumed: ${dailyHotWaterConsumed.toFixed(2)} kWh`);
+          }
+          if (!this.getCapabilityValue('meter_power.produced_hotwater')) {
+            await this.setCapabilityValue('meter_power.produced_hotwater', dailyHotWaterProduced);
+            this.logger.log(`Initialized total hot water produced: ${dailyHotWaterProduced.toFixed(2)} kWh`);
+          }
+        }
+
+        // Update the date tracking
+        await this.setStoreValue('last_energy_update_date', today);
+        this.logger.log(`Energy tracking date updated to ${today}`);
+      }
+
+      // Always store today's daily values for tomorrow's calculation
+      await this.setStoreValue('yesterday_heating_consumed', dailyHeatingConsumed);
+      await this.setStoreValue('yesterday_heating_produced', dailyHeatingProduced);
+      await this.setStoreValue('yesterday_hotwater_consumed', dailyHotWaterConsumed);
+      await this.setStoreValue('yesterday_hotwater_produced', dailyHotWaterProduced);
+
+    } catch (error) {
+      this.logger.error('Error updating total energy capabilities:', error);
+      
+      // Fallback: set totals to daily values if calculation fails
+      if (this.hasCapability('meter_power.heating')) {
+        await this.setCapabilityValue('meter_power.heating', energyTotals.TotalHeatingConsumed || 0);
+      }
+      if (this.hasCapability('meter_power.produced_heating')) {
+        await this.setCapabilityValue('meter_power.produced_heating', energyTotals.TotalHeatingProduced || 0);
+      }
+      if (this.hasCapability('meter_power.hotwater')) {
+        await this.setCapabilityValue('meter_power.hotwater', energyTotals.TotalHotWaterConsumed || 0);
+      }
+      if (this.hasCapability('meter_power.produced_hotwater')) {
+        await this.setCapabilityValue('meter_power.produced_hotwater', energyTotals.TotalHotWaterProduced || 0);
+      }
+    }
+  }
+
+  /**
    * Task 2.1: Start energy reporting with configurable interval
    * Task 2.2: Use circuit breaker protected energy fetching
    */
@@ -984,19 +1085,9 @@ module.exports = class BoilerDevice extends Homey.Device {
         await this.setCapabilityValue('meter_power.hotwater_produced', energyTotals.TotalHotWaterProduced || 0);
       }
 
-      // Update legacy meter capabilities for compatibility
-      if (this.hasCapability('meter_power.heating')) {
-        await this.setCapabilityValue('meter_power.heating', energyTotals.TotalHeatingConsumed || 0);
-      }
-      if (this.hasCapability('meter_power.produced_heating')) {
-        await this.setCapabilityValue('meter_power.produced_heating', energyTotals.TotalHeatingProduced || 0);
-      }
-      if (this.hasCapability('meter_power.hotwater')) {
-        await this.setCapabilityValue('meter_power.hotwater', energyTotals.TotalHotWaterConsumed || 0);
-      }
-      if (this.hasCapability('meter_power.produced_hotwater')) {
-        await this.setCapabilityValue('meter_power.produced_hotwater', energyTotals.TotalHotWaterProduced || 0);
-      }
+      // Update total meter capabilities for compatibility - these should accumulate over time
+      // Note: API returns daily values, so we need to maintain running totals
+      await this.updateTotalEnergyCapabilities(energyTotals);
 
       // Update COP capabilities with proper error handling
       if (this.hasCapability('heating_cop')) {

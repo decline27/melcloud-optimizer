@@ -620,8 +620,17 @@ export async function initializeServices(homey: HomeyApp): Promise<void> {
     log('COP Helper not available:', error.message);
   }
   
-  // Mark optimizer as initialized (simplified for now)
-  optimizer = { initialized: true, historicalData };
+  // Initialize advanced optimizer service
+  try {
+    const { Optimizer } = require('../services/optimizer');
+    optimizer = new Optimizer(melCloud, tibber, deviceId, buildingId, { log, error: errorFn }, homey);
+    log('Advanced Optimizer service initialized');
+  } catch (error: any) {
+    errorFn('Failed to initialize advanced optimizer:', error);
+    // Fallback to simplified optimizer
+    optimizer = { initialized: true, historicalData };
+    log('Using basic optimization algorithm as fallback');
+  }
   
   log('Services initialized successfully with real implementations');
 }
@@ -827,60 +836,99 @@ export async function getRunHourlyOptimizer({ homey }: { homey: HomeyApp }): Pro
       log(`Current set tank temperature: ${currentSetTankTemp}°C`);
       log(`Current outdoor temperature: ${outdoorTemp}°C`);
 
-      // Simple optimization logic based on price
-      const currentPrice = priceData.current?.price || 0;
-      
-      // Validate prices array and calculate average safely
-      if (!priceData.prices || !Array.isArray(priceData.prices) || priceData.prices.length === 0) {
-        throw new Error('No price forecast data available');
-      }
-      
-      const validPrices = priceData.prices.filter((p: any) => p && typeof p.price === 'number');
-      if (validPrices.length === 0) {
-        throw new Error('No valid price data in forecast');
-      }
-      
-      const avgPrice = validPrices.reduce((sum: number, p: any) => sum + p.price, 0) / validPrices.length;
-      const priceRatio = avgPrice > 0 ? currentPrice / avgPrice : 1;
-      
-      log(`Price analysis: Current ${currentPrice} kr/kWh, Average ${avgPrice.toFixed(4)} kr/kWh, Ratio ${priceRatio.toFixed(2)}`);
-      
+      // Try to use advanced optimizer if available, fallback to basic algorithm
       let action = 'no_change';
       let newTemp = currentSetTemp;
       let newTankTemp = currentSetTankTemp;
       let reason = 'Current conditions are optimal';
-      
-      const minTemp = homey.settings.get('min_temp') || 18;
-      const maxTemp = homey.settings.get('max_temp') || 22;
-      const minTankTemp = 45;
-      const maxTankTemp = 55;
-      
-      // Optimization logic for both heating and hot water based on price
-      if (currentPrice < avgPrice * 0.8) {
-        // Low price - increase temperatures for preheating
-        if (currentSetTemp < maxTemp) {
-          newTemp = Math.min(currentSetTemp + 0.5, maxTemp);
-          action = 'heating_increased';
+      let currentPrice = priceData.current?.price || 0;
+      let avgPrice = 0;
+      let priceRatio = 1;
+
+      if (optimizer && typeof optimizer.runEnhancedOptimization === 'function') {
+        // Use advanced optimizer
+        log('Using advanced optimization algorithm');
+        try {
+          const optimizationResult = await optimizer.runEnhancedOptimization();
+          
+          if (optimizationResult.success) {
+            action = optimizationResult.action || 'no_change';
+            reason = optimizationResult.reason || reason;
+            
+            // Get temperature changes from result
+            if (optimizationResult.temperatureChange) {
+              newTemp = currentSetTemp + optimizationResult.temperatureChange;
+            }
+            if (optimizationResult.tankTemperatureChange) {
+              newTankTemp = currentSetTankTemp + optimizationResult.tankTemperatureChange;
+            }
+            
+            // Get price info if available
+            if (optimizationResult.currentPrice) currentPrice = optimizationResult.currentPrice;
+            if (optimizationResult.avgPrice) avgPrice = optimizationResult.avgPrice;
+            if (optimizationResult.priceRatio) priceRatio = optimizationResult.priceRatio;
+
+            log(`Advanced optimization result: ${action} - ${reason}`);
+          } else {
+            log('Advanced optimization returned no changes needed');
+          }
+        } catch (advancedError: any) {
+          log(`Advanced optimizer failed, falling back to basic algorithm: ${advancedError.message}`);
+          // Fall through to basic algorithm below
         }
-        if (currentSetTankTemp < maxTankTemp) {
-          newTankTemp = Math.min(currentSetTankTemp + 2, maxTankTemp);
-          action = action === 'heating_increased' ? 'both_increased' : 'tank_increased';
+      }
+
+      // Fallback to basic optimization logic if advanced optimizer not available or failed
+      if (action === 'no_change' && (!optimizer || typeof optimizer.runEnhancedOptimization !== 'function')) {
+        log('Using basic optimization algorithm');
+        
+        // Validate prices array and calculate average safely
+        if (!priceData.prices || !Array.isArray(priceData.prices) || priceData.prices.length === 0) {
+          throw new Error('No price forecast data available');
         }
-        if (action !== 'no_change') {
-          reason = `Low price (${priceRatio.toFixed(2)}x avg) - preheating for energy savings`;
+        
+        const validPrices = priceData.prices.filter((p: any) => p && typeof p.price === 'number');
+        if (validPrices.length === 0) {
+          throw new Error('No valid price data in forecast');
         }
-      } else if (currentPrice > avgPrice * 1.2) {
-        // High price - decrease temperatures to save energy
-        if (currentSetTemp > minTemp) {
-          newTemp = Math.max(currentSetTemp - 0.5, minTemp);
-          action = 'heating_decreased';
-        }
-        if (currentSetTankTemp > minTankTemp) {
-          newTankTemp = Math.max(currentSetTankTemp - 2, minTankTemp);
-          action = action === 'heating_decreased' ? 'both_decreased' : 'tank_decreased';
-        }
-        if (action !== 'no_change') {
-          reason = `High price (${priceRatio.toFixed(2)}x avg) - reducing consumption for cost savings`;
+        
+        avgPrice = validPrices.reduce((sum: number, p: any) => sum + p.price, 0) / validPrices.length;
+        priceRatio = avgPrice > 0 ? currentPrice / avgPrice : 1;
+        
+        log(`Price analysis: Current ${currentPrice} kr/kWh, Average ${avgPrice.toFixed(4)} kr/kWh, Ratio ${priceRatio.toFixed(2)}`);
+        
+        const minTemp = homey.settings.get('min_temp') || 18;
+        const maxTemp = homey.settings.get('max_temp') || 22;
+        const minTankTemp = 45;
+        const maxTankTemp = 55;
+        
+        // Basic optimization logic based on price thresholds
+        if (currentPrice < avgPrice * 0.8) {
+          // Low price - increase temperatures for preheating
+          if (currentSetTemp < maxTemp) {
+            newTemp = Math.min(currentSetTemp + 0.5, maxTemp);
+            action = 'heating_increased';
+          }
+          if (currentSetTankTemp < maxTankTemp) {
+            newTankTemp = Math.min(currentSetTankTemp + 2, maxTankTemp);
+            action = action === 'heating_increased' ? 'both_increased' : 'tank_increased';
+          }
+          if (action !== 'no_change') {
+            reason = `Low price (${priceRatio.toFixed(2)}x avg) - preheating for energy savings`;
+          }
+        } else if (currentPrice > avgPrice * 1.2) {
+          // High price - decrease temperatures to save energy
+          if (currentSetTemp > minTemp) {
+            newTemp = Math.max(currentSetTemp - 0.5, minTemp);
+            action = 'heating_decreased';
+          }
+          if (currentSetTankTemp > minTankTemp) {
+            newTankTemp = Math.max(currentSetTankTemp - 2, minTankTemp);
+            action = action === 'heating_decreased' ? 'both_decreased' : 'tank_decreased';
+          }
+          if (action !== 'no_change') {
+            reason = `High price (${priceRatio.toFixed(2)}x avg) - reducing consumption for cost savings`;
+          }
         }
       }
 

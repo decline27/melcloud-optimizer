@@ -235,6 +235,9 @@ export default class HeatOptimizerApp extends App {
   public initializeCronJobs() {
     this.log('===== INITIALIZING CRON JOBS =====');
 
+    // Clean up any existing cron jobs before creating new ones to prevent duplicates
+    this.cleanupCronJobs();
+
     // Get the time zone offset from Homey settings - default to UTC+2 (Sweden/Denmark time zone)
     const timeZoneOffset = this.homey.settings.get('time_zone_offset') || 2;
 
