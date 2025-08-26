@@ -4,7 +4,7 @@
   "description": "Heat Pump Optimizer for Homey SDK 3.0 (TypeScript)",
   "main": "index.js",
   "scripts": {
-    "build": "tsc && homey app build",
+    "build": "tsc && NODE_ENV=production homey app build",
     "build:ts": "tsc",
     "build:homey": "homey app build",
     "start": "homey app run",

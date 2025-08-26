@@ -1,55 +1,17 @@
-# Development and build files
+# Standard Homey app exclusions
 src/
 test/
 coverage/
+README.md
+LICENSE
+*.md
 docs/
-logs/
-memory-bank/
-improvement-plan/
-explanation/
-
-# Configuration files
 .git/
 .github/
 .vscode/
-.homeybuild/
-.homeycompose/
 jest.config.js
 tsconfig.json
-.eslintrc.json
-.gitignore
-
-# Documentation
-*.md
-*.txt
-README*
-LICENSE
-CONTRIBUTING*
-CODE_OF_CONDUCT*
-
-# TypeScript source files (use compiled JS)
-*.ts
-!*.d.ts
-
-# Test files
-*.test.js
-*.test.ts
-*.spec.js
-*.spec.ts
-
-# Log files
+.eslintrc*
+logs/
 *.log
-
-# Exclude all node_modules - only runtime deps will be installed in build
-node_modules/
-
-# Build scripts and debug files
-debug-run.sh
-run-*.sh
-build-*.sh
-simple-trigger-test.js
-run-with-logging.js
-
-# Package management
-package-lock.json
-yarn.lock
+.DS_Store

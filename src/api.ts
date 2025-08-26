@@ -9,7 +9,10 @@ export class Api {
   private app: HeatOptimizerApp;
 
   constructor(app: HeatOptimizerApp) {
+    console.log('API constructor: Received app:', !!app);
+    console.log('API constructor: App type:', typeof app);
     this.app = app;
+    console.log('API constructor: API instance created');
   }
 
   /**
@@ -49,18 +52,23 @@ export class Api {
   /**
    * Get device list from MELCloud
    */
-  async getDeviceList() {
-    this.app.log('API method getDeviceList called');
-    try {
-      const result = await apiCore.getDeviceList({ homey: this.app.homey });
-      return result;
-    } catch (error) {
-      this.app.error('Error in getDeviceList:', error as Error);
-      return {
-        success: false,
-        message: `Error getting device list: ${error instanceof Error ? error.message : String(error)}`
-      };
-    }
+  getDeviceList() {
+    console.log('API method getDeviceList called');
+    console.log('API method: this.app exists:', !!this.app);
+    console.log('API method: this.app.homey exists:', !!this.app?.homey);
+    
+    // Simple synchronous test 
+    return {
+      success: true,
+      message: 'API method getDeviceList is working',
+      data: {
+        test: true,
+        debugInfo: {
+          hasApp: !!this.app,
+          hasHomey: !!this.app?.homey
+        }
+      }
+    };
   }
 
   /**
