@@ -301,51 +301,7 @@ export default class HeatOptimizerApp extends App {
       cronStatus.lastUpdated = new Date().toISOString();
       this.homey.settings.set('cron_status', cronStatus);
 
-      // Add a timeline entry for the automatic trigger
-      try {
-        this.log('Creating timeline entry for hourly job');
-
-        if (this.timelineHelper) {
-          await this.timelineHelper.addTimelineEntry(
-            TimelineEventType.HOURLY_OPTIMIZATION,
-            {},
-            false
-          );
-          this.log('Timeline entry created using timeline helper');
-        } else {
-          // Fallback to direct API calls if timeline helper is not available
-          this.log('Timeline helper not available, using direct API calls');
-          // First try the direct timeline API if available
-          if (typeof this.homey.timeline === 'object' && typeof this.homey.timeline.createEntry === 'function') {
-            await this.homey.timeline.createEntry({
-              title: 'MELCloud Optimizer',
-              body: '🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP',
-              icon: 'flow:device_changed'
-            });
-            this.log('Timeline entry created using timeline API');
-          }
-          // Then try the notifications API as the main fallback
-          else if (typeof this.homey.notifications === 'object' && typeof this.homey.notifications.createNotification === 'function') {
-            await this.homey.notifications.createNotification({
-              excerpt: 'MELCloud Optimizer: 🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP',
-            });
-            this.log('Timeline entry created using notifications API');
-          }
-          // Finally try homey.flow if available
-          else if (typeof this.homey.flow === 'object' && typeof this.homey.flow.runFlowCardAction === 'function') {
-            await this.homey.flow.runFlowCardAction({
-              uri: 'homey:flowcardaction:homey:manager:timeline:log',
-              args: { text: '🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP' }
-            });
-            this.log('Timeline entry created using flow API');
-          }
-          else {
-            this.log('No timeline API available, using log only');
-          }
-        }
-      } catch (err) {
-        this.error('Failed to create timeline entry for automatic trigger', err as Error);
-      }
+      // Note: Timeline entry will only be created if optimization makes actual changes
       this.log('Hourly cron job triggered');
       try {
         await this.runHourlyOptimizer();
@@ -703,7 +659,14 @@ export default class HeatOptimizerApp extends App {
 
     try {
       // Call the API implementation
-      const result = await apiCore.getRunHourlyOptimizer(this.homey);
+      const homeyApp: any = {
+        ...this.homey,
+        log: this.log.bind(this),
+        error: this.error.bind(this),
+        id: this.id,
+        manifest: this.manifest
+      };
+      const result = await apiCore.getRunHourlyOptimizer({ homey: homeyApp });
 
       if (result.success) {
         // Store the successful result for potential fallback use
@@ -980,7 +943,14 @@ export default class HeatOptimizerApp extends App {
 
     try {
       // Call the API implementation
-      const result = await apiCore.getRunWeeklyCalibration(this.homey);
+      const homeyApp: any = {
+        ...this.homey,
+        log: this.log.bind(this),
+        error: this.error.bind(this),
+        id: this.id,
+        manifest: this.manifest
+      };
+      const result = await apiCore.getRunWeeklyCalibration({ homey: homeyApp });
 
       if (result.success) {
         // Create success timeline entry
@@ -1204,7 +1174,14 @@ export default class HeatOptimizerApp extends App {
 
         try {
           // Run thermal data cleanup using TypeScript API
-          const result = await apiCore.runThermalDataCleanup({ homey: this as any });
+          const homeyApp: any = {
+            ...this.homey,
+            log: this.log.bind(this),
+            error: this.error.bind(this),
+            id: this.id,
+            manifest: this.manifest
+          };
+          const result = await apiCore.runThermalDataCleanup({ homey: homeyApp });
           
           if (result.success) {
             this.log(`Initial data cleanup successful. ${result.recordsProcessed} records processed, ${result.recordsRemoved} removed`);

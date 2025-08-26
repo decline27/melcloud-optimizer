@@ -15,6 +15,42 @@ function createTimelineHelper(homey: HomeyApp): TimelineHelper {
   return new TimelineHelper(homey, logger);
 }
 
+// Calculate hourly savings in actual currency
+function calculateHourlySavingsInCurrency(
+  oldHeatingTemp: number,
+  newHeatingTemp: number,
+  oldTankTemp: number,
+  newTankTemp: number,
+  currentPrice: number,
+  avgPrice: number,
+  action: string
+): number {
+  if (action === 'no_change') return 0;
+
+  // Estimate energy consumption changes
+  // Heat pump typically uses 0.3-0.5 kW per degree temperature change per hour
+  const heatingTempDiff = newHeatingTemp - oldHeatingTemp;
+  const tankTempDiff = newTankTemp - oldTankTemp;
+  
+  // Rough estimates for energy consumption impact
+  const heatingEnergyChange = heatingTempDiff * 0.4; // kWh per hour per degree
+  const tankEnergyChange = tankTempDiff * 0.2; // kWh per hour per degree (tank is more efficient due to insulation)
+  
+  const totalEnergyChange = heatingEnergyChange + tankEnergyChange;
+  
+  // Calculate savings based on action type
+  if (action.includes('decreased')) {
+    // Reducing consumption during expensive periods - use current price
+    return Math.abs(totalEnergyChange * currentPrice); // Positive savings
+  } else if (action.includes('increased')) {
+    // Pre-heating during cheap periods vs. heating during expensive periods later
+    const priceDifference = avgPrice - currentPrice; // How much cheaper current period is vs average
+    return Math.abs(totalEnergyChange * priceDifference); // Savings from timing shift
+  }
+  
+  return 0;
+}
+
 // Types for API responses
 export interface ApiResponse {
   success: boolean;
@@ -868,7 +904,15 @@ export async function getRunHourlyOptimizer({ homey }: { homey: HomeyApp }): Pro
         savings: {
           heatingChange: newTemp - currentSetTemp,
           tankChange: newTankTemp - currentSetTankTemp,
-          estimatedSavings: action.includes('decreased') ? (priceRatio - 1) * 100 : 0
+          estimatedSavings: calculateHourlySavingsInCurrency(
+            currentSetTemp, 
+            newTemp, 
+            currentSetTankTemp, 
+            newTankTemp, 
+            currentPrice, 
+            avgPrice, 
+            action
+          )
         }
       };
 
@@ -881,56 +925,59 @@ export async function getRunHourlyOptimizer({ homey }: { homey: HomeyApp }): Pro
       log(`Price: ${currentPrice} kr/kWh (${priceRatio.toFixed(2)}x average)`);
       log(`Reason: ${reason}`);
       
-      // Add timeline entry with comprehensive information
-      try {
-        const timelineHelper = createTimelineHelper(homey);
-        const additionalData = {
-          // Heating temperatures
-          fromTemp: currentSetTemp,
-          toTemp: newTemp,
-          targetTemp: newTemp,
-          targetOriginal: currentSetTemp,
+      // Add timeline entry only if changes were made
+      if (action !== 'no_change') {
+        try {
+          const timelineHelper = createTimelineHelper(homey);
+          const additionalData = {
+            // Heating temperatures
+            fromTemp: currentSetTemp,
+            toTemp: newTemp,
+            targetTemp: newTemp,
+            targetOriginal: currentSetTemp,
+            
+            // Hot water tank temperatures
+            tankTemp: newTankTemp,
+            tankOriginal: currentSetTankTemp,
+            tankTempFrom: currentSetTankTemp,
+            tankTempTo: newTankTemp,
+            
+            // Price information
+            currentPrice: currentPrice,
+            avgPrice: avgPrice,
+            priceRatio: priceRatio,
+            priceImpact: `${priceRatio.toFixed(2)}x average`,
+            
+            // Action and savings - actual currency amounts
+            action: action,
+            heatingChange: newTemp - currentSetTemp,
+            tankChange: newTankTemp - currentSetTankTemp,
+            savings: optimizationData.savings.estimatedSavings, // Hourly savings amount in currency
+            dailySavings: optimizationData.savings.estimatedSavings * 24 // Convert to daily for display
+          };
           
-          // Hot water tank temperatures
-          tankTemp: newTankTemp,
-          tankOriginal: currentSetTankTemp,
-          tankTempFrom: currentSetTankTemp,
-          tankTempTo: newTankTemp,
+          const details = {
+            reason: reason,
+            currentPrice: `${currentPrice.toFixed(4)} kr/kWh`,
+            priceRatio: `${priceRatio.toFixed(2)}x average`,
+            heatingChange: `${currentSetTemp}°C → ${newTemp}°C`,
+            tankChange: `${currentSetTankTemp}°C → ${newTankTemp}°C`
+          } as any;
           
-          // Price information
-          currentPrice: currentPrice,
-          avgPrice: avgPrice,
-          priceRatio: priceRatio,
-          priceImpact: `${priceRatio.toFixed(2)}x average`,
+          // Savings will be displayed as currency in the timeline helper
           
-          // Action and savings
-          action: action,
-          heatingChange: newTemp - currentSetTemp,
-          tankChange: newTankTemp - currentSetTankTemp,
-          estimatedSavings: optimizationData.savings.estimatedSavings
-        };
-        
-        const details = {
-          reason: reason,
-          currentPrice: `${currentPrice.toFixed(4)} kr/kWh`,
-          priceRatio: `${priceRatio.toFixed(2)}x average`,
-          heatingChange: `${currentSetTemp}°C → ${newTemp}°C`,
-          tankChange: `${currentSetTankTemp}°C → ${newTankTemp}°C`
-        } as any;
-        
-        if (optimizationData.savings.estimatedSavings > 0) {
-          details.savings = `~${optimizationData.savings.estimatedSavings.toFixed(1)}% cost reduction`;
+          await timelineHelper.addTimelineEntry(
+            TimelineEventType.HOURLY_OPTIMIZATION_RESULT,
+            details,
+            false,
+            additionalData
+          );
+          log('Timeline entry created successfully with detailed information for actual changes');
+        } catch (timelineErr: any) {
+          log('Timeline entry creation failed:', timelineErr.message);
         }
-        
-        await timelineHelper.addTimelineEntry(
-          TimelineEventType.HOURLY_OPTIMIZATION_RESULT,
-          details,
-          false,
-          additionalData
-        );
-        log('Timeline entry created successfully with detailed information');
-      } catch (timelineErr: any) {
-        log('Timeline entry creation failed:', timelineErr.message);
+      } else {
+        log('No changes made, skipping timeline entry to reduce noise');
       }
       
       log('===== HOURLY OPTIMIZATION COMPLETED =====');
