@@ -185,6 +185,10 @@ let optimizer: any = null;
 let weather: any = null;
 let copHelper: any = null;
 
+// Service initialization tracking to prevent rapid re-initialization
+let lastInitializationTime: number = 0;
+const INITIALIZATION_COOLDOWN = 30 * 1000; // 30 seconds cooldown between initializations
+
 // Simple service implementations using native Node.js modules
 class SimpleMelCloudApi {
   private baseUrl = 'https://app.melcloud.com/Mitsubishi.Wifi.Client/';
@@ -554,8 +558,20 @@ export function loadHistoricalData(homey: HomeyApp): boolean {
 }
 
 export async function initializeServices(homey: HomeyApp): Promise<void> {
+  // Enhanced guard clause to prevent redundant initialization
   if (melCloud && tibber && optimizer) {
+    const log = homey.log || console.log;
+    log('Services already initialized - skipping redundant initialization');
     return; // Already initialized
+  }
+  
+  // Check initialization cooldown to prevent rapid re-initialization
+  const now = Date.now();
+  if (now - lastInitializationTime < INITIALIZATION_COOLDOWN) {
+    const log = homey.log || console.log;
+    const remainingCooldown = Math.ceil((INITIALIZATION_COOLDOWN - (now - lastInitializationTime)) / 1000);
+    log(`Service initialization on cooldown - ${remainingCooldown}s remaining`);
+    return;
   }
   
   const log = homey.log || console.log;
@@ -590,8 +606,37 @@ export async function initializeServices(homey: HomeyApp): Promise<void> {
   log('- Device ID:', deviceId);
   log('- Building ID:', buildingId);
   
+  // Create logger wrapper to match Logger interface
+  const loggerWrapper = {
+    log: log,
+    info: log,
+    error: (message: string, error?: Error | unknown, context?: Record<string, any>) => {
+      if (error) {
+        errorFn(`${message}: ${error instanceof Error ? error.message : String(error)}`);
+      } else {
+        errorFn(message);
+      }
+    },
+    debug: log,
+    warn: (message: string, context?: Record<string, any>) => {
+      log(`WARN: ${message}${context ? ` ${JSON.stringify(context)}` : ''}`);
+    },
+    api: log,
+    optimization: log,
+    notify: async (message: string) => {
+      log(`NOTIFY: ${message}`);
+    },
+    marker: log,
+    sendToTimeline: async (message: string, type?: 'info' | 'warning' | 'error') => {
+      log(`TIMELINE [${type || 'info'}]: ${message}`);
+    },
+    setLogLevel: () => {},
+    isEnabled: () => true
+  };
+
   // Create MELCloud API instance
-  melCloud = new SimpleMelCloudApi(log);
+  const { MelCloudApi } = require('./services/melcloud-api');
+  melCloud = new MelCloudApi(loggerWrapper);
   await melCloud.login(melcloudUser, melcloudPass);
   log('Successfully logged in to MELCloud');
   
@@ -608,36 +653,61 @@ export async function initializeServices(homey: HomeyApp): Promise<void> {
   }
   
   // Create Tibber API instance
-  tibber = new SimpleTibberApi(tibberToken, log);
+  tibber = new SimpleTibberApi(tibberToken, loggerWrapper);
   log('Tibber API initialized');
   
   // Initialize COP Helper
   try {
     const { COPHelper } = require('../services/cop-helper');
-    copHelper = new COPHelper(homey, log);
+    copHelper = new COPHelper(homey, loggerWrapper);
     log('COP Helper initialized');
   } catch (error: any) {
     log('COP Helper not available:', error.message);
   }
   
-  // Initialize advanced optimizer service
-  try {
-    const { Optimizer } = require('../services/optimizer');
-    optimizer = new Optimizer(melCloud, tibber, deviceId, buildingId, { log, error: errorFn }, homey);
-    log('Advanced Optimizer service initialized');
-  } catch (error: any) {
-    errorFn('Failed to initialize advanced optimizer:', error);
-    // Fallback to simplified optimizer
-    optimizer = { initialized: true, historicalData };
-    log('Using basic optimization algorithm as fallback');
+  // Initialize weather service if enabled and configured
+  let weatherService: any = null;
+  const useWeatherData = homey.settings.get('use_weather_data');
+  if (useWeatherData) {
+    const latitude = homey.settings.get('latitude');
+    const longitude = homey.settings.get('longitude');
+    
+    if (latitude && longitude) {
+      try {
+        const { WeatherApi } = require('./services/weather-api');
+        const weatherApi = new WeatherApi('MELCloudOptimizer/1.0 github.com/decline27/melcloud-optimizer', { log, error: errorFn });
+        
+        // Create a wrapper that calls getForecast and returns current weather
+        weatherService = {
+          async getCurrentWeather() {
+            const forecast = await weatherApi.getForecast(latitude, longitude);
+            return forecast.current;
+          }
+        };
+        
+        log('Weather service initialized with coordinates:', latitude, longitude);
+      } catch (weatherError: any) {
+        log('Warning: Failed to initialize weather service:', weatherError.message);
+      }
+    } else {
+      log('Weather data enabled but coordinates not set. Please configure latitude/longitude in settings.');
+    }
   }
+
+  // Initialize advanced optimizer service
+  const { Optimizer } = require('./services/optimizer');
+  optimizer = new Optimizer(melCloud, tibber, deviceId, buildingId, loggerWrapper, weatherService, homey);
+  log('Advanced Optimizer service initialized with weather integration:', weatherService ? 'enabled' : 'disabled');
+  
+  // Update last initialization time to prevent rapid re-initialization
+  lastInitializationTime = Date.now();
   
   log('Services initialized successfully with real implementations');
 }
 
 export async function updateOptimizerSettings(homey: HomeyApp): Promise<void> {
   if (!optimizer) {
-    return; // Optimizer not initialized yet
+    throw new Error('Optimizer not initialized - services must be initialized first');
   }
 
   const log = homey.log || console.log;
@@ -836,7 +906,15 @@ export async function getRunHourlyOptimizer({ homey }: { homey: HomeyApp }): Pro
       log(`Current set tank temperature: ${currentSetTankTemp}°C`);
       log(`Current outdoor temperature: ${outdoorTemp}°C`);
 
-      // Try to use advanced optimizer if available, fallback to basic algorithm
+      // Use advanced optimizer - always required
+      if (!optimizer || typeof optimizer.runEnhancedOptimization !== 'function') {
+        throw new Error('Advanced optimizer not available. Please check that services are properly initialized and all required settings (credentials, device IDs) are configured.');
+      }
+
+      log('Using advanced optimization algorithm');
+      
+      const optimizationResult = await optimizer.runEnhancedOptimization();
+      
       let action = 'no_change';
       let newTemp = currentSetTemp;
       let newTankTemp = currentSetTankTemp;
@@ -844,92 +922,27 @@ export async function getRunHourlyOptimizer({ homey }: { homey: HomeyApp }): Pro
       let currentPrice = priceData.current?.price || 0;
       let avgPrice = 0;
       let priceRatio = 1;
+      
+      if (optimizationResult.success) {
+        action = optimizationResult.action || 'no_change';
+        reason = optimizationResult.reason || reason;
+        
+        // Get temperature changes from result
+        if (optimizationResult.temperatureChange) {
+          newTemp = currentSetTemp + optimizationResult.temperatureChange;
+        }
+        if (optimizationResult.tankTemperatureChange) {
+          newTankTemp = currentSetTankTemp + optimizationResult.tankTemperatureChange;
+        }
+        
+        // Get price info if available
+        if (optimizationResult.currentPrice) currentPrice = optimizationResult.currentPrice;
+        if (optimizationResult.avgPrice) avgPrice = optimizationResult.avgPrice;
+        if (optimizationResult.priceRatio) priceRatio = optimizationResult.priceRatio;
 
-      if (optimizer && typeof optimizer.runEnhancedOptimization === 'function') {
-        // Use advanced optimizer
-        log('Using advanced optimization algorithm');
-        try {
-          const optimizationResult = await optimizer.runEnhancedOptimization();
-          
-          if (optimizationResult.success) {
-            action = optimizationResult.action || 'no_change';
-            reason = optimizationResult.reason || reason;
-            
-            // Get temperature changes from result
-            if (optimizationResult.temperatureChange) {
-              newTemp = currentSetTemp + optimizationResult.temperatureChange;
-            }
-            if (optimizationResult.tankTemperatureChange) {
-              newTankTemp = currentSetTankTemp + optimizationResult.tankTemperatureChange;
-            }
-            
-            // Get price info if available
-            if (optimizationResult.currentPrice) currentPrice = optimizationResult.currentPrice;
-            if (optimizationResult.avgPrice) avgPrice = optimizationResult.avgPrice;
-            if (optimizationResult.priceRatio) priceRatio = optimizationResult.priceRatio;
-
-            log(`Advanced optimization result: ${action} - ${reason}`);
-          } else {
-            log('Advanced optimization returned no changes needed');
-          }
-        } catch (advancedError: any) {
-          log(`Advanced optimizer failed, falling back to basic algorithm: ${advancedError.message}`);
-          // Fall through to basic algorithm below
-        }
-      }
-
-      // Fallback to basic optimization logic if advanced optimizer not available or failed
-      if (action === 'no_change' && (!optimizer || typeof optimizer.runEnhancedOptimization !== 'function')) {
-        log('Using basic optimization algorithm');
-        
-        // Validate prices array and calculate average safely
-        if (!priceData.prices || !Array.isArray(priceData.prices) || priceData.prices.length === 0) {
-          throw new Error('No price forecast data available');
-        }
-        
-        const validPrices = priceData.prices.filter((p: any) => p && typeof p.price === 'number');
-        if (validPrices.length === 0) {
-          throw new Error('No valid price data in forecast');
-        }
-        
-        avgPrice = validPrices.reduce((sum: number, p: any) => sum + p.price, 0) / validPrices.length;
-        priceRatio = avgPrice > 0 ? currentPrice / avgPrice : 1;
-        
-        log(`Price analysis: Current ${currentPrice} kr/kWh, Average ${avgPrice.toFixed(4)} kr/kWh, Ratio ${priceRatio.toFixed(2)}`);
-        
-        const minTemp = homey.settings.get('min_temp') || 18;
-        const maxTemp = homey.settings.get('max_temp') || 22;
-        const minTankTemp = 45;
-        const maxTankTemp = 55;
-        
-        // Basic optimization logic based on price thresholds
-        if (currentPrice < avgPrice * 0.8) {
-          // Low price - increase temperatures for preheating
-          if (currentSetTemp < maxTemp) {
-            newTemp = Math.min(currentSetTemp + 0.5, maxTemp);
-            action = 'heating_increased';
-          }
-          if (currentSetTankTemp < maxTankTemp) {
-            newTankTemp = Math.min(currentSetTankTemp + 2, maxTankTemp);
-            action = action === 'heating_increased' ? 'both_increased' : 'tank_increased';
-          }
-          if (action !== 'no_change') {
-            reason = `Low price (${priceRatio.toFixed(2)}x avg) - preheating for energy savings`;
-          }
-        } else if (currentPrice > avgPrice * 1.2) {
-          // High price - decrease temperatures to save energy
-          if (currentSetTemp > minTemp) {
-            newTemp = Math.max(currentSetTemp - 0.5, minTemp);
-            action = 'heating_decreased';
-          }
-          if (currentSetTankTemp > minTankTemp) {
-            newTankTemp = Math.max(currentSetTankTemp - 2, minTankTemp);
-            action = action === 'heating_decreased' ? 'both_decreased' : 'tank_decreased';
-          }
-          if (action !== 'no_change') {
-            reason = `High price (${priceRatio.toFixed(2)}x avg) - reducing consumption for cost savings`;
-          }
-        }
+        log(`Advanced optimization result: ${action} - ${reason}`);
+      } else {
+        log('Advanced optimization returned no changes needed');
       }
 
       // Store optimization data

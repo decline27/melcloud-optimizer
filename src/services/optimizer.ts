@@ -140,6 +140,12 @@ export class Optimizer {
   private copWeight: number = 0.3;
   private autoSeasonalMode: boolean = true;
   private summerMode: boolean = false;
+  
+  // Tank temperature settings
+  private minTankTemp: number = 41;
+  private maxTankTemp: number = 53;
+  private tankTempStep: number = 1;
+  private enableTankControl: boolean = true;
   private enhancedSavingsCalculator: EnhancedSavingsCalculator;
   private lastEnergyData: RealEnergyData | null = null;
   private optimizationMetrics: OptimizationMetrics | null = null;
@@ -206,6 +212,12 @@ export class Optimizer {
         this.copWeight = homey.settings.get('cop_weight') || 0.3;
         this.autoSeasonalMode = homey.settings.get('auto_seasonal_mode') !== false;
         this.summerMode = homey.settings.get('summer_mode') === true;
+        
+        // Load tank temperature settings
+        this.minTankTemp = homey.settings.get('min_tank_temp') || 41;
+        this.maxTankTemp = homey.settings.get('max_tank_temp') || 53;
+        this.tankTempStep = homey.settings.get('tank_temp_step') || 1;
+        this.enableTankControl = homey.settings.get('enable_tank_control') !== false;
 
         this.logger.log(`COP settings loaded - Weight: ${this.copWeight}, Auto Seasonal: ${this.autoSeasonalMode}, Summer Mode: ${this.summerMode}`);
         
@@ -986,6 +998,10 @@ export class Optimizer {
         this.homey.settings.set('cop_weight', this.copWeight);
         this.homey.settings.set('auto_seasonal_mode', this.autoSeasonalMode);
         this.homey.settings.set('summer_mode', this.summerMode);
+        this.homey.settings.set('min_tank_temp', this.minTankTemp);
+        this.homey.settings.set('max_tank_temp', this.maxTankTemp);
+        this.homey.settings.set('tank_temp_step', this.tankTempStep);
+        this.homey.settings.set('enable_tank_control', this.enableTankControl);
       } catch (error) {
         this.logger.error('Failed to save COP settings to Homey settings:', error);
       }

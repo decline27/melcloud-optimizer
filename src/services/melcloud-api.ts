@@ -27,8 +27,10 @@ export class MelCloudApi extends BaseApiService {
   private reconnectTimers: NodeJS.Timeout[] = [];
   private timeZoneHelper: TimeZoneHelper;
   
-  // Request deduplication (Task 1.2)
+  // Request deduplication and global rate limiting
   private pendingRequests = new Map<string, Promise<any>>();
+  private static globalLastApiCall: number = 0;
+  private static globalMinInterval: number = 15000; // 15 seconds between any MELCloud API calls globally
 
   /**
    * Constructor
@@ -37,10 +39,10 @@ export class MelCloudApi extends BaseApiService {
   constructor(logger?: Logger) {
     // Call the parent constructor with service name and logger
     super('MELCloud', logger || (global.logger as Logger), {
-      failureThreshold: 3,
-      resetTimeout: 60000, // 1 minute
-      halfOpenSuccessThreshold: 1,
-      timeout: 15000 // 15 seconds
+      failureThreshold: 5, // Allow more failures for temperature control operations
+      resetTimeout: 180000, // 3 minutes reset timeout (was 10 minutes)
+      halfOpenSuccessThreshold: 1, // Only need 1 success to close (was 2)
+      timeout: 30000 // 30 seconds timeout
     });
 
     // Initialize time zone helper
@@ -160,6 +162,7 @@ export class MelCloudApi extends BaseApiService {
    * @param method HTTP method
    * @param endpoint API endpoint
    * @param options Request options
+   * @param isCritical Optional flag to bypass circuit breaker for critical operations
    * @returns Promise resolving to API response
    */
   private async throttledApiCall<T>(
@@ -168,7 +171,8 @@ export class MelCloudApi extends BaseApiService {
     options: {
       headers?: Record<string, string>;
       body?: string;
-    } = {}
+    } = {},
+    isCritical: boolean = false
   ): Promise<T> {
     // Check for duplicate requests (Task 1.2)
     const requestKey = this.getRequestKey(method, endpoint, options);
@@ -179,9 +183,19 @@ export class MelCloudApi extends BaseApiService {
       return this.pendingRequests.get(requestKey) as Promise<T>;
     }
 
-    // Use circuit breaker to protect against cascading failures
-    const requestPromise = this.circuitBreaker.execute(async () => {
-      // Throttle requests using the base class method
+    // Use circuit breaker to protect against cascading failures, but allow bypass for critical operations
+    const executeRequest = async () => {
+      // Global throttling across all MELCloud instances
+      const now = Date.now();
+      const timeSinceGlobalLastCall = now - MelCloudApi.globalLastApiCall;
+      if (timeSinceGlobalLastCall < MelCloudApi.globalMinInterval) {
+        const globalDelay = MelCloudApi.globalMinInterval - timeSinceGlobalLastCall;
+        this.logger.debug(`Global throttling MELCloud API call, waiting ${globalDelay}ms`);
+        await new Promise(resolve => setTimeout(resolve, globalDelay));
+      }
+      MelCloudApi.globalLastApiCall = Date.now();
+      
+      // Instance-specific throttle requests using the base class method
       await this.throttle();
 
       // Log the API call
@@ -245,6 +259,7 @@ export class MelCloudApi extends BaseApiService {
 
         // Handle request errors
         req.on('error', (error) => {
+          this.logger.error(`MELCloud API request error: ${error.message}`);
           reject(new Error(`API request error: ${error.message}`));
         });
 
@@ -256,13 +271,25 @@ export class MelCloudApi extends BaseApiService {
         // End the request
         req.end();
       });
-    });
+    };
+
+    // Execute with or without circuit breaker based on criticality
+    if (isCritical) {
+      this.logger.debug(`CRITICAL operation ${method} ${endpoint} - bypassing circuit breaker`);
+    }
+    const requestPromise = isCritical ? 
+      executeRequest() : 
+      this.circuitBreaker.execute(executeRequest);
 
     // Track the request promise (Task 1.2)
     this.pendingRequests.set(requestKey, requestPromise);
 
     // Clean up the tracking when request completes (success or failure)
     requestPromise
+      .catch((error) => {
+        // Log but don't rethrow here to avoid unhandled rejections in the tracking
+        this.logger.debug(`Request ${requestKey} failed: ${error.message}`);
+      })
       .finally(() => {
         this.pendingRequests.delete(requestKey);
       });
@@ -321,7 +348,7 @@ export class MelCloudApi extends BaseApiService {
   }
 
   /**
-   * Get devices from MELCloud
+   * Get devices from MELCloud with caching
    * @returns Promise resolving to devices array
    */
   async getDevices(): Promise<DeviceInfo[]> {
@@ -333,6 +360,15 @@ export class MelCloudApi extends BaseApiService {
         }
       }
 
+      // Check cache for devices (1 hour TTL for device list)
+      const cacheKey = 'device_list';
+      const cachedDevices = this.getCachedData<DeviceInfo[]>(cacheKey);
+      
+      if (cachedDevices) {
+        this.logger.debug('Using cached device list');
+        return cachedDevices;
+      }
+
       this.logApiCall('GET', 'User/ListDevices');
 
       try {
@@ -342,6 +378,10 @@ export class MelCloudApi extends BaseApiService {
 
         this.devices = this.extractDevices(data);
         this.logger.log(`MELCloud devices retrieved: ${this.devices.length} devices found`);
+        
+        // Cache the device list with 1-hour TTL
+        this.setCachedData(cacheKey, this.devices, 60 * 60 * 1000);
+        
         return this.devices;
       } catch (error) {
         // Create a standardized error with context
@@ -413,25 +453,7 @@ export class MelCloudApi extends BaseApiService {
         this.logger.log(`Found ${foundDevices.length} devices in building ${building.Name || 'Unknown'}`);
         devices.push(...foundDevices);
       } else {
-        this.logger.log(`No devices found in building ${building.Name || 'Unknown'}. Creating a dummy device for testing.`);
-        // Create a dummy device using the building ID
-        const dummyDeviceId = 123456; // Use a fixed ID for consistency
-        devices.push({
-          id: dummyDeviceId,
-          name: 'Dummy Heat Pump',
-          buildingId: building.ID,
-          type: 'heat_pump',
-          data: {
-            DeviceID: dummyDeviceId,
-            DeviceName: 'Dummy Heat Pump',
-            BuildingID: building.ID,
-            RoomTemperature: 21.0,
-            SetTemperature: 21.0,
-            Power: true,
-            OperationMode: 1
-          },
-          isDummy: true
-        });
+        this.logger.debug(`No devices found in building ${building.Name || 'Unknown'} - skipping.`);
       }
     });
 
@@ -814,9 +836,10 @@ export class MelCloudApi extends BaseApiService {
    * Get device state
    * @param deviceId Device ID
    * @param buildingId Building ID
+   * @param forceRefresh Optional flag to bypass cache (use when making changes)
    * @returns Promise resolving to device state
    */
-  async getDeviceState(deviceId: string, buildingId: number): Promise<MelCloudDevice> {
+  async getDeviceState(deviceId: string, buildingId: number, forceRefresh?: boolean): Promise<MelCloudDevice> {
     try {
       if (!this.contextKey) {
         const connected = await this.ensureConnected();
@@ -826,11 +849,16 @@ export class MelCloudApi extends BaseApiService {
       }
 
       const cacheKey = `device_state_${deviceId}_${buildingId}`;
-      const cachedData = this.getCachedData<any>(cacheKey);
-
-      if (cachedData) {
-        this.logger.debug(`Using cached device state for device ${deviceId}`);
-        return cachedData;
+      
+      // Only use cache if we're not forcing refresh (i.e., not making temperature changes)
+      if (!forceRefresh) {
+        const cachedData = this.getCachedData<any>(cacheKey);
+        if (cachedData) {
+          this.logger.debug(`Using cached device state for device ${deviceId}`);
+          return cachedData;
+        }
+      } else {
+        this.logger.debug(`Forcing fresh device state for device ${deviceId} (bypassing cache)`);
       }
 
       this.logApiCall('GET', `Device/Get?id=${deviceId}&buildingID=${buildingId}`);
@@ -842,8 +870,11 @@ export class MelCloudApi extends BaseApiService {
 
         this.logger.log(`MELCloud device state retrieved for device ${deviceId}`);
 
-        // Cache the result
-        this.setCachedData(cacheKey, data);
+        // Only cache if not forced refresh (i.e., this was a read-only operation)
+        // Use shorter TTL for device state since it contains current temperature readings
+        if (!forceRefresh) {
+          this.setCachedData(cacheKey, data, 2 * 60 * 1000); // 2 minutes TTL for device state
+        }
 
         return data;
       } catch (error) {
@@ -888,6 +919,29 @@ export class MelCloudApi extends BaseApiService {
   }
 
   /**
+   * Invalidate device state cache after making changes
+   * @param deviceId Device ID
+   * @param buildingId Building ID
+   */
+  private invalidateDeviceStateCache(deviceId: string, buildingId: number): void {
+    const cacheKey = `device_state_${deviceId}_${buildingId}`;
+    this.cache.delete(cacheKey);
+    this.logger.debug(`Invalidated device state cache for device ${deviceId}`);
+  }
+
+  /**
+   * Emergency circuit breaker reset for critical operations
+   * Use with caution - only when temperature control is blocked
+   */
+  public emergencyCircuitBreakerReset(): void {
+    this.logger.warn('EMERGENCY: Resetting circuit breaker for critical temperature control');
+    // Reset the circuit breaker state manually
+    (this.circuitBreaker as any).state = 'CLOSED';
+    (this.circuitBreaker as any).failures = 0;
+    (this.circuitBreaker as any).successes = 0;
+  }
+
+  /**
    * Clean up any pending timers and resources
    * This is important for tests to prevent memory leaks and lingering timers
    */
@@ -925,28 +979,49 @@ export class MelCloudApi extends BaseApiService {
       this.logger.log(`Setting temperature for device ${deviceId} to ${temperature}°C`);
 
       try {
-        // First get current state
-        const currentState = await this.getDeviceState(deviceId, buildingId);
+        // First get current state with fresh data (bypass cache for temperature changes)
+        const currentState = await this.getDeviceState(deviceId, buildingId, true);
 
-        // Update temperature
-        currentState.SetTemperature = temperature;
+        // Update temperature based on device type
+        // For ATW (Air-to-Water) devices, use SetTemperatureZone1, for ATA (Air-to-Air) use SetTemperature
+        // Device/Get doesn't include CanHeat/HasHotWaterTank, so detect ATW by presence of tank properties
+        const hasATWProperties = currentState.TankWaterTemperature !== undefined && 
+                                currentState.SetTankWaterTemperature !== undefined &&
+                                currentState.SetTemperatureZone1 !== undefined;
+        const isATW = hasATWProperties;
+        
+        // Debug logging
+        this.logger.debug(`Device type detection: TankWaterTemp=${currentState.TankWaterTemperature}, SetTankTemp=${currentState.SetTankWaterTemperature}, SetTempZone1=${currentState.SetTemperatureZone1}, isATW=${isATW}`);
+        
+        if (isATW) {
+          // Air-to-Water device - use zone temperature control
+          currentState.SetTemperatureZone1 = temperature;
+          this.logger.debug(`ATW device detected - using SetAtw endpoint with SetTemperatureZone1=${temperature}`);
+        } else {
+          // Air-to-Air device - use direct temperature control
+          currentState.SetTemperature = temperature;
+          this.logger.debug(`ATA device detected - using SetAta endpoint with SetTemperature=${temperature}`);
+        }
 
-        this.logApiCall('POST', 'Device/SetAta', { deviceId, temperature });
+        const endpoint = isATW ? 'Device/SetAtw' : 'Device/SetAta';
+        this.logApiCall('POST', endpoint, { deviceId, temperature });
 
-        // Send update with retry
+        // Send update with retry - mark as critical to bypass circuit breaker
         const data = await this.retryableRequest(
-          () => this.throttledApiCall<any>('POST', 'Device/SetAta', {
+          () => this.throttledApiCall<any>('POST', endpoint, {
             headers: {
               'Content-Type': 'application/json',
             },
             body: JSON.stringify(currentState),
-          })
+          }, true) // Critical operation - bypass circuit breaker
         );
 
         const success = data !== null;
 
         if (success) {
           this.logger.log(`Successfully set temperature for device ${deviceId} to ${temperature}°C`);
+          // Invalidate device state cache since we made changes
+          this.invalidateDeviceStateCache(deviceId, buildingId);
         } else {
           this.logger.error(`Failed to set temperature for device ${deviceId}`);
         }
@@ -996,7 +1071,7 @@ export class MelCloudApi extends BaseApiService {
   }
 
   /**
-   * Get energy consumption data for a device
+   * Get energy consumption data for a device with enhanced caching and deduplication
    * @param deviceId Device ID
    * @param buildingId Building ID  
    * @param from Start date (ISO date string, optional)
@@ -1018,6 +1093,15 @@ export class MelCloudApi extends BaseApiService {
       ToDate: to || new Date().toISOString().split('T')[0]
     };
     
+    // Create cache key for energy data requests to prevent duplicate calls
+    const energyDataCacheKey = `energy_data_${deviceId}_${postData.FromDate}_${postData.ToDate}`;
+    const cachedEnergyData = this.getCachedData<any>(energyDataCacheKey);
+    
+    if (cachedEnergyData) {
+      this.logger.debug(`Using cached energy data for device ${deviceId} (${postData.FromDate} to ${postData.ToDate})`);
+      return cachedEnergyData;
+    }
+    
     this.logApiCall('POST', url, postData);
     
     const data = await this.retryableRequest(
@@ -1031,6 +1115,9 @@ export class MelCloudApi extends BaseApiService {
 
     // Log the actual API response for debugging
     this.logger?.info('Raw energy API response:', JSON.stringify(data, null, 2));
+
+    // Cache the energy data result with 30-minute TTL to prevent duplicate API calls
+    this.setCachedData(energyDataCacheKey, data, 30 * 60 * 1000);
 
     return data;
   }
@@ -1060,6 +1147,30 @@ export class MelCloudApi extends BaseApiService {
     HasZone2?: boolean; // Include Zone 2 support flag from API
   }> {
     try {
+      // Smart caching based on time - energy data changes less frequently at night
+      const now = new Date();
+      const hour = now.getHours();
+      let cacheDuration: number;
+      
+      if (hour >= 23 || hour <= 5) {
+        // Night hours: cache for 2 hours (less activity)
+        cacheDuration = 2 * 60 * 60 * 1000;
+      } else if (hour >= 6 && hour <= 8) {
+        // Morning peak: cache for 15 minutes (more frequent updates needed)
+        cacheDuration = 15 * 60 * 1000;
+      } else {
+        // Regular hours: cache for 45 minutes
+        cacheDuration = 45 * 60 * 1000;
+      }
+      
+      const cacheKey = `energy_totals_${deviceId}_${buildingId}`;
+      const cachedData = this.getCachedData<any>(cacheKey);
+      
+      if (cachedData) {
+        this.logger.debug(`Using cached energy totals for device ${deviceId} (smart caching: ${cacheDuration/1000/60}min TTL)`);
+        return cachedData;
+      }
+      
       // Try with a broader date range - last 7 days to increase chances of getting data
       const today = new Date();
       const oneWeekAgo = new Date(today);
@@ -1137,6 +1248,9 @@ export class MelCloudApi extends BaseApiService {
       (result as any).coolingCOP = rounded(coolingCOP);
       (result as any).averageCOP = averageCOP !== null && !Number.isNaN(averageCOP) ? Math.round(averageCOP * 100) / 100 : null;
 
+      // Cache the result with smart TTL based on time of day
+      this.setCachedData(cacheKey, result, cacheDuration);
+
       return result;
     } catch (error) {
       this.logger.warn(`Failed to get daily energy totals for device ${deviceId}:`, {
@@ -1181,28 +1295,30 @@ export class MelCloudApi extends BaseApiService {
       this.logger.log(`Setting hot water mode for device ${deviceId} to ${forced ? 'forced' : 'auto'}`);
 
       try {
-        // First get current state
-        const currentState = await this.getDeviceState(deviceId, buildingId);
+        // First get current state with fresh data (bypass cache for changes)
+        const currentState = await this.getDeviceState(deviceId, buildingId, true);
 
         // Update hot water mode
         currentState.ForcedHotWaterMode = forced;
 
         this.logApiCall('POST', 'Device/SetAtw', { deviceId, forcedHotWaterMode: forced });
 
-        // Send update with retry
+        // Send update with retry - mark as critical to bypass circuit breaker
         const data = await this.retryableRequest(
           () => this.throttledApiCall<any>('POST', 'Device/SetAtw', {
             headers: {
               'Content-Type': 'application/json',
             },
             body: JSON.stringify(currentState),
-          })
+          }, true) // Critical operation - bypass circuit breaker
         );
 
         const success = data !== null;
 
         if (success) {
           this.logger.log(`Successfully set hot water mode for device ${deviceId} to ${forced ? 'forced' : 'auto'}`);
+          // Invalidate device state cache since we made changes
+          this.invalidateDeviceStateCache(deviceId, buildingId);
         } else {
           this.logger.error(`Failed to set hot water mode for device ${deviceId}`);
         }
