@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "build": "tsc && NODE_ENV=production homey app build",
+    "build:prod": "tsc && npm prune --omit=dev && NODE_ENV=production homey app build && npm install",
     "build:ts": "tsc",
     "build:homey": "homey app build",
     "start": "homey app run",
@@ -21,13 +22,14 @@
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",
-    "@types/node-fetch": "^2.6.12",
     "jest": "^29.7.0",
-    "node-fetch": "^3.3.2",
     "ts-jest": "^29.3.2",
     "typescript": "^5.8.3"
   },
   "dependencies": {
+    "@types/node": "^24.3.0",
+    "@types/node-fetch": "^2.6.13",
+    "node-fetch": "^3.3.2",
     "cron": "^3.1.7",
     "luxon": "^3.4.4"
   },
