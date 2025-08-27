@@ -2090,6 +2090,12 @@ export class Optimizer {
    * @returns Estimated savings
    */
   private calculateSavings(oldTemp: number, newTemp: number, currentPrice: number): number {
+    // Validate inputs to prevent NaN propagation
+    if (!Number.isFinite(oldTemp) || !Number.isFinite(newTemp) || !Number.isFinite(currentPrice)) {
+      this.logger.error('Invalid input to calculateSavings:', { oldTemp, newTemp, currentPrice });
+      return 0; // Return 0 instead of NaN for invalid inputs
+    }
+
     // Simple model: each degree lower saves about 5% energy
     const tempDiff = oldTemp - newTemp;
     const energySavingPercent = tempDiff * 5;
@@ -2099,7 +2105,8 @@ export class Optimizer {
     const hourlyConsumption = 1; // kWh
     const savings = (energySavingPercent / 100) * hourlyConsumption * currentPrice;
 
-    return savings;
+    // Ensure we return a finite number
+    return Number.isFinite(savings) ? savings : 0;
   }
 
   /**

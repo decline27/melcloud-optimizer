@@ -434,6 +434,12 @@ export class ThermalModelService {
    */
   private calculateSavings(normalTemp: number, optimizedTemp: number, expensivePrice: number): number {
     try {
+      // Validate inputs to prevent NaN propagation
+      if (!Number.isFinite(normalTemp) || !Number.isFinite(optimizedTemp) || !Number.isFinite(expensivePrice)) {
+        this.homey.error('Invalid input to thermal model calculateSavings:', { normalTemp, optimizedTemp, expensivePrice });
+        return 0;
+      }
+
       const characteristics = this.analyzer.getThermalCharacteristics();
 
       // Calculate energy difference between heating strategies
@@ -446,7 +452,9 @@ export class ThermalModelService {
       // Calculate monetary savings based on price
       const savings = energySavingFactor * expensivePrice;
 
-      return Math.round(savings * 100) / 100; // Round to 2 decimal places
+      // Ensure we return a finite number
+      const roundedSavings = Math.round(savings * 100) / 100; // Round to 2 decimal places
+      return Number.isFinite(roundedSavings) ? roundedSavings : 0;
     } catch (error) {
       this.homey.error('Error calculating savings:', error);
       return 0;

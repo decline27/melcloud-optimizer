@@ -456,21 +456,33 @@ export class TimelineHelper {
                 additionalData.dailySavings :
                 (additionalData.savings * 24); // Convert hourly to daily if dailySavings not available
 
-              // Use Intl.NumberFormat for proper currency formatting
-              const formattedSavings = new Intl.NumberFormat(userLocale, {
-                style: 'currency',
-                currency: userCurrency,
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2
-              }).format(savingsAmount);
+              // Validate savings amount to prevent NaN display
+              if (!Number.isFinite(savingsAmount)) {
+                this.logger.error('Invalid savings amount (NaN) prevented from displaying in timeline');
+                message += `. Projected daily savings: calculation error`;
+              } else {
+                // Use Intl.NumberFormat for proper currency formatting
+                const formattedSavings = new Intl.NumberFormat(userLocale, {
+                  style: 'currency',
+                  currency: userCurrency,
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2
+                }).format(savingsAmount);
 
-              message += `. Projected daily savings: ${formattedSavings}`;
+                message += `. Projected daily savings: ${formattedSavings}`;
+              }
             } catch (error) {
               // Fallback to simple formatting if there's an error with locale/currency
               const savingsAmount = additionalData.dailySavings !== undefined ?
                 additionalData.dailySavings :
                 (additionalData.savings * 24);
-              message += `. Projected daily savings: €${savingsAmount.toFixed(2)}`;
+              
+              // Validate before formatting
+              if (!Number.isFinite(savingsAmount)) {
+                message += `. Projected daily savings: calculation error`;
+              } else {
+                message += `. Projected daily savings: €${savingsAmount.toFixed(2)}`;
+              }
               this.logger.error('Error formatting currency:', error);
             }
           }

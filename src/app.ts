@@ -33,6 +33,10 @@ export default class HeatOptimizerApp extends App {
     includeTimestamps: true,
     includeSourceModule: true
   });
+
+  // Execution locks to prevent concurrent runs
+  private isHourlyOptimizationRunning: boolean = false;
+  private isWeeklyCalibrationRunning: boolean = false;
   private memoryUsageInterval?: NodeJS.Timeout;
 
   /**
@@ -657,6 +661,18 @@ export default class HeatOptimizerApp extends App {
    * Run the hourly optimization process
    */
   public async runHourlyOptimizer() {
+    // Check if optimization is already running
+    if (this.isHourlyOptimizationRunning) {
+      this.logger.warn('Hourly optimization already running, skipping duplicate execution');
+      return {
+        success: false,
+        message: 'Optimization already in progress',
+        error: 'Concurrent execution prevented'
+      };
+    }
+
+    // Set lock
+    this.isHourlyOptimizationRunning = true;
     this.logger.marker('HOURLY OPTIMIZATION STARTED');
     this.logger.optimization('Starting hourly optimization process');
 
@@ -791,6 +807,10 @@ export default class HeatOptimizerApp extends App {
 
       this.logger.marker('HOURLY OPTIMIZATION FAILED');
       throw error; // Re-throw to propagate the error
+    } finally {
+      // Always release the lock, regardless of success or failure
+      this.isHourlyOptimizationRunning = false;
+      this.logger.debug('Released hourly optimization lock');
     }
   }
 
@@ -941,6 +961,18 @@ export default class HeatOptimizerApp extends App {
    * Run the weekly calibration process
    */
   public async runWeeklyCalibration() {
+    // Check if calibration is already running
+    if (this.isWeeklyCalibrationRunning) {
+      this.logger.warn('Weekly calibration already running, skipping duplicate execution');
+      return {
+        success: false,
+        message: 'Calibration already in progress',
+        error: 'Concurrent execution prevented'
+      };
+    }
+
+    // Set lock
+    this.isWeeklyCalibrationRunning = true;
     this.log('Starting weekly calibration');
     this.log('===== WEEKLY CALIBRATION STARTED =====');
 
@@ -1021,6 +1053,10 @@ export default class HeatOptimizerApp extends App {
 
       this.error('===== WEEKLY CALIBRATION FAILED =====');
       throw error; // Re-throw to propagate the error
+    } finally {
+      // Always release the lock, regardless of success or failure
+      this.isWeeklyCalibrationRunning = false;
+      this.logger.debug('Released weekly calibration lock');
     }
   }
 
