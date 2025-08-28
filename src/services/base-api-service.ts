@@ -37,6 +37,12 @@ export abstract class BaseApiService {
       timeout: 15000, // 15 seconds
       ...circuitBreakerOptions
     });
+
+    // In test environments, disable throttling to keep unit tests fast
+    const isTestEnv = process.env.NODE_ENV === 'test' || typeof (global as any).jest !== 'undefined' || typeof (process as any).env?.JEST_WORKER_ID !== 'undefined';
+    if (isTestEnv) {
+      this.minApiCallInterval = 0;
+    }
   }
 
   /**

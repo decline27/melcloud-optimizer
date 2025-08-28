@@ -1,0 +1,1010 @@
+────── Logging stdout & stderr ───────────────
+2025-08-28T12:58:57.941Z [log] [HeatOptimizerApp] [2025-08-28 12:58:57.938] [App] [App] Logger initialized with level: ERROR, verbose mode: false
+2025-08-28T12:58:57.962Z [log] [HeatOptimizerApp] Centralized logger initialized with level: ERROR
+2025-08-28T12:58:57.963Z [log] [HeatOptimizerApp] [2025-08-28 12:58:57.963] [App] [App] ===== MELCloud Optimizer App Starting =====
+2025-08-28T12:58:57.993Z [log] [HeatOptimizerApp] Validating settings
+2025-08-28T12:58:57.997Z [err] [HeatOptimizerApp] Min temperature must be less than max temperature
+2025-08-28T12:58:58.656Z [log] [HeatOptimizerApp] COP calculation jobs scheduled
+2025-08-28T12:58:58.665Z [log] Loaded 0 hot water usage data points from settings storage
+2025-08-28T12:58:58.671Z [log] Loaded 0 aggregated hot water data points from settings storage
+2025-08-28T12:58:58.684Z [log] Memory usage: 0.00 KB, 0 data points, 0.00 bytes per data point
+2025-08-28T12:58:58.700Z [log] Hot Water Service initialized
+2025-08-28T12:58:58.709Z [log] [HeatOptimizerApp] ===== INITIALIZING CRON JOBS =====
+2025-08-28T12:58:58.716Z [log] [HeatOptimizerApp] Cleaning up cron jobs...
+2025-08-28T12:58:58.722Z [log] [HeatOptimizerApp] Cron jobs cleaned up successfully
+2025-08-28T12:58:58.727Z [log] [HeatOptimizerApp] DST is active, adding 1 hour to the time zone offset
+2025-08-28T12:58:58.732Z [log] [HeatOptimizerApp] Current UTC time: 2025-08-28T12:58:58.726Z
+2025-08-28T12:58:58.737Z [log] [HeatOptimizerApp] Homey local time: Thu, 28 Aug 2025 14:58:58 GMT
+2025-08-28T12:58:58.741Z [log] [HeatOptimizerApp] Homey time zone offset: 1 hours (with DST enabled)
+2025-08-28T12:58:58.746Z [log] [HeatOptimizerApp] Using Homey time zone: UTC+2
+2025-08-28T12:58:58.749Z [log] [HeatOptimizerApp] Creating hourly cron job with pattern: 0 5 * * * * (Time zone: UTC+2)
+2025-08-28T12:58:58.769Z [log] [HeatOptimizerApp] Creating weekly cron job with pattern: 0 5 2 * * 0 (Time zone: UTC+2)
+2025-08-28T12:58:58.785Z [log] [HeatOptimizerApp] Starting hourly cron job...
+2025-08-28T12:58:58.790Z [log] [HeatOptimizerApp] Hourly cron job started
+2025-08-28T12:58:58.795Z [log] [HeatOptimizerApp] Starting weekly cron job...
+2025-08-28T12:58:58.800Z [log] [HeatOptimizerApp] Weekly cron job started
+2025-08-28T12:58:58.821Z [log] [HeatOptimizerApp] Hourly job running: true
+2025-08-28T12:58:58.827Z [log] [HeatOptimizerApp] Weekly job running: true
+2025-08-28T12:58:59.509Z [log] [HeatOptimizerApp] Setting changed: cron_status
+2025-08-28T12:58:59.516Z [log] [HeatOptimizerApp] Setting cron_status value: {"hourlyJob":{"running":true,"nextRun":"2025-08-28T15:05:00.000+02:00","cronTime":"0 5 * * * *","timeZone":"UTC+2"},"weeklyJob":{"running":true,"nextRun":"2025-08-31T02:05:00.000+02:00","cronTime":"0 5 2 * * 0","timeZone":"UTC+2"},"lastUpdated":"2025-08-28T12:58:58.848Z","homeyTimeZone":"UTC+2","homeyTimeZoneOffset":1,"homeyDST":true,"homeyEffectiveOffset":2}
+2025-08-28T12:58:59.541Z [log] [HeatOptimizerApp] Hourly cron job started - next run at: 2025-08-28T15:05:00.000+02:00
+2025-08-28T12:58:59.546Z [log] [HeatOptimizerApp] Weekly cron job started - next run at: 2025-08-31T02:05:00.000+02:00
+2025-08-28T12:58:59.551Z [log] [HeatOptimizerApp] Cron jobs started successfully
+🚀 API.JS FILE LOADED - SDK v3 - TIMESTAMP: 2025-08-28T12:58:59.610Z
+2025-08-28T12:58:59.733Z [log] [2025-08-28 12:58:59.732] [BoilerDriver] [BoilerDriver] Logger initialized with level: INFO, verbose mode: false
+2025-08-28T12:58:59.738Z [log] [2025-08-28 12:58:59.738] [BoilerDriver] [BoilerDriver] BoilerDriver has been initialized
+2025-08-28T12:58:59.747Z [log] [2025-08-28 12:58:59.747] [BoilerDriver] [BoilerDriver] MELCloud API initialized for driver
+2025-08-28T12:58:59.886Z [log] [2025-08-28 12:58:59.886] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Logger initialized with level: INFO, verbose mode: false
+2025-08-28T12:58:59.900Z [log] [2025-08-28 12:58:59.899] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] BoilerDevice has been initialized
+2025-08-28T12:58:59.920Z [log] [2025-08-28 12:58:59.920] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Initialized for MELCloud device 59132691 in building 513523
+2025-08-28T12:58:59.927Z [log] [2025-08-28 12:58:59.927] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] MELCloud API initialized for device
+2025-08-28T12:58:59.938Z [log] [2025-08-28 12:58:59.938] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Polling configuration initialized:
+2025-08-28T12:58:59.946Z [log] [2025-08-28 12:58:59.946] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]]   - Data interval: 5 minutes (300000ms)
+2025-08-28T12:58:59.952Z [log] [2025-08-28 12:58:59.952] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]]   - Energy interval: 15 minutes (900000ms)
+2025-08-28T12:58:59.967Z [log] [2025-08-28 12:58:59.967] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]]   - Adaptive mode: enabled
+2025-08-28T12:58:59.973Z [log] [2025-08-28 12:58:59.973] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Circuit breakers initialized for API protection
+2025-08-28T12:58:59.992Z [log] [2025-08-28 12:58:59.992] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Checking required capabilities...
+2025-08-28T12:59:01.108Z [log] [2025-08-28 12:59:01.108] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Added Zone 2 capability: measure_temperature.zone2
+2025-08-28T12:59:02.350Z [log] [2025-08-28 12:59:02.349] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Added Zone 2 capability: target_temperature.zone2
+2025-08-28T12:59:03.719Z [log] [2025-08-28 12:59:03.719] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Added Zone 2 capability: thermostat_mode.zone2
+2025-08-28T12:59:05.010Z [log] [2025-08-28 12:59:05.010] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Added Zone 2 capability: operational_state.zone2
+2025-08-28T12:59:05.043Z [log] [2025-08-28 12:59:05.043] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Capability check completed
+2025-08-28T12:59:05.101Z [log] [2025-08-28 12:59:05.101] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Attempting to reconnect to MELCloud (attempt 1/5)
+2025-08-28T12:59:05.240Z [log] API: [2025-08-28 12:59:05.240] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] POST Login/ClientLogin {
+  "method": "POST",
+  "endpoint": "Login/ClientLogin",
+  "params": null,
+  "timestamp": "2025-08-28T12:59:05.239Z",
+  "service": "MELCloud"
+}
+2025-08-28T12:59:07.040Z [log] [2025-08-28 12:59:07.040] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] MELCloud login successful
+2025-08-28T12:59:07.056Z [log] [2025-08-28 12:59:07.056] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Successfully reconnected to MELCloud
+2025-08-28T12:59:07.063Z [log] API: [2025-08-28 12:59:07.063] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] GET Device/Get?id=59132691&buildingID=513523 {
+  "method": "GET",
+  "endpoint": "Device/Get?id=59132691&buildingID=513523",
+  "params": null,
+  "timestamp": "2025-08-28T12:59:07.062Z",
+  "service": "MELCloud"
+}
+2025-08-28T12:59:20.224Z [log] API: [2025-08-28 12:59:20.224] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] GET Device/Get?id=59132691&buildingID=513523 {
+  "method": "GET",
+  "endpoint": "Device/Get?id=59132691&buildingID=513523",
+  "params": null,
+  "timestamp": "2025-08-28T12:59:20.223Z",
+  "service": "MELCloud"
+}
+2025-08-28T12:59:20.252Z [log] WARN: [2025-08-28 12:59:20.252] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] ⚠️ Circuit API-59132691 failure: Request timeout after 15000ms (1/3)
+2025-08-28T12:59:20.258Z [err] ERROR: [2025-08-28 12:59:20.258] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] 🔴 API call failed: Error: Request timeout after 15000ms
+    at Timeout._onTimeout (/src/util/circuit-breaker.js:104:28)
+    at listOnTimeout (node:internal/timers:559:17)
+    at processTimers (node:internal/timers:502:7)
+2025-08-28T12:59:20.288Z [err] [ManagerDrivers] [Driver:boiler] [Device:641d7da0-4a8a-42a4-9dbe-d0ba33709a3c] Device.onInit Error: Error: Request timeout after 15000ms
+    at Timeout._onTimeout (/src/util/circuit-breaker.js:104:28)
+    at listOnTimeout (node:internal/timers:559:17)
+    at processTimers (node:internal/timers:502:7)
+2025-08-28T12:59:20.505Z [log] [2025-08-28 12:59:20.504] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] MELCloud device state retrieved for device 59132691
+2025-08-28T12:59:20.559Z [log] [2025-08-28 12:59:20.559] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Zone 2 support check:
+2025-08-28T12:59:20.564Z [log] [2025-08-28 12:59:20.564] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]]   - Temperature: -39°C (valid: false)
+2025-08-28T12:59:20.564Z [log] [2025-08-28 12:59:20.564] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]]   - Zone name: "null" (has name: false)
+2025-08-28T12:59:20.565Z [log] [2025-08-28 12:59:20.565] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]]   - Zone 1 idle: true, Zone 2 idle: true
+2025-08-28T12:59:20.565Z [log] [2025-08-28 12:59:20.565] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]]   - Final result: false
+2025-08-28T12:59:20.565Z [log] [2025-08-28 12:59:20.565] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Device does not support Zone 2, removing Zone 2 capabilities
+2025-08-28T12:59:20.566Z [log] [2025-08-28 12:59:20.566] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Removing Zone 2 capabilities as device does not support Zone 2
+2025-08-28T12:59:21.322Z [log] [2025-08-28 12:59:21.322] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Removed Zone 2 capability: measure_temperature.zone2
+2025-08-28T12:59:22.543Z [log] [2025-08-28 12:59:22.543] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Removed Zone 2 capability: target_temperature.zone2
+2025-08-28T12:59:23.418Z [log] [2025-08-28 12:59:23.418] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Removed Zone 2 capability: thermostat_mode.zone2
+2025-08-28T12:59:24.629Z [log] [2025-08-28 12:59:24.629] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Removed Zone 2 capability: operational_state.zone2
+2025-08-28T12:59:24.643Z [log] [2025-08-28 12:59:24.642] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] MELCloud device state keys: [
+  'EffectiveFlags',
+  'LocalIPAddress',
+  'SetTemperatureZone1',
+  'SetTemperatureZone2',
+  'RoomTemperatureZone1',
+  'RoomTemperatureZone2',
+  'OperationMode',
+  'OperationModeZone1',
+  'OperationModeZone2',
+  'WeatherObservations',
+  'ErrorMessage',
+  'ErrorCode',
+  'SetHeatFlowTemperatureZone1',
+  'SetHeatFlowTemperatureZone2',
+  'SetCoolFlowTemperatureZone1',
+  'SetCoolFlowTemperatureZone2',
+  'HCControlType',
+  'TankWaterTemperature',
+  'SetTankWaterTemperature',
+  'ForcedHotWaterMode',
+  'UnitStatus',
+  'OutdoorTemperature',
+  'EcoHotWater',
+  'Zone1Name',
+  'Zone2Name',
+  'HolidayMode',
+  'ProhibitZone1',
+  'ProhibitZone2',
+  'ProhibitHotWater',
+  'TemperatureIncrementOverride',
+  'IdleZone1',
+  'IdleZone2',
+  'DemandPercentage',
+  'DeviceID',
+  'DeviceType',
+  'LastCommunication',
+  'NextCommunication',
+  'Power',
+  'HasPendingCommand',
+  'Offline',
+  'Scene',
+  'SceneOwner'
+]
+2025-08-28T12:59:24.779Z [log] [2025-08-28 12:59:24.779] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] MELCloud device state: {
+  "EffectiveFlags": 0,
+  "LocalIPAddress": null,
+  "SetTemperatureZone1": 21.5,
+  "SetTemperatureZone2": 20,
+  "RoomTemperatureZone1": 24,
+  "RoomTemperatureZone2": -39,
+  "OperationMode": 0,
+  "OperationModeZone1": 2,
+  "OperationModeZone2": 2,
+  "WeatherObservations": [
+    {
+      "Date": "2025-08-28T15:00:00",
+      "Sunrise": "2025-08-28T06:06:00",
+      "Sunset": "2025-08-28T20:11:00",
+      "Condition": 353,
+      "Humidity": 70,
+      "Temperature": 20,
+      "Icon": "wsymbol_0009_light_rain_showers",
+      "ConditionName": "Light rain shower",
+      "Day": 4,
+      "WeatherType": 0
+    },
+    {
+      "Date": "2025-08-29T03:00:00",
+      "Sunrise": "2025-08-29T06:07:00",
+      "Sunset": "2025-08-29T20:09:00",
+      "Condition": 116,
+      "Humidity": 93,
+      "Temperature": 16,
+      "Icon": "wsymbol_0008_clear_sky_night",
+      "ConditionName": "Partly Cloudy",
+      "Day": 4,
+      "WeatherType": 2
+    },
+    {
+      "Date": "2025-08-29T15:00:00",
+      "Sunrise": "2025-08-29T06:07:00",
+      "Sunset": "2025-08-29T20:09:00",
+      "Condition": 116,
+      "Humidity": 58,
+      "Temperature": 21,
+      "Icon": "wsymbol_0002_sunny_intervals",
+      "ConditionName": "Partly Cloudy",
+      "Day": 5,
+      "WeatherType": 1
+    },
+    {
+      "Date": "2025-08-30T03:00:00",
+      "Sunrise": "2025-08-30T06:09:00",
+      "Sunset": "2025-08-30T20:06:00",
+      "Condition": 113,
+      "Humidity": 76,
+      "Temperature": 15,
+      "Icon": "wsymbol_0008_clear_sky_night",
+      "ConditionName": "Clear/Sunny",
+      "Day": 5,
+      "WeatherType": 2
+    }
+  ],
+  "ErrorMessage": null,
+  "ErrorCode": 8000,
+  "SetHeatFlowTemperatureZone1": 25,
+  "SetHeatFlowTemperatureZone2": 20,
+  "SetCoolFlowTemperatureZone1": 20,
+  "SetCoolFlowTemperatureZone2": 20,
+  "HCControlType": 1,
+  "TankWaterTemperature": 30,
+  "SetTankWaterTemperature": 42.5,
+  "ForcedHotWaterMode": false,
+  "UnitStatus": 0,
+  "OutdoorTemperature": 24,
+  "EcoHotWater": false,
+  "Zone1Name": null,
+  "Zone2Name": null,
+  "HolidayMode": false,
+  "ProhibitZone1": false,
+  "ProhibitZone2": false,
+  "ProhibitHotWater": false,
+  "TemperatureIncrementOverride": 0,
+  "IdleZone1": true,
+  "IdleZone2": true,
+  "DemandPercentage": 100,
+  "DeviceID": 59132691,
+  "DeviceType": 1,
+  "LastCommunication": "2025-08-28T12:57:47.314",
+  "NextCommunication": "2025-08-28T12:58:47.314",
+  "Power": true,
+  "HasPendingCommand": false,
+  "Offline": true,
+  "Scene": null,
+  "SceneOwner": null
+}
+2025-08-28T12:59:24.790Z [log] [2025-08-28 12:59:24.789] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Device communication check: lastComm=2025-08-28T12:57:47.314Z, staleness=97s, isStale=false
+2025-08-28T12:59:24.820Z [log] [2025-08-28 12:59:24.820] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Updated tank temperature: 30°C
+2025-08-28T12:59:24.836Z [log] [2025-08-28 12:59:24.836] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Updated target tank temperature: 42.5°C
+2025-08-28T12:59:24.845Z [log] [2025-08-28 12:59:24.845] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] No energy data in device state, trying API
+2025-08-28T12:59:24.856Z [log] INFO: [2025-08-28 12:59:24.855] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Trying energy data from 2025-08-21 to 2025-08-28
+2025-08-28T12:59:24.869Z [log] API: [2025-08-28 12:59:24.869] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] POST EnergyCost/Report {
+  "method": "POST",
+  "endpoint": "EnergyCost/Report",
+  "params": {
+    "DeviceID": 59132691,
+    "FromDate": "2025-08-21",
+    "ToDate": "2025-08-28"
+  },
+  "timestamp": "2025-08-28T12:59:24.868Z",
+  "service": "MELCloud"
+}
+2025-08-28T12:59:35.225Z [log] API: [2025-08-28 12:59:35.225] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] POST EnergyCost/Report {
+  "method": "POST",
+  "endpoint": "EnergyCost/Report",
+  "params": null,
+  "timestamp": "2025-08-28T12:59:35.225Z",
+  "service": "MELCloud"
+}
+2025-08-28T12:59:35.480Z [log] INFO: [2025-08-28 12:59:35.480] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Raw energy API response: {
+  "HotWater": [
+    1.09,
+    2.76,
+    1.359,
+    2.35,
+    1.35,
+    1.32,
+    2.89,
+    0
+  ],
+  "InternalTemperature1": null,
+  "InternalTemperature2": null,
+  "ExternalTemperature": null,
+  "Cooling": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "Heating": [
+    1.53,
+    1.45,
+    1.93,
+    1.91,
+    1.819,
+    1.44,
+    1.68,
+    0
+  ],
+  "CoP": [
+    1.3778625954198471,
+    2.066508313539192,
+    1.98236546062633,
+    2.37793427230047,
+    1.735563269170085,
+    1.4420289855072466,
+    1.2844638949671772,
+    null
+  ],
+  "MissingSampleQuarter": [
+    null,
+    null,
+    null,
+    null
+  ],
+  "MissingSampleMonth": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+  ],
+  "ProducedHotWater": [
+    3.61,
+    8.7,
+    3.98,
+    7.45,
+    4.01,
+    3.98,
+    4.89,
+    0
+  ],
+  "ProducedCooling": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "ProducedHeating": [
+    0,
+    0,
+    2.54,
+    2.68,
+    1.49,
+    0,
+    0.98,
+    0
+  ],
+  "TotalHeatingConsumed": 11.758999999999999,
+  "TotalCoolingConsumed": 0,
+  "TotalHotWaterConsumed": 13.119,
+  "TotalHeatingProduced": 7.690000000000001,
+  "TotalCoolingProduced": 0,
+  "TotalHotWaterProduced": 36.62,
+  "AverageInternalTemperature": 0,
+  "AverageExternalTemperature": 0,
+  "Status": 0,
+  "LabelType": 1,
+  "TempLabels": null,
+  "Labels": [
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28
+  ],
+  "HasZone2": false,
+  "CurrencySymbol": "kWh",
+  "FromDate": "2025-08-21T00:00:00",
+  "ToDate": "2025-08-28T00:00:00",
+  "DeviceName": "Boiler",
+  "BuildingAddress": null,
+  "BuildingCity": null,
+  "BuildingCountry": null,
+  "CustomerName": null,
+  "costs": null,
+  "TotalMinutes": 10080,
+  "MissingMinutes": -60
+}
+2025-08-28T12:59:35.490Z [log] [2025-08-28 12:59:35.490] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Energy data retrieved: {
+  TotalHeatingConsumed: 11.758999999999999,
+  TotalHeatingProduced: 7.690000000000001,
+  TotalHotWaterConsumed: 13.119,
+  TotalHotWaterProduced: 36.62,
+  TotalCoolingConsumed: 0,
+  TotalCoolingProduced: 0,
+  CoP: [
+    1.3778625954198471,
+    2.066508313539192,
+    1.98236546062633,
+    2.37793427230047,
+    1.735563269170085,
+    1.4420289855072466,
+    1.2844638949671772,
+    null
+  ],
+  AverageHeatingCOP: 0.65,
+  AverageHotWaterCOP: 2.79,
+  HasZone2: false,
+  heatingCOP: 0.65,
+  hotWaterCOP: 2.79,
+  coolingCOP: null,
+  averageCOP: 1.72
+}
+2025-08-28T12:59:35.504Z [log] [2025-08-28 12:59:35.504] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Energy API reports Zone 2 support: false
+2025-08-28T12:59:35.630Z [log] [2025-08-28 12:59:35.630] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Heating COP set: 0.65 (from API)
+2025-08-28T12:59:35.637Z [log] [2025-08-28 12:59:35.637] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Hot Water COP set: 2.79 (from API)
+2025-08-28T12:59:35.648Z [log] [2025-08-28 12:59:35.648] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Energy reporting started with circuit breaker protection (every 15 minutes)
+2025-08-28T12:59:35.722Z [log] [2025-08-28 12:59:35.722] [BoilerDevice[Heatpump]] [BoilerDevice[Heatpump]] Device marked as available
+25-08-28T13:00:59.850Z [log] [HeatOptimizerApp] Running initial data cleanup to optimize memory usage...
+API method runThermalDataCleanup called
+2025-08-28T13:00:59.881Z [log] [HeatOptimizerApp] API method runThermalDataCleanup called
+2025-08-28T13:00:59.898Z [log] [HeatOptimizerApp] Initializing services with real implementations...
+2025-08-28T13:00:59.963Z [log] [HeatOptimizerApp] Loading thermal model historical data from persistent storage
+2025-08-28T13:00:59.968Z [log] [HeatOptimizerApp] Loaded 222 optimization data points
+2025-08-28T13:01:00.108Z [log] [HeatOptimizerApp] Last calibration: 8/27/2025, 2:30:11 PM, K=0.10699649883187938
+2025-08-28T13:01:00.119Z [log] [HeatOptimizerApp] Settings validation:
+2025-08-28T13:01:00.126Z [log] [HeatOptimizerApp] - MELCloud User: ✓ Set
+2025-08-28T13:01:00.132Z [log] [HeatOptimizerApp] - MELCloud Pass: ✓ Set
+2025-08-28T13:01:00.140Z [log] [HeatOptimizerApp] - Tibber Token: ✓ Set
+2025-08-28T13:01:00.145Z [log] [HeatOptimizerApp] - Device ID: 59132691
+2025-08-28T13:01:00.152Z [log] [HeatOptimizerApp] - Building ID: 513523
+2025-08-28T13:01:00.176Z [log] [HeatOptimizerApp] POST Login/ClientLogin {
+  method: 'POST',
+  endpoint: 'Login/ClientLogin',
+  params: null,
+  timestamp: '2025-08-28T13:01:00.176Z',
+  service: 'MELCloud'
+}
+2025-08-28T13:01:00.598Z [log] [HeatOptimizerApp] MELCloud login successful
+2025-08-28T13:01:00.602Z [log] [HeatOptimizerApp] Successfully logged in to MELCloud
+2025-08-28T13:01:00.609Z [log] [HeatOptimizerApp] GET User/ListDevices {
+  method: 'GET',
+  endpoint: 'User/ListDevices',
+  params: null,
+  timestamp: '2025-08-28T13:01:00.609Z',
+  service: 'MELCloud'
+}
+2025-08-28T13:01:00.616Z [log] [HeatOptimizerApp] Global throttling MELCloud API call, waiting 14559ms
+2025-08-28T13:01:15.213Z [log] [HeatOptimizerApp] GET User/ListDevices {
+  method: 'GET',
+  endpoint: 'User/ListDevices',
+  params: null,
+  timestamp: '2025-08-28T13:01:15.213Z',
+  service: 'MELCloud'
+}
+2025-08-28T13:01:15.513Z [log] [HeatOptimizerApp] MELCloud API response structure: [
+  {
+    "ID": 513523,
+    "Name": "Home",
+    "AddressLine1": "Knutstorpsgatan 19",
+    "AddressLine2": null,
+    "City": "Limhamn",
+    "Postcode": "21622",
+    "Latitude": 55.57867792489613,
+    "Longitude": 12.95142859206543,
+    "District": null,
+    "FPDefined": true,
+    "FPEnabled": false,
+    "FPMinTemperature": 14,
+    "FPMaxTemperature": 16,
+    "HMDefined": true,
+    "HMEnabled": false,
+    "HMStartDate": null,
+    "HMEndDate": null,
+    "BuildingType": 2,
+    "PropertyType": 1,
+    "DateBuilt": "1974-01-31T00:00:00",
+    "HasGasSupply": true,
+    "LocationLookupDate": "2022-12-19T16:26:30.12",
+    "Country": 217,
+    "TimeZoneContinent": 3,
+    "TimeZoneCity": 61,
+    "TimeZone": 119,
+    "Location": 6993,
+    "CoolingDisabled": false,
+    "LinkToMELCloudHome": false,
+    "Expanded": true,
+    "Structure": {
+      "Floors": [
+        {
+          "ID": 135748,
+          "Name": "Ground floor",
+          "BuildingId": 513523,
+          "AccessLevel": 4,
+          "DirectAccess": false,
+          "EndDate": "2500-01-01T00:00:00",
+          "Areas": [],
+          "Devices": [
+            {
+              "DeviceID": 59132691,
+              "DeviceName": "Boiler",
+              "BuildingID": 513523,
+              "BuildingName": null,
+              "FloorID": 135748,
+              "FloorName": null,
+              "AreaID": null,
+              "AreaName": null,
+              "ImageID": -1,
+              "InstallationDate": "2022-08-31T00:00:00",
+              "LastServiceDate": "2022-08-31T00:00:00",
+              "Presets": [],
+              "OwnerID": 571685,
+              "OwnerName": null,
+              "OwnerEmail": null,
+              "AccessLevel": 4,
+              "DirectAccess": false,
+              "EndDate": "2500-01-01T00:00:00",
+              "Zone1Name": null,
+              "Zone2Name": null,
+              "MinTemperature": 0,
+              "MaxTemperature": 40,
+              "HideVaneControls": false,
+              "HideDryModeControl": false,
+              "HideRoomTemperature": false,
+              "HideSupplyTemperature": false,
+              "HideOutdoorTemperature": false,
+              "EstimateAtaEnergyProductionOptIn": false,
+              "EstimateAtaEnergyProduction": false,
+              "BuildingCountry": null,
+              "OwnerCountry": null,
+              "AdaptorType": 3,
+              "LinkedDevice": null,
+              "Type": 1,
+              "MacAddress": "e8:c7:cf:05:0a:51",
+              "SerialNumber": "2236712048",
+              "Device": {
+                "PCycleActual": 0,
+                "ErrorMessages": "",
+                "DeviceType": 1,
+                "FTCVersion": 1700,
+                "FTCRevision": "r0",
+                "LastFTCVersion": 0,
+                "LastFTCRevision": null,
+                "FTCModel": 3,
+                "RefridgerentAddress": 0,
+                "SystemMaxFlowTemp": 0,
+                "RefrigerantType": null,
+                "DipSwitch1": 182,
+                "DipSwitch2": 128,
+                "DipSwitch3": 84,
+                "DipSwitch4": 0,
+                "DipSwitch5": 38,
+                "DipSwitch6": 4,
+                "HasThermostatZone1": true,
+                "HasThermostatZone2": true,
+                "TemperatureIncrement": 0.5,
+                "DefrostMode": 0,
+                "HeatPumpFrequency": 0,
+                "MaxSetTemperature": 50,
+                "MinSetTemperature": 30,
+                "RoomTemperatureZone1": 24,
+                "RoomTemperatureZone2": -39,
+                "OutdoorTemperature": 24,
+                "FlowTemperature": 27,
+                "FlowTemperatureZone1": 25,
+                "FlowTemperatureZone2": 25,
+                "FlowTemperatureBoiler": 25,
+                "ReturnTemperature": 23,
+                "ReturnTemperatureZone1": 25,
+                "ReturnTemperatureZone2": 25,
+                "ReturnTemperatureBoiler": 25,
+                "BoilerStatus": false,
+                "BoosterHeater1Status": false,
+                "BoosterHeater2Status": false,
+                "BoosterHeater2PlusStatus": false,
+                "ImmersionHeaterStatus": false,
+                "WaterPump1Status": false,
+                "WaterPump2Status": false,
+                "WaterPump3Status": false,
+                "ValveStatus3Way": false,
+                "ValveStatus2Way": false,
+                "WaterPump4Status": false,
+                "ValveStatus2Way2a": false,
+                "ValveStatus2Way2b": false,
+                "TankWaterTemperature": 30,
+                "UnitStatus": 0,
+                "HeatingFunctionEnabled": true,
+                "ServerTimerEnabled": false,
+                "ThermostatStatusZone1": false,
+                "ThermostatStatusZone2": false,
+                "ThermostatTypeZone1": 1,
+                "ThermostatTypeZone2": 2,
+                "MixingTankWaterTemperature": 25,
+                "CondensingTemperature": 22.99,
+                "DemandPercentage": 100,
+                "ConfiguredDemandPercentage": null,
+                "HasDemandSideControl": true,
+                "DailyHeatingEnergyConsumed": 1.68,
+                "DailyCoolingEnergyConsumed": 0,
+                "DailyHotWaterEnergyConsumed": 2.89,
+                "DailyHeatingEnergyProduced": 0.98,
+                "DailyCoolingEnergyProduced": 0,
+                "DailyHotWaterEnergyProduced": 4.89,
+                "DailyLegionellaActivationCounter": 1,
+                "LastLegionellaActivationTime": "2025-08-27T05:59:00Z",
+                "EffectiveFlags": 0,
+                "LastEffectiveFlags": 0,
+                "Power": true,
+                "EcoHotWater": false,
+                "OperationMode": 0,
+                "OperationModeZone1": 2,
+                "OperationModeZone2": 2,
+                "SetTemperatureZone1": 21.5,
+                "SetTemperatureZone2": 20,
+                "SetTankWaterTemperature": 42.5,
+                "TargetHCTemperatureZone1": 25,
+                "TargetHCTemperatureZone2": 35,
+                "ForcedHotWaterMode": false,
+                "HolidayMode": false,
+                "ProhibitHotWater": false,
+                "ProhibitHeatingZone1": false,
+                "ProhibitHeatingZone2": false,
+                "ProhibitCoolingZone1": false,
+                "ProhibitCoolingZone2": false,
+                "ServerTimerDesired": false,
+                "SecondaryZoneHeatCurve": false,
+                "SetHeatFlowTemperatureZone1": 25,
+                "SetHeatFlowTemperatureZone2": 20,
+                "SetCoolFlowTemperatureZone1": 20,
+                "SetCoolFlowTemperatureZone2": 20,
+                "DECCReport": false,
+                "CSVReport1min": false,
+                "Zone2Master": false,
+                "DailyEnergyConsumedDate": "2025-08-27T00:00:00",
+                "DailyEnergyProducedDate": "2025-08-27T00:00:00",
+                "CurrentEnergyConsumed": 0,
+                "CurrentEnergyProduced": 0,
+                "CurrentEnergyMode": null,
+                "HeatingEnergyConsumedRate1": 0,
+                "HeatingEnergyConsumedRate2": 0,
+                "CoolingEnergyConsumedRate1": 0,
+                "CoolingEnergyConsumedRate2": 0,
+                "HotWaterEnergyConsumedRate1": 0,
+                "HotWaterEnergyConsumedRate2": 0,
+                "HeatingEnergyProducedRate1": 0,
+                "HeatingEnergyProducedRate2": 0,
+                "CoolingEnergyProducedRate1": 0,
+                "CoolingEnergyProducedRate2": 0,
+                "HotWaterEnergyProducedRate1": 0,
+                "HotWaterEnergyProducedRate2": 0,
+                "ErrorCode2Digit": 0,
+                "SpSubDivisionsToWrite": 0,
+                "SpSubDivisionsToRead": 0,
+                "SpState": 0,
+                "SpSubDivisionsWriteInProgress": 0,
+                "SpSubDivisionsReadInProgress": 0,
+                "InitialSettingsData": null,
+                "InitialSettingsTimestamp": null,
+                "SupportsHourlyEnergyReport": false,
+                "HasZone2": false,
+                "HasSimplifiedZone2": false,
+                "CanHeat": true,
+                "CanCool": false,
+                "HasHotWaterTank": true,
+                "CanSetTankTemperature": true,
+                "CanSetEcoHotWater": true,
+                "HasEnergyConsumedMeter": true,
+                "HasEnergyProducedMeter": true,
+                "CanMeasureEnergyProduced": false,
+                "CanMeasureEnergyConsumed": false,
+                "Zone1InRoomMode": false,
+                "Zone2InRoomMode": false,
+                "Zone1InHeatMode": true,
+                "Zone2InHeatMode": true,
+                "Zone1InCoolMode": false,
+                "Zone2InCoolMode": false,
+                "AllowDualRoomTemperature": false,
+                "IsGeodan": false,
+                "HasEcoCuteSettings": false,
+                "HasFTC45Settings": true,
+                "HasFTC6Settings": true,
+                "CanEstimateEnergyUsage": true,
+                "CanUseRoomTemperatureCooling": false,
+                "IsFtcModelSupported": true,
+                "SystemMaxFlowTemperature": null,
+                "MaxTankTemperature": 60,
+                "IdleZone1": true,
+                "IdleZone2": true,
+                "MinPcycle": 1,
+                "MaxPcycle": 1,
+                "MaxOutdoorUnits": 255,
+                "MaxIndoorUnits": 255,
+                "MaxTemperatureControlUnits": 0,
+                "ModelCode": "027a",
+                "DeviceID": 59132691,
+                "MacAddress": "e8:c7:cf:05:0a:51",
+                "SerialNumber": "2236712048",
+                "TimeZoneID": 119,
+                "DiagnosticMode": 0,
+                "DiagnosticEndDate": null,
+                "ExpectedCommand": 1,
+                "Owner": 571685,
+                "DetectedCountry": null,
+                "AdaptorType": 3,
+                "FirmwareDeployment": null,
+                "FirmwareUpdateAborted": false,
+                "LinkedDevice": null,
+                "WifiSignalStrength": -50,
+                "WifiAdapterStatus": "NORMAL",
+                "Position": "Unknown",
+                "PCycle": 2,
+                "PCycleConfigured": null,
+                "RecordNumMax": 1,
+                "LastTimeStamp": "2025-08-28T14:59:00",
+                "ErrorCode": 8000,
+                "HasError": false,
+                "LastReset": "2024-11-05T16:42:34.314",
+                "FlashWrites": 10,
+                "Scene": null,
+                "TemperatureIncrementOverride": 0,
+                "SSLExpirationDate": "2037-12-31T00:00:00",
+                "SPTimeout": 1,
+                "Passcode": null,
+                "ServerCommunicationDisabled": false,
+                "ConsecutiveUploadErrors": 0,
+                "DoNotRespondAfter": null,
+                "OwnerRoleAccessLevel": 1,
+                "OwnerCountry": 217,
+                "HideEnergyReport": false,
+                "ExceptionHash": null,
+                "ExceptionDate": null,
+                "ExceptionCount": null,
+                "Rate1StartTime": null,
+                "Rate2StartTime": null,
+                "ProtocolVersion": 0,
+                "UnitVersion": 0,
+                "FirmwareAppVersion": 37000,
+                "FirmwareWebVersion": 0,
+                "FirmwareWlanVersion": 0,
+                "LinkToMELCloudHome": false,
+                "LinkedByUserFromMELCloudHome": "00000000-0000-0000-0000-000000000000",
+                "EffectivePCycle": 1,
+                "MqttFlags": 9,
+                "HasErrorMessages": false,
+                "Offline": false,
+                "Units": [
+                  {
+                    "ID": 1,
+                    "Device": 0,
+                    "SerialNumber": "2F00662",
+                    "DeviceType": null,
+                    "ModelNumber": 1064,
+                    "Model": "PUD-SWM100YAA",
+                    "UnitType": 0,
+                    "IsIndoor": false
+                  },
+                  {
+                    "ID": 2,
+                    "Device": 0,
+                    "SerialNumber": "2e03748",
+                    "DeviceType": null,
+                    "ModelNumber": 819,
+                    "Model": "EHST20D-YM9D",
+                    "UnitType": 1,
+                    "IsIndoor": true
+                  }
+                ]
+              },
+              "DiagnosticMode": 0,
+              "DiagnosticEndDate": null,
+              "Location": 6993,
+              "DetectedCountry": null,
+              "Registrations": 157,
+              "LocalIPAddress": null,
+              "TimeZone": 119,
+              "RegistReason": "CONFIG",
+              "ExpectedCommand": 1,
+              "RegistRetry": 0,
+              "DateCreated": "2022-12-19T16:20:36.117Z",
+              "FirmwareDeployment": null,
+              "FirmwareUpdateAborted": false,
+              "Permissions": {
+                "CanSetForcedHotWater": true,
+                "CanSetOperationMode": true,
+                "CanSetPower": true,
+                "CanSetTankWaterTemperature": true,
+                "CanSetEcoHotWater": false,
+                "CanSetFlowTemperature": true,
+                "CanSetTemperatureIncrementOverride": true
+              }
+            }
+          ],
+          "MinTemperature": 0,
+          "MaxTemperature": 40,
+          "Expanded": true
+        }
+      ],
+      "Areas": [],
+      "Devices": [],
+      "Clients": []
+    },
+    "AccessLevel": 4,
+    "DirectAccess": true,
+    "MinTemperature": 0,
+    "MaxTemperature": 40,
+    "Owner": null,
+    "EndDate": "2500-01-01T00:00:00",
+    "iDateBuilt": null,
+    "QuantizedCoordinates": {
+      "Latitude": 55.575,
+      "Longitude": 12.95
+    }
+  }
+]
+2025-08-28T13:01:15.519Z [log] [HeatOptimizerApp] Processing 1 buildings from MELCloud
+2025-08-28T13:01:15.525Z [log] [HeatOptimizerApp] Building: Home (ID: 513523)
+2025-08-28T13:01:15.529Z [log] [HeatOptimizerApp] Building structure keys: ID, Name, AddressLine1, AddressLine2, City, Postcode, Latitude, Longitude, District, FPDefined, FPEnabled, FPMinTemperature, FPMaxTemperature, HMDefined, HMEnabled, HMStartDate, HMEndDate, BuildingType, PropertyType, DateBuilt, HasGasSupply, LocationLookupDate, Country, TimeZoneContinent, TimeZoneCity, TimeZone, Location, CoolingDisabled, LinkToMELCloudHome, Expanded, Structure, AccessLevel, DirectAccess, MinTemperature, MaxTemperature, Owner, EndDate, iDateBuilt, QuantizedCoordinates
+2025-08-28T13:01:15.542Z [log] [HeatOptimizerApp] Found device list at .Structure with 0 devices
+2025-08-28T13:01:15.546Z [log] [HeatOptimizerApp] Found device list at .Structure.Floors[0] with 1 devices
+2025-08-28T13:01:15.550Z [log] [HeatOptimizerApp]   Device: Boiler (ID: 59132691)
+2025-08-28T13:01:15.556Z [log] [HeatOptimizerApp] Skipping duplicate device at .Structure.Floors[0].Devices[0]: Boiler (ID: 59132691)
+2025-08-28T13:01:15.563Z [log] [HeatOptimizerApp] Found 1 devices in building Home
+2025-08-28T13:01:15.567Z [log] [HeatOptimizerApp] Total devices extracted: 1
+2025-08-28T13:01:15.572Z [log] [HeatOptimizerApp] MELCloud devices retrieved: 1 devices found
+2025-08-28T13:01:15.575Z [log] [HeatOptimizerApp] Found 1 devices in MELCloud account
+2025-08-28T13:01:15.579Z [log] [HeatOptimizerApp] ===== AVAILABLE DEVICES =====
+2025-08-28T13:01:15.585Z [log] [HeatOptimizerApp] Device: Boiler (ID: 59132691, Building ID: 513523)
+2025-08-28T13:01:15.590Z [log] [HeatOptimizerApp] =============================
+2025-08-28T13:01:15.595Z [log] [HeatOptimizerApp] Tibber API initialized
+2025-08-28T13:01:15.605Z [log] [HeatOptimizerApp] COP Helper not available: Cannot find module '../services/cop-helper'
+Require stack:
+- /src/api-core.js
+- /src/app.js
+- /app.js
+- /opt/homey-client/system/manager/ManagerApps/AppProcess/node_modules/@athombv/homey-apps-sdk-v3/lib/Util.js
+- /opt/homey-client/system/manager/ManagerApps/AppProcess/node_modules/@athombv/homey-apps-sdk-v3/lib/Device.js
+- /opt/homey-client/system/manager/ManagerApps/AppProcess/node_modules/@athombv/homey-apps-sdk-v3/homey.js
+- /opt/homey-client/system/manager/ManagerApps/AppProcess/node_modules/@athombv/homey-apps-sdk-v3/index.js
+- /opt/homey-client/system/manager/ManagerApps/AppProcess/bootstrap.js
+2025-08-28T13:01:15.633Z [log] [HeatOptimizerApp] Weather service initialized with coordinates: 55.57868424915332 12.95116794597974
+2025-08-28T13:01:15.946Z [err] [HeatOptimizerApp] Error parsing thermal data from settings: SyntaxError: Unexpected token o in JSON at position 1
+2025-08-28T13:01:15.960Z [log] [HeatOptimizerApp] No stored thermal data found, starting fresh collection
+2025-08-28T13:01:15.980Z [err] [HeatOptimizerApp] Error checking memory usage: Error: ENOENT: no such file or directory, uv_resident_set_memory
+2025-08-28T13:01:15.984Z [log] [HeatOptimizerApp] Thermal data collector: Memory monitoring started
+2025-08-28T13:01:15.991Z [log] [HeatOptimizerApp] No saved thermal characteristics found, using defaults
+2025-08-28T13:01:15.993Z [log] [HeatOptimizerApp] Thermal model updates and data cleanup scheduled (cleanup every 12 hours)
+2025-08-28T13:01:15.993Z [log] [HeatOptimizerApp] Thermal learning model initialized
+2025-08-28T13:01:16.189Z [log] [HeatOptimizerApp] COP calculation jobs scheduled
+2025-08-28T13:01:16.193Z [log] [HeatOptimizerApp] COP helper initialized
+2025-08-28T13:01:16.197Z [log] [HeatOptimizerApp] COP settings loaded - Weight: 0.3, Auto Seasonal: true, Summer Mode: false
+2025-08-28T13:01:16.205Z [log] [HeatOptimizerApp] POST EnergyCost/Report {
+  method: 'POST',
+  endpoint: 'EnergyCost/Report',
+  params: { DeviceID: 59132691, FromDate: '2025-08-21', ToDate: '2025-08-28' },
+  timestamp: '2025-08-28T13:01:16.205Z',
+  service: 'MELCloud'
+}
+2025-08-28T13:01:16.213Z [log] [HeatOptimizerApp] Global throttling MELCloud API call, waiting 14000ms
+2025-08-28T13:01:16.218Z [log] [HeatOptimizerApp] Advanced Optimizer service initialized with weather integration: enabled
+2025-08-28T13:01:16.223Z [log] [HeatOptimizerApp] Services initialized successfully with real implementations
+2025-08-28T13:01:16.231Z [log] [HeatOptimizerApp] Running thermal data cleanup (mock implementation)...
+2025-08-28T13:01:16.325Z [log] [HeatOptimizerApp] Timeline entry created using notifications API: System Maintenance
+2025-08-28T13:01:16.332Z [log] [HeatOptimizerApp] Timeline entry created for thermal data cleanup
+2025-08-28T13:01:16.338Z [log] [HeatOptimizerApp] Initial data cleanup successful. undefined records processed, undefined removed
+ method: 'POST',
+  endpoint: 'EnergyCost/Report',
+  params: null,
+  timestamp: '2025-08-28T13:01:30.223Z',
+  service: 'MELCloud'
+}
+2025-08-28T13:01:30.419Z [log] [HeatOptimizerApp] Raw energy API response: {
+  "HotWater": [
+    1.09,
+    2.76,
+    1.359,
+    2.35,
+    1.35,
+    1.32,
+    2.89,
+    0
+  ],
+  "InternalTemperature1": null,
+  "InternalTemperature2": null,
+  "ExternalTemperature": null,
+  "Cooling": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "Heating": [
+    1.53,
+    1.45,
+    1.93,
+    1.91,
+    1.819,
+    1.44,
+    1.68,
+    0
+  ],
+  "CoP": [
+    1.3778625954198471,
+    2.066508313539192,
+    1.98236546062633,
+    2.37793427230047,
+    1.735563269170085,
+    1.4420289855072466,
+    1.2844638949671772,
+    null
+  ],
+  "MissingSampleQuarter": [
+    null,
+    null,
+    null,
+    null
+  ],
+  "MissingSampleMonth": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+  ],
+  "ProducedHotWater": [
+    3.61,
+    8.7,
+    3.98,
+    7.45,
+    4.01,
+    3.98,
+    4.89,
+    0
+  ],
+  "ProducedCooling": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "ProducedHeating": [
+    0,
+    0,
+    2.54,
+    2.68,
+    1.49,
+    0,
+    0.98,
+    0
+  ],
+  "TotalHeatingConsumed": 11.758999999999999,
+  "TotalCoolingConsumed": 0,
+  "TotalHotWaterConsumed": 13.119,
+  "TotalHeatingProduced": 7.690000000000001,
+  "TotalCoolingProduced": 0,
+  "TotalHotWaterProduced": 36.62,
+  "AverageInternalTemperature": 0,
+  "AverageExternalTemperature": 0,
+  "Status": 0,
+  "LabelType": 1,
+  "TempLabels": null,
+  "Labels": [
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28
+  ],
+  "HasZone2": false,
+  "CurrencySymbol": "kWh",
+  "FromDate": "2025-08-21T00:00:00",
+  "ToDate": "2025-08-28T00:00:00",
+  "DeviceName": "Boiler",
+  "BuildingAddress": null,
+  "BuildingCity": null,
+  "BuildingCountry": null,
+  "CustomerName": null,
+  "costs": null,
+  "TotalMinutes": 10080,
+  "MissingMinutes": -60
+}
+
+2025-08-28T13:02:00.188Z [log] [HeatOptimizerApp] Circuit MELCloud state: CLOSED
+AM."},"bestTimes":[{"time":"2025-08-25T13:00:00.000+02:00","price":0.1687,"timeFormatted":"11:00 AM"},{"time":"2025-08-25T14:00:00.000+02:00","price":0.1826,"timeFormatted":"12:00 PM"},{"time":"2025-08-25T12:00:00.000+02:00","price":0.2252,"timeFormatted":"10:00 AM"}],"worstTimes":[{"time":"2025-08-25T20:00:00.000+02:00","price":3.2447,"timeFormatted":"06:00 PM"},{"time":"2025-08-25T19:00:00.000+02:00","price":2.1882,"timeFormatted":"05:00 PM"},{"time":"2025-08-25T21:00:00.000+02:00","price":1.9842,"timeFormatted":"07:00 PM"}]},"weather":{"current":{"temperature":14.9,"humidity":72.9,"windSpeed":5.1,"cloudCover":15.2,"symbol":"fair_day"},"adjustment":0.10012304653443771,"reason":"Weather conditions have minimal impact","trend":"stable","trendDetails":"Temperature relatively stable (-0.7°C change)"},"zone2Data":null,"tankData":{"fromTemp":42.5,"toTemp":42.5,"reason":"Tank temperature difference 0.0°C below deadband 0.5°C"},"timestamp":"2025-08-25T07:05:04.113Z"},{"success":true,"action":"temperature_adjusted","fromTemp":20.5,"toTemp":21,"reason":"Enhanced optimization based on price and comfort profile with weather adjustment (cold and/or windy conditions, increasing temperature) (limited to 0.5°C step)","priceData":{"current":1.1058,"average":1.2312416666666668,"min":0.1688,"max":3.2484,"level":"EXPENSIVE","percentile":33.33333333333333},"savings":-0.027645,"comfort":0.5,"targetTemp":21,"targetOriginal":20.5,"indoorTemp":22.5,"outdoorTemp":16,"priceNow":1.1058,"comfortProfile":{"factor":1,"currentHour":10,"localTime":"Mon, 25 Aug 2025 10:05:03 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"day"},"priceForecast":{"position":"high","recommendation":"Current price is high compared to upcoming prices. Consider reducing energy usage now. Significant price decrease of 84.7% expected at 11:00 AM.","upcomingChanges":{"significant":true,"change":-0.9369999999999998,"changePercent":-84.7350334599385,"time":"2025-08-25T13:00:00.000+02:00","message":"Significant price decrease of 84.7% expected at 11:00 AM."},"bestTimes":[{"time":"2025-08-25T13:00:00.000+02:00","price":0.1688,"timeFormatted":"11:00 AM"},{"time":"2025-08-25T14:00:00.000+02:00","price":0.1827,"timeFormatted":"12:00 PM"},{"time":"2025-08-25T15:00:00.000+02:00","price":0.4348,"timeFormatted":"01:00 PM"}],"worstTimes":[{"time":"2025-08-25T20:00:00.000+02:00","price":3.2484,"timeFormatted":"06:00 PM"},{"time":"2025-08-25T19:00:00.000+02:00","price":2.1906,"timeFormatted":"05:00 PM"},{"time":"2025-08-25T21:00:00.000+02:00","price":1.9865,"timeFormatted":"07:00 PM"}]},"weather":{"current":{"temperature":15.3,"humidity":69.1,"windSpeed":4.5,"cloudCover":88.4,"symbol":"cloudy"},"adjustment":0.5166360402725027,"reason":"Cold and/or windy conditions, increasing temperature","trend":"stable","trendDetails":"Temperature relatively stable (0.2°C change)"},"zone2Data":null,"tankData":{"fromTemp":42.5,"toTemp":43.5,"reason":"Enhanced optimization: Cheap electricity (33th percentile), heating tank above average (limited to 1°C step)"},"timestamp":"2025-08-25T08:05:06.874Z"},{"success":true,"action":"temperature_adjusted","fromTemp":21,"toTemp":21.5,"reason":"Enhanced optimization based on price and comfort profile with weather adjustment (cold and/or windy conditions, increasing temperature) (clamped to maximum 22°C) (limited to 0.5°C step)","priceData":{"current":0.574,"average":1.2312416666666668,"min":0.1688,"max":3.2484,"level":"CHEAP","percentile":25},"savings":-0.01435,"comfort":-0.5,"targetTemp":21.5,"targetOriginal":21,"indoorTemp":22.5,"outdoorTemp":17,"priceNow":0.574,"comfortProfile":{"factor":1,"currentHour":11,"localTime":"Mon, 25 Aug 2025 11:05:04 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"day"},"priceForecast":{"position":"low","recommendation":"Current price is low compared to upcoming prices. Consider increasing energy usage now. Significant price increase of 122.0% expected at 03:00 PM.","upcomingChanges":{"significant":true,"change":0.7004,"changePercent":122.02090592334496,"time":"2025-08-25T17:00:00.000+02:00","message":"Significant price increase of 122.0% expected at 03:00 PM."},"bestTimes":[{"time":"2025-08-25T14:00:00.000+02:00","price":0.1827,"timeFormatted":"12:00 PM"},{"time":"2025-08-25T15:00:00.000+02:00","price":0.4348,"timeFormatted":"01:00 PM"},{"time":"2025-08-25T16:00:00.000+02:00","price":0.8917,"timeFormatted":"02:00 PM"}],"worstTimes":[{"time":"2025-08-25T20:00:00.000+02:00","price":3.2484,"timeFormatted":"06:00 PM"},{"time":"2025-08-25T19:00:00.000+02:00","price":2.1906,"timeFormatted":"05:00 PM"},{"time":"2025-08-25T21:00:00.000+02:00","price":1.9865,"timeFormatted":"07:00 PM"}]},"weather":{"current":{"temperature":15.3,"humidity":69.1,"windSpeed":4.5,"cloudCover":88.4,"symbol":"cloudy"},"adjustment":0.9952894308943092,"reason":"Cold and/or windy conditions, increasing temperature","trend":"stable","trendDetails":"Temperature relatively stable (0.2°C change)"},"zone2Data":null,"tankData":{"fromTemp":43.5,"toTemp":44.5,"reason":"Enhanced optimization: Cheap electricity (25th percentile), heating tank above average (limited to 1°C step)"},"timestamp":"2025-08-25T09:05:15.791Z"},{"success":true,"action":"temperature_adjusted","fromTemp":21.5,"toTemp":22,"reason":"Enhanced optimization based on price and comfort profile with weather adjustment (cold and/or windy conditions, increasing temperature) (clamped to maximum 22°C)","priceData":{"current":0.2254,"average":1.2312416666666668,"min":0.1688,"max":3.2484,"level":"VERY_CHEAP","percentile":12.5},"savings":-0.005635,"comfort":-0.5,"targetTemp":22,"targetOriginal":21.5,"indoorTemp":23,"outdoorTemp":18,"priceNow":0.2254,"comfortProfile":{"factor":1,"currentHour":12,"localTime":"Mon, 25 Aug 2025 12:05:03 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"day"},"priceForecast":{"position":"low","recommendation":"Current price is low compared to upcoming prices. Consider increasing energy usage now. Significant price increase of 604.7% expected at 04:00 PM.","upcomingChanges":{"significant":true,"change":1.363,"changePercent":604.7027506654837,"time":"2025-08-25T18:00:00.000+02:00","message":"Significant price increase of 604.7% expected at 04:00 PM."},"bestTimes":[{"time":"2025-08-25T15:00:00.000+02:00","price":0.4348,"timeFormatted":"01:00 PM"},{"time":"2025-08-25T16:00:00.000+02:00","price":0.8917,"timeFormatted":"02:00 PM"},{"time":"2025-08-25T01:00:00.000+02:00","price":1.1739,"timeFormatted":"11:00 PM"}],"worstTimes":[{"time":"2025-08-25T20:00:00.000+02:00","price":3.2484,"timeFormatted":"06:00 PM"},{"time":"2025-08-25T19:00:00.000+02:00","price":2.1906,"timeFormatted":"05:00 PM"},{"time":"2025-08-25T21:00:00.000+02:00","price":1.9865,"timeFormatted":"07:00 PM"}]},"weather":{"current":{"temperature":15.3,"humidity":69.1,"windSpeed":4.5,"cloudCover":88.4,"symbol":"cloudy"},"adjustment":1,"reason":"Cold and/or windy conditions, increasing temperature","trend":"stable","trendDetails":"Temperature relatively stable (0.2°C change)"},"zone2Data":null,"tankData":{"fromTemp":44.5,"toTemp":45.5,"reason":"Enhanced optimization: Very cheap electricity (13th percentile), heating tank to maximum (limited to 1°C step)"},"timestamp":"2025-08-25T10:05:05.755Z"},{"timestamp":"2025-08-25T15:31:51.878Z","deviceId":59132691,"buildingId":513523,"action":"no_change","reason":"Current conditions are optimal","currentPrice":1.2744,"avgPrice":1.3736458333333337,"priceRatio":0.927750056874194},{"timestamp":"2025-08-25T15:34:18.381Z","deviceId":59132691,"buildingId":513523,"action":"no_change","reason":"Current conditions are optimal","currentPrice":1.2744,"avgPrice":1.3736458333333337,"priceRatio":0.927750056874194},{"timestamp":"2025-08-25T15:37:03.356Z","deviceId":59132691,"buildingId":513523,"action":"no_change","reason":"Current conditions are optimal","currentPrice":1.2744,"avgPrice":1.3736458333333337,"priceRatio":0.927750056874194},{"timestamp":"2025-08-25T15:48:19.248Z","deviceId":59132691,"buildingId":513523,"action":"no_change","reason":"Current conditions are optimal","currentPrice":1.2744,"avgPrice":1.3736458333333337,"priceRatio":0.927750056874194},{"timestamp":"2025-08-25T15:54:11.463Z","deviceId":59132691,"buildingId":513523,"currentTemp":23,"currentSetTemp":22,"newTemp":22,"action":"no_change","reason":"Current conditions are optimal","currentPrice":1.2744,"avgPrice":1.3736458333333337,"priceRatio":0.927750056874194},{"timestamp":"2025-08-25T15:54:17.118Z","deviceId":59132691,"buildingId":513523,"currentTemp":23,"currentSetTemp":22,"newTemp":22,"action":"no_change","reason":"Current conditions are optimal","currentPrice":1.2744,"avgPrice":1.3736458333333337,"priceRatio":0.927750056874194},{"timestamp":"2025-08-25T16:11:09.816Z","deviceId":59132691,"buildingId":513523,"currentTemp":23,"currentSetTemp":22,"newTemp":22,"currentTankTemp":49,"currentSetTankTemp":49.5,"newTankTemp":49.5,"action":"no_change","reason":"Current conditions are optimal","currentPrice":1.5884,"avgPrice":1.3736458333333337,"priceRatio":1.1563388185334038,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"success":true,"action":"temperature_adjusted","fromTemp":22,"toTemp":21.5,"reason":"Enhanced optimization based on price and comfort profile (limited to 0.5°C step)","priceData":{"current":1.5216,"average":1.5160499999999997,"min":0.6775,"max":2.7956,"level":"VERY_EXPENSIVE","percentile":62.5},"savings":0.038040000000000004,"comfort":0.5,"targetTemp":21.5,"targetOriginal":22,"indoorTemp":22.5,"outdoorTemp":13,"priceNow":1.5216,"comfortProfile":{"factor":0.5,"currentHour":0,"localTime":"Tue, 26 Aug 2025 00:23:39 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"night"},"priceForecast":{"position":"high","recommendation":"Current price is high compared to upcoming prices. Consider reducing energy usage now. Significant price increase of 16.7% expected at 04:00 AM.","upcomingChanges":{"significant":true,"change":0.25339999999999985,"changePercent":16.65352260778127,"time":"2025-08-26T06:00:00.000+02:00","message":"Significant price increase of 16.7% expected at 04:00 AM."},"bestTimes":[{"time":"2025-08-26T13:00:00.000+02:00","price":0.6775,"timeFormatted":"11:00 AM"},{"time":"2025-08-26T12:00:00.000+02:00","price":0.8359,"timeFormatted":"10:00 AM"},{"time":"2025-08-26T11:00:00.000+02:00","price":1.0371,"timeFormatted":"09:00 AM"}],"worstTimes":[{"time":"2025-08-26T19:00:00.000+02:00","price":2.7956,"timeFormatted":"05:00 PM"},{"time":"2025-08-26T20:00:00.000+02:00","price":2.624,"timeFormatted":"06:00 PM"},{"time":"2025-08-26T18:00:00.000+02:00","price":1.912,"timeFormatted":"04:00 PM"}]},"weather":{"current":{"temperature":12.9,"humidity":80.3,"windSpeed":2.1,"cloudCover":1.6,"symbol":"clearsky_night"},"adjustment":0.08847610410094635,"reason":"Weather conditions have minimal impact","trend":"warming","trendDetails":"Temperature rising by 3.2°C over next 24h"},"zone2Data":null,"tankData":{"fromTemp":49.5,"toTemp":48.5,"reason":"Enhanced optimization: Expensive electricity (63th percentile), reducing tank below average (limited to 1°C step)"},"timestamp":"2025-08-25T22:23:42.316Z"},{"success":true,"action":"temperature_adjusted","fromTemp":21.5,"toTemp":21,"reason":"Enhanced optimization based on price and comfort profile (limited to 0.5°C step)","priceData":{"current":1.4452,"average":1.5160499999999997,"min":0.6775,"max":2.7956,"level":"VERY_EXPENSIVE","percentile":58.333333333333336},"savings":0.03613,"comfort":0.5,"targetTemp":21,"targetOriginal":21.5,"indoorTemp":22.5,"outdoorTemp":13,"priceNow":1.4452,"comfortProfile":{"factor":0.5,"currentHour":1,"localTime":"Tue, 26 Aug 2025 01:05:12 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"night"},"priceForecast":{"position":"high","recommendation":"Current price is high compared to upcoming prices. Consider reducing energy usage now. Significant price increase of 32.2% expected at 05:00 AM.","upcomingChanges":{"significant":true,"change":0.46499999999999986,"changePercent":32.17547744256849,"time":"2025-08-26T07:00:00.000+02:00","message":"Significant price increase of 32.2% expected at 05:00 AM."},"bestTimes":[{"time":"2025-08-26T13:00:00.000+02:00","price":0.6775,"timeFormatted":"11:00 AM"},{"time":"2025-08-26T12:00:00.000+02:00","price":0.8359,"timeFormatted":"10:00 AM"},{"time":"2025-08-26T11:00:00.000+02:00","price":1.0371,"timeFormatted":"09:00 AM"}],"worstTimes":[{"time":"2025-08-26T19:00:00.000+02:00","price":2.7956,"timeFormatted":"05:00 PM"},{"time":"2025-08-26T20:00:00.000+02:00","price":2.624,"timeFormatted":"06:00 PM"},{"time":"2025-08-26T18:00:00.000+02:00","price":1.912,"timeFormatted":"04:00 PM"}]},"weather":{"current":{"temperature":12.9,"humidity":80.3,"windSpeed":2.1,"cloudCover":1.6,"symbol":"clearsky_night"},"adjustment":0.09315336285635203,"reason":"Weather conditions have minimal impact","trend":"warming","trendDetails":"Temperature rising by 3.2°C over next 24h"},"zone2Data":null,"tankData":{"fromTemp":48.5,"toTemp":47.5,"reason":"Enhanced optimization: Normal electricity prices (58th percentile), maintaining average tank temperature (limited to 1°C step)"},"timestamp":"2025-08-25T23:06:05.910Z"},{"success":true,"action":"temperature_adjusted","fromTemp":21,"toTemp":20.5,"reason":"Enhanced optimization based on price and comfort profile","priceData":{"current":1.3966,"average":1.5160499999999997,"min":0.6775,"max":2.7956,"level":"EXPENSIVE","percentile":41.66666666666667},"savings":0.034915,"comfort":-0.5,"targetTemp":20.5,"targetOriginal":21,"indoorTemp":22,"outdoorTemp":12,"priceNow":1.3966,"comfortProfile":{"factor":0.5,"currentHour":2,"localTime":"Tue, 26 Aug 2025 02:05:02 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"night"},"priceForecast":{"position":"high","recommendation":"Current price is high compared to upcoming prices. Consider reducing energy usage now. Significant price increase of 36.8% expected at 05:00 AM.","upcomingChanges":{"significant":true,"change":0.5135999999999998,"changePercent":36.775025060862085,"time":"2025-08-26T07:00:00.000+02:00","message":"Significant price increase of 36.8% expected at 05:00 AM."},"bestTimes":[{"time":"2025-08-26T13:00:00.000+02:00","price":0.6775,"timeFormatted":"11:00 AM"},{"time":"2025-08-26T12:00:00.000+02:00","price":0.8359,"timeFormatted":"10:00 AM"},{"time":"2025-08-26T11:00:00.000+02:00","price":1.0371,"timeFormatted":"09:00 AM"}],"worstTimes":[{"time":"2025-08-26T19:00:00.000+02:00","price":2.7956,"timeFormatted":"05:00 PM"},{"time":"2025-08-26T20:00:00.000+02:00","price":2.624,"timeFormatted":"06:00 PM"},{"time":"2025-08-26T18:00:00.000+02:00","price":1.912,"timeFormatted":"04:00 PM"}]},"weather":{"current":{"temperature":12.9,"humidity":80.3,"windSpeed":2.1,"cloudCover":1.6,"symbol":"clearsky_night"},"adjustment":0.06355773127595586,"reason":"Weather conditions have minimal impact","trend":"warming","trendDetails":"Temperature rising by 3.2°C over next 24h"},"zone2Data":null,"tankData":{"fromTemp":47.5,"toTemp":46.5,"reason":"Enhanced optimization: Normal electricity prices (42th percentile), maintaining average tank temperature (limited to 1°C step)"},"timestamp":"2025-08-26T00:05:05.102Z"},{"success":true,"action":"temperature_adjusted","fromTemp":20.5,"toTemp":21,"reason":"Enhanced optimization based on price and comfort profile","priceData":{"current":1.367,"average":1.5160499999999997,"min":0.6775,"max":2.7956,"level":"EXPENSIVE","percentile":29.166666666666668},"savings":-0.034175000000000004,"comfort":0.5,"targetTemp":21,"targetOriginal":20.5,"indoorTemp":22,"outdoorTemp":12,"priceNow":1.367,"comfortProfile":{"factor":0.5,"currentHour":3,"localTime":"Tue, 26 Aug 2025 03:05:04 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"night"},"priceForecast":{"position":"high","recommendation":"Current price is high compared to upcoming prices. Consider reducing energy usage now. Significant price increase of 39.7% expected at 05:00 AM.","upcomingChanges":{"significant":true,"change":0.5431999999999999,"changePercent":39.7366495976591,"time":"2025-08-26T07:00:00.000+02:00","message":"Significant price increase of 39.7% expected at 05:00 AM."},"bestTimes":[{"time":"2025-08-26T13:00:00.000+02:00","price":0.6775,"timeFormatted":"11:00 AM"},{"time":"2025-08-26T12:00:00.000+02:00","price":0.8359,"timeFormatted":"10:00 AM"},{"time":"2025-08-26T11:00:00.000+02:00","price":1.0371,"timeFormatted":"09:00 AM"}],"worstTimes":[{"time":"2025-08-26T19:00:00.000+02:00","price":2.7956,"timeFormatted":"05:00 PM"},{"time":"2025-08-26T20:00:00.000+02:00","price":2.624,"timeFormatted":"06:00 PM"},{"time":"2025-08-26T18:00:00.000+02:00","price":1.912,"timeFormatted":"04:00 PM"}]},"weather":{"current":{"temperature":12.9,"humidity":80.3,"windSpeed":2.1,"cloudCover":1.6,"symbol":"clearsky_night"},"adjustment":0.06493396305779076,"reason":"Weather conditions have minimal impact","trend":"warming","trendDetails":"Temperature rising by 3.2°C over next 24h"},"zone2Data":null,"tankData":{"fromTemp":46.5,"toTemp":47.5,"reason":"Enhanced optimization: Cheap electricity (29th percentile), heating tank above average"},"timestamp":"2025-08-26T01:05:07.408Z"},{"success":true,"action":"temperature_adjusted","fromTemp":21,"toTemp":20.5,"reason":"Enhanced optimization based on price and comfort profile","priceData":{"current":1.3937,"average":1.5160499999999997,"min":0.6775,"max":2.7956,"level":"EXPENSIVE","percentile":37.5},"savings":0.0348425,"comfort":-0.5,"targetTemp":20.5,"targetOriginal":21,"indoorTemp":22,"outdoorTemp":12,"priceNow":1.3937,"comfortProfile":{"factor":0.5,"currentHour":4,"localTime":"Tue, 26 Aug 2025 04:05:04 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"night"},"priceForecast":{"position":"high","recommendation":"Current price is high compared to upcoming prices. Consider reducing energy usage now. Significant price increase of 37.1% expected at 05:00 AM.","upcomingChanges":{"significant":true,"change":0.5165,"changePercent":37.059625457415514,"time":"2025-08-26T07:00:00.000+02:00","message":"Significant price increase of 37.1% expected at 05:00 AM."},"bestTimes":[{"time":"2025-08-26T13:00:00.000+02:00","price":0.6775,"timeFormatted":"11:00 AM"},{"time":"2025-08-26T12:00:00.000+02:00","price":0.8359,"timeFormatted":"10:00 AM"},{"time":"2025-08-26T11:00:00.000+02:00","price":1.0371,"timeFormatted":"09:00 AM"}],"worstTimes":[{"time":"2025-08-26T19:00:00.000+02:00","price":2.7956,"timeFormatted":"05:00 PM"},{"time":"2025-08-26T20:00:00.000+02:00","price":2.624,"timeFormatted":"06:00 PM"},{"time":"2025-08-26T18:00:00.000+02:00","price":1.912,"timeFormatted":"04:00 PM"}]},"weather":{"current":{"temperature":12.9,"humidity":80.3,"windSpeed":2.1,"cloudCover":1.6,"symbol":"clearsky_night"},"adjustment":0.06368998170337947,"reason":"Weather conditions have minimal impact","trend":"warming","trendDetails":"Temperature rising by 3.2°C over next 24h"},"zone2Data":null,"tankData":{"fromTemp":47.5,"toTemp":47.5,"reason":"Tank temperature difference 0.0°C below deadband 0.5°C"},"timestamp":"2025-08-26T02:05:05.742Z"},{"success":true,"action":"temperature_adjusted","fromTemp":20.5,"toTemp":20,"reason":"Enhanced optimization based on price and comfort profile (limited to 0.5°C step)","priceData":{"current":1.775,"average":1.5160499999999997,"min":0.6775,"max":2.7956,"level":"VERY_EXPENSIVE","percentile":79.16666666666666},"savings":0.044375,"comfort":-0.5,"targetTemp":20,"targetOriginal":20.5,"indoorTemp":21.5,"outdoorTemp":12,"priceNow":1.775,"comfortProfile":{"factor":1,"currentHour":6,"localTime":"Tue, 26 Aug 2025 06:05:03 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"day"},"priceForecast":{"position":"high","recommendation":"Current price is high compared to upcoming prices. Consider reducing energy usage now. Significant price decrease of 52.9% expected at 10:00 AM.","upcomingChanges":{"significant":true,"change":-0.9390999999999999,"changePercent":-52.90704225352113,"time":"2025-08-26T12:00:00.000+02:00","message":"Significant price decrease of 52.9% expected at 10:00 AM."},"bestTimes":[{"time":"2025-08-26T13:00:00.000+02:00","price":0.6775,"timeFormatted":"11:00 AM"},{"time":"2025-08-26T12:00:00.000+02:00","price":0.8359,"timeFormatted":"10:00 AM"},{"time":"2025-08-26T11:00:00.000+02:00","price":1.0371,"timeFormatted":"09:00 AM"}],"worstTimes":[{"time":"2025-08-26T19:00:00.000+02:00","price":2.7956,"timeFormatted":"05:00 PM"},{"time":"2025-08-26T20:00:00.000+02:00","price":2.624,"timeFormatted":"06:00 PM"},{"time":"2025-08-26T18:00:00.000+02:00","price":1.912,"timeFormatted":"04:00 PM"}]},"weather":{"current":{"temperature":12.9,"humidity":80.3,"windSpeed":2.1,"cloudCover":1.6,"symbol":"clearsky_night"},"adjustment":0.024171388732394355,"reason":"Weather conditions have minimal impact","trend":"warming","trendDetails":"Temperature rising by 3.2°C over next 24h"},"zone2Data":null,"tankData":{"fromTemp":46.5,"toTemp":45.5,"reason":"Enhanced optimization: Expensive electricity (79th percentile), reducing tank below average (limited to 1°C step)"},"timestamp":"2025-08-26T04:05:06.203Z"},{"success":true,"action":"temperature_adjusted","fromTemp":20,"toTemp":19.5,"reason":"Enhanced optimization based on price and comfort profile","priceData":{"current":1.9102,"average":1.5160499999999997,"min":0.6775,"max":2.7956,"level":"VERY_EXPENSIVE","percentile":87.5},"savings":0.047755,"comfort":-0.5,"targetTemp":19.5,"targetOriginal":20,"indoorTemp":21.5,"outdoorTemp":13,"priceNow":1.9102,"comfortProfile":{"factor":1,"currentHour":7,"localTime":"Tue, 26 Aug 2025 07:05:04 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"day"},"priceForecast":{"position":"high","recommendation":"Current price is high compared to upcoming prices. Consider reducing energy usage now. Significant price decrease of 64.5% expected at 11:00 AM.","upcomingChanges":{"significant":true,"change":-1.2327,"changePercent":-64.53250968484974,"time":"2025-08-26T13:00:00.000+02:00","message":"Significant price decrease of 64.5% expected at 11:00 AM."},"bestTimes":[{"time":"2025-08-26T13:00:00.000+02:00","price":0.6775,"timeFormatted":"11:00 AM"},{"time":"2025-08-26T12:00:00.000+02:00","price":0.8359,"timeFormatted":"10:00 AM"},{"time":"2025-08-26T11:00:00.000+02:00","price":1.0371,"timeFormatted":"09:00 AM"}],"worstTimes":[{"time":"2025-08-26T19:00:00.000+02:00","price":2.7956,"timeFormatted":"05:00 PM"},{"time":"2025-08-26T20:00:00.000+02:00","price":2.624,"timeFormatted":"06:00 PM"},{"time":"2025-08-26T18:00:00.000+02:00","price":1.912,"timeFormatted":"04:00 PM"}]},"weather":{"current":{"temperature":12.9,"humidity":80.3,"windSpeed":2.1,"cloudCover":1.6,"symbol":"clearsky_night"},"adjustment":0.022460587896555324,"reason":"Weather conditions have minimal impact","trend":"warming","trendDetails":"Temperature rising by 3.2°C over next 24h"},"zone2Data":null,"tankData":{"fromTemp":45.5,"toTemp":44.5,"reason":"Enhanced optimization: Very expensive electricity (88th percentile), reducing tank to minimum (limited to 1°C step)"},"timestamp":"2025-08-26T05:05:09.790Z"},{"success":true,"action":"temperature_adjusted","fromTemp":19.5,"toTemp":20,"reason":"Enhanced optimization based on price and comfort profile (limited to 0.5°C step)","priceData":{"current":1.5934,"average":1.5160499999999997,"min":0.6775,"max":2.7956,"level":"VERY_EXPENSIVE","percentile":75},"savings":-0.039835,"comfort":0.5,"targetTemp":20,"targetOriginal":19.5,"indoorTemp":21.5,"outdoorTemp":15,"priceNow":1.5934,"comfortProfile":{"factor":1,"currentHour":8,"localTime":"Tue, 26 Aug 2025 08:05:05 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"day"},"priceForecast":{"position":"high","recommendation":"Current price is high compared to upcoming prices. Consider reducing energy usage now. Significant price decrease of 57.5% expected at 11:00 AM.","upcomingChanges":{"significant":true,"change":-0.9158999999999999,"changePercent":-57.48085854148361,"time":"2025-08-26T13:00:00.000+02:00","message":"Significant price decrease of 57.5% expected at 11:00 AM."},"bestTimes":[{"time":"2025-08-26T13:00:00.000+02:00","price":0.6775,"timeFormatted":"11:00 AM"},{"time":"2025-08-26T12:00:00.000+02:00","price":0.8359,"timeFormatted":"10:00 AM"},{"time":"2025-08-26T11:00:00.000+02:00","price":1.0371,"timeFormatted":"09:00 AM"}],"worstTimes":[{"time":"2025-08-26T19:00:00.000+02:00","price":2.7956,"timeFormatted":"05:00 PM"},{"time":"2025-08-26T20:00:00.000+02:00","price":2.624,"timeFormatted":"06:00 PM"},{"time":"2025-08-26T18:00:00.000+02:00","price":1.912,"timeFormatted":"04:00 PM"}]},"weather":{"current":{"temperature":12.9,"humidity":80.3,"windSpeed":2.1,"cloudCover":1.6,"symbol":"clearsky_night"},"adjustment":0.026926204970503312,"reason":"Weather conditions have minimal impact","trend":"warming","trendDetails":"Temperature rising by 3.2°C over next 24h"},"zone2Data":null,"tankData":{"fromTemp":44.5,"toTemp":43.5,"reason":"Enhanced optimization: Expensive electricity (75th percentile), reducing tank below average (limited to 1°C step)"},"timestamp":"2025-08-26T06:05:07.403Z"},{"success":true,"action":"temperature_adjusted","fromTemp":20,"toTemp":20.5,"reason":"Enhanced optimization based on price and comfort profile (limited to 0.5°C step)","priceData":{"current":1.4032,"average":1.5160499999999997,"min":0.6775,"max":2.7956,"level":"EXPENSIVE","percentile":45.83333333333333},"savings":-0.03508,"comfort":0.5,"targetTemp":20.5,"targetOriginal":20,"indoorTemp":21.5,"outdoorTemp":14,"priceNow":1.4032,"comfortProfile":{"factor":1,"currentHour":9,"localTime":"Tue, 26 Aug 2025 09:05:05 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"day"},"priceForecast":{"position":"high","recommendation":"Current price is high compared to upcoming prices. Consider reducing energy usage now. Significant price decrease of 51.7% expected at 11:00 AM.","upcomingChanges":{"significant":true,"change":-0.7257,"changePercent":-51.71750285062714,"time":"2025-08-26T13:00:00.000+02:00","message":"Significant price decrease of 51.7% expected at 11:00 AM."},"bestTimes":[{"time":"2025-08-26T13:00:00.000+02:00","price":0.6775,"timeFormatted":"11:00 AM"},{"time":"2025-08-26T12:00:00.000+02:00","price":0.8359,"timeFormatted":"10:00 AM"},{"time":"2025-08-26T14:00:00.000+02:00","price":1.0637,"timeFormatted":"12:00 PM"}],"worstTimes":[{"time":"2025-08-26T19:00:00.000+02:00","price":2.7956,"timeFormatted":"05:00 PM"},{"time":"2025-08-26T20:00:00.000+02:00","price":2.624,"timeFormatted":"06:00 PM"},{"time":"2025-08-26T18:00:00.000+02:00","price":1.912,"timeFormatted":"04:00 PM"}]},"weather":{"current":{"temperature":12.9,"humidity":80.3,"windSpeed":2.1,"cloudCover":1.6,"symbol":"clearsky_night"},"adjustment":0.030575979903078664,"reason":"Weather conditions have minimal impact","trend":"warming","trendDetails":"Temperature rising by 3.2°C over next 24h"},"zone2Data":null,"tankData":{"fromTemp":43.5,"toTemp":44.5,"reason":"Enhanced optimization: Normal electricity prices (46th percentile), maintaining average tank temperature (limited to 1°C step)"},"timestamp":"2025-08-26T07:05:07.001Z"},{"success":true,"action":"temperature_adjusted","fromTemp":20.5,"toTemp":21,"reason":"Enhanced optimization based on price and comfort profile (limited to 0.5°C step)","priceData":{"current":1.2355,"average":1.5160499999999997,"min":0.6775,"max":2.7956,"level":"EXPENSIVE","percentile":20.833333333333336},"savings":-0.030887500000000002,"comfort":0.5,"targetTemp":21,"targetOriginal":20.5,"indoorTemp":22,"outdoorTemp":16,"priceNow":1.2355,"comfortProfile":{"factor":1,"currentHour":10,"localTime":"Tue, 26 Aug 2025 10:05:04 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"day"},"priceForecast":{"position":"high","recommendation":"Current price is high compared to upcoming prices. Consider reducing energy usage now. Significant price decrease of 45.2% expected at 11:00 AM.","upcomingChanges":{"significant":true,"change":-0.558,"changePercent":-45.16390125455281,"time":"2025-08-26T13:00:00.000+02:00","message":"Significant price decrease of 45.2% expected at 11:00 AM."},"bestTimes":[{"time":"2025-08-26T13:00:00.000+02:00","price":0.6775,"timeFormatted":"11:00 AM"},{"time":"2025-08-26T14:00:00.000+02:00","price":1.0637,"timeFormatted":"12:00 PM"},{"time":"2025-08-26T15:00:00.000+02:00","price":1.2378,"timeFormatted":"01:00 PM"}],"worstTimes":[{"time":"2025-08-26T19:00:00.000+02:00","price":2.7956,"timeFormatted":"05:00 PM"},{"time":"2025-08-26T20:00:00.000+02:00","price":2.624,"timeFormatted":"06:00 PM"},{"time":"2025-08-26T18:00:00.000+02:00","price":1.912,"timeFormatted":"04:00 PM"}]},"weather":{"current":{"temperature":12.9,"humidity":80.3,"windSpeed":2.1,"cloudCover":1.6,"symbol":"clearsky_night"},"adjustment":0.07184518615944958,"reason":"Weather conditions have minimal impact","trend":"warming","trendDetails":"Temperature rising by 3.2°C over next 24h"},"zone2Data":null,"tankData":{"fromTemp":44.5,"toTemp":45.5,"reason":"Enhanced optimization: Cheap electricity (21th percentile), heating tank above average (limited to 1°C step)"},"timestamp":"2025-08-26T08:05:06.474Z"},{"success":true,"action":"temperature_adjusted","fromTemp":21,"toTemp":21.5,"reason":"Enhanced optimization based on price and comfort profile","priceData":{"current":1.0371,"average":1.5160499999999997,"min":0.6775,"max":2.7956,"level":"NORMAL","percentile":12.5},"savings":-0.0259275,"comfort":-0.5,"targetTemp":21.5,"targetOriginal":21,"indoorTemp":22.5,"outdoorTemp":16,"priceNow":1.0371,"comfortProfile":{"factor":1,"currentHour":11,"localTime":"Tue, 26 Aug 2025 11:05:04 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"day"},"priceForecast":{"position":"medium","recommendation":"Current price is average compared to upcoming prices. Normal energy usage recommended. Significant price increase of 46.8% expected at 03:00 PM.","upcomingChanges":{"significant":true,"change":0.48560000000000003,"changePercent":46.82287146851799,"time":"2025-08-26T17:00:00.000+02:00","message":"Significant price increase of 46.8% expected at 03:00 PM."},"bestTimes":[{"time":"2025-08-26T14:00:00.000+02:00","price":1.0637,"timeFormatted":"12:00 PM"},{"time":"2025-08-26T15:00:00.000+02:00","price":1.2378,"timeFormatted":"01:00 PM"},{"time":"2025-08-26T16:00:00.000+02:00","price":1.379,"timeFormatted":"02:00 PM"}],"worstTimes":[{"time":"2025-08-26T19:00:00.000+02:00","price":2.7956,"timeFormatted":"05:00 PM"},{"time":"2025-08-26T20:00:00.000+02:00","price":2.624,"timeFormatted":"06:00 PM"},{"time":"2025-08-26T18:00:00.000+02:00","price":1.912,"timeFormatted":"04:00 PM"}]},"weather":{"current":{"temperature":12.9,"humidity":80.3,"windSpeed":2.1,"cloudCover":1.6,"symbol":"clearsky_night"},"adjustment":0.12980931443448074,"reason":"Weather conditions have minimal impact","trend":"warming","trendDetails":"Temperature rising by 3.2°C over next 24h"},"zone2Data":null,"tankData":{"fromTemp":45.5,"toTemp":46.5,"reason":"Enhanced optimization: Very cheap electricity (13th percentile), heating tank to maximum (limited to 1°C step)"},"timestamp":"2025-08-26T09:05:10.241Z"},{"success":true,"action":"temperature_adjusted","fromTemp":21.5,"toTemp":22,"reason":"Enhanced optimization based on price and comfort profile","priceData":{"current":0.8359,"average":1.5160499999999997,"min":0.6775,"max":2.7956,"level":"CHEAP","percentile":8.333333333333332},"savings":-0.0208975,"comfort":-0.5,"targetTemp":22,"targetOriginal":21.5,"indoorTemp":22.5,"outdoorTemp":17,"priceNow":0.8359,"comfortProfile":{"factor":1,"currentHour":12,"localTime":"Tue, 26 Aug 2025 12:05:05 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"day"},"priceForecast":{"position":"low","recommendation":"Current price is low compared to upcoming prices. Consider increasing energy usage now. Significant price increase of 128.7% expected at 04:00 PM.","upcomingChanges":{"significant":true,"change":1.0760999999999998,"changePercent":128.73549467639668,"time":"2025-08-26T18:00:00.000+02:00","message":"Significant price increase of 128.7% expected at 04:00 PM."},"bestTimes":[{"time":"2025-08-26T15:00:00.000+02:00","price":1.2378,"timeFormatted":"01:00 PM"},{"time":"2025-08-26T16:00:00.000+02:00","price":1.379,"timeFormatted":"02:00 PM"},{"time":"2025-08-26T23:00:00.000+02:00","price":1.4128,"timeFormatted":"09:00 PM"}],"worstTimes":[{"time":"2025-08-26T19:00:00.000+02:00","price":2.7956,"timeFormatted":"05:00 PM"},{"time":"2025-08-26T20:00:00.000+02:00","price":2.624,"timeFormatted":"06:00 PM"},{"time":"2025-08-26T18:00:00.000+02:00","price":1.912,"timeFormatted":"04:00 PM"}]},"weather":{"current":{"temperature":12.9,"humidity":80.3,"windSpeed":2.1,"cloudCover":1.6,"symbol":"clearsky_night"},"adjustment":0.16105424093791118,"reason":"Weather conditions have minimal impact","trend":"warming","trendDetails":"Temperature rising by 3.2°C over next 24h"},"zone2Data":null,"tankData":{"fromTemp":46.5,"toTemp":47.5,"reason":"Enhanced optimization: Very cheap electricity (8th percentile), heating tank to maximum (limited to 1°C step)"},"timestamp":"2025-08-26T10:05:09.489Z"},{"timestamp":"2025-08-26T13:32:25.173Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":22,"newTemp":22,"currentTankTemp":49.5,"currentSetTankTemp":48.5,"newTankTemp":50.5,"action":"tank_increased","reason":"Low price (0.80x avg) - preheating for energy savings","currentPrice":1.2378,"avgPrice":1.550816666666666,"priceRatio":0.7981601091897821,"savings":{"heatingChange":0,"tankChange":2,"estimatedSavings":0}},{"timestamp":"2025-08-26T13:42:24.919Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":22,"newTemp":22,"currentTankTemp":49.5,"currentSetTankTemp":48.5,"newTankTemp":50.5,"action":"tank_increased","reason":"Low price (0.80x avg) - preheating for energy savings","currentPrice":1.2378,"avgPrice":1.550816666666666,"priceRatio":0.7981601091897821,"savings":{"heatingChange":0,"tankChange":2,"estimatedSavings":0}},{"timestamp":"2025-08-26T13:45:28.099Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":22,"newTemp":22,"currentTankTemp":49.5,"currentSetTankTemp":48.5,"newTankTemp":50.5,"outdoorTemp":29,"action":"tank_increased","reason":"Low price (0.80x avg) - preheating for energy savings","currentPrice":1.2378,"avgPrice":1.550816666666666,"priceRatio":0.7981601091897821,"savings":{"heatingChange":0,"tankChange":2,"estimatedSavings":0}},{"timestamp":"2025-08-26T13:45:55.256Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":22,"newTemp":22,"currentTankTemp":49.5,"currentSetTankTemp":48.5,"newTankTemp":50.5,"outdoorTemp":29,"action":"tank_increased","reason":"Low price (0.80x avg) - preheating for energy savings","currentPrice":1.2378,"avgPrice":1.550816666666666,"priceRatio":0.7981601091897821,"savings":{"heatingChange":0,"tankChange":2,"estimatedSavings":0}},{"timestamp":"2025-08-26T13:46:05.792Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":22,"newTemp":22,"currentTankTemp":49.5,"currentSetTankTemp":48.5,"newTankTemp":50.5,"outdoorTemp":29,"action":"tank_increased","reason":"Low price (0.80x avg) - preheating for energy savings","currentPrice":1.2378,"avgPrice":1.550816666666666,"priceRatio":0.7981601091897821,"savings":{"heatingChange":0,"tankChange":2,"estimatedSavings":0}},{"timestamp":"2025-08-26T13:46:27.342Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":22,"newTemp":22,"currentTankTemp":49.5,"currentSetTankTemp":48.5,"newTankTemp":50.5,"outdoorTemp":29,"action":"tank_increased","reason":"Low price (0.80x avg) - preheating for energy savings","currentPrice":1.2378,"avgPrice":1.550816666666666,"priceRatio":0.7981601091897821,"savings":{"heatingChange":0,"tankChange":2,"estimatedSavings":0}},{"timestamp":"2025-08-26T14:20:35.739Z","deviceId":59132691,"buildingId":513523,"currentTemp":24,"currentSetTemp":22,"newTemp":22,"currentTankTemp":49,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":24,"action":"no_change","reason":"Current conditions are optimal","currentPrice":1.379,"avgPrice":1.550816666666666,"priceRatio":0.889208911433761,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-26T14:21:29.341Z","deviceId":59132691,"buildingId":513523,"currentTemp":24,"currentSetTemp":22,"newTemp":22,"currentTankTemp":49,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":24,"action":"no_change","reason":"Current conditions are optimal","currentPrice":1.379,"avgPrice":1.550816666666666,"priceRatio":0.889208911433761,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-26T15:14:42.030Z","deviceId":59132691,"buildingId":513523,"currentTemp":24,"currentSetTemp":22,"newTemp":22,"currentTankTemp":49,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":22,"action":"no_change","reason":"Current conditions are optimal","currentPrice":1.5227,"avgPrice":1.550816666666666,"priceRatio":0.9818697675418332,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-26T15:53:57.670Z","deviceId":59132691,"buildingId":513523,"currentTemp":24,"currentSetTemp":22,"newTemp":22,"currentTankTemp":49,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":21,"action":"no_change","reason":"Current conditions are optimal","currentPrice":1.5227,"avgPrice":1.550816666666666,"priceRatio":0.9818697675418332,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-26T16:05:07.646Z","deviceId":59132691,"buildingId":513523,"currentTemp":24,"currentSetTemp":22,"newTemp":21.5,"currentTankTemp":49,"currentSetTankTemp":48.5,"newTankTemp":46.5,"outdoorTemp":21,"action":"both_decreased","reason":"High price (1.23x avg) - reducing consumption for cost savings","currentPrice":1.912,"avgPrice":1.550816666666666,"priceRatio":1.2328987952584127,"savings":{"heatingChange":-0.5,"tankChange":-2,"estimatedSavings":1.1472000000000002}},{"timestamp":"2025-08-26T17:05:08.153Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":22,"newTemp":21.5,"currentTankTemp":48.5,"currentSetTankTemp":48.5,"newTankTemp":46.5,"outdoorTemp":19,"action":"both_decreased","reason":"High price (1.80x avg) - reducing consumption for cost savings","currentPrice":2.7956,"avgPrice":1.550816666666666,"priceRatio":1.8026631129834825,"savings":{"heatingChange":-0.5,"tankChange":-2,"estimatedSavings":1.6773600000000002}},{"timestamp":"2025-08-26T18:05:05.444Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":22,"newTemp":21.5,"currentTankTemp":48,"currentSetTankTemp":48.5,"newTankTemp":46.5,"outdoorTemp":18,"action":"both_decreased","reason":"High price (1.69x avg) - reducing consumption for cost savings","currentPrice":2.624,"avgPrice":1.550816666666666,"priceRatio":1.6920117357521314,"savings":{"heatingChange":-0.5,"tankChange":-2,"estimatedSavings":1.5744000000000002}},{"timestamp":"2025-08-26T19:05:19.395Z","deviceId":59132691,"buildingId":513523,"currentTemp":24,"currentSetTemp":22,"newTemp":22,"currentTankTemp":47.5,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":17,"action":"no_change","reason":"Current conditions are optimal","currentPrice":1.8442,"avgPrice":1.550816666666666,"priceRatio":1.1891798944642076,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-26T19:25:07.065Z","deviceId":59132691,"buildingId":513523,"currentTemp":24,"currentSetTemp":22,"newTemp":22,"currentTankTemp":47.5,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":17,"action":"no_change","reason":"Current conditions are optimal","currentPrice":1.8442,"avgPrice":1.550816666666666,"priceRatio":1.1891798944642076,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-26T19:25:46.921Z","deviceId":59132691,"buildingId":513523,"currentTemp":24,"currentSetTemp":22,"newTemp":22,"currentTankTemp":47.5,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":17,"action":"no_change","reason":"Current conditions are optimal","currentPrice":1.8442,"avgPrice":1.550816666666666,"priceRatio":1.1891798944642076,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-26T19:26:17.664Z","deviceId":59132691,"buildingId":513523,"currentTemp":24,"currentSetTemp":22,"newTemp":22,"currentTankTemp":47.5,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":17,"action":"no_change","reason":"Current conditions are optimal","currentPrice":1.8442,"avgPrice":1.550816666666666,"priceRatio":1.1891798944642076,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-26T20:05:04.009Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":22,"newTemp":22,"currentTankTemp":47,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":17,"action":"no_change","reason":"Current conditions are optimal","currentPrice":1.573,"avgPrice":1.550816666666666,"priceRatio":1.0143042912873865,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-26T20:14:26.900Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":22,"newTemp":22,"currentTankTemp":47,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":17,"action":"no_change","reason":"Current conditions are optimal","currentPrice":1.573,"avgPrice":1.550816666666666,"priceRatio":1.0143042912873865,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-26T20:17:34.648Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":22,"newTemp":22,"currentTankTemp":47,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":17,"action":"no_change","reason":"Current conditions are optimal","currentPrice":1.573,"avgPrice":1.550816666666666,"priceRatio":1.0143042912873865,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-26T20:23:46.229Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":22,"newTemp":22,"currentTankTemp":47,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":17,"action":"no_change","reason":"Current conditions are optimal","currentPrice":1.573,"avgPrice":0,"priceRatio":1,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-26T20:23:55.719Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":22,"newTemp":22,"currentTankTemp":47,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":17,"action":"no_change","reason":"Current conditions are optimal","currentPrice":1.573,"avgPrice":0,"priceRatio":1,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-27T09:03:32.747Z","deviceId":59132691,"buildingId":513523,"currentTemp":22.5,"currentSetTemp":21.5,"newTemp":21.5,"currentTankTemp":60,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":18,"action":"temperature_adjusted","reason":"Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step)","currentPrice":1.271,"avgPrice":0,"priceRatio":1,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-27T09:20:44.907Z","deviceId":59132691,"buildingId":513523,"currentTemp":22.5,"currentSetTemp":21.5,"newTemp":21.5,"currentTankTemp":60,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":18,"action":"temperature_adjusted","reason":"Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step)","currentPrice":1.271,"avgPrice":0,"priceRatio":1,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-27T09:21:39.477Z","deviceId":59132691,"buildingId":513523,"currentTemp":22.5,"currentSetTemp":21.5,"newTemp":21.5,"currentTankTemp":60,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":18,"action":"temperature_adjusted","reason":"Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step)","currentPrice":1.271,"avgPrice":0,"priceRatio":1,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-27T09:44:28.112Z","deviceId":59132691,"buildingId":513523,"currentTemp":22.5,"currentSetTemp":21.5,"newTemp":21.5,"currentTankTemp":60,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":19,"action":"temperature_adjusted","reason":"Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step)","currentPrice":1.271,"avgPrice":0,"priceRatio":1,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-27T10:05:33.640Z","deviceId":59132691,"buildingId":513523,"currentTemp":22.5,"currentSetTemp":21.5,"newTemp":21.5,"currentTankTemp":60,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":19,"action":"temperature_adjusted","reason":"Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step)","currentPrice":1.0128,"avgPrice":0,"priceRatio":1,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-27T11:05:48.134Z","deviceId":59132691,"buildingId":513523,"currentTemp":23,"currentSetTemp":21.5,"newTemp":21.5,"currentTankTemp":59.5,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":20,"action":"temperature_adjusted","reason":"Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step)","currentPrice":1.0922,"avgPrice":0,"priceRatio":1,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-27T12:05:55.600Z","deviceId":59132691,"buildingId":513523,"currentTemp":23,"currentSetTemp":21.5,"newTemp":21.5,"currentTankTemp":59.5,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":21,"action":"temperature_adjusted","reason":"Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step)","currentPrice":1.2255,"avgPrice":0,"priceRatio":1,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-27T13:05:47.789Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":21.5,"newTemp":21.5,"currentTankTemp":59,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":26,"action":"temperature_adjusted","reason":"Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step)","currentPrice":1.2021,"avgPrice":0,"priceRatio":1,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-27T14:05:47.763Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":21.5,"newTemp":21.5,"currentTankTemp":58,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":23,"action":"temperature_adjusted","reason":"Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step)","currentPrice":1.3346,"avgPrice":0,"priceRatio":1,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-27T14:30:00.764Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":21.5,"newTemp":21.5,"currentTankTemp":58,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":21,"action":"temperature_adjusted","reason":"Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step)","currentPrice":1.3346,"avgPrice":0,"priceRatio":1,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-27T15:05:34.763Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":21.5,"newTemp":21.5,"currentTankTemp":57.5,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":22,"action":"temperature_adjusted","reason":"Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step)","currentPrice":1.547,"avgPrice":0,"priceRatio":1,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-27T16:05:53.631Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":21.5,"newTemp":21.5,"currentTankTemp":53.5,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":21,"action":"temperature_adjusted","reason":"Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step) + Thermal mass coast: Expensive period (92th percentile): using thermal mass, can coast for 4.0 hours","currentPrice":1.9567,"avgPrice":0,"priceRatio":1,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-27T16:45:43.429Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":21.5,"newTemp":21.5,"currentTankTemp":52.5,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":20,"action":"temperature_adjusted","reason":"Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step) + Thermal mass coast: Expensive period (92th percentile): using thermal mass, can coast for 4.0 hours","currentPrice":1.9567,"avgPrice":0,"priceRatio":1,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-27T16:48:10.588Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":21.5,"newTemp":21.5,"currentTankTemp":52.5,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":20,"action":"temperature_adjusted","reason":"Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step) + Thermal mass coast: Expensive period (92th percentile): using thermal mass, can coast for 4.0 hours","currentPrice":1.9567,"avgPrice":0,"priceRatio":1,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-27T17:05:33.225Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":21.5,"newTemp":21.5,"currentTankTemp":52.5,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":20,"action":"temperature_adjusted","reason":"Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step) + Thermal mass coast: Expensive period (96th percentile): using thermal mass, can coast for 4.0 hours","currentPrice":3.154,"avgPrice":0,"priceRatio":1,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-27T17:44:08.124Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":21.5,"newTemp":19.5,"currentTankTemp":52,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":20,"action":"temperature_adjusted","reason":"Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step) + Thermal mass coast: Expensive period (96th percentile): using thermal mass, can coast for 4.0 hours","currentPrice":3.154,"avgPrice":0,"priceRatio":1,"savings":{"heatingChange":-2,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-27T17:46:41.106Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":21.5,"newTemp":19.5,"currentTankTemp":52,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":20,"action":"temperature_adjusted","reason":"Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step) + Thermal mass coast: Expensive period (96th percentile): using thermal mass, can coast for 4.0 hours","currentPrice":3.154,"avgPrice":0,"priceRatio":1,"savings":{"heatingChange":-2,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-27T18:01:20.660Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":21.5,"newTemp":19.5,"currentTankTemp":52,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":19,"action":"temperature_adjusted","reason":"Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step) + Thermal mass coast: Expensive period (100th percentile): using thermal mass, can coast for 4.0 hours","currentPrice":3.1722,"avgPrice":0,"priceRatio":1,"savings":{"heatingChange":-2,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-27T18:09:40.324Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":21.5,"newTemp":19.5,"currentTankTemp":52,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":19,"action":"temperature_adjusted","reason":"Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step) + Thermal mass coast: Expensive period (100th percentile): using thermal mass, can coast for 4.0 hours","currentPrice":3.1722,"avgPrice":1.6393729166666666,"priceRatio":1.9350081776695613,"savings":{"heatingChange":-2,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-27T18:12:17.411Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":21.5,"newTemp":19.5,"currentTankTemp":52,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":19,"action":"temperature_adjusted","reason":"Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step) + Thermal mass coast: Expensive period (100th percentile): using thermal mass, can coast for 4.0 hours","currentPrice":3.1722,"avgPrice":1.6393729166666666,"priceRatio":1.9350081776695613,"savings":{"heatingChange":-2,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-27T18:13:04.473Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":21.5,"newTemp":19.5,"currentTankTemp":52,"currentSetTankTemp":48.5,"newTankTemp":48.5,"outdoorTemp":19,"action":"temperature_adjusted","reason":"Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step) + Thermal mass coast: Expensive period (100th percentile): using thermal mass, can coast for 4.0 hours","currentPrice":3.1722,"avgPrice":1.6393729166666666,"priceRatio":1.9350081776695613,"savings":{"heatingChange":-2,"tankChange":0,"estimatedSavings":0}},{"success":true,"action":"temperature_adjusted","fromTemp":21.5,"toTemp":21,"reason":"Enhanced optimization based on price and comfort profile (limited to 0.5°C step)","priceData":{"current":3.1722,"average":1.6393729166666666,"min":1.0128,"max":3.1722,"level":"VERY_EXPENSIVE","percentile":100},"savings":0.07930500000000001,"comfort":0.5,"targetTemp":21,"targetOriginal":21.5,"indoorTemp":23.5,"outdoorTemp":19,"priceNow":3.1722,"comfortProfile":{"factor":1,"currentHour":20,"localTime":"Wed, 27 Aug 2025 20:35:14 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"day"},"priceForecast":{"position":"high","recommendation":"Current price is high compared to upcoming prices. Consider reducing energy usage now. Significant price decrease of 58.0% expected at 11:00 PM.","upcomingChanges":{"significant":true,"change":-1.8396000000000001,"changePercent":-57.99129941365614,"time":"2025-08-28T01:00:00.000+02:00","message":"Significant price decrease of 58.0% expected at 11:00 PM."},"bestTimes":[{"time":"2025-08-28T01:00:00.000+02:00","price":1.3326,"timeFormatted":"11:00 PM"},{"time":"2025-08-27T01:00:00.000+02:00","price":1.3446,"timeFormatted":"11:00 PM"},{"time":"2025-08-28T00:00:00.000+02:00","price":1.4035,"timeFormatted":"10:00 PM"}],"worstTimes":[{"time":"2025-08-28T22:00:00.000+02:00","price":1.5388,"timeFormatted":"08:00 PM"},{"time":"2025-08-27T23:00:00.000+02:00","price":1.5251,"timeFormatted":"09:00 PM"},{"time":"2025-08-27T00:00:00.000+02:00","price":1.4399,"timeFormatted":"10:00 PM"}]},"weather":{"current":{"temperature":19.5,"humidity":70.2,"windSpeed":5.2,"cloudCover":95.6,"symbol":"cloudy"},"adjustment":0.1457358182018788,"reason":"Weather conditions have minimal impact","trend":"stable","trendDetails":"Temperature relatively stable (-1.1°C change), with 2.5mm precipitation expected"},"zone2Data":null,"tankData":{"fromTemp":48.5,"toTemp":47.5,"reason":"Enhanced optimization: Very expensive electricity (100th percentile), reducing tank to minimum (limited to 1°C step)"},"timestamp":"2025-08-27T18:35:21.518Z"},{"success":true,"action":"temperature_adjusted","fromTemp":21,"toTemp":20.5,"reason":"Enhanced optimization based on price and comfort profile (limited to 0.5°C step)","priceData":{"current":3.1722,"average":1.6393729166666666,"min":1.0128,"max":3.1722,"level":"VERY_EXPENSIVE","percentile":100},"savings":0.07930500000000001,"comfort":-0.5,"targetTemp":20.5,"targetOriginal":21,"indoorTemp":23.5,"outdoorTemp":19,"priceNow":3.1722,"comfortProfile":{"factor":1,"currentHour":20,"localTime":"Wed, 27 Aug 2025 20:36:46 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"day"},"priceForecast":{"position":"high","recommendation":"Current price is high compared to upcoming prices. Consider reducing energy usage now. Significant price decrease of 58.0% expected at 11:00 PM.","upcomingChanges":{"significant":true,"change":-1.8396000000000001,"changePercent":-57.99129941365614,"time":"2025-08-28T01:00:00.000+02:00","message":"Significant price decrease of 58.0% expected at 11:00 PM."},"bestTimes":[{"time":"2025-08-28T01:00:00.000+02:00","price":1.3326,"timeFormatted":"11:00 PM"},{"time":"2025-08-27T01:00:00.000+02:00","price":1.3446,"timeFormatted":"11:00 PM"},{"time":"2025-08-28T00:00:00.000+02:00","price":1.4035,"timeFormatted":"10:00 PM"}],"worstTimes":[{"time":"2025-08-28T22:00:00.000+02:00","price":1.5388,"timeFormatted":"08:00 PM"},{"time":"2025-08-27T23:00:00.000+02:00","price":1.5251,"timeFormatted":"09:00 PM"},{"time":"2025-08-27T00:00:00.000+02:00","price":1.4399,"timeFormatted":"10:00 PM"}]},"weather":{"current":{"temperature":19.5,"humidity":70.2,"windSpeed":5.2,"cloudCover":95.6,"symbol":"cloudy"},"adjustment":0.1457358182018788,"reason":"Weather conditions have minimal impact","trend":"stable","trendDetails":"Temperature relatively stable (-1.1°C change), with 2.5mm precipitation expected"},"zone2Data":null,"tankData":{"fromTemp":47.5,"toTemp":46.5,"reason":"Enhanced optimization: Very expensive electricity (100th percentile), reducing tank to minimum (limited to 1°C step)"},"timestamp":"2025-08-27T18:36:48.630Z"},{"success":true,"action":"temperature_adjusted","fromTemp":20.5,"toTemp":20,"reason":"Enhanced optimization based on price and comfort profile (limited to 0.5°C step)","priceData":{"current":3.1722,"average":1.6393729166666666,"min":1.0128,"max":3.1722,"level":"VERY_EXPENSIVE","percentile":100},"savings":0.07930500000000001,"comfort":-0.5,"targetTemp":20,"targetOriginal":20.5,"indoorTemp":23.5,"outdoorTemp":19,"priceNow":3.1722,"comfortProfile":{"factor":1,"currentHour":20,"localTime":"Wed, 27 Aug 2025 20:36:57 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"day"},"priceForecast":{"position":"high","recommendation":"Current price is high compared to upcoming prices. Consider reducing energy usage now. Significant price decrease of 58.0% expected at 11:00 PM.","upcomingChanges":{"significant":true,"change":-1.8396000000000001,"changePercent":-57.99129941365614,"time":"2025-08-28T01:00:00.000+02:00","message":"Significant price decrease of 58.0% expected at 11:00 PM."},"bestTimes":[{"time":"2025-08-28T01:00:00.000+02:00","price":1.3326,"timeFormatted":"11:00 PM"},{"time":"2025-08-27T01:00:00.000+02:00","price":1.3446,"timeFormatted":"11:00 PM"},{"time":"2025-08-28T00:00:00.000+02:00","price":1.4035,"timeFormatted":"10:00 PM"}],"worstTimes":[{"time":"2025-08-28T22:00:00.000+02:00","price":1.5388,"timeFormatted":"08:00 PM"},{"time":"2025-08-27T23:00:00.000+02:00","price":1.5251,"timeFormatted":"09:00 PM"},{"time":"2025-08-27T00:00:00.000+02:00","price":1.4399,"timeFormatted":"10:00 PM"}]},"weather":{"current":{"temperature":19.5,"humidity":70.2,"windSpeed":5.2,"cloudCover":95.6,"symbol":"cloudy"},"adjustment":0.1457358182018788,"reason":"Weather conditions have minimal impact","trend":"stable","trendDetails":"Temperature relatively stable (-1.1°C change), with 2.5mm precipitation expected"},"zone2Data":null,"tankData":{"fromTemp":46.5,"toTemp":45.5,"reason":"Enhanced optimization: Very expensive electricity (100th percentile), reducing tank to minimum (limited to 1°C step)"},"timestamp":"2025-08-27T18:36:59.630Z"},{"success":true,"action":"temperature_adjusted","fromTemp":20,"toTemp":19.5,"reason":"Enhanced optimization based on price and comfort profile (limited to 0.5°C step)","priceData":{"current":3.1722,"average":1.6393729166666666,"min":1.0128,"max":3.1722,"level":"VERY_EXPENSIVE","percentile":100},"savings":0.07930500000000001,"comfort":-0.5,"targetTemp":19.5,"targetOriginal":20,"indoorTemp":23.5,"outdoorTemp":19,"priceNow":3.1722,"comfortProfile":{"factor":1,"currentHour":20,"localTime":"Wed, 27 Aug 2025 20:37:05 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"day"},"priceForecast":{"position":"high","recommendation":"Current price is high compared to upcoming prices. Consider reducing energy usage now. Significant price decrease of 58.0% expected at 11:00 PM.","upcomingChanges":{"significant":true,"change":-1.8396000000000001,"changePercent":-57.99129941365614,"time":"2025-08-28T01:00:00.000+02:00","message":"Significant price decrease of 58.0% expected at 11:00 PM."},"bestTimes":[{"time":"2025-08-28T01:00:00.000+02:00","price":1.3326,"timeFormatted":"11:00 PM"},{"time":"2025-08-27T01:00:00.000+02:00","price":1.3446,"timeFormatted":"11:00 PM"},{"time":"2025-08-28T00:00:00.000+02:00","price":1.4035,"timeFormatted":"10:00 PM"}],"worstTimes":[{"time":"2025-08-28T22:00:00.000+02:00","price":1.5388,"timeFormatted":"08:00 PM"},{"time":"2025-08-27T23:00:00.000+02:00","price":1.5251,"timeFormatted":"09:00 PM"},{"time":"2025-08-27T00:00:00.000+02:00","price":1.4399,"timeFormatted":"10:00 PM"}]},"weather":{"current":{"temperature":19.5,"humidity":70.2,"windSpeed":5.2,"cloudCover":95.6,"symbol":"cloudy"},"adjustment":0.1457358182018788,"reason":"Weather conditions have minimal impact","trend":"stable","trendDetails":"Temperature relatively stable (-1.1°C change), with 2.5mm precipitation expected"},"zone2Data":null,"tankData":{"fromTemp":45.5,"toTemp":44.5,"reason":"Enhanced optimization: Very expensive electricity (100th percentile), reducing tank to minimum (limited to 1°C step)"},"timestamp":"2025-08-27T18:37:07.562Z"},{"success":true,"action":"temperature_adjusted","fromTemp":19.5,"toTemp":19,"reason":"Enhanced optimization based on price and comfort profile (limited to 0.5°C step)","priceData":{"current":3.1722,"average":1.6393729166666666,"min":1.0128,"max":3.1722,"level":"VERY_EXPENSIVE","percentile":100},"savings":0.07930500000000001,"comfort":-0.5,"targetTemp":19,"targetOriginal":19.5,"indoorTemp":23.5,"outdoorTemp":19,"priceNow":3.1722,"comfortProfile":{"factor":1,"currentHour":20,"localTime":"Wed, 27 Aug 2025 20:46:30 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"day"},"priceForecast":{"position":"high","recommendation":"Current price is high compared to upcoming prices. Consider reducing energy usage now. Significant price decrease of 58.0% expected at 11:00 PM.","upcomingChanges":{"significant":true,"change":-1.8396000000000001,"changePercent":-57.99129941365614,"time":"2025-08-28T01:00:00.000+02:00","message":"Significant price decrease of 58.0% expected at 11:00 PM."},"bestTimes":[{"time":"2025-08-28T01:00:00.000+02:00","price":1.3326,"timeFormatted":"11:00 PM"},{"time":"2025-08-27T01:00:00.000+02:00","price":1.3446,"timeFormatted":"11:00 PM"},{"time":"2025-08-28T00:00:00.000+02:00","price":1.4035,"timeFormatted":"10:00 PM"}],"worstTimes":[{"time":"2025-08-28T22:00:00.000+02:00","price":1.5388,"timeFormatted":"08:00 PM"},{"time":"2025-08-27T23:00:00.000+02:00","price":1.5251,"timeFormatted":"09:00 PM"},{"time":"2025-08-27T00:00:00.000+02:00","price":1.4399,"timeFormatted":"10:00 PM"}]},"weather":{"current":{"temperature":19.5,"humidity":70.2,"windSpeed":5.2,"cloudCover":95.6,"symbol":"cloudy"},"adjustment":0.1457358182018788,"reason":"Weather conditions have minimal impact","trend":"stable","trendDetails":"Temperature relatively stable (-1.1°C change), with 2.5mm precipitation expected"},"zone2Data":null,"tankData":{"fromTemp":44.5,"toTemp":43.5,"reason":"Enhanced optimization: Very expensive electricity (100th percentile), reducing tank to minimum (limited to 1°C step)"},"timestamp":"2025-08-27T18:46:32.452Z"},{"success":true,"action":"temperature_adjusted","fromTemp":19,"toTemp":18.5,"reason":"Enhanced optimization based on price and comfort profile (limited to 0.5°C step)","priceData":{"current":3.1722,"average":1.6393729166666666,"min":1.0128,"max":3.1722,"level":"VERY_EXPENSIVE","percentile":100},"savings":0.07930500000000001,"comfort":-0.5,"targetTemp":18.5,"targetOriginal":19,"indoorTemp":23.5,"outdoorTemp":19,"priceNow":3.1722,"comfortProfile":{"factor":1,"currentHour":20,"localTime":"Wed, 27 Aug 2025 20:54:21 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"day"},"priceForecast":{"position":"high","recommendation":"Current price is high compared to upcoming prices. Consider reducing energy usage now. Significant price decrease of 58.0% expected at 11:00 PM.","upcomingChanges":{"significant":true,"change":-1.8396000000000001,"changePercent":-57.99129941365614,"time":"2025-08-28T01:00:00.000+02:00","message":"Significant price decrease of 58.0% expected at 11:00 PM."},"bestTimes":[{"time":"2025-08-28T01:00:00.000+02:00","price":1.3326,"timeFormatted":"11:00 PM"},{"time":"2025-08-27T01:00:00.000+02:00","price":1.3446,"timeFormatted":"11:00 PM"},{"time":"2025-08-28T00:00:00.000+02:00","price":1.4035,"timeFormatted":"10:00 PM"}],"worstTimes":[{"time":"2025-08-28T22:00:00.000+02:00","price":1.5388,"timeFormatted":"08:00 PM"},{"time":"2025-08-27T23:00:00.000+02:00","price":1.5251,"timeFormatted":"09:00 PM"},{"time":"2025-08-27T00:00:00.000+02:00","price":1.4399,"timeFormatted":"10:00 PM"}]},"weather":{"current":{"temperature":19.5,"humidity":70.2,"windSpeed":5.2,"cloudCover":95.6,"symbol":"cloudy"},"adjustment":0.1457358182018788,"reason":"Weather conditions have minimal impact","trend":"stable","trendDetails":"Temperature relatively stable (-1.1°C change), with 2.5mm precipitation expected"},"zone2Data":null,"tankData":{"fromTemp":43.5,"toTemp":42.5,"reason":"Enhanced optimization: Very expensive electricity (100th percentile), reducing tank to minimum (limited to 1°C step)"},"timestamp":"2025-08-27T18:54:25.098Z"},{"success":true,"action":"temperature_adjusted","fromTemp":18.5,"toTemp":19,"reason":"Enhanced optimization based on price and comfort profile with weather adjustment (cold and/or windy conditions, increasing temperature) (limited to 0.5°C step)","priceData":{"current":1.8811,"average":1.6393729166666666,"min":1.0128,"max":3.1722,"level":"EXPENSIVE","percentile":81.25},"savings":-0.0470275,"comfort":0.5,"targetTemp":19,"targetOriginal":18.5,"indoorTemp":23.5,"outdoorTemp":19,"priceNow":1.8811,"comfortProfile":{"factor":1,"currentHour":21,"localTime":"Wed, 27 Aug 2025 21:05:08 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"day"},"priceForecast":{"position":"high","recommendation":"Current price is high compared to upcoming prices. Consider reducing energy usage now. Significant price decrease of 29.2% expected at 11:00 PM.","upcomingChanges":{"significant":true,"change":-0.5485,"changePercent":-29.15847110733082,"time":"2025-08-28T01:00:00.000+02:00","message":"Significant price decrease of 29.2% expected at 11:00 PM."},"bestTimes":[{"time":"2025-08-28T01:00:00.000+02:00","price":1.3326,"timeFormatted":"11:00 PM"},{"time":"2025-08-28T23:00:00.000+02:00","price":1.3357,"timeFormatted":"09:00 PM"},{"time":"2025-08-27T01:00:00.000+02:00","price":1.3446,"timeFormatted":"11:00 PM"}],"worstTimes":[{"time":"2025-08-27T00:00:00.000+02:00","price":1.4399,"timeFormatted":"10:00 PM"},{"time":"2025-08-28T00:00:00.000+02:00","price":1.4035,"timeFormatted":"10:00 PM"},{"time":"2025-08-27T01:00:00.000+02:00","price":1.3446,"timeFormatted":"11:00 PM"}]},"weather":{"current":{"temperature":19.5,"humidity":70.2,"windSpeed":5.2,"cloudCover":95.6,"symbol":"cloudy"},"adjustment":0.24576214050289724,"reason":"Cold and/or windy conditions, increasing temperature","trend":"stable","trendDetails":"Temperature relatively stable (-1.1°C change), with 2.5mm precipitation expected"},"zone2Data":null,"tankData":{"fromTemp":42.5,"toTemp":41.5,"reason":"Enhanced optimization: Very expensive electricity (81th percentile), reducing tank to minimum (limited to 1°C step)"},"timestamp":"2025-08-27T19:05:10.991Z"},{"success":true,"action":"temperature_adjusted","fromTemp":19,"toTemp":19.5,"reason":"Enhanced optimization based on price and comfort profile with weather adjustment (cold and/or windy conditions, increasing temperature) (limited to 0.5°C step)","priceData":{"current":1.6734,"average":1.6393729166666666,"min":1.0128,"max":3.1722,"level":"EXPENSIVE","percentile":68.75},"savings":-0.041835000000000004,"comfort":0.5,"targetTemp":19.5,"targetOriginal":19,"indoorTemp":23.5,"outdoorTemp":19,"priceNow":1.6734,"comfortProfile":{"factor":0.5,"currentHour":22,"localTime":"Wed, 27 Aug 2025 22:05:04 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"night"},"priceForecast":{"position":"high","recommendation":"Current price is high compared to upcoming prices. Consider reducing energy usage now. Significant price decrease of 20.4% expected at 11:00 PM.","upcomingChanges":{"significant":true,"change":-0.3408,"changePercent":-20.36572248117605,"time":"2025-08-28T01:00:00.000+02:00","message":"Significant price decrease of 20.4% expected at 11:00 PM."},"bestTimes":[{"time":"2025-08-28T01:00:00.000+02:00","price":1.3326,"timeFormatted":"11:00 PM"},{"time":"2025-08-27T01:00:00.000+02:00","price":1.3446,"timeFormatted":"11:00 PM"}],"worstTimes":[{"time":"2025-08-27T01:00:00.000+02:00","price":1.3446,"timeFormatted":"11:00 PM"},{"time":"2025-08-28T01:00:00.000+02:00","price":1.3326,"timeFormatted":"11:00 PM"}]},"weather":{"current":{"temperature":19.5,"humidity":70.2,"windSpeed":5.2,"cloudCover":95.6,"symbol":"cloudy"},"adjustment":0.2762657837337158,"reason":"Cold and/or windy conditions, increasing temperature","trend":"stable","trendDetails":"Temperature relatively stable (-1.1°C change), with 2.5mm precipitation expected"},"zone2Data":null,"tankData":{"fromTemp":41.5,"toTemp":42.5,"reason":"Enhanced optimization: Expensive electricity (69th percentile), reducing tank below average"},"timestamp":"2025-08-27T20:05:10.820Z"},{"success":true,"action":"temperature_adjusted","fromTemp":19.5,"toTemp":20,"reason":"Enhanced optimization based on price and comfort profile with weather adjustment (cold and/or windy conditions, increasing temperature) (limited to 0.5°C step)","priceData":{"current":1.5251,"average":1.6393729166666666,"min":1.0128,"max":3.1722,"level":"NORMAL","percentile":56.25},"savings":-0.0381275,"comfort":0.5,"targetTemp":20,"targetOriginal":19.5,"indoorTemp":23.5,"outdoorTemp":18,"priceNow":1.5251,"comfortProfile":{"factor":0.5,"currentHour":23,"localTime":"Wed, 27 Aug 2025 23:05:03 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"night"},"priceForecast":{"recommendation":"No future price data available"},"weather":{"current":{"temperature":19.5,"humidity":70.2,"windSpeed":5.2,"cloudCover":95.6,"symbol":"cloudy"},"adjustment":0.3031297373942693,"reason":"Cold and/or windy conditions, increasing temperature","trend":"stable","trendDetails":"Temperature relatively stable (-1.1°C change), with 2.5mm precipitation expected"},"zone2Data":null,"tankData":{"fromTemp":42.5,"toTemp":43.5,"reason":"Enhanced optimization: Normal electricity prices (56th percentile), maintaining average tank temperature (limited to 1°C step)"},"timestamp":"2025-08-27T21:05:09.536Z"},{"success":true,"action":"temperature_adjusted","fromTemp":20,"toTemp":20.5,"reason":"Enhanced optimization based on price and comfort profile with weather adjustment (cold and/or windy conditions, increasing temperature) (limited to 0.5°C step)","priceData":{"current":1.4035,"average":1.6931625000000003,"min":1.2727,"max":2.9391,"level":"NORMAL","percentile":25},"savings":-0.0350875,"comfort":0.5,"targetTemp":20.5,"targetOriginal":20,"indoorTemp":23.5,"outdoorTemp":17,"priceNow":1.4035,"comfortProfile":{"factor":0.5,"currentHour":0,"localTime":"Thu, 28 Aug 2025 00:05:11 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"night"},"priceForecast":{"position":"medium","recommendation":"Current price is average compared to upcoming prices. Normal energy usage recommended. Significant price increase of 23.8% expected at 04:00 AM.","upcomingChanges":{"significant":true,"change":0.3337000000000001,"changePercent":23.776273601710017,"time":"2025-08-28T06:00:00.000+02:00","message":"Significant price increase of 23.8% expected at 04:00 AM."},"bestTimes":[{"time":"2025-08-28T03:00:00.000+02:00","price":1.2727,"timeFormatted":"01:00 AM"},{"time":"2025-08-28T04:00:00.000+02:00","price":1.3097,"timeFormatted":"02:00 AM"},{"time":"2025-08-28T01:00:00.000+02:00","price":1.3326,"timeFormatted":"11:00 PM"}],"worstTimes":[{"time":"2025-08-28T19:00:00.000+02:00","price":2.9391,"timeFormatted":"05:00 PM"},{"time":"2025-08-28T18:00:00.000+02:00","price":2.3758,"timeFormatted":"04:00 PM"},{"time":"2025-08-28T20:00:00.000+02:00","price":2.2042,"timeFormatted":"06:00 PM"}]},"weather":{"current":{"temperature":19.5,"humidity":70.2,"windSpeed":5.2,"cloudCover":95.6,"symbol":"cloudy"},"adjustment":0.3402008015675099,"reason":"Cold and/or windy conditions, increasing temperature","trend":"stable","trendDetails":"Temperature relatively stable (-1.1°C change), with 2.5mm precipitation expected"},"zone2Data":null,"tankData":{"fromTemp":43.5,"toTemp":44.5,"reason":"Enhanced optimization: Cheap electricity (25th percentile), heating tank above average (limited to 1°C step)"},"timestamp":"2025-08-27T22:05:14.485Z"},{"success":true,"action":"temperature_adjusted","fromTemp":20.5,"toTemp":21,"reason":"Enhanced optimization based on price and comfort profile with weather adjustment (cold and/or windy conditions, increasing temperature) (limited to 0.5°C step)","priceData":{"current":1.3326,"average":1.6931625000000003,"min":1.2727,"max":2.9391,"level":"NORMAL","percentile":16.666666666666664},"savings":-0.033315000000000004,"comfort":0.5,"targetTemp":21,"targetOriginal":20.5,"indoorTemp":23,"outdoorTemp":16,"priceNow":1.3326,"comfortProfile":{"factor":0.5,"currentHour":1,"localTime":"Thu, 28 Aug 2025 01:05:13 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"night"},"priceForecast":{"position":"medium","recommendation":"Current price is average compared to upcoming prices. Normal energy usage recommended. Significant price increase of 58.9% expected at 05:00 AM.","upcomingChanges":{"significant":true,"change":0.7842999999999998,"changePercent":58.854870178598205,"time":"2025-08-28T07:00:00.000+02:00","message":"Significant price increase of 58.9% expected at 05:00 AM."},"bestTimes":[{"time":"2025-08-28T04:00:00.000+02:00","price":1.3097,"timeFormatted":"02:00 AM"},{"time":"2025-08-28T01:00:00.000+02:00","price":1.3326,"timeFormatted":"11:00 PM"},{"time":"2025-08-28T23:00:00.000+02:00","price":1.3357,"timeFormatted":"09:00 PM"}],"worstTimes":[{"time":"2025-08-28T19:00:00.000+02:00","price":2.9391,"timeFormatted":"05:00 PM"},{"time":"2025-08-28T18:00:00.000+02:00","price":2.3758,"timeFormatted":"04:00 PM"},{"time":"2025-08-28T20:00:00.000+02:00","price":2.2042,"timeFormatted":"06:00 PM"}]},"weather":{"current":{"temperature":19.5,"humidity":70.2,"windSpeed":5.2,"cloudCover":95.6,"symbol":"cloudy"},"adjustment":0.3100192480864476,"reason":"Cold and/or windy conditions, increasing temperature","trend":"stable","trendDetails":"Temperature relatively stable (-1.1°C change), with 2.5mm precipitation expected"},"zone2Data":null,"tankData":{"fromTemp":44.5,"toTemp":45.5,"reason":"Enhanced optimization: Very cheap electricity (17th percentile), heating tank to maximum (limited to 1°C step)"},"timestamp":"2025-08-27T23:06:06.363Z"},{"success":true,"action":"temperature_adjusted","fromTemp":21,"toTemp":21.5,"reason":"Enhanced optimization based on price and comfort profile with weather adjustment (cold and/or windy conditions, increasing temperature) (clamped to maximum 22°C) (limited to 0.5°C step)","priceData":{"current":1.282,"average":1.6931625000000003,"min":1.2727,"max":2.9391,"level":"CHEAP","percentile":8.333333333333332},"savings":-0.03205,"comfort":-0.5,"targetTemp":21.5,"targetOriginal":21,"indoorTemp":23,"outdoorTemp":16,"priceNow":1.282,"comfortProfile":{"factor":0.5,"currentHour":2,"localTime":"Thu, 28 Aug 2025 02:05:04 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"night"},"priceForecast":{"position":"low","recommendation":"Current price is low compared to upcoming prices. Consider increasing energy usage now. Significant price increase of 66.6% expected at 06:00 AM.","upcomingChanges":{"significant":true,"change":0.8533,"changePercent":66.56006240249609,"time":"2025-08-28T08:00:00.000+02:00","message":"Significant price increase of 66.6% expected at 06:00 AM."},"bestTimes":[{"time":"2025-08-28T01:00:00.000+02:00","price":1.3326,"timeFormatted":"11:00 PM"},{"time":"2025-08-28T23:00:00.000+02:00","price":1.3357,"timeFormatted":"09:00 PM"},{"time":"2025-08-28T00:00:00.000+02:00","price":1.4035,"timeFormatted":"10:00 PM"}],"worstTimes":[{"time":"2025-08-28T19:00:00.000+02:00","price":2.9391,"timeFormatted":"05:00 PM"},{"time":"2025-08-28T18:00:00.000+02:00","price":2.3758,"timeFormatted":"04:00 PM"},{"time":"2025-08-28T20:00:00.000+02:00","price":2.2042,"timeFormatted":"06:00 PM"}]},"weather":{"current":{"temperature":19.5,"humidity":70.2,"windSpeed":5.2,"cloudCover":95.6,"symbol":"cloudy"},"adjustment":0.32225557722308895,"reason":"Cold and/or windy conditions, increasing temperature","trend":"stable","trendDetails":"Temperature relatively stable (-1.1°C change), with 2.5mm precipitation expected"},"zone2Data":null,"tankData":{"fromTemp":45.5,"toTemp":46.5,"reason":"Enhanced optimization: Very cheap electricity (8th percentile), heating tank to maximum (limited to 1°C step)"},"timestamp":"2025-08-28T00:05:18.922Z"},{"success":true,"action":"temperature_adjusted","fromTemp":21.5,"toTemp":22,"reason":"Enhanced optimization based on price and comfort profile with weather adjustment (cold and/or windy conditions, increasing temperature) (clamped to maximum 22°C)","priceData":{"current":1.2727,"average":1.6931625000000003,"min":1.2727,"max":2.9391,"level":"CHEAP","percentile":4.166666666666666},"savings":-0.0318175,"comfort":-0.5,"targetTemp":22,"targetOriginal":21.5,"indoorTemp":23,"outdoorTemp":16,"priceNow":1.2727,"comfortProfile":{"factor":0.5,"currentHour":3,"localTime":"Thu, 28 Aug 2025 03:05:03 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"night"},"priceForecast":{"position":"low","recommendation":"Current price is low compared to upcoming prices. Consider increasing energy usage now. Significant price increase of 67.8% expected at 06:00 AM.","upcomingChanges":{"significant":true,"change":0.8626,"changePercent":67.77716665357116,"time":"2025-08-28T08:00:00.000+02:00","message":"Significant price increase of 67.8% expected at 06:00 AM."},"bestTimes":[{"time":"2025-08-28T01:00:00.000+02:00","price":1.3326,"timeFormatted":"11:00 PM"},{"time":"2025-08-28T23:00:00.000+02:00","price":1.3357,"timeFormatted":"09:00 PM"},{"time":"2025-08-28T00:00:00.000+02:00","price":1.4035,"timeFormatted":"10:00 PM"}],"worstTimes":[{"time":"2025-08-28T19:00:00.000+02:00","price":2.9391,"timeFormatted":"05:00 PM"},{"time":"2025-08-28T18:00:00.000+02:00","price":2.3758,"timeFormatted":"04:00 PM"},{"time":"2025-08-28T20:00:00.000+02:00","price":2.2042,"timeFormatted":"06:00 PM"}]},"weather":{"current":{"temperature":19.5,"humidity":70.2,"windSpeed":5.2,"cloudCover":95.6,"symbol":"cloudy"},"adjustment":0.32461039522275487,"reason":"Cold and/or windy conditions, increasing temperature","trend":"stable","trendDetails":"Temperature relatively stable (-1.1°C change), with 2.5mm precipitation expected"},"zone2Data":null,"tankData":{"fromTemp":46.5,"toTemp":47.5,"reason":"Enhanced optimization: Very cheap electricity (4th percentile), heating tank to maximum (limited to 1°C step)"},"timestamp":"2025-08-28T01:05:07.426Z"},{"success":true,"action":"temperature_adjusted","fromTemp":22,"toTemp":21.5,"reason":"Enhanced optimization based on price and comfort profile with weather adjustment (cold and/or windy conditions, increasing temperature) (limited to 0.5°C step)","priceData":{"current":2.1169,"average":1.6931625000000003,"min":1.2727,"max":2.9391,"level":"VERY_EXPENSIVE","percentile":83.33333333333334},"savings":0.0529225,"comfort":0.5,"targetTemp":21.5,"targetOriginal":22,"indoorTemp":22.5,"outdoorTemp":16,"priceNow":2.1169,"comfortProfile":{"factor":1,"currentHour":7,"localTime":"Thu, 28 Aug 2025 07:04:39 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"day"},"priceForecast":{"position":"high","recommendation":"Current price is high compared to upcoming prices. Consider reducing energy usage now. Significant price decrease of 37.0% expected at 11:00 PM.","upcomingChanges":{"significant":true,"change":-0.7842999999999998,"changePercent":-37.04945911474325,"time":"2025-08-28T01:00:00.000+02:00","message":"Significant price decrease of 37.0% expected at 11:00 PM."},"bestTimes":[{"time":"2025-08-28T01:00:00.000+02:00","price":1.3326,"timeFormatted":"11:00 PM"},{"time":"2025-08-28T23:00:00.000+02:00","price":1.3357,"timeFormatted":"09:00 PM"},{"time":"2025-08-28T00:00:00.000+02:00","price":1.4035,"timeFormatted":"10:00 PM"}],"worstTimes":[{"time":"2025-08-28T19:00:00.000+02:00","price":2.9391,"timeFormatted":"05:00 PM"},{"time":"2025-08-28T18:00:00.000+02:00","price":2.3758,"timeFormatted":"04:00 PM"},{"time":"2025-08-28T20:00:00.000+02:00","price":2.2042,"timeFormatted":"06:00 PM"}]},"weather":{"current":{"temperature":14.8,"humidity":91.6,"windSpeed":1.7,"cloudCover":99.7,"symbol":"cloudy"},"adjustment":0.3590841817634277,"reason":"Cold and/or windy conditions, increasing temperature","trend":"stable","trendDetails":"Temperature relatively stable (2.0°C change), with 1.3mm precipitation expected"},"zone2Data":null,"tankData":{"fromTemp":48.5,"toTemp":47.5,"reason":"Enhanced optimization: Very expensive electricity (83th percentile), reducing tank to minimum (limited to 1°C step)"},"timestamp":"2025-08-28T05:04:41.748Z"},{"success":true,"action":"temperature_adjusted","fromTemp":21.5,"toTemp":21,"reason":"Enhanced optimization based on price and comfort profile with weather adjustment (cold and/or windy conditions, increasing temperature) (limited to 0.5°C step)","priceData":{"current":2.1169,"average":1.6931625000000003,"min":1.2727,"max":2.9391,"level":"VERY_EXPENSIVE","percentile":83.33333333333334},"savings":0.0529225,"comfort":0.5,"targetTemp":21,"targetOriginal":21.5,"indoorTemp":22.5,"outdoorTemp":16,"priceNow":2.1169,"comfortProfile":{"factor":1,"currentHour":7,"localTime":"Thu, 28 Aug 2025 07:05:02 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"day"},"priceForecast":{"position":"high","recommendation":"Current price is high compared to upcoming prices. Consider reducing energy usage now. Significant price decrease of 37.0% expected at 11:00 PM.","upcomingChanges":{"significant":true,"change":-0.7842999999999998,"changePercent":-37.04945911474325,"time":"2025-08-28T01:00:00.000+02:00","message":"Significant price decrease of 37.0% expected at 11:00 PM."},"bestTimes":[{"time":"2025-08-28T01:00:00.000+02:00","price":1.3326,"timeFormatted":"11:00 PM"},{"time":"2025-08-28T23:00:00.000+02:00","price":1.3357,"timeFormatted":"09:00 PM"},{"time":"2025-08-28T00:00:00.000+02:00","price":1.4035,"timeFormatted":"10:00 PM"}],"worstTimes":[{"time":"2025-08-28T19:00:00.000+02:00","price":2.9391,"timeFormatted":"05:00 PM"},{"time":"2025-08-28T18:00:00.000+02:00","price":2.3758,"timeFormatted":"04:00 PM"},{"time":"2025-08-28T20:00:00.000+02:00","price":2.2042,"timeFormatted":"06:00 PM"}]},"weather":{"current":{"temperature":14.8,"humidity":91.6,"windSpeed":1.7,"cloudCover":99.7,"symbol":"cloudy"},"adjustment":0.3590841817634277,"reason":"Cold and/or windy conditions, increasing temperature","trend":"stable","trendDetails":"Temperature relatively stable (2.0°C change), with 1.3mm precipitation expected"},"zone2Data":null,"tankData":{"fromTemp":47.5,"toTemp":46.5,"reason":"Enhanced optimization: Very expensive electricity (83th percentile), reducing tank to minimum (limited to 1°C step)"},"timestamp":"2025-08-28T05:05:05.932Z"},{"success":true,"action":"temperature_adjusted","fromTemp":21,"toTemp":20.5,"reason":"Enhanced optimization based on price and comfort profile with weather adjustment (cold and/or windy conditions, increasing temperature) (limited to 0.5°C step)","priceData":{"current":2.1169,"average":1.6931625000000003,"min":1.2727,"max":2.9391,"level":"VERY_EXPENSIVE","percentile":83.33333333333334},"savings":0.0529225,"comfort":-0.5,"targetTemp":20.5,"targetOriginal":21,"indoorTemp":22.5,"outdoorTemp":16,"priceNow":2.1169,"comfortProfile":{"factor":1,"currentHour":7,"localTime":"Thu, 28 Aug 2025 07:05:08 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"day"},"priceForecast":{"position":"high","recommendation":"Current price is high compared to upcoming prices. Consider reducing energy usage now. Significant price decrease of 37.0% expected at 11:00 PM.","upcomingChanges":{"significant":true,"change":-0.7842999999999998,"changePercent":-37.04945911474325,"time":"2025-08-28T01:00:00.000+02:00","message":"Significant price decrease of 37.0% expected at 11:00 PM."},"bestTimes":[{"time":"2025-08-28T01:00:00.000+02:00","price":1.3326,"timeFormatted":"11:00 PM"},{"time":"2025-08-28T23:00:00.000+02:00","price":1.3357,"timeFormatted":"09:00 PM"},{"time":"2025-08-28T00:00:00.000+02:00","price":1.4035,"timeFormatted":"10:00 PM"}],"worstTimes":[{"time":"2025-08-28T19:00:00.000+02:00","price":2.9391,"timeFormatted":"05:00 PM"},{"time":"2025-08-28T18:00:00.000+02:00","price":2.3758,"timeFormatted":"04:00 PM"},{"time":"2025-08-28T20:00:00.000+02:00","price":2.2042,"timeFormatted":"06:00 PM"}]},"weather":{"current":{"temperature":14.8,"humidity":91.6,"windSpeed":1.7,"cloudCover":99.7,"symbol":"cloudy"},"adjustment":0.3590841817634277,"reason":"Cold and/or windy conditions, increasing temperature","trend":"stable","trendDetails":"Temperature relatively stable (2.0°C change), with 1.3mm precipitation expected"},"zone2Data":null,"tankData":{"fromTemp":46.5,"toTemp":45.5,"reason":"Enhanced optimization: Very expensive electricity (83th percentile), reducing tank to minimum (limited to 1°C step)"},"timestamp":"2025-08-28T05:05:09.641Z"},{"success":true,"action":"temperature_adjusted","fromTemp":20.5,"toTemp":21,"reason":"Enhanced optimization based on price and comfort profile with weather adjustment (cold and/or windy conditions, increasing temperature) (limited to 0.5°C step)","priceData":{"current":1.8206,"average":1.6931625000000003,"min":1.2727,"max":2.9391,"level":"EXPENSIVE","percentile":75},"savings":-0.045515,"comfort":0.5,"targetTemp":21,"targetOriginal":20.5,"indoorTemp":22.5,"outdoorTemp":19,"priceNow":1.8206,"comfortProfile":{"factor":1,"currentHour":9,"localTime":"Thu, 28 Aug 2025 09:05:01 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"day"},"priceForecast":{"position":"high","recommendation":"Current price is high compared to upcoming prices. Consider reducing energy usage now. Significant price decrease of 26.8% expected at 11:00 PM.","upcomingChanges":{"significant":true,"change":-0.488,"changePercent":-26.804350214215095,"time":"2025-08-28T01:00:00.000+02:00","message":"Significant price decrease of 26.8% expected at 11:00 PM."},"bestTimes":[{"time":"2025-08-28T01:00:00.000+02:00","price":1.3326,"timeFormatted":"11:00 PM"},{"time":"2025-08-28T23:00:00.000+02:00","price":1.3357,"timeFormatted":"09:00 PM"},{"time":"2025-08-28T00:00:00.000+02:00","price":1.4035,"timeFormatted":"10:00 PM"}],"worstTimes":[{"time":"2025-08-28T19:00:00.000+02:00","price":2.9391,"timeFormatted":"05:00 PM"},{"time":"2025-08-28T18:00:00.000+02:00","price":2.3758,"timeFormatted":"04:00 PM"},{"time":"2025-08-28T20:00:00.000+02:00","price":2.2042,"timeFormatted":"06:00 PM"}]},"weather":{"current":{"temperature":14.8,"humidity":91.6,"windSpeed":1.7,"cloudCover":99.7,"symbol":"cloudy"},"adjustment":0.4175246096753818,"reason":"Cold and/or windy conditions, increasing temperature","trend":"stable","trendDetails":"Temperature relatively stable (2.0°C change), with 1.3mm precipitation expected"},"zone2Data":null,"tankData":{"fromTemp":42.5,"toTemp":42.5,"reason":"Tank temperature difference 0.0°C below deadband 0.5°C"},"timestamp":"2025-08-28T07:05:03.739Z"},{"success":true,"action":"temperature_adjusted","fromTemp":21,"toTemp":21.5,"reason":"Enhanced optimization based on price and comfort profile","priceData":{"current":1.6459,"average":1.6931625000000003,"min":1.2727,"max":2.9391,"level":"NORMAL","percentile":62.5},"savings":-0.041147500000000004,"comfort":-0.5,"targetTemp":21.5,"targetOriginal":21,"indoorTemp":23,"outdoorTemp":21,"priceNow":1.6459,"comfortProfile":{"factor":1,"currentHour":10,"localTime":"Thu, 28 Aug 2025 10:59:21 GMT","dayStart":6,"dayEnd":22,"nightTempReduction":2,"preHeatHours":1,"mode":"day"},"priceForecast":{"position":"medium","recommendation":"Current price is average compared to upcoming prices. Normal energy usage recommended. Significant price decrease of 19.0% expected at 11:00 PM.","upcomingChanges":{"significant":true,"change":-0.3132999999999999,"changePercent":-19.035178321890754,"time":"2025-08-28T01:00:00.000+02:00","message":"Significant price decrease of 19.0% expected at 11:00 PM."},"bestTimes":[{"time":"2025-08-28T01:00:00.000+02:00","price":1.3326,"timeFormatted":"11:00 PM"},{"time":"2025-08-28T23:00:00.000+02:00","price":1.3357,"timeFormatted":"09:00 PM"},{"time":"2025-08-28T00:00:00.000+02:00","price":1.4035,"timeFormatted":"10:00 PM"}],"worstTimes":[{"time":"2025-08-28T19:00:00.000+02:00","price":2.9391,"timeFormatted":"05:00 PM"},{"time":"2025-08-28T18:00:00.000+02:00","price":2.3758,"timeFormatted":"04:00 PM"},{"time":"2025-08-28T20:00:00.000+02:00","price":2.2042,"timeFormatted":"06:00 PM"}]},"weather":{"current":{"temperature":19.3,"humidity":64.2,"windSpeed":2.6,"cloudCover":90.8,"symbol":"partlycloudy_day"},"adjustment":0.19247263123519046,"reason":"Weather conditions have minimal impact","trend":"stable","trendDetails":"Temperature relatively stable (-1.8°C change)"},"zone2Data":null,"tankData":{"fromTemp":42.5,"toTemp":42.5,"reason":"Tank temperature difference 0.0°C below deadband 0.5°C"},"timestamp":"2025-08-28T08:59:23.129Z"},{"timestamp":"2025-08-28T09:21:43.439Z","deviceId":59132691,"buildingId":513523,"currentTemp":23,"currentSetTemp":21.5,"newTemp":21.5,"currentTankTemp":31,"currentSetTankTemp":42.5,"newTankTemp":42.5,"outdoorTemp":22,"action":"temperature_adjusted","reason":"Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step)","currentPrice":1.5884,"avgPrice":0,"priceRatio":1,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-28T10:06:01.393Z","deviceId":59132691,"buildingId":513523,"currentTemp":23.5,"currentSetTemp":21.5,"newTemp":21.5,"currentTankTemp":31,"currentSetTankTemp":42.5,"newTankTemp":42.5,"outdoorTemp":23,"action":"temperature_adjusted","reason":"Winter mode: Heating COP 0.00 (0% efficiency), outdoor 23°C, price low (limited to 0.5°C step)","currentPrice":1.4946,"avgPrice":0,"priceRatio":1,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-28T11:05:17.323Z","deviceId":59132691,"buildingId":513523,"currentTemp":24,"currentSetTemp":21.5,"newTemp":21.5,"currentTankTemp":30.5,"currentSetTankTemp":42.5,"newTankTemp":42.5,"outdoorTemp":24,"action":"temperature_adjusted","reason":"Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step)","currentPrice":1.4818,"avgPrice":0,"priceRatio":1,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-28T12:05:19.467Z","deviceId":59132691,"buildingId":513523,"currentTemp":24,"currentSetTemp":21.5,"newTemp":21.5,"currentTankTemp":30.5,"currentSetTankTemp":42.5,"newTankTemp":42.5,"outdoorTemp":24,"action":"temperature_adjusted","reason":"Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step)","currentPrice":1.4878,"avgPrice":0,"priceRatio":1,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}},{"timestamp":"2025-08-28T13:05:19.374Z","deviceId":59132691,"buildingId":513523,"currentTemp":24,"currentSetTemp":21.5,"newTemp":21.5,"currentTankTemp":30,"currentSetTankTemp":42.5,"newTankTemp":42.5,"outdoorTemp":24,"action":"temperature_adjusted","reason":"Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step)","currentPrice":1.4846,"avgPrice":0,"priceRatio":1,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}}],"lastCalibration":{"timestamp":"2025-08-27T14:30:11.542Z","oldK":0.10699649883187938,"newK":0.10699649883187938,"analysis":"No adjustment needed"}}
+2025-08-28T13:05:20.347Z [log] [HeatOptimizerApp] Saved 223 optimization data points
+2025-08-28T13:05:20.347Z [log] [HeatOptimizerApp] Optimization completed: temperature_adjusted
+2025-08-28T13:05:20.348Z [log] [HeatOptimizerApp] Heating temperature: 21.5°C -> 21.5°C
+2025-08-28T13:05:20.348Z [log] [HeatOptimizerApp] Hot water tank: 42.5°C -> 42.5°C
+2025-08-28T13:05:20.348Z [log] [HeatOptimizerApp] Price: 1.4846 kr/kWh (1.00x average)
+2025-08-28T13:05:20.348Z [log] [HeatOptimizerApp] Reason: Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step)
+2025-08-28T13:05:21.161Z [log] [HeatOptimizerApp] Timeline entry created using notifications API: Hourly Optimization Completed
+2025-08-28T13:05:21.164Z [log] [HeatOptimizerApp] Timeline entry created successfully with detailed information for actual changes
+2025-08-28T13:05:21.167Z [log] [HeatOptimizerApp] ===== HOURLY OPTIMIZATION COMPLETED =====
+2025-08-28T13:05:21.395Z [log] [HeatOptimizerApp] Setting changed: last_optimization_result
+2025-08-28T13:05:21.395Z [log] [HeatOptimizerApp] Setting last_optimization_result value: {"success":true,"message":"Hourly optimization completed successfully","data":{"timestamp":"2025-08-28T13:05:19.374Z","deviceId":59132691,"buildingId":513523,"currentTemp":24,"currentSetTemp":21.5,"newTemp":21.5,"currentTankTemp":30,"currentSetTankTemp":42.5,"newTankTemp":42.5,"outdoorTemp":24,"action":"temperature_adjusted","reason":"Transition mode: Combined COP efficiency 0%, adapting to both heating and hot water needs (limited to 0.5°C step)","currentPrice":1.4846,"avgPrice":0,"priceRatio":1,"savings":{"heatingChange":0,"tankChange":0,"estimatedSavings":0}}}
+2025-08-28T13:05:21.598Z [log] [HeatOptimizerApp] [2025-08-28 13:05:21.598] [App] [App] ===== HOURLY OPTIMIZATION COMPLETED SUCCESSFULLY =====
+2025-08-28T13:06:03.842Z [log] [HeatOptimizerApp] Circuit MELCloud state: CLOSED

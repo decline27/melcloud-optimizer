@@ -25,6 +25,13 @@ module.exports = {
   async runHourlyOptimizer({ homey, query }) {
     console.log('🎯 runHourlyOptimizer CALLED - SDK v3');
     try {
+      // Route through the App instance to enforce the execution lock
+      if (homey && homey.app && typeof homey.app.runHourlyOptimizer === 'function') {
+        const result = await homey.app.runHourlyOptimizer();
+        console.log('✅ runHourlyOptimizer (via App) result:', result);
+        return result;
+      }
+      // Fallback (should rarely be needed)
       const apiCore = require('./src/api-core');
       const result = await apiCore.getRunHourlyOptimizer({ homey });
       console.log('✅ runHourlyOptimizer result:', result);
@@ -38,6 +45,13 @@ module.exports = {
   async runWeeklyCalibration({ homey, query }) {
     console.log('🎯 runWeeklyCalibration CALLED - SDK v3');
     try {
+      // Route through the App instance to enforce the execution lock
+      if (homey && homey.app && typeof homey.app.runWeeklyCalibration === 'function') {
+        const result = await homey.app.runWeeklyCalibration();
+        console.log('✅ runWeeklyCalibration (via App) result:', result);
+        return result;
+      }
+      // Fallback
       const apiCore = require('./src/api-core');
       const result = await apiCore.getRunWeeklyCalibration({ homey });
       console.log('✅ runWeeklyCalibration result:', result);

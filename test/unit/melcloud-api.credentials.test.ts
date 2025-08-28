@@ -4,6 +4,9 @@ import * as path from 'path';
 import { HomeySettings } from '../../src/types';
 import { createMockLogger } from '../mocks/logger.mock';
 
+// Allow configurable timeout for slow networks
+const TIMEOUT = parseInt(process.env.MEL_TEST_TIMEOUT || '60000', 10);
+
 // Skip these tests if config file doesn't exist
 const configPath = path.join(__dirname, '../config.json');
 const hasConfig = fs.existsSync(configPath);
@@ -58,7 +61,7 @@ declare global {
 
   afterEach(() => {
     // Clean up any pending timers
-    melCloudApi.cleanup();
+    try { melCloudApi.cleanup(); } catch (_) {}
   });
 
   afterAll(() => {
@@ -88,7 +91,7 @@ declare global {
       console.log('Skipping test due to authentication issues. Please check your credentials.');
       return;
     }
-  }, 30000); // Increase timeout for real API call
+  }, TIMEOUT);
 
   it('should get devices after login', async () => {
     // Skip if no credentials
@@ -116,17 +119,16 @@ declare global {
       expect(devices).toBeDefined();
       expect(Array.isArray(devices)).toBe(true);
 
-      // Log device info for debugging
-      console.log(`Found ${devices.length} devices`);
-      devices.forEach((device, index) => {
-        console.log(`Device ${index + 1}: ID=${device.id}, Name=${device.name}, BuildingID=${device.buildingId}`);
-      });
+      // Minimal debug to reduce post-test logs
+      if (process.env.DEBUG_TESTS === '1') {
+        console.log(`Found ${devices.length} devices`);
+      }
     } catch (error) {
       console.error('Error during device retrieval test:', error);
       console.log('Skipping test due to API issues');
       return;
     }
-  }, 30000); // Increase timeout for real API call
+  }, TIMEOUT);
 
   it('should get device state for first device', async () => {
     // Skip if no credentials
@@ -145,7 +147,7 @@ declare global {
         return;
       }
 
-      console.log('Login successful, retrieving devices...');
+      if (process.env.DEBUG_TESTS === '1') console.log('Login successful, retrieving devices...');
 
       // Get devices
       const devices = await melCloudApi.getDevices();
@@ -156,7 +158,7 @@ declare global {
         return;
       }
 
-      console.log(`Found ${devices.length} devices, retrieving state for first device...`);
+      if (process.env.DEBUG_TESTS === '1') console.log(`Found ${devices.length} devices, retrieving state for first device...`);
 
       // Get state for first device
       const device = devices[0];
@@ -166,12 +168,11 @@ declare global {
       expect(state).toBeDefined();
       expect(state.DeviceID).toBe(device.id);
 
-      // Log state info for debugging
-      console.log('Device state:', JSON.stringify(state, null, 2));
+      if (process.env.DEBUG_TESTS === '1') console.log('Device state:', JSON.stringify(state, null, 2));
     } catch (error) {
       console.error('Error during device state test:', error);
       console.log('Skipping test due to API issues');
       return;
     }
-  }, 30000); // Increase timeout for real API call
+  }, TIMEOUT);
 });
