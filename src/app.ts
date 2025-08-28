@@ -702,41 +702,7 @@ export default class HeatOptimizerApp extends App {
           });
         }
 
-        // Create success timeline entry
-        try {
-          if (this.timelineHelper) {
-            // Prepare additional data for the timeline entry
-            const additionalData: Record<string, any> = {};
-
-            if (result.data && result.data.targetTemp && result.data.targetOriginal) {
-              additionalData.targetTemp = result.data.targetTemp;
-              additionalData.targetOriginal = result.data.targetOriginal;
-            }
-
-            if (result.data && result.data.savings) {
-              additionalData.savings = result.data.savings;
-            }
-
-            // Add any other relevant data
-            if (result.data && result.data.reason) {
-              additionalData.reason = result.data.reason;
-            }
-
-            if (result.data && result.data.cop) {
-              additionalData.cop = result.data.cop;
-            }
-
-            // Create the timeline entry using our standardized helper
-            await this.timelineHelper.addTimelineEntry(
-              TimelineEventType.HOURLY_OPTIMIZATION_RESULT,
-              {}, // No specific details needed
-              false, // Don't create notification for success
-              additionalData
-            );
-          }
-        } catch (timelineErr) {
-          this.logger.error('Failed to create success timeline entry', timelineErr as Error);
-        }
+        // Success timeline entry is posted by api-core; avoid duplicate here
 
         this.logger.marker('HOURLY OPTIMIZATION COMPLETED SUCCESSFULLY');
         return result;
