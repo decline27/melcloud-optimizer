@@ -982,33 +982,56 @@ export class MelCloudApi extends BaseApiService {
         // First get current state
         const currentState = await this.getDeviceState(deviceId, buildingId);
 
-        // Update temperature - for ATW devices, we need to keep zone fields consistent
-        currentState.SetTemperature = temperature;
-        currentState.SetTemperatureZone1 = temperature;
-
-        this.logApiCall('POST', 'Device/SetAta', { deviceId, temperature });
-
-        // Send update with retry - use SetAta endpoint consistently
-        const data = await this.retryableRequest(
-          () => this.throttledApiCall<any>('POST', 'Device/SetAta', {
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(currentState),
-          }, true) // Critical operation - bypass circuit breaker
+        // Detect device type (ATW vs ATA)
+        // ATW devices usually have SetTemperatureZone1 and SetTankWaterTemperature fields
+        const isATW = (
+          currentState.SetTemperatureZone1 !== undefined ||
+          currentState.SetTankWaterTemperature !== undefined
         );
 
-        const success = data !== null;
-
-        if (success) {
-          this.logger.log(`Successfully set temperature for device ${deviceId} to ${temperature}°C`);
-          // Invalidate device state cache since we made changes
-          this.invalidateDeviceStateCache(deviceId, buildingId);
+        if (isATW) {
+          // For ATW: update zone 1 temp and use SetAtw endpoint
+          currentState.SetTemperatureZone1 = temperature;
+          // Optionally update SetTemperature for compatibility
+          currentState.SetTemperature = temperature;
+          this.logApiCall('POST', 'Device/SetAtw', { deviceId, temperature });
+          const data = await this.retryableRequest(
+            () => this.throttledApiCall<any>('POST', 'Device/SetAtw', {
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(currentState),
+            }, true)
+          );
+          const success = data !== null;
+          if (success) {
+            this.logger.log(`Successfully set ATW temperature for device ${deviceId} to ${temperature}°C`);
+            this.invalidateDeviceStateCache(deviceId, buildingId);
+          } else {
+            this.logger.error(`Failed to set ATW temperature for device ${deviceId}`);
+          }
+          return success;
         } else {
-          this.logger.error(`Failed to set temperature for device ${deviceId}`);
+          // For ATA: update SetTemperature and use SetAta endpoint
+          currentState.SetTemperature = temperature;
+          this.logApiCall('POST', 'Device/SetAta', { deviceId, temperature });
+          const data = await this.retryableRequest(
+            () => this.throttledApiCall<any>('POST', 'Device/SetAta', {
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(currentState),
+            }, true)
+          );
+          const success = data !== null;
+          if (success) {
+            this.logger.log(`Successfully set ATA temperature for device ${deviceId} to ${temperature}°C`);
+            this.invalidateDeviceStateCache(deviceId, buildingId);
+          } else {
+            this.logger.error(`Failed to set ATA temperature for device ${deviceId}`);
+          }
+          return success;
         }
-
-        return success;
       } catch (error) {
         // Create a standardized error with context
         const appError = this.createApiError(error, {
