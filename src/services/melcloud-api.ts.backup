@@ -961,7 +961,7 @@ export class MelCloudApi extends BaseApiService {
   }
 
   /**
-   * Set device temperature - FIXED VERSION (using simple reliable approach)
+   * Set device temperature
    * @param deviceId Device ID
    * @param buildingId Building ID
    * @param temperature Target temperature
@@ -979,18 +979,36 @@ export class MelCloudApi extends BaseApiService {
       this.logger.log(`Setting temperature for device ${deviceId} to ${temperature}°C`);
 
       try {
-        // Get current state (use cache if available - no need to bypass cache unnecessarily)
-        const currentState = await this.getDeviceState(deviceId, buildingId);
+        // First get current state with fresh data (bypass cache for temperature changes)
+        const currentState = await this.getDeviceState(deviceId, buildingId, true);
 
-        // Simple direct temperature assignment - WORKS RELIABLY
-        // This approach works for both ATW and ATA devices through the MELCloud API
-        currentState.SetTemperature = temperature;
+        // Update temperature based on device type
+        // For ATW (Air-to-Water) devices, use SetTemperatureZone1, for ATA (Air-to-Air) use SetTemperature
+        // Device/Get doesn't include CanHeat/HasHotWaterTank, so detect ATW by presence of tank properties
+        const hasATWProperties = currentState.TankWaterTemperature !== undefined && 
+                                currentState.SetTankWaterTemperature !== undefined &&
+                                currentState.SetTemperatureZone1 !== undefined;
+        const isATW = hasATWProperties;
+        
+        // Debug logging
+        this.logger.debug(`Device type detection: TankWaterTemp=${currentState.TankWaterTemperature}, SetTankTemp=${currentState.SetTankWaterTemperature}, SetTempZone1=${currentState.SetTemperatureZone1}, isATW=${isATW}`);
+        
+        if (isATW) {
+          // Air-to-Water device - use zone temperature control
+          currentState.SetTemperatureZone1 = temperature;
+          this.logger.debug(`ATW device detected - using SetAtw endpoint with SetTemperatureZone1=${temperature}`);
+        } else {
+          // Air-to-Air device - use direct temperature control
+          currentState.SetTemperature = temperature;
+          this.logger.debug(`ATA device detected - using SetAta endpoint with SetTemperature=${temperature}`);
+        }
 
-        this.logApiCall('POST', 'Device/SetAta', { deviceId, temperature });
+        const endpoint = isATW ? 'Device/SetAtw' : 'Device/SetAta';
+        this.logApiCall('POST', endpoint, { deviceId, temperature });
 
-        // Send update with retry - use SetAta endpoint consistently
+        // Send update with retry - mark as critical to bypass circuit breaker
         const data = await this.retryableRequest(
-          () => this.throttledApiCall<any>('POST', 'Device/SetAta', {
+          () => this.throttledApiCall<any>('POST', endpoint, {
             headers: {
               'Content-Type': 'application/json',
             },
