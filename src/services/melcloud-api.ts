@@ -72,9 +72,9 @@ export class MelCloudApi extends BaseApiService {
 
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       this.logger.error(`Maximum reconnect attempts (${this.maxReconnectAttempts}) reached`);
-      // Clear any pending timers before throwing
+      // Clear any pending timers before returning false
       this.clearReconnectTimers();
-      throw new Error('Failed to reconnect to MELCloud after multiple attempts');
+      return false; // Return false instead of throwing to allow graceful handling
     }
 
     this.reconnectAttempts++;
@@ -915,6 +915,19 @@ export class MelCloudApi extends BaseApiService {
    */
   async setDeviceTemperature(deviceId: string, buildingId: number, temperature: number): Promise<boolean> {
     try {
+      // Input validation
+      if (!deviceId || typeof deviceId !== 'string' || deviceId.trim() === '') {
+        throw new Error('Invalid deviceId: must be a non-empty string');
+      }
+
+      if (!buildingId || typeof buildingId !== 'number' || buildingId <= 0) {
+        throw new Error('Invalid buildingId: must be a positive number');
+      }
+
+      if (typeof temperature !== 'number' || isNaN(temperature) || temperature < 5 || temperature > 35) {
+        throw new Error('Invalid temperature: must be a number between 5°C and 35°C');
+      }
+
       if (!this.contextKey) {
         const connected = await this.ensureConnected();
         if (!connected) {
@@ -964,7 +977,6 @@ export class MelCloudApi extends BaseApiService {
         // For authentication errors, try to reconnect
         if (appError.category === ErrorCategory.AUTHENTICATION) {
           this.logger.warn(`Authentication error in MELCloud setDeviceTemperature for device ${deviceId}, attempting to reconnect`);
-
           // Try to reconnect on auth error
           await this.ensureConnected();
         }

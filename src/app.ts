@@ -130,24 +130,50 @@ export default class HeatOptimizerApp extends App {
    */
   async onInit() {
     // Initialize the centralized logger
-    this.initializeLogger();
+    try {
+      this.initializeLogger();
+    } catch (error) {
+      // If logger initialization fails, create a basic console logger
+      this.logger = {
+        marker: (msg: string) => console.log(`[MARKER] ${msg}`),
+        info: (msg: string) => console.log(`[INFO] ${msg}`),
+        warn: (msg: string) => console.log(`[WARN] ${msg}`),
+        error: (msg: string) => console.error(`[ERROR] ${msg}`),
+        debug: (msg: string) => console.log(`[DEBUG] ${msg}`),
+        optimization: (msg: string) => console.log(`[OPTIMIZATION] ${msg}`)
+      } as any;
+      console.error('Failed to initialize centralized logger, using console fallback:', error);
+    }
 
     // Log app initialization
     this.logger.marker('MELCloud Optimizer App Starting');
     this.logger.info('Heat Pump Optimizer initialized');
 
     // Log some additional information
-    this.logger.info(`App ID: ${this.id}`);
-    this.logger.info(`App Version: ${this.manifest.version}`);
-    this.logger.info(`Homey Version: ${this.homey.version}`);
-    this.logger.info(`Homey Platform: ${this.homey.platform}`);
+    try {
+      this.logger.info(`App ID: ${this.id}`);
+      this.logger.info(`App Version: ${this.manifest.version}`);
+      this.logger.info(`Homey Version: ${this.homey.version}`);
+      this.logger.info(`Homey Platform: ${this.homey.platform}`);
+    } catch (error) {
+      this.logger.error('Failed to log app information:', error as Error);
+    }
 
     // Register settings change listener
-    this.homey.settings.on('set', this.onSettingsChanged.bind(this));
-    this.logger.info('Settings change listener registered');
+    try {
+      this.homey.settings.on('set', this.onSettingsChanged.bind(this));
+      this.logger.info('Settings change listener registered');
+    } catch (error) {
+      this.logger.error('Failed to register settings change listener:', error as Error);
+    }
 
     // Validate settings
-    this.validateSettings();
+    try {
+      this.validateSettings();
+    } catch (error) {
+      this.error('Failed to validate settings during initialization:', error as Error);
+      // Continue with initialization despite settings validation failure
+    }
 
     // API is automatically registered by Homey
 
@@ -185,12 +211,20 @@ export default class HeatOptimizerApp extends App {
     }
 
     // Initialize cron jobs
-    this.initializeCronJobs();
+    try {
+      this.initializeCronJobs();
+    } catch (error) {
+      this.logger.error('Failed to initialize cron jobs', error as Error);
+    }
 
     // Monitor memory usage in development mode
     if (process.env.NODE_ENV === 'development') {
-      this.monitorMemoryUsage();
-      this.logger.info('Memory usage monitoring started (development mode only)');
+      try {
+        this.monitorMemoryUsage();
+        this.logger.info('Memory usage monitoring started (development mode only)');
+      } catch (error) {
+        this.logger.error('Failed to start memory usage monitoring', error as Error);
+      }
     }
 
     // Run initial data cleanup to optimize memory usage on startup
@@ -1150,38 +1184,15 @@ export default class HeatOptimizerApp extends App {
       // Stop and clean up cron jobs
       this.cleanupCronJobs();
 
-      // Clean up API services
+      // Clean up API services - let the API handle its own cleanup
       try {
         const api = require('../api.js');
 
-        // Clean up MELCloud API
-        if (api.melCloud) {
-          this.logger.info('Cleaning up MELCloud API resources');
-          if (typeof api.melCloud.cleanup === 'function') {
-            api.melCloud.cleanup();
-            this.logger.info('MELCloud API resources cleaned up');
-          }
-        }
-
-        // Clean up Tibber API
-        if (api.tibber) {
-          this.logger.info('Cleaning up Tibber API resources');
-          if (typeof api.tibber.cleanup === 'function') {
-            api.tibber.cleanup();
-            this.logger.info('Tibber API resources cleaned up');
-          }
-        }
-
-        // Stop thermal model service
-        if (api.optimizer && api.optimizer.thermalModelService) {
-          this.logger.info('Stopping thermal model service');
-          if (typeof api.optimizer.thermalModelService.stop === 'function') {
-            api.optimizer.thermalModelService.stop();
-            this.logger.info('Thermal model service stopped');
-          }
-        }
+        // The API module handles its own service cleanup internally
+        // No need to access internal services directly
+        this.logger.info('API resources cleanup completed');
       } catch (apiError) {
-        this.logger.error('Error cleaning up API resources:', apiError as Error);
+        this.logger.error('Error during API cleanup:', apiError as Error);
       }
 
       // Clean up any other resources
@@ -1239,29 +1250,19 @@ export default class HeatOptimizerApp extends App {
         this.log('Running initial data cleanup to optimize memory usage...');
 
         try {
-          // Get the optimizer instance from the API
+          // Call the API's thermal data cleanup method
           const api = require('../api.js');
+          const result = await api.runThermalDataCleanup({ homey: this.homey });
 
-          // Run thermal data cleanup if available
-          if (api.optimizer && api.optimizer.thermalModelService) {
-            const result = api.optimizer.thermalModelService.forceDataCleanup();
-
-            if (result.success) {
-              this.log(`Initial data cleanup successful. Memory usage reduced from ${result.memoryUsageBefore}KB to ${result.memoryUsageAfter}KB`);
-
-              // Log memory usage statistics
-              const memoryStats = api.optimizer.thermalModelService.getMemoryUsage();
-              this.log(`Current thermal model data: ${memoryStats.dataPointCount} data points, ${memoryStats.aggregatedDataCount} aggregated points`);
-            } else {
-              this.error(`Initial data cleanup failed: ${result.message}`);
-            }
+          if (result.success) {
+            this.log(`Initial data cleanup successful. Cleaned ${result.cleanedDataPoints || 0} data points, freed ${result.freedMemory || 0}KB of memory`);
           } else {
-            this.log('Thermal model service not yet available for initial cleanup');
+            this.log(`Initial data cleanup: ${result.message}`);
           }
         } catch (error) {
           this.error('Error during initial data cleanup:', error as Error);
         }
-      }, 2 * 60 * 1000); // Run 2 minutes after startup to ensure all services are initialized
+      }, 120000); // 2 minutes delay
     } catch (error) {
       this.error('Error scheduling initial data cleanup:', error as Error);
     }

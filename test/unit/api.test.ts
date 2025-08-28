@@ -8,6 +8,10 @@ jest.mock('../../src/app');
 jest.mock('../../api.js', () => ({
   getRunHourlyOptimizer: jest.fn().mockResolvedValue({ success: true }),
   getRunWeeklyCalibration: jest.fn().mockResolvedValue({ success: true }),
+  runThermalDataCleanup: jest.fn().mockResolvedValue({
+    success: false,
+    message: 'Thermal model service not available'
+  })
 }));
 
 describe('Api', () => {
@@ -145,6 +149,52 @@ describe('Api', () => {
         success: false,
         message: 'Hot water service not available'
       });
+    }, 3000);
+  });
+
+  describe('runThermalDataCleanup', () => {
+    it('should run thermal data cleanup when service is available', async () => {
+      const mockResult = {
+        success: true,
+        cleanedDataPoints: 10,
+        freedMemory: 1024
+      };
+
+      // Mock the api.js runThermalDataCleanup method
+      const mockApiJs = require('../../api.js');
+      mockApiJs.runThermalDataCleanup.mockResolvedValue(mockResult);
+
+      const result = await api.runThermalDataCleanup();
+
+      expect((mockApp as any).log).toHaveBeenCalledWith('API method runThermalDataCleanup called');
+      expect(result).toEqual(mockResult);
+    }, 3000);
+
+    it('should handle missing thermal model service', async () => {
+      // Mock the api.js runThermalDataCleanup method to return failure
+      const mockApiJs = require('../../api.js');
+      mockApiJs.runThermalDataCleanup.mockResolvedValue({
+        success: false,
+        message: 'Thermal model service not available'
+      });
+
+      const result = await api.runThermalDataCleanup();
+
+      expect(result).toEqual({
+        success: false,
+        message: 'Thermal model service not available'
+      });
+    }, 3000);
+
+    it('should handle errors during cleanup', async () => {
+      // Mock the api.js runThermalDataCleanup method to throw an error
+      const mockApiJs = require('../../api.js');
+      mockApiJs.runThermalDataCleanup.mockRejectedValue(new Error('Cleanup failed'));
+
+      const result = await api.runThermalDataCleanup();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('Error running thermal data cleanup');
     }, 3000);
   });
 });

@@ -23,6 +23,10 @@ jest.doMock('../../api.js', () => ({
   getTibberStatus: jest.fn().mockResolvedValue({ connected: false }),
   getRunHourlyOptimizer: jest.fn().mockResolvedValue({ success: true, data: {} }),
   getRunWeeklyCalibration: jest.fn().mockResolvedValue({ success: true, data: {} }),
+  runThermalDataCleanup: jest.fn().mockResolvedValue({
+    success: false,
+    message: 'Thermal model service not available'
+  })
 }));
 
 import HeatOptimizerApp from '../../src/app';
@@ -104,5 +108,173 @@ describe('HeatOptimizerApp focused coverage tests', () => {
     expect(Array.isArray(res.issues)).toBe(true);
     // Recovery should have run and initialized cron jobs
     expect(spyInit).toHaveBeenCalled();
+  });
+
+  test('onUninit cleans up all resources properly', async () => {
+    // Set up services
+    (app as any).copHelper = {};
+    (app as any).timelineHelper = {};
+    (app as any).memoryUsageInterval = setInterval(() => {}, 1000);
+
+    await (app as any).onUninit();
+
+    // Verify that the logger was called with the stopping message
+    expect((app as any).logger.marker).toHaveBeenCalledWith('MELCloud Optimizer App Stopping');
+    expect((app as any).logger.info).toHaveBeenCalledWith('API resources cleanup completed');
+  });
+
+  test('runInitialDataCleanup schedules cleanup after delay', async () => {
+    jest.useFakeTimers();
+
+    // Mock the api.js runThermalDataCleanup method
+    const mockApi = require('../../api.js');
+    mockApi.runThermalDataCleanup.mockResolvedValue({
+      success: true,
+      cleanedDataPoints: 10,
+      freedMemory: 1024
+    });
+
+    (app as any).runInitialDataCleanup();
+
+    // Fast-forward timers
+    jest.advanceTimersByTime(2 * 60 * 1000);
+
+    // Verify cleanup was called
+    expect(mockApi.runThermalDataCleanup).toHaveBeenCalledWith({ homey: (app as any).homey });
+
+    jest.useRealTimers();
+  });
+
+  test('validateSettings handles all validation scenarios', () => {
+    // Test missing MELCloud credentials
+    homey.settings.get.mockImplementation((key: string) => {
+      if (key === 'melcloud_user') return undefined;
+      if (key === 'melcloud_pass') return 'password';
+      if (key === 'tibber_token') return 'token';
+      return undefined;
+    });
+
+    let result = (app as any).validateSettings();
+    expect(result).toBe(false);
+
+    // Test missing Tibber token
+    homey.settings.get.mockImplementation((key: string) => {
+      if (key === 'melcloud_user') return 'user@example.com';
+      if (key === 'melcloud_pass') return 'password';
+      if (key === 'tibber_token') return undefined;
+      return undefined;
+    });
+
+    result = (app as any).validateSettings();
+    expect(result).toBe(false);
+
+    // Test invalid temperature range
+    homey.settings.get.mockImplementation((key: string) => {
+      if (key === 'melcloud_user') return 'user@example.com';
+      if (key === 'melcloud_pass') return 'password';
+      if (key === 'tibber_token') return 'token';
+      if (key === 'min_temp') return 25;
+      if (key === 'max_temp') return 20;
+      return undefined;
+    });
+
+    result = (app as any).validateSettings();
+    expect(result).toBe(false);
+
+    // Test valid settings
+    homey.settings.get.mockImplementation((key: string) => {
+      if (key === 'melcloud_user') return 'user@example.com';
+      if (key === 'melcloud_pass') return 'password';
+      if (key === 'tibber_token') return 'token';
+      if (key === 'min_temp') return 18;
+      if (key === 'max_temp') return 25;
+      if (key === 'enable_zone2') return false;
+      if (key === 'enable_tank_control') return false;
+      if (key === 'use_weather_data') return false;
+      return undefined;
+    });
+
+    result = (app as any).validateSettings();
+    expect(result).toBe(true);
+  });
+
+  test('runSystemHealthCheck returns healthy status when all systems are working', async () => {
+    // Set up working cron jobs
+    app.initializeCronJobs();
+
+    // Mock API status methods to return connected
+    const mockApi = require('../../api.js');
+    mockApi.getMelCloudStatus.mockResolvedValue({ connected: true });
+    mockApi.getTibberStatus.mockResolvedValue({ connected: true });
+
+    const result = await app.runSystemHealthCheck();
+
+    expect(result.healthy).toBe(true);
+    expect(result.issues).toHaveLength(0);
+  });
+
+  test('updateCronStatusInSettings handles missing jobs gracefully', () => {
+    // Ensure jobs are not initialized
+    app.hourlyJob = undefined;
+    app.weeklyJob = undefined;
+
+    // This should not throw and should initialize jobs
+    expect(() => (app as any).updateCronStatusInSettings()).not.toThrow();
+  });
+
+  test('onInit handles various initialization scenarios', async () => {
+    // Ensure homey and manifest are properly set
+    (app as any).homey = homey;
+    (app as any).manifest = { version: '1.0.0' };
+    (app as any).id = 'com.melcloud.optimize';
+    
+    // Mock different settings scenarios
+    let callCount = 0;
+    homey.settings.get.mockImplementation((key: string) => {
+      callCount++;
+      if (key === 'log_level') return 1;
+      if (key === 'melcloud_user') return 'test@example.com';
+      if (key === 'melcloud_pass') return 'password';
+      if (key === 'tibber_token') return 'token';
+      if (key === 'device_id') return '123';
+      if (key === 'time_zone_offset') return 2;
+      if (key === 'use_dst') return true;
+      return undefined;
+    });
+
+    // Mock the logger initialization
+    (app as any).initializeLogger = jest.fn();
+    (app as any).validateSettings = jest.fn().mockReturnValue(true);
+    (app as any).initializeCronJobs = jest.fn();
+    (app as any).runInitialDataCleanup = jest.fn();
+
+    await (app as any).onInit();
+
+    expect((app as any).initializeLogger).toHaveBeenCalled();
+    expect((app as any).validateSettings).toHaveBeenCalled();
+    expect((app as any).initializeCronJobs).toHaveBeenCalled();
+    expect((app as any).runInitialDataCleanup).toHaveBeenCalled();
+  });
+
+  test('onInit handles initialization errors gracefully', async () => {
+    // Ensure homey and manifest are properly set
+    (app as any).homey = homey;
+    (app as any).manifest = { version: '1.0.0' };
+    (app as any).id = 'com.melcloud.optimize';
+    
+    // Mock settings to cause errors
+    homey.settings.get.mockImplementation(() => {
+      throw new Error('Settings error');
+    });
+
+    // Mock logger to avoid errors
+    (app as any).logger = {
+      marker: jest.fn(),
+      info: jest.fn(),
+      error: jest.fn()
+    };
+
+    // Should not throw despite errors
+    await expect((app as any).onInit()).resolves.not.toThrow();
   });
 });

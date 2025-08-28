@@ -75,22 +75,9 @@ export class Api {
     this.app.log('API method runThermalDataCleanup called');
 
     try {
-      // Get the optimizer instance from the API
+      // Call the JavaScript API implementation
       const api = require('../api.js');
-
-      // Run thermal data cleanup if available
-      if (api.optimizer && api.optimizer.thermalModelService) {
-        const result = api.optimizer.thermalModelService.forceDataCleanup();
-        return {
-          success: true,
-          ...result
-        };
-      } else {
-        return {
-          success: false,
-          message: 'Thermal model service not available'
-        };
-      }
+      return await api.runThermalDataCleanup({ homey: this.app.homey });
     } catch (error) {
       this.app.error('Error running thermal data cleanup:', error as Error);
       return {
