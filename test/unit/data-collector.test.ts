@@ -1,3 +1,13 @@
+// Prevent melcloud-api from making real network requests during these unit tests
+jest.mock('../../src/services/melcloud-api', () => ({
+  MelCloudApi: class {
+    // Minimal stub used by services that import MelCloudApi
+    constructor() {}
+    login() { return Promise.resolve(true); }
+    getDevices() { return Promise.resolve([]); }
+  }
+}));
+
 import { ThermalDataCollector, ThermalDataPoint } from '../../src/services/thermal-model';
 import { DateTime } from 'luxon';
 import * as fs from 'fs';

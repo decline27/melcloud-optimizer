@@ -1,0 +1,130 @@
+/* eslint-disable @typescript-eslint/no-var-requires */
+const api: any = require('../../api.js');
+
+describe('api.js — real module tests using __test helpers', () => {
+  let homey: any;
+
+  beforeEach(() => {
+    // Minimal mock Homey object used by the API endpoints
+    homey = {
+      app: {
+        log: jest.fn(),
+        error: jest.fn(),
+        flow: { runFlowCardAction: jest.fn() }
+      },
+      settings: {
+        get: jest.fn().mockReturnValue(null),
+        set: jest.fn()
+      },
+      notifications: { createNotification: jest.fn() },
+      timeline: { createEntry: jest.fn() }
+    };
+
+    // Ensure a clean module state
+    if (api.__test && typeof api.__test.resetAll === 'function') {
+      api.__test.resetAll();
+    }
+  });
+
+  afterEach(() => {
+    if (api.__test && typeof api.__test.resetAll === 'function') {
+      api.__test.resetAll();
+    }
+  });
+
+  test('getDeviceList returns formatted devices from injected melCloud', async () => {
+    const melCloudMock = {
+      getDevices: jest.fn().mockResolvedValue([
+        {
+          id: 59132691,
+          name: 'Boiler',
+          buildingId: 513523,
+          type: 1,
+          data: {
+            SetTemperatureZone1: 19,
+            RoomTemperatureZone1: 21.5
+          }
+        }
+      ])
+    };
+
+    const tibberMock = { getPrices: jest.fn().mockResolvedValue({ prices: [] }) };
+    const optimizerMock = {
+      setTemperatureConstraints: jest.fn(),
+      setZone2TemperatureConstraints: jest.fn(),
+      setTankTemperatureConstraints: jest.fn(),
+      setThermalModel: jest.fn(),
+      setCOPSettings: jest.fn()
+    };
+
+    api.__test.setServices({ melCloud: melCloudMock, tibber: tibberMock, optimizer: optimizerMock, weather: {} });
+
+    const res = await api.getDeviceList({ homey });
+
+    expect(res.success).toBe(true);
+    expect(Array.isArray(res.devices)).toBe(true);
+    expect(res.devices.length).toBe(1);
+    expect(res.devices[0].name).toBe('Boiler');
+    expect(melCloudMock.getDevices).toHaveBeenCalled();
+  });
+
+  test('getRunHourlyOptimizer calls optimizer.runEnhancedOptimization and returns result', async () => {
+    const fakeResult = {
+      action: 'temperature_adjusted',
+      fromTemp: 20,
+      toTemp: 19,
+      reason: 'Test adjustment',
+      priceData: { current: 0.5, average: 0.6 }
+    };
+
+    const melCloudMock = { getDevices: jest.fn().mockResolvedValue([]) };
+    const tibberMock = { getPrices: jest.fn().mockResolvedValue({ prices: [] }) };
+    const optimizerMock = {
+      runEnhancedOptimization: jest.fn().mockResolvedValue(fakeResult),
+      setTemperatureConstraints: jest.fn(),
+      setZone2TemperatureConstraints: jest.fn(),
+      setTankTemperatureConstraints: jest.fn(),
+      setThermalModel: jest.fn(),
+      setCOPSettings: jest.fn(),
+      thermalModel: { K: 0.5 },
+      thermalModelService: { getMemoryUsage: jest.fn().mockReturnValue({}) }
+    };
+
+    api.__test.setServices({ melCloud: melCloudMock, tibber: tibberMock, optimizer: optimizerMock, weather: {} });
+
+    const res = await api.getRunHourlyOptimizer({ homey });
+
+    expect(res.success).toBe(true);
+    expect(optimizerMock.runEnhancedOptimization).toHaveBeenCalled();
+    // The returned wrapper includes the real optimizer result under `result`
+    expect(res.result).toEqual(fakeResult);
+  });
+
+  test('getRunWeeklyCalibration returns not-enough-data when historicalData is small, and runs calibration when enough', async () => {
+    const melCloudMock = { getDevices: jest.fn().mockResolvedValue([]) };
+    const tibberMock = { getPrices: jest.fn().mockResolvedValue({ prices: [] }) };
+    const optimizerMock = {
+      runWeeklyCalibration: jest.fn().mockResolvedValue({ oldK: 0.5, newK: 0.6, analysis: 'ok' }),
+      setTemperatureConstraints: jest.fn(),
+      setZone2TemperatureConstraints: jest.fn(),
+      setTankTemperatureConstraints: jest.fn(),
+      setThermalModel: jest.fn(),
+      setCOPSettings: jest.fn(),
+      thermalModel: { K: 0.5 }
+    };
+
+    api.__test.setServices({ melCloud: melCloudMock, tibber: tibberMock, optimizer: optimizerMock, weather: {} });
+
+    // Default historicalData is empty -> should return not enough data
+    const res1 = await api.getRunWeeklyCalibration({ homey });
+    expect(res1.success).toBe(false);
+    expect(res1.historicalDataCount).toBeDefined();
+
+    // Now inject enough historical data and run again
+    api.__test.setHistoricalData({ optimizations: new Array(30).fill({}), lastCalibration: null });
+
+    const res2 = await api.getRunWeeklyCalibration({ homey });
+    expect(res2.success).toBe(true);
+    expect(optimizerMock.runWeeklyCalibration).toHaveBeenCalled();
+  });
+});

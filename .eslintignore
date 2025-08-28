@@ -1,0 +1,23 @@
+# Build output
+.homeybuild/
+dist/
+build/
+
+# Dependencies
+node_modules/
+
+# Testing and coverage
+coverage/
+test/mocks/
+
+# Configuration files
+*.config.js
+jest.config.js
+
+# Generated files
+*.js
+!jest.config.js
+
+# Documentation
+docs/
+*.md

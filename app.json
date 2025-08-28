@@ -1,8 +1,8 @@
 {
   "_comment": "This file is generated. Please edit .homeycompose/app.json instead.",
   "id": "com.melcloud.optimize",
-  "version": "1.0.8",
-  "compatibility": ">=5.0.0",
+  "version": "12.5.5",
+  "compatibility": ">=12.2.0",
   "sdk": 3,
   "platforms": [
     "local"
@@ -30,10 +30,6 @@
   "brandColor": "#1E88E5",
   "support": "https://github.com/decline27/melcloud-optimizer/issues",
   "api": {
-    "getTestLogging": {
-      "method": "GET",
-      "path": "/testLogging"
-    },
     "getRunHourlyOptimizer": {
       "method": "GET",
       "path": "/runHourlyOptimizer"
@@ -93,6 +89,487 @@
     "runThermalDataCleanup": {
       "method": "GET",
       "path": "/runThermalDataCleanup"
+    }
+  },
+  "drivers": [
+    {
+      "name": {
+        "en": "MELCloud Boiler"
+      },
+      "class": "heatpump",
+      "capabilities": [
+        "onoff",
+        "hot_water_mode",
+        "measure_temperature",
+        "measure_temperature.outdoor",
+        "measure_temperature.zone2",
+        "measure_temperature.tank",
+        "target_temperature",
+        "target_temperature.zone2",
+        "target_temperature.tank",
+        "thermostat_mode",
+        "thermostat_mode.zone2",
+        "operational_state",
+        "operational_state.hot_water",
+        "operational_state.zone1",
+        "operational_state.zone2",
+        "meter_power.heating_consumed",
+        "meter_power.heating_produced",
+        "meter_power.hotwater_consumed",
+        "meter_power.hotwater_produced",
+        "meter_power.heating",
+        "meter_power.produced_heating",
+        "meter_power.hotwater",
+        "meter_power.produced_hotwater",
+        "heating_cop",
+        "hotwater_cop",
+        "alarm_generic.offline"
+      ],
+      "capabilitiesOptions": {
+        "measure_temperature": {
+          "title": {
+            "en": "Indoor Temperature (Zone 1)"
+          },
+          "units": {
+            "en": "°C"
+          }
+        },
+        "measure_temperature.outdoor": {
+          "title": {
+            "en": "Outdoor Temperature"
+          },
+          "units": {
+            "en": "°C"
+          }
+        },
+        "measure_temperature.zone2": {
+          "title": {
+            "en": "Indoor Temperature (Zone 2)"
+          },
+          "units": {
+            "en": "°C"
+          }
+        },
+        "measure_temperature.tank": {
+          "title": {
+            "en": "Hot Water Tank Temperature"
+          },
+          "units": {
+            "en": "°C"
+          }
+        },
+        "target_temperature": {
+          "title": {
+            "en": "Target Temperature (Zone 1)"
+          },
+          "min": 10,
+          "max": 30,
+          "step": 0.5,
+          "units": {
+            "en": "°C"
+          }
+        },
+        "target_temperature.zone2": {
+          "title": {
+            "en": "Target Temperature (Zone 2)"
+          },
+          "min": 10,
+          "max": 30,
+          "step": 0.5,
+          "units": {
+            "en": "°C"
+          }
+        },
+        "target_temperature.tank": {
+          "title": {
+            "en": "Target Tank Temperature"
+          },
+          "min": 30,
+          "max": 60,
+          "step": 1,
+          "units": {
+            "en": "°C"
+          }
+        },
+        "meter_power.heating_consumed": {
+          "title": {
+            "en": "Daily Heating Energy Consumed"
+          },
+          "units": {
+            "en": "kWh"
+          }
+        },
+        "meter_power.heating_produced": {
+          "title": {
+            "en": "Daily Heating Energy Produced"
+          },
+          "units": {
+            "en": "kWh"
+          }
+        },
+        "meter_power.hotwater_consumed": {
+          "title": {
+            "en": "Daily Hot Water Energy Consumed"
+          },
+          "units": {
+            "en": "kWh"
+          }
+        },
+        "meter_power.hotwater_produced": {
+          "title": {
+            "en": "Daily Hot Water Energy Produced"
+          },
+          "units": {
+            "en": "kWh"
+          }
+        },
+        "meter_power.heating": {
+          "title": {
+            "en": "Total Heating Energy Consumed"
+          },
+          "units": {
+            "en": "kWh"
+          }
+        },
+        "meter_power.produced_heating": {
+          "title": {
+            "en": "Total Heating Energy Produced"
+          },
+          "units": {
+            "en": "kWh"
+          }
+        },
+        "meter_power.hotwater": {
+          "title": {
+            "en": "Total Hot Water Energy Consumed"
+          },
+          "units": {
+            "en": "kWh"
+          }
+        },
+        "meter_power.produced_hotwater": {
+          "title": {
+            "en": "Total Hot Water Energy Produced"
+          },
+          "units": {
+            "en": "kWh"
+          }
+        },
+        "thermostat_mode": {
+          "title": {
+            "en": "Operation Mode"
+          },
+          "type": "enum",
+          "values": [
+            {
+              "id": "room",
+              "title": {
+                "en": "Room Temperature"
+              }
+            },
+            {
+              "id": "flow",
+              "title": {
+                "en": "Flow Temperature"
+              }
+            },
+            {
+              "id": "curve",
+              "title": {
+                "en": "Curve"
+              }
+            }
+          ]
+        },
+        "thermostat_mode.zone2": {
+          "title": {
+            "en": "Operation Mode - Zone 2"
+          },
+          "type": "enum",
+          "values": [
+            {
+              "id": "room",
+              "title": {
+                "en": "Room Temperature"
+              }
+            },
+            {
+              "id": "flow",
+              "title": {
+                "en": "Flow Temperature"
+              }
+            },
+            {
+              "id": "curve",
+              "title": {
+                "en": "Curve"
+              }
+            }
+          ]
+        },
+        "hot_water_mode": {
+          "title": {
+            "en": "Hot Water Mode"
+          },
+          "type": "enum",
+          "values": [
+            {
+              "id": "auto",
+              "title": {
+                "en": "Automatic"
+              }
+            },
+            {
+              "id": "forced",
+              "title": {
+                "en": "Forced"
+              }
+            }
+          ]
+        },
+        "operational_state": {
+          "title": {
+            "en": "Operational State"
+          },
+          "getable": true,
+          "setable": false,
+          "type": "enum",
+          "values": [
+            {
+              "id": "cooling",
+              "title": {
+                "en": "Cooling"
+              }
+            },
+            {
+              "id": "defrost",
+              "title": {
+                "en": "Defrost"
+              }
+            },
+            {
+              "id": "heating",
+              "title": {
+                "en": "Heating"
+              }
+            },
+            {
+              "id": "idle",
+              "title": {
+                "en": "Idle"
+              }
+            },
+            {
+              "id": "prohibited",
+              "title": {
+                "en": "Prohibited"
+              }
+            }
+          ]
+        },
+        "operational_state.hot_water": {
+          "title": {
+            "en": "Hot Water State"
+          },
+          "getable": true,
+          "setable": false,
+          "type": "enum",
+          "values": [
+            {
+              "id": "dhw",
+              "title": {
+                "en": "Hot Water"
+              }
+            },
+            {
+              "id": "idle",
+              "title": {
+                "en": "Idle"
+              }
+            },
+            {
+              "id": "legionella",
+              "title": {
+                "en": "Legionella"
+              }
+            },
+            {
+              "id": "prohibited",
+              "title": {
+                "en": "Prohibited"
+              }
+            }
+          ]
+        },
+        "operational_state.zone1": {
+          "title": {
+            "en": "Zone 1 State"
+          },
+          "getable": true,
+          "setable": false,
+          "type": "enum",
+          "values": [
+            {
+              "id": "cooling",
+              "title": {
+                "en": "Cooling"
+              }
+            },
+            {
+              "id": "defrost",
+              "title": {
+                "en": "Defrost"
+              }
+            },
+            {
+              "id": "heating",
+              "title": {
+                "en": "Heating"
+              }
+            },
+            {
+              "id": "idle",
+              "title": {
+                "en": "Idle"
+              }
+            },
+            {
+              "id": "prohibited",
+              "title": {
+                "en": "Prohibited"
+              }
+            }
+          ]
+        },
+        "operational_state.zone2": {
+          "title": {
+            "en": "Zone 2 State"
+          },
+          "getable": true,
+          "setable": false,
+          "type": "enum",
+          "values": [
+            {
+              "id": "cooling",
+              "title": {
+                "en": "Cooling"
+              }
+            },
+            {
+              "id": "defrost",
+              "title": {
+                "en": "Defrost"
+              }
+            },
+            {
+              "id": "heating",
+              "title": {
+                "en": "Heating"
+              }
+            },
+            {
+              "id": "idle",
+              "title": {
+                "en": "Idle"
+              }
+            },
+            {
+              "id": "prohibited",
+              "title": {
+                "en": "Prohibited"
+              }
+            }
+          ]
+        },
+        "alarm_generic.offline": {
+          "title": {
+            "en": "Device Offline"
+          }
+        }
+      },
+      "platforms": [
+        "local"
+      ],
+      "connectivity": [
+        "cloud"
+      ],
+      "images": {
+        "small": "/drivers/boiler/assets/images/small.png",
+        "large": "/drivers/boiler/assets/images/large.png",
+        "xlarge": "/drivers/boiler/assets/images/xlarge.png"
+      },
+      "pair": [
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ],
+      "settings": [
+        {
+          "id": "device_id",
+          "type": "text",
+          "label": {
+            "en": "MELCloud Device ID"
+          },
+          "value": "",
+          "hint": {
+            "en": "The MELCloud device ID for this boiler"
+          }
+        },
+        {
+          "id": "building_id",
+          "type": "number",
+          "label": {
+            "en": "MELCloud Building ID"
+          },
+          "value": 0,
+          "hint": {
+            "en": "The MELCloud building ID for this boiler"
+          }
+        }
+      ],
+      "id": "boiler"
+    }
+  ],
+  "capabilities": {
+    "heating_cop": {
+      "type": "number",
+      "title": {
+        "en": "Heating COP (Efficiency)"
+      },
+      "units": {
+        "en": "COP"
+      },
+      "decimals": 2,
+      "min": 0,
+      "max": 10,
+      "getable": true,
+      "setable": false,
+      "uiComponent": "sensor",
+      "insights": true
+    },
+    "hotwater_cop": {
+      "type": "number",
+      "title": {
+        "en": "Hot Water COP (Efficiency)"
+      },
+      "units": {
+        "en": "COP"
+      },
+      "decimals": 2,
+      "min": 0,
+      "max": 10,
+      "getable": true,
+      "setable": false,
+      "uiComponent": "sensor",
+      "insights": true
     }
   }
 }

@@ -1,3 +1,8 @@
+// Prevent MelCloudApi network activity during these unit tests
+jest.mock('../../src/services/melcloud-api', () => ({
+  MelCloudApi: class {}
+}));
+
 import { Optimizer } from '../../src/services/optimizer';
 import {
   createMockLogger,
@@ -38,6 +43,10 @@ describe('Optimizer Edge Cases', () => {
     // Set up optimizer
     optimizer.setTemperatureConstraints(18, 22, 0.5);
     optimizer.setCOPSettings(0.3, true, false);
+
+    // Disable COP adjustments for pure price-based calculations
+    (optimizer as any).copWeight = 0;
+    (optimizer as any).copHelper = null;
 
     // Set the services using reflection to avoid TypeScript errors
     // This is only for testing purposes

@@ -1,68 +1,66 @@
-# First exclude everything
-*
+# Development and build files
+src/
+test/
+coverage/
+docs/
+logs/
+memory-bank/
+improvement-plan/
+explanation/
 
-# Then include only what we need
-!api.js
-!app.json
-!index.js
-!assets/icon.svg
-!assets/images/*.png
-!locales/*.json
-!settings/*.html
+# Configuration files
+.git/
+.github/
+.vscode/
+.homeybuild/
+.homeycompose/
+jest.config.js
+tsconfig.json
+.eslintrc.json
+.gitignore
 
-# Include only the necessary node modules
-!node_modules/cron/dist/**
+# Documentation
+*.md
+*.txt
+README*
+LICENSE
+CONTRIBUTING*
+CODE_OF_CONDUCT*
+
+# TypeScript source files (use compiled JS)
+*.ts
+!*.d.ts
+
+# Test files
+*.test.js
+*.test.ts
+*.spec.js
+*.spec.ts
+
+# Log files
+*.log
+
+# Node modules (selectively included)
+node_modules/
+!node_modules/cron/dist/
 !node_modules/cron/package.json
-!node_modules/luxon/build/node/**
+!node_modules/luxon/build/node/
 !node_modules/luxon/package.json
 
-# Exclude unnecessary files from node_modules
+# Exclude unnecessary files from included node_modules
 node_modules/**/*.md
 node_modules/**/*.map
 node_modules/**/test/
 node_modules/**/tests/
 node_modules/**/*.ts
-!node_modules/**/*.d.ts
 
-# Exclude development files
-.git/
-.github/
-.vscode/
-coverage/
-test/
-*.test.js
-*.test.ts
-jest.config.js
-tsconfig.json
-.eslintrc.json
-
-# Exclude documentation
-*.md
-*.txt
-CODE_OF_CONDUCT.md
-CONTRIBUTING.md
-LICENSE
-
-# Exclude debug and test scripts
+# Build scripts and debug files
 debug-run.sh
 run-*.sh
-test-*.js
+build-*.sh
 simple-trigger-test.js
 run-with-logging.js
-build-minimal.sh
 
-# Exclude source files (since they're compiled)
-src/
-*.ts
-
-# Exclude logs
-logs/
-*.log
-
-# Exclude memory bank (for development)
-memory-bank/
-
-# Exclude build files
+# Package management
 package-lock.json
-.homeybuild/
-.homeycompose/
+yarn.lock

@@ -3,6 +3,9 @@ import HeatOptimizerApp from '../../src/app';
 // Mock fetch globally
 global.fetch = jest.fn();
 
+// Mock setTimeout to prevent hanging
+jest.useFakeTimers();
+
 describe('HeatOptimizerApp', () => {
   let app: HeatOptimizerApp;
   let mockSettings: any;
@@ -22,6 +25,9 @@ describe('HeatOptimizerApp', () => {
   });
 
   afterEach(() => {
+    // Clear all timers
+    jest.clearAllTimers();
+    
     // Clean up cron jobs
     if (app.hourlyJob) {
       app.hourlyJob.stop();
@@ -572,5 +578,10 @@ describe('HeatOptimizerApp', () => {
       // Check that validateSettings was not called
       expect((app as any).validateSettings).not.toHaveBeenCalled();
     });
+  });
+
+  afterAll(() => {
+    jest.useRealTimers();
+    jest.clearAllTimers();
   });
 });

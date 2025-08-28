@@ -179,11 +179,8 @@ describe('Logger', () => {
       const error = new Error('Timeline error');
       mockApp.homey.flow.runFlowCardAction.mockRejectedValueOnce(error);
 
-      // Call a method that will trigger timeline logging
-      logger.info('Test message with timeline error');
-
-      // Wait for the async operation to complete
-      await new Promise(resolve => setTimeout(resolve, 10));
+  // Directly call sendToTimeline and await so the error handling runs inside this test
+  await (logger as any).sendToTimeline('Test message with timeline error');
 
       // Check that the error was logged
       expect(mockApp.error).toHaveBeenCalledWith(

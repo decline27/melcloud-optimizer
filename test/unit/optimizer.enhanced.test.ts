@@ -152,6 +152,12 @@ describe('Optimizer Enhanced Tests', () => {
   });
 
   describe('calculateOptimalTemperature', () => {
+    beforeEach(() => {
+      // Disable COP adjustments for pure price-based calculations
+      (optimizer as any).copWeight = 0;
+      (optimizer as any).copHelper = null;
+    });
+
     it('should calculate optimal temperature based on price', async () => {
       const currentPrice = 0.15;
       const priceAvg = 0.15;

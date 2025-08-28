@@ -237,6 +237,12 @@ describe('Optimizer', () => {
   });
 
   describe('calculateOptimalTemperature', () => {
+    beforeEach(() => {
+      // Disable COP adjustments for pure price-based calculations
+      (optimizer as any).copWeight = 0;
+      (optimizer as any).copHelper = null;
+    });
+
     it('should calculate optimal temperature based on price', async () => {
       const currentPrice = 0.15;
       const priceAvg = 0.15;
@@ -257,7 +263,7 @@ describe('Optimizer', () => {
       expect(typeof result).toBe('number');
 
       // Since price is average, temperature should be around the middle
-      expect(result).toBeCloseTo(20.15, 1);
+      expect(result).toBeCloseTo(20, 1);
     });
 
     it('should increase temperature when price is below average', async () => {

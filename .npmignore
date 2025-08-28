@@ -1,0 +1,30 @@
+# Source files
+src/
+test/
+
+# Development files
+.github/
+.vscode/
+coverage/
+docs/
+logs/
+memory-bank/
+improvement-plan/
+explanation/
+
+# Configuration
+.eslintrc.json
+jest.config.js
+tsconfig.json
+
+# Documentation
+*.md
+README.txt
+LICENSE
+
+# Build files
+.homeybuild/
+.homeycompose/
+
+# Dependencies
+node_modules/

@@ -17,6 +17,17 @@
         margin-top: 10px;
         font-style: italic;
       }
+      .homey-button-warning {
+        background-color: #f5a623;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        padding: 8px 16px;
+        cursor: pointer;
+      }
+      .homey-button-warning:hover {
+        background-color: #e09612;
+      }
     </style>
   </head>
   <body>
@@ -101,16 +112,6 @@
         <input class="homey-form-input" id="max_temp" type="number" min="20" max="26" step="0.5" value="24" />
         <p class="homey-form-helper">The maximum temperature that will be set during optimization. Suggested default: 22°C - comfortable temperature during low-price periods without excessive energy use.</p>
       </div>
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="temp_step_max">Maximum Temperature Step (°C)</label>
-        <input class="homey-form-input" id="temp_step_max" type="number" min="0.1" max="2.0" step="0.1" value="0.5" />
-        <p class="homey-form-helper">Controls how much the temperature can change in one step. Suggested default: 0.5°C - provides smooth transitions while still allowing the system to respond to price changes. MELCloud supports 0.5°C increments.</p>
-      </div>
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="initial_k">Initial K Factor</label>
-        <input class="homey-form-input" id="initial_k" type="number" min="0.1" max="1.0" step="0.05" value="0.3" />
-        <p class="homey-form-helper">Initial thermal response factor. Suggested default: 0.3 - good starting point for most homes. Lower values (0.1-0.2) for well-insulated homes, higher values (0.4-0.5) for poorly insulated homes. This will be automatically calibrated over time based on your home's actual thermal behavior.</p>
-      </div>
     </fieldset>
 
     <fieldset class="homey-form-fieldset">
@@ -166,6 +167,35 @@
         <input class="homey-form-input" id="tank_temp_step" type="number" min="0.5" max="5.0" step="0.5" value="1.0" />
         <p class="homey-form-helper">Maximum change in tank temperature per optimization cycle. Suggested default: 2°C - allows for meaningful temperature adjustments without causing excessive cycling of the heat pump.</p>
       </div>
+    </fieldset>
+
+    <fieldset class="homey-form-fieldset">
+      <legend class="homey-form-legend">Hot Water Usage Pattern Analysis</legend>
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="enable_usage_patterns">Enable Usage Pattern Analysis</label>
+        <label class="homey-form-checkbox">
+          <input type="checkbox" id="enable_usage_patterns" checked />
+          <span>Enable hot water usage pattern analysis and optimization</span>
+        </label>
+        <p class="homey-form-helper">Analyzes your hot water usage patterns to optimize tank temperature based on your household's needs. This provides more efficient hot water heating than price-based optimization alone.</p>
+      </div>
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="max_data_points">Maximum Data Points</label>
+        <input class="homey-form-input" id="max_data_points" type="number" min="100" max="5000" step="100" value="1000" />
+        <p class="homey-form-helper">Maximum number of data points to store for pattern analysis. Higher values provide more accurate patterns but use more memory. Default: 1000</p>
+      </div>
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="data_retention_days">Data Retention (days)</label>
+        <input class="homey-form-input" id="data_retention_days" type="number" min="7" max="90" step="1" value="30" />
+        <p class="homey-form-helper">Number of days to keep hot water usage data. Older data will be automatically removed. Default: 30 days</p>
+      </div>
+      <div class="button-container">
+        <button id="reset_patterns" class="homey-button" onclick="resetHotWaterPatterns()">Reset Usage Patterns</button>
+        <button id="clear_keep_patterns" class="homey-button-warning" onclick="clearHotWaterData(true)">Clear Data (Keep Patterns)</button>
+        <button id="clear_all_data" class="homey-button-danger" onclick="clearHotWaterData(false)">Clear All Data</button>
+      </div>
+      <p class="homey-form-helper">Reset Usage Patterns: Resets learned patterns to default values.<br>Clear Data (Keep Patterns): Removes detailed data points but keeps aggregated usage patterns.<br>Clear All Data: Removes all collected usage data and resets patterns.</p>
+      <p id="hot_water_action_result" class="result-message"></p>
     </fieldset>
 
     <fieldset class="homey-form-fieldset">
@@ -444,10 +474,10 @@
             if (data.lastOptimization) {
               const optDate = new Date(data.lastOptimization.timestamp).toLocaleString();
               message += `Last Optimization: ${optDate}\n`;
-              message += `Target Temperature: ${data.lastOptimization.targetTemp}°C (was ${data.lastOptimization.targetOriginal}°C)\n`;
-              message += `Indoor Temperature: ${data.lastOptimization.indoorTemp}°C\n`;
-              message += `Outdoor Temperature: ${data.lastOptimization.outdoorTemp}°C\n`;
-              message += `Current Price: ${data.lastOptimization.priceNow.toFixed(4)}\n`;
+              message += `Target Temperature: ${data.lastOptimization.targetTemp !== undefined ? data.lastOptimization.targetTemp : 'N/A'}°C (was ${data.lastOptimization.targetOriginal !== undefined ? data.lastOptimization.targetOriginal : 'N/A'}°C)\n`;
+              message += `Indoor Temperature: ${data.lastOptimization.indoorTemp !== undefined ? data.lastOptimization.indoorTemp : 'N/A'}°C\n`;
+              message += `Outdoor Temperature: ${data.lastOptimization.outdoorTemp !== undefined ? data.lastOptimization.outdoorTemp : 'N/A'}°C\n`;
+              message += `Current Price: ${data.lastOptimization.priceNow !== undefined ? data.lastOptimization.priceNow.toFixed(4) : 'N/A'}\n`;
             }
 
             // Show the data in an alert
@@ -689,8 +719,6 @@
         const tibberTokenElement = document.getElementById("tibber_token");
         const minTempElement = document.getElementById("min_temp");
         const maxTempElement = document.getElementById("max_temp");
-        const tempStepMaxElement = document.getElementById("temp_step_max");
-        const initialKElement = document.getElementById("initial_k");
         const useWeatherDataElement = document.getElementById("use_weather_data");
         const latitudeElement = document.getElementById("latitude");
         const longitudeElement = document.getElementById("longitude");
@@ -722,6 +750,13 @@
         const minTankTempElement = document.getElementById("min_tank_temp");
         const maxTankTempElement = document.getElementById("max_tank_temp");
         const tankTempStepElement = document.getElementById("tank_temp_step");
+        
+        // Hot water usage pattern elements
+        const enableUsagePatternsElement = document.getElementById("enable_usage_patterns");
+        const maxDataPointsElement = document.getElementById("max_data_points");
+        const dataRetentionDaysElement = document.getElementById("data_retention_days");
+        const resetPatternsButton = document.getElementById("reset_patterns");
+        const clearAllDataButton = document.getElementById("clear_all_data");
         // Buttons now use onclick attributes with global functions
 
         // Load current settings
@@ -777,16 +812,6 @@
         Homey.get("max_temp", function (err, value) {
           if (err) return Homey.alert(err);
           if (value !== undefined) maxTempElement.value = value;
-        });
-
-        Homey.get("temp_step_max", function (err, value) {
-          if (err) return Homey.alert(err);
-          if (value !== undefined) tempStepMaxElement.value = value;
-        });
-
-        Homey.get("initial_k", function (err, value) {
-          if (err) return Homey.alert(err);
-          if (value !== undefined) initialKElement.value = value;
         });
 
         Homey.get("log_level", function (err, value) {
@@ -903,6 +928,25 @@
         Homey.get("tank_temp_step", function (err, value) {
           if (err) return Homey.alert(err);
           if (value !== undefined) tankTempStepElement.value = value;
+        });
+        
+        // Load hot water usage pattern settings
+        Homey.get("enable_usage_patterns", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) enableUsagePatternsElement.checked = value;
+          else enableUsagePatternsElement.checked = true; // Default to enabled
+        });
+        
+        Homey.get("max_data_points", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) maxDataPointsElement.value = value;
+          else maxDataPointsElement.value = 1000; // Default value
+        });
+        
+        Homey.get("data_retention_days", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) dataRetentionDaysElement.value = value;
+          else dataRetentionDaysElement.value = 30; // Default value
         });
 
         // Load COP settings
@@ -1172,14 +1216,6 @@
             if (err) return Homey.alert(err);
           });
 
-          Homey.set("temp_step_max", parseFloat(tempStepMaxElement.value), function (err) {
-            if (err) return Homey.alert(err);
-          });
-
-          Homey.set("initial_k", parseFloat(initialKElement.value), function (err) {
-            if (err) return Homey.alert(err);
-          });
-
           Homey.set("log_level", parseInt(logLevelElement.value), function (err) {
             if (err) return Homey.alert(err);
           });
@@ -1310,6 +1346,31 @@
             Homey.alert('Invalid tank temperature step value. Must be between 0.5 and 5.0.');
             return;
           }
+          
+          // Save hot water usage pattern settings
+          Homey.set("enable_usage_patterns", enableUsagePatternsElement.checked, function (err) {
+            if (err) return Homey.alert(err);
+          });
+          
+          const maxDataPoints = parseInt(maxDataPointsElement.value);
+          if (!isNaN(maxDataPoints) && maxDataPoints >= 100 && maxDataPoints <= 5000) {
+            Homey.set("max_data_points", maxDataPoints, function (err) {
+              if (err) return Homey.alert(err);
+            });
+          } else if (maxDataPointsElement.value) {
+            Homey.alert('Invalid maximum data points value. Must be between 100 and 5000.');
+            return;
+          }
+          
+          const dataRetentionDays = parseInt(dataRetentionDaysElement.value);
+          if (!isNaN(dataRetentionDays) && dataRetentionDays >= 7 && dataRetentionDays <= 90) {
+            Homey.set("data_retention_days", dataRetentionDays, function (err) {
+              if (err) return Homey.alert(err);
+            });
+          } else if (dataRetentionDaysElement.value) {
+            Homey.alert('Invalid data retention days value. Must be between 7 and 90.');
+            return;
+          }
 
           // Save Zone2 settings
           Homey.set("enable_zone2", enableZone2Element.checked, function (err) {
@@ -1357,6 +1418,39 @@
         });
 
         // Button event handlers are now defined as global functions and attached via onclick attributes
+      }
+      
+      // Hot water usage pattern functions
+      function resetHotWaterPatterns() {
+        const resultElement = document.getElementById('hot_water_action_result');
+        resultElement.textContent = 'Resetting hot water usage patterns...';
+        
+        Homey.api('POST', '/hot-water/reset-patterns', {}, function(err, result) {
+          if (err) {
+            resultElement.textContent = 'Error: ' + (err.message || 'Failed to reset patterns');
+            return;
+          }
+          resultElement.textContent = 'Hot water usage patterns have been reset to defaults.';
+        });
+      }
+      
+      function clearHotWaterData(keepAggregated = false) {
+        const actionText = keepAggregated ? 
+          'clear detailed hot water usage data but keep aggregated patterns' : 
+          'clear ALL hot water usage data including patterns';
+        
+        if (confirm(`Are you sure you want to ${actionText}? This action cannot be undone.`)) {
+          const resultElement = document.getElementById('hot_water_action_result');
+          resultElement.textContent = `Clearing hot water usage data${keepAggregated ? ' (keeping aggregated data)' : ''}...`;
+          
+          Homey.api('POST', '/hot-water/clear-data', { clearAggregated: !keepAggregated }, function(err, result) {
+            if (err) {
+              resultElement.textContent = 'Error: ' + (err.message || 'Failed to clear data');
+              return;
+            }
+            resultElement.textContent = result.message || 'Hot water usage data has been cleared.';
+          });
+        }
       }
     </script>
   </body>
