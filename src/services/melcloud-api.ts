@@ -982,9 +982,13 @@ export class MelCloudApi extends BaseApiService {
         // Get current state (use cache if available - no need to bypass cache unnecessarily)
         const currentState = await this.getDeviceState(deviceId, buildingId);
 
-        // Simple direct temperature assignment - WORKS RELIABLY
-        // This approach works for both ATW and ATA devices through the MELCloud API
+        // Set temperature for both generic and zone-specific fields
+        // MELCloud API requires zone-specific fields to be updated
         currentState.SetTemperature = temperature;
+        currentState.SetTemperatureZone1 = temperature;
+        if (currentState.SetTemperatureZone2 !== undefined && currentState.SetTemperatureZone2 !== -39) {
+          currentState.SetTemperatureZone2 = temperature;
+        }
 
         this.logApiCall('POST', 'Device/SetAta', { deviceId, temperature });
 
