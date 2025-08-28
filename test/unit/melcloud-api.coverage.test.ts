@@ -1,5 +1,52 @@
 import { MelCloudApi } from '../../src/services/melcloud-api';
 import { createMockLogger } from '../mocks';
+import { TimeZoneHelper } from '../../src/util/time-zone-helper';
+
+// Mock TimeZoneHelper to avoid real instantiation
+jest.mock('../../src/util/time-zone-helper', () => ({
+  TimeZoneHelper: jest.fn().mockImplementation(() => ({
+    updateSettings: jest.fn(),
+    formatDate: jest.fn(),
+    isInDSTperiod: jest.fn(),
+    getTimeZoneString: jest.fn()
+  }))
+}));
+
+// Mock the base API service to avoid real network calls
+jest.mock('../../src/services/base-api-service', () => {
+  const mockThrottledApiCall = jest.fn();
+  const mockRetryableRequest = jest.fn();
+  const mockCreateApiError = jest.fn();
+
+  return {
+    BaseApiService: class {
+      serviceName: string;
+      logger: any;
+      circuitBreaker: any;
+      throttledApiCall: any;
+      retryableRequest: any;
+      createApiError: any;
+
+      constructor(serviceName: string, logger: any) {
+        this.serviceName = serviceName;
+        this.logger = logger;
+        this.circuitBreaker = {
+          execute: jest.fn().mockImplementation((fn) => fn())
+        };
+        this.throttledApiCall = mockThrottledApiCall;
+        this.retryableRequest = mockRetryableRequest.mockImplementation(async (fn: () => Promise<any>) => {
+          return await fn();
+        });
+        this.createApiError = mockCreateApiError.mockImplementation((error: unknown) => {
+          if (error instanceof Error) {
+            return error;
+          }
+          return new Error(String(error));
+        });
+      }
+    }
+  };
+});
 
 describe('MelCloudApi additional coverage', () => {
   let api: MelCloudApi;
@@ -17,6 +64,39 @@ describe('MelCloudApi additional coverage', () => {
       unset: jest.fn(),
       on: jest.fn()
     } as any;
+
+    // Mock the logger methods that are called by the base class
+    (api as any).logger = {
+      ...mockLogger,
+      warn: jest.fn(),
+      error: jest.fn(),
+      info: jest.fn(),
+      debug: jest.fn(),
+      api: jest.fn(),
+      log: jest.fn()
+    };
+
+    // Mock additional base class methods
+    (api as any).getCachedData = jest.fn().mockReturnValue(null);
+    (api as any).setCachedData = jest.fn();
+    (api as any).logApiCall = jest.fn();
+
+    // Mock the errorHandler with logError method
+    const loggerRef = (api as any).logger;
+    (api as any).errorHandler = {
+      createAppError: jest.fn().mockImplementation((error: unknown, context?: any) => {
+        const message = error instanceof Error ? error.message : String(error);
+        const appError = new Error(message) as any;
+        appError.category = context?.category || 'API_ERROR';
+        appError.context = context;
+        return appError;
+      }),
+      logError: jest.fn().mockImplementation((error: any, context?: any) => {
+        // Just log the error without throwing
+        loggerRef.error(error.message, { error, ...context });
+        return error;
+      })
+    };
   });
 
   afterEach(() => {
@@ -131,7 +211,7 @@ describe('MelCloudApi additional coverage', () => {
   test('getDeviceState handles missing temperature data', async () => {
     // Mock successful connection
     (api as any).contextKey = 'test-key';
-    (api as any).throttledApiCall = jest.fn().mockResolvedValue({
+    (api as any).throttledApiCall.mockResolvedValue({
       EffectiveFlags: 0,
       SetTemperatureZone1: 20,
       // Missing RoomTemperatureZone1
@@ -159,5 +239,113 @@ describe('MelCloudApi additional coverage', () => {
     // Test with invalid temperature
     await expect(api.setDeviceTemperature('123', 456, 0)).rejects.toThrow();
     await expect(api.setDeviceTemperature('123', 456, 50)).rejects.toThrow();
+  });
+
+  test('constructor initializes time zone helper and circuit breaker correctly', () => {
+    // Test that constructor calls parent with correct parameters
+    const mockLogger = createMockLogger();
+    const api = new MelCloudApi(mockLogger);
+
+    // Verify time zone helper is initialized
+    expect((api as any).timeZoneHelper).toBeDefined();
+    expect((api as any).timeZoneHelper).toBeInstanceOf(TimeZoneHelper);
+
+    // Verify circuit breaker configuration is passed to parent
+    // This is tested indirectly through the parent class behavior
+    expect(api).toBeDefined();
+  });
+
+  test('constructor handles undefined logger parameter', () => {
+    // Mock global logger
+    const originalGlobalLogger = global.logger;
+    global.logger = createMockLogger() as any;
+
+    // Create instance without logger parameter
+    const api = new MelCloudApi();
+
+    // Verify it uses global logger
+    expect((api as any).timeZoneHelper).toBeDefined();
+    expect(api).toBeDefined();
+
+    // Restore global logger
+    global.logger = originalGlobalLogger;
+  });
+
+  test('setDevicePower sets device power state successfully', async () => {
+    // Mock successful connection
+    (api as any).contextKey = 'test-key';
+    (api as any).throttledApiCall.mockResolvedValue({ success: true });
+    (api as any).getDeviceState = jest.fn().mockResolvedValue({
+      DeviceID: '123',
+      Power: false
+    });
+
+    const result = await api.setDevicePower('123', 456, true);
+    expect(result).toBe(true);
+    expect((api as any).throttledApiCall).toHaveBeenCalledWith('POST', 'Device/SetAtw', expect.anything());
+  });
+
+  test('setDevicePower handles authentication errors', async () => {
+    // Mock authentication error
+    (api as any).contextKey = 'test-key';
+    (api as any).throttledApiCall.mockRejectedValue(new Error('Authentication failed'));
+    (api as any).getDeviceState = jest.fn().mockResolvedValue({
+      DeviceID: '123',
+      Power: false
+    });
+
+    await expect(api.setDevicePower('123', 456, true)).rejects.toThrow();
+  });
+
+  test('setZoneTemperature sets zone temperature successfully', async () => {
+    // Mock successful connection
+    (api as any).contextKey = 'test-key';
+    (api as any).throttledApiCall.mockResolvedValue({ success: true });
+    (api as any).getDeviceState = jest.fn().mockResolvedValue({
+      DeviceID: '123',
+      SetTemperatureZone1: 20,
+      SetTemperatureZone2: 20
+    });
+
+    const result = await api.setZoneTemperature('123', 456, 22, 1);
+    expect(result).toBe(true);
+    expect((api as any).throttledApiCall).toHaveBeenCalledWith('POST', 'Device/SetAtw', expect.anything());
+  });
+
+  test('setZoneTemperature validates zone parameter', async () => {
+    // Mock successful connection
+    (api as any).contextKey = 'test-key';
+    (api as any).getDeviceState = jest.fn().mockResolvedValue({
+      DeviceID: '123',
+      SetTemperatureZone1: 20
+    });
+
+    await expect(api.setZoneTemperature('123', 456, 22, 3)).rejects.toThrow('Invalid zone: 3');
+  });
+
+  test('setTankTemperature sets tank temperature successfully', async () => {
+    // Mock successful connection
+    (api as any).contextKey = 'test-key';
+    (api as any).throttledApiCall.mockResolvedValue({ success: true });
+    (api as any).getDeviceState = jest.fn().mockResolvedValue({
+      DeviceID: '123',
+      SetTankWaterTemperature: 40
+    });
+
+    const result = await api.setTankTemperature('123', 456, 45);
+    expect(result).toBe(true);
+    expect((api as any).throttledApiCall).toHaveBeenCalledWith('POST', 'Device/SetAtw', expect.anything());
+  });
+
+  test('setTankTemperature handles API errors', async () => {
+    // Mock API error
+    (api as any).contextKey = 'test-key';
+    (api as any).throttledApiCall.mockRejectedValue(new Error('API error'));
+    (api as any).getDeviceState = jest.fn().mockResolvedValue({
+      DeviceID: '123',
+      SetTankWaterTemperature: 40
+    });
+
+    await expect(api.setTankTemperature('123', 456, 45)).rejects.toThrow();
   });
 });

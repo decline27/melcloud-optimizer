@@ -31,13 +31,13 @@ module.exports = {
   ],
   coverageReporters: ['text', 'lcov', 'html'],
   
-  // Coverage thresholds
+  // Coverage thresholds - increased for better quality
   coverageThreshold: {
     global: {
-      branches: 60,
-      functions: 70,
-      lines: 60,
-      statements: 60,
+      branches: 70,
+      functions: 75,
+      lines: 70,
+      statements: 70,
     },
   },
   
