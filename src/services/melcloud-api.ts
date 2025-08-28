@@ -986,7 +986,8 @@ export class MelCloudApi extends BaseApiService {
         // MELCloud API requires zone-specific fields to be updated
         currentState.SetTemperature = temperature;
         currentState.SetTemperatureZone1 = temperature;
-        if (currentState.SetTemperatureZone2 !== undefined && currentState.SetTemperatureZone2 !== -39) {
+        // Only set Zone2 temperature if Zone2 actually exists (RoomTemperatureZone2 != -39)
+        if (currentState.RoomTemperatureZone2 !== undefined && currentState.RoomTemperatureZone2 !== -39) {
           currentState.SetTemperatureZone2 = temperature;
         }
 
