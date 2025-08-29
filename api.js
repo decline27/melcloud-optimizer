@@ -4382,25 +4382,47 @@ module.exports = {
             additionalData.weather = result.weather;
           }
 
-          // Add Zone2 and tank optimization info if available
-          if (result.zone2Temperature) {
-            additionalData.zone2Temperature = result.zone2Temperature;
-          }
-          
-          if (result.tankTemperature) {
-            additionalData.tankTemperature = result.tankTemperature;
+          // Add Zone2 optimization info only if device supports Zone2 and data exists
+          if (result.zone2Temperature &&
+              typeof result.zone2Temperature === 'object' &&
+              result.zone2Temperature.targetTemp !== undefined &&
+              result.zone2Temperature.targetOriginal !== undefined) {
+            additionalData.zone2Temp = result.zone2Temperature.targetTemp;
+            additionalData.zone2Original = result.zone2Temperature.targetOriginal;
           }
 
-          // Calculate daily savings (only if temperature was actually changed)
+          // Add tank optimization info if data exists
+          if (result.tankTemperature &&
+              typeof result.tankTemperature === 'object' &&
+              result.tankTemperature.targetTemp !== undefined &&
+              result.tankTemperature.targetOriginal !== undefined) {
+            additionalData.tankTemp = result.tankTemperature.targetTemp;
+            additionalData.tankOriginal = result.tankTemperature.targetOriginal;
+          }
+
+          // Calculate projected daily savings (only if temperature was actually changed)
           if (result.action === 'temperature_adjusted' && Math.abs(result.toTemp - result.fromTemp) > 0.1) {
-            // Use the savings already calculated by the optimizer
-            const dailySavings = result.savings || 0;
-            
-            if (Math.abs(dailySavings) > 0.1) {
-              additionalData.dailySavings = dailySavings;
-              
+            const hourlySavings = result.savings || 0;
+            let projectedDailySavings = 0;
+
+            try {
+              // Prefer the optimizer's enhanced daily savings calculation when available
+              if (optimizer && typeof optimizer.calculateDailySavings === 'function') {
+                projectedDailySavings = optimizer.calculateDailySavings(hourlySavings);
+              } else {
+                projectedDailySavings = hourlySavings * 24;
+              }
+            } catch (calcErr) {
+              // Fallback if anything goes wrong
+              homey.app.error('Error calculating projected daily savings, using simple estimate:', calcErr);
+              projectedDailySavings = hourlySavings * 24;
+            }
+
+            if (Math.abs(projectedDailySavings) > 0.1) {
+              additionalData.dailySavings = projectedDailySavings;
+
               // Log the projected daily savings for debugging
-              homey.app.log(`Hourly optimization projected daily savings: ${dailySavings.toFixed(2)} NOK/day`);
+              homey.app.log(`Hourly optimization projected daily savings: ${projectedDailySavings.toFixed(2)} NOK/day`);
             }
           }
 
