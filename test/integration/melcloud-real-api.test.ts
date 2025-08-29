@@ -14,24 +14,22 @@ describe('MELCloud Integration Tests', () => {
     testConfig = loadTestConfig();
   });
 
-  beforeEach(() => {
-    // Only run if we have real credentials
-    if (shouldSkipIntegrationTests()) {
-      pending('Integration tests skipped - no real credentials configured');
-      return;
-    }
+  // Skip the entire test suite if no credentials
+  if (shouldSkipIntegrationTests()) {
+    describe.skip('Real API Connection', () => {
+      it('should login with real credentials', () => {});
+      it('should fetch real devices', () => {});
+    });
+    return;
+  }
 
+  beforeEach(() => {
     const mockLogger = createMockLogger();
     melCloudApi = new MelCloudApi(mockLogger);
   });
 
   describe('Real API Connection', () => {
     it('should login with real credentials', async () => {
-      if (shouldSkipIntegrationTests()) {
-        pending('Integration test skipped');
-        return;
-      }
-
       const success = await melCloudApi.login(
         testConfig.melcloud.email,
         testConfig.melcloud.password
@@ -41,11 +39,6 @@ describe('MELCloud Integration Tests', () => {
     }, testConfig?.test?.timeout || 30000);
 
     it('should fetch real devices', async () => {
-      if (shouldSkipIntegrationTests()) {
-        pending('Integration test skipped');
-        return;
-      }
-
       // Login first
       await melCloudApi.login(
         testConfig.melcloud.email,

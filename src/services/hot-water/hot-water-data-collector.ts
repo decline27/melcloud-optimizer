@@ -403,13 +403,13 @@ export class HotWaterDataCollector {
       }
 
       // Check temperature ranges
-      if (dataPoint.tankTemperature < 0 || dataPoint.tankTemperature > 100) {
-        this.homey.error(`Invalid hot water usage data point: tank temperature out of range (${dataPoint.tankTemperature})`);
+      if (typeof dataPoint.tankTemperature !== 'number' || dataPoint.tankTemperature < 0 || dataPoint.tankTemperature > 100) {
+        this.homey.error(`Invalid hot water usage data point: tank temperature out of range or not a number (${dataPoint.tankTemperature})`);
         return false;
       }
 
-      if (dataPoint.targetTankTemperature < 0 || dataPoint.targetTankTemperature > 100) {
-        this.homey.error(`Invalid hot water usage data point: target tank temperature out of range (${dataPoint.targetTankTemperature})`);
+      if (typeof dataPoint.targetTankTemperature !== 'number' || dataPoint.targetTankTemperature < 0 || dataPoint.targetTankTemperature > 100) {
+        this.homey.error(`Invalid hot water usage data point: target tank temperature out of range or not a number (${dataPoint.targetTankTemperature})`);
         return false;
       }
 
@@ -590,6 +590,17 @@ export class HotWaterDataCollector {
 
       // Replace existing data points
       this.dataPoints = validDataPoints;
+
+      // Trim dataset if it exceeds the maximum size
+      if (this.dataPoints.length > this.maxDataPoints) {
+        // First try to aggregate older data
+        await this.reduceDataSize();
+
+        // If still too large, just slice
+        if (this.dataPoints.length > this.maxDataPoints) {
+          this.dataPoints = this.dataPoints.slice(-this.maxDataPoints);
+        }
+      }
 
       // Save data
       await this.saveData();
