@@ -1291,28 +1291,36 @@ module.exports = class BoilerDevice extends Homey.Device {
    */
   private initializeCircuitBreakers() {
     try {
-      // Main API calls circuit breaker
+      // Main API calls circuit breaker - more resilient configuration
       this.apiCircuitBreaker = new CircuitBreaker(
         `API-${this.deviceId}`,
         this.logger,
         {
-          failureThreshold: 3,        // Open after 3 consecutive failures
-          resetTimeout: 60000,        // Try again after 1 minute
-          halfOpenSuccessThreshold: 2, // Close after 2 successes
-          timeout: 15000,             // 15 second request timeout
+          failureThreshold: 5,        // Increased from 3 to 5
+          resetTimeout: 120000,       // Increased from 60000 to 120000 (2 minutes)
+          halfOpenSuccessThreshold: 3, // Increased from 2 to 3
+          timeout: 30000,             // Increased from 15000 to 30000 (30 seconds)
+          maxResetTimeout: 1800000,   // Maximum 30 minutes for exponential backoff
+          backoffMultiplier: 2,       // Enable exponential backoff
+          adaptiveThresholds: true,   // Enable adaptive behavior
+          successRateWindow: 3600000, // 1 hour success rate window
           monitorInterval: 300000     // Log status every 5 minutes
         }
       );
 
-      // Energy reporting circuit breaker (more lenient)
+      // Energy reporting circuit breaker - even more tolerant for non-critical operations
       this.energyCircuitBreaker = new CircuitBreaker(
         `Energy-${this.deviceId}`,
         this.logger,
         {
-          failureThreshold: 5,        // More tolerant for energy calls
-          resetTimeout: 300000,       // 5 minute reset timeout
-          halfOpenSuccessThreshold: 1,
-          timeout: 20000,
+          failureThreshold: 8,        // More tolerant for energy calls
+          resetTimeout: 300000,       // 5 minute base timeout
+          halfOpenSuccessThreshold: 2, // Require 2 successes
+          timeout: 45000,             // 45 second timeout for energy operations
+          maxResetTimeout: 3600000,   // Maximum 1 hour for exponential backoff
+          backoffMultiplier: 1.5,     // Slower backoff for energy calls
+          adaptiveThresholds: true,   // Enable adaptive behavior
+          successRateWindow: 7200000, // 2 hour success rate window
           monitorInterval: 600000     // Log status every 10 minutes
         }
       );

@@ -29,12 +29,16 @@ export abstract class BaseApiService {
     this.logger = logger;
     this.errorHandler = new ErrorHandler(this.logger);
     
-    // Initialize circuit breaker with default or custom options
+    // Initialize circuit breaker with improved default options
     this.circuitBreaker = new CircuitBreaker(serviceName, this.logger, {
-      failureThreshold: 3,
-      resetTimeout: 60000, // 1 minute
-      halfOpenSuccessThreshold: 1,
-      timeout: 15000, // 15 seconds
+      failureThreshold: 5,        // More tolerant than before
+      resetTimeout: 120000,       // 2 minutes base timeout
+      halfOpenSuccessThreshold: 3, // Require 3 successes to close
+      timeout: 30000,             // 30 second request timeout
+      maxResetTimeout: 1800000,   // Max 30 minutes for exponential backoff
+      backoffMultiplier: 2,       // Double timeout on each failure
+      adaptiveThresholds: true,   // Enable adaptive behavior
+      successRateWindow: 3600000, // 1 hour success rate window
       ...circuitBreakerOptions
     });
   }
