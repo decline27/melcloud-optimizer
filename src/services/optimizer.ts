@@ -121,6 +121,12 @@ interface EnhancedOptimizationResult {
     reason: string;
     scheduledTime?: string;
   };
+  // Optional weather snapshot for timeline/details integration
+  weather?: {
+    current?: Partial<WeatherData>;
+    adjustment?: { adjustment: number; reason: string };
+    trend?: { trend: string; details: string };
+  };
 }
 
 /**
@@ -1476,6 +1482,35 @@ export class Optimizer {
       let targetTemp = optimizationResult.targetTemp;
       let adjustmentReason = optimizationResult.reason;
 
+      // Apply weather-based adjustment when available (uses forecast + price context)
+      let weatherInfo: any = null;
+      if (this.weatherApi && typeof (this.weatherApi as any).getForecast === 'function' && typeof (this.weatherApi as any).calculateWeatherBasedAdjustment === 'function') {
+        try {
+          const forecast = await (this.weatherApi as any).getForecast();
+          const weatherAdjustment = (this.weatherApi as any).calculateWeatherBasedAdjustment(
+            forecast,
+            currentTemp,
+            currentTarget,
+            currentPrice,
+            avgPrice
+          );
+          const trend = (this.weatherApi as any).getWeatherTrend ? (this.weatherApi as any).getWeatherTrend(forecast) : null;
+
+          if (weatherAdjustment && typeof weatherAdjustment.adjustment === 'number' && Math.abs(weatherAdjustment.adjustment) >= 0.1) {
+            targetTemp += weatherAdjustment.adjustment;
+            adjustmentReason += ` + Weather: ${weatherAdjustment.reason} (${weatherAdjustment.adjustment > 0 ? '+' : ''}${weatherAdjustment.adjustment.toFixed(1)}°C)`;
+          }
+
+          weatherInfo = {
+            current: forecast && forecast.current ? forecast.current : undefined,
+            adjustment: weatherAdjustment,
+            trend
+          };
+        } catch (wErr) {
+          this.logger.error('Weather-based adjustment failed', wErr as Error);
+        }
+      }
+
       // Clamp to valid range
       if (targetTemp < this.minTemp) {
         targetTemp = this.minTemp;
@@ -1619,6 +1654,7 @@ export class Optimizer {
             max: maxPrice
           },
           energyMetrics: optimizationResult.metrics,
+          weather: weatherInfo || undefined,
           hotWaterAction: hotWaterAction || undefined
         };
       } else {
@@ -1637,6 +1673,7 @@ export class Optimizer {
             max: maxPrice
           },
           energyMetrics: optimizationResult.metrics,
+          weather: weatherInfo || undefined,
           hotWaterAction: hotWaterAction || undefined
         };
       }
