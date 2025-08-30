@@ -199,6 +199,27 @@
     </fieldset>
 
     <fieldset class="homey-form-fieldset">
+      <legend class="homey-form-legend">Notifications</legend>
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="notify_on_success">Notify On Success</label>
+        <label class="homey-form-checkbox">
+          <input type="checkbox" id="notify_on_success" />
+          <span>Send a notification when optimization/calibration succeeds</span>
+        </label>
+        <p class="homey-form-helper">When enabled, you will receive a Homey notification for successful hourly optimization and weekly calibration.</p>
+      </div>
+    </fieldset>
+
+    <fieldset class="homey-form-fieldset">
+      <legend class="homey-form-legend">Localization</legend>
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="currency_code">Currency (ISO 4217)</label>
+        <input class="homey-form-input" id="currency_code" type="text" placeholder="e.g., NOK, SEK, EUR" />
+        <p class="homey-form-helper">Optional. Overrides automatic currency detection for timeline messages. Use a 3-letter code (e.g., NOK, SEK, EUR, DKK, USD).</p>
+      </div>
+    </fieldset>
+
+    <fieldset class="homey-form-fieldset">
       <legend class="homey-form-legend">Weather Integration</legend>
       <div class="homey-form-group">
         <label class="homey-form-label" for="use_weather_data">Use Weather Data</label>
@@ -730,6 +751,8 @@
         const timeZoneOffsetElement = document.getElementById("time_zone_offset");
         const useDstElement = document.getElementById("use_dst");
         const logLevelElement = document.getElementById("log_level");
+        const notifyOnSuccessElement = document.getElementById("notify_on_success");
+        const currencyCodeElement = document.getElementById("currency_code");
         const saveElement = document.getElementById("save");
 
         // Zone2 elements
@@ -817,6 +840,16 @@
         Homey.get("log_level", function (err, value) {
           if (err) return Homey.alert(err);
           if (value !== undefined) logLevelElement.value = value;
+        });
+
+        Homey.get("notify_on_success", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) notifyOnSuccessElement.checked = !!value;
+        });
+
+        Homey.get("currency", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined && value !== null) currencyCodeElement.value = value;
         });
 
         Homey.get("use_weather_data", function (err, value) {
@@ -1219,6 +1252,29 @@
           Homey.set("log_level", parseInt(logLevelElement.value), function (err) {
             if (err) return Homey.alert(err);
           });
+
+          Homey.set("notify_on_success", notifyOnSuccessElement.checked, function (err) {
+            if (err) return Homey.alert(err);
+          });
+
+          // Save currency code (optional)
+          const code = (currencyCodeElement.value || '').trim();
+          if (code) {
+            const normalized = code.toUpperCase();
+            if (/^[A-Z]{3}$/.test(normalized)) {
+              Homey.set("currency", normalized, function (err) {
+                if (err) return Homey.alert(err);
+              });
+            } else {
+              Homey.alert('Invalid currency code. Use a 3-letter ISO code like NOK, SEK, EUR.');
+              return;
+            }
+          } else {
+            // Clear custom currency if input empty
+            Homey.set("currency", '', function (err) {
+              if (err) return Homey.alert(err);
+            });
+          }
 
           Homey.set("use_weather_data", useWeatherDataElement.checked, function (err) {
             if (err) return Homey.alert(err);

@@ -9,9 +9,9 @@ import {
   WeatherData,
   ThermalModel,
   OptimizationResult,
-  HomeyApp,
-  isError
+  HomeyApp
 } from '../types';
+import { isError } from '../util/error-handler';
 import { EnhancedSavingsCalculator, OptimizationData, SavingsCalculationResult } from '../util/enhanced-savings-calculator';
 import { HomeyLogger } from '../util/logger';
 

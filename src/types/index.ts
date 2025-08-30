@@ -161,9 +161,7 @@ export interface HomeyApp {
 }
 
 // Type guards
-export function isError(value: unknown): value is Error {
-  return value instanceof Error;
-}
+// isError removed here; use isError from util/error-handler for consistency
 
 export function isMelCloudDevice(value: any): value is MelCloudDevice {
   return (

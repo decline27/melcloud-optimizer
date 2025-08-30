@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon';
+import { CronJob } from 'cron';
 
 // Constants for storage keys
 const COP_SNAPSHOTS_DAILY = 'cop_snapshots_daily';
@@ -37,23 +38,39 @@ export class COPHelper {
    */
   private scheduleJobs(): void {
     try {
-      // DAILY at 00:05
-      this.dailyJob = this.homey.scheduler.scheduleTask('5 0 * * *', async () => {
-        this.logger.log('Daily COP calculation job triggered');
-        await this.compute('daily');
-      });
+      if (this.homey && this.homey.scheduler && typeof this.homey.scheduler.scheduleTask === 'function') {
+        // Prefer Homey scheduler when available
+        this.dailyJob = this.homey.scheduler.scheduleTask('5 0 * * *', async () => {
+          this.logger.log('Daily COP calculation job triggered');
+          await this.compute('daily');
+        });
 
-      // WEEKLY every Monday at 00:10
-      this.weeklyJob = this.homey.scheduler.scheduleTask('10 0 * * 1', async () => {
-        this.logger.log('Weekly COP calculation job triggered');
-        await this.compute('weekly');
-      });
+        this.weeklyJob = this.homey.scheduler.scheduleTask('10 0 * * 1', async () => {
+          this.logger.log('Weekly COP calculation job triggered');
+          await this.compute('weekly');
+        });
 
-      // MONTHLY on the 1st at 00:15
-      this.monthlyJob = this.homey.scheduler.scheduleTask('15 0 1 * *', async () => {
-        this.logger.log('Monthly COP calculation job triggered');
-        await this.compute('monthly');
-      });
+        this.monthlyJob = this.homey.scheduler.scheduleTask('15 0 1 * *', async () => {
+          this.logger.log('Monthly COP calculation job triggered');
+          await this.compute('monthly');
+        });
+      } else {
+        // Fallback to node-cron CronJob if Homey scheduler is unavailable
+        this.dailyJob = new CronJob('0 5 0 * * *', async () => {
+          this.logger.log('Daily COP calculation job triggered');
+          await this.compute('daily');
+        }, null, true);
+
+        this.weeklyJob = new CronJob('0 10 0 * * 1', async () => {
+          this.logger.log('Weekly COP calculation job triggered');
+          await this.compute('weekly');
+        }, null, true);
+
+        this.monthlyJob = new CronJob('0 15 0 1 * *', async () => {
+          this.logger.log('Monthly COP calculation job triggered');
+          await this.compute('monthly');
+        }, null, true);
+      }
 
       this.logger.log('COP calculation jobs scheduled');
     } catch (error: unknown) {

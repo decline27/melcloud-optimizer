@@ -4317,7 +4317,8 @@ module.exports = {
 
         // Log price data
         if (result.priceData) {
-          homey.app.log(`💰 Price Data: Current: ${result.priceData.current}kr/kWh, Next Hour: ${result.priceData.nextHour}kr/kWh`);
+          const nextHourVal = (result.priceData && typeof result.priceData.nextHour === 'number') ? result.priceData.nextHour : 'n/a';
+          homey.app.log(`💰 Price Data: Current: ${result.priceData.current}kr/kWh, Next Hour: ${nextHourVal}kr/kWh`);
         }
 
         // Send to timeline using our standardized TimelineHelperWrapper

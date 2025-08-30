@@ -56,69 +56,52 @@ export function validateBoolean(value: any, name: string): boolean {
 
 /**
  * Validate a string value
- * @param value Value to validate
- * @param name Name of the parameter (for error messages)
- * @param options Validation options
- * @returns The validated string
- * @throws Error if validation fails
  */
 export function validateString(
-  value: any, 
-  name: string, 
-  options: { 
-    minLength?: number; 
-    maxLength?: number; 
-    pattern?: RegExp 
+  value: any,
+  name: string,
+  options: {
+    minLength?: number;
+    maxLength?: number;
+    pattern?: RegExp;
   } = {}
 ): string {
   if (typeof value !== 'string') {
     throw new Error(`Invalid ${name}: must be a string`);
   }
-  
   if (options.minLength !== undefined && value.length < options.minLength) {
     throw new Error(`Invalid ${name}: must be at least ${options.minLength} characters`);
   }
-  
   if (options.maxLength !== undefined && value.length > options.maxLength) {
     throw new Error(`Invalid ${name}: must be at most ${options.maxLength} characters`);
   }
-  
   if (options.pattern !== undefined && !options.pattern.test(value)) {
     throw new Error(`Invalid ${name}: does not match required pattern`);
   }
-  
   return value;
 }
 
 /**
  * Validate an array value
- * @param value Value to validate
- * @param name Name of the parameter (for error messages)
- * @param options Validation options
- * @returns The validated array
- * @throws Error if validation fails
  */
 export function validateArray(
-  value: any, 
-  name: string, 
-  options: { 
-    minLength?: number; 
-    maxLength?: number; 
-    elementValidator?: (element: any, index: number) => boolean 
+  value: any,
+  name: string,
+  options: {
+    minLength?: number;
+    maxLength?: number;
+    elementValidator?: (element: any, index: number) => boolean;
   } = {}
 ): any[] {
   if (!Array.isArray(value)) {
     throw new Error(`Invalid ${name}: must be an array`);
   }
-  
   if (options.minLength !== undefined && value.length < options.minLength) {
     throw new Error(`Invalid ${name}: must have at least ${options.minLength} elements`);
   }
-  
   if (options.maxLength !== undefined && value.length > options.maxLength) {
     throw new Error(`Invalid ${name}: must have at most ${options.maxLength} elements`);
   }
-  
   if (options.elementValidator) {
     for (let i = 0; i < value.length; i++) {
       if (!options.elementValidator(value[i], i)) {
@@ -126,6 +109,5 @@ export function validateArray(
       }
     }
   }
-  
   return value;
 }
