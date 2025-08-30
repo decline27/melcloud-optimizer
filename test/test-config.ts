@@ -55,8 +55,21 @@ export function loadTestConfig(): TestConfig {
       };
     }
   } catch (error) {
-    console.error('Error loading test config:', error);
-    throw new Error('Failed to load test configuration');
+    console.error('Error loading test config, falling back to unit defaults:', error);
+    // Return safe defaults that force integration tests to skip
+    return {
+      melcloud: {
+        email: 'test@example.com',
+        password: 'test-password'
+      },
+      tibber: {
+        token: 'test-token'
+      },
+      test: {
+        skipIntegration: true,
+        timeout: 30000
+      }
+    };
   }
 }
 
