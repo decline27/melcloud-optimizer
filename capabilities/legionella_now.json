@@ -1,0 +1,9 @@
+{
+  "type": "boolean",
+  "title": { "en": "Start Legionella Cycle" },
+  "getable": true,
+  "setable": true,
+  "uiComponent": "toggle",
+  "insights": false
+}
+

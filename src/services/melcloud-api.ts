@@ -1588,4 +1588,71 @@ export class MelCloudApi extends BaseApiService {
       throw appError;
     }
   }
+
+  /**
+   * Set holiday mode for ATW device
+   */
+  async setHolidayMode(deviceId: string, buildingId: number, enabled: boolean): Promise<boolean> {
+    try {
+      if (!this.contextKey) {
+        const connected = await this.ensureConnected();
+        if (!connected) throw new Error('Not logged in to MELCloud');
+      }
+
+      this.logger.log(`Setting holiday mode for device ${deviceId} to ${enabled}`);
+      const currentState = await this.getDeviceState(deviceId, buildingId);
+
+      (currentState as any).HolidayMode = enabled;
+
+      this.logApiCall('POST', 'Device/SetAtw', { deviceId, holidayMode: enabled });
+      const data = await this.retryableRequest(
+        () => this.throttledApiCall<any>('POST', 'Device/SetAtw', {
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(currentState),
+        })
+      );
+      return data !== null;
+    } catch (error) {
+      const appError = this.createApiError(error, { operation: 'setHolidayMode', deviceId, buildingId, enabled });
+      if (appError.category === ErrorCategory.AUTHENTICATION) await this.ensureConnected();
+      this.errorHandler.logError(appError);
+      throw appError;
+    }
+  }
+
+  /**
+   * Start legionella cycle (best-effort: set OperationMode=6)
+   * Capability is treated as momentary toggle by the device handler.
+   */
+  async startLegionellaCycle(deviceId: string, buildingId: number): Promise<boolean> {
+    try {
+      if (!this.contextKey) {
+        const connected = await this.ensureConnected();
+        if (!connected) throw new Error('Not logged in to MELCloud');
+      }
+      this.logger.log(`Starting legionella cycle for device ${deviceId}`);
+      const currentState = await this.getDeviceState(deviceId, buildingId);
+
+      // Prefer dedicated field if present; else set OperationMode=6 (observed in state mapping)
+      if (Object.prototype.hasOwnProperty.call(currentState as any, 'LegionellaMode')) {
+        (currentState as any).LegionellaMode = true;
+      } else {
+        (currentState as any).OperationMode = 6;
+      }
+
+      this.logApiCall('POST', 'Device/SetAtw', { deviceId, legionella: true });
+      const data = await this.retryableRequest(
+        () => this.throttledApiCall<any>('POST', 'Device/SetAtw', {
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(currentState),
+        })
+      );
+      return data !== null;
+    } catch (error) {
+      const appError = this.createApiError(error, { operation: 'startLegionellaCycle', deviceId, buildingId });
+      if (appError.category === ErrorCategory.AUTHENTICATION) await this.ensureConnected();
+      this.errorHandler.logError(appError);
+      throw appError;
+    }
+  }
 }

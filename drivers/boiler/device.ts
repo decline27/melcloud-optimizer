@@ -150,7 +150,8 @@ module.exports = class BoilerDevice extends Homey.Device {
       'meter_power.produced_hotwater',
       'heating_cop',
       'hotwater_cop',
-      'alarm_generic.offline'
+      'alarm_generic.offline',
+      'holiday_mode'
     ];
 
     // Zone 2 capabilities - added conditionally
@@ -387,6 +388,40 @@ module.exports = class BoilerDevice extends Homey.Device {
       }
     });
 
+    // Listen for holiday mode changes
+    this.registerCapabilityListener('holiday_mode', async (value: boolean) => {
+      this.logger.log(`Holiday mode changed to ${value}`);
+      try {
+        if (!this.melCloudApi) throw new Error('MELCloud API not available');
+        const success = await this.melCloudApi.setHolidayMode(this.deviceId, this.buildingId, value);
+        if (success) return value; else throw new Error('Failed to set holiday mode');
+      } catch (error) {
+        this.logger.error('Error setting holiday mode:', error);
+        throw error;
+      }
+    });
+
+
+    // Legionella start (momentary)
+    this.registerCapabilityListener('legionella_now', async (value: boolean) => {
+      this.logger.log(`Legionella start requested: ${value}`);
+      if (!value) return false; // ignore turning off
+      try {
+        if (!this.melCloudApi) throw new Error('MELCloud API not available');
+        const success = await this.melCloudApi.startLegionellaCycle(this.deviceId, this.buildingId);
+        if (success) {
+          // Auto-reset the toggle back to false
+          try { await this.setCapabilityValue('legionella_now', false); } catch (e) {}
+          return true;
+        } else {
+          throw new Error('Failed to start legionella cycle');
+        }
+      } catch (error) {
+        this.logger.error('Error starting legionella cycle:', error);
+        throw error;
+      }
+    });
+
     // Listen for on/off changes (with debouncing - Task 1.1)
     this.registerCapabilityListener('onoff', async (value: boolean) => {
       this.logger.log(`Device power changed to ${value ? 'on' : 'off'}`);
@@ -543,6 +578,7 @@ module.exports = class BoilerDevice extends Homey.Device {
         }
       });
     }
+
   }
 
   /**
@@ -789,6 +825,16 @@ module.exports = class BoilerDevice extends Homey.Device {
 
       // Update operational states
       await this.updateOperationalStates(deviceState);
+
+      // Update holiday mode
+      if (this.hasCapability('holiday_mode') && (deviceState as any).HolidayMode !== undefined) {
+        const current = this.getCapabilityValue('holiday_mode');
+        if (current !== (deviceState as any).HolidayMode) {
+          await this.setCapabilityValue('holiday_mode', (deviceState as any).HolidayMode);
+          this.logger.log(`Updated holiday mode: ${(deviceState as any).HolidayMode}`);
+        }
+      }
+
 
       this.logger.debug('Device capabilities updated successfully');
 

@@ -66,6 +66,55 @@
       "setable": false,
       "uiComponent": "sensor",
       "icon": "/assets/icon.svg"
+    },
+    "holiday_mode": {
+      "type": "boolean",
+      "title": { "en": "Holiday Mode" },
+      "getable": true,
+      "setable": true,
+      "uiComponent": "toggle"
+    },
+    "prohibit_hotwater": {
+      "type": "boolean",
+      "title": { "en": "Prohibit Hot Water" },
+      "getable": true,
+      "setable": true,
+      "uiComponent": "toggle"
+    },
+    "prohibit_heating.zone1": {
+      "type": "boolean",
+      "title": { "en": "Prohibit Heating - Zone 1" },
+      "getable": true,
+      "setable": true,
+      "uiComponent": "toggle"
+    },
+    "prohibit_cooling.zone1": {
+      "type": "boolean",
+      "title": { "en": "Prohibit Cooling - Zone 1" },
+      "getable": true,
+      "setable": true,
+      "uiComponent": "toggle"
+    },
+    "prohibit_heating.zone2": {
+      "type": "boolean",
+      "title": { "en": "Prohibit Heating - Zone 2" },
+      "getable": true,
+      "setable": true,
+      "uiComponent": "toggle"
+    },
+    "prohibit_cooling.zone2": {
+      "type": "boolean",
+      "title": { "en": "Prohibit Cooling - Zone 2" },
+      "getable": true,
+      "setable": true,
+      "uiComponent": "toggle"
+    },
+    "legionella_now": {
+      "type": "boolean",
+      "title": { "en": "Start Legionella Cycle" },
+      "getable": true,
+      "setable": true,
+      "uiComponent": "toggle"
     }
   },
   "flow": {

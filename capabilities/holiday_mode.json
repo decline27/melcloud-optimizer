@@ -1,0 +1,9 @@
+{
+  "type": "boolean",
+  "title": { "en": "Holiday Mode" },
+  "getable": true,
+  "setable": true,
+  "uiComponent": "toggle",
+  "insights": true
+}
+
