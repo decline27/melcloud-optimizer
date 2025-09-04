@@ -1,6 +1,6 @@
 {
   "id": "com.melcloud.optimize",
-  "version": "12.5.5",
+  "version": "12.5.6",
   "compatibility": ">=12.2.0",
   "sdk": 3,
   "platforms": [
@@ -69,49 +69,63 @@
     },
     "holiday_mode": {
       "type": "boolean",
-      "title": { "en": "Holiday Mode" },
+      "title": {
+        "en": "Holiday Mode"
+      },
       "getable": true,
       "setable": true,
       "uiComponent": "toggle"
     },
     "prohibit_hotwater": {
       "type": "boolean",
-      "title": { "en": "Prohibit Hot Water" },
+      "title": {
+        "en": "Prohibit Hot Water"
+      },
       "getable": true,
       "setable": true,
       "uiComponent": "toggle"
     },
     "prohibit_heating.zone1": {
       "type": "boolean",
-      "title": { "en": "Prohibit Heating - Zone 1" },
+      "title": {
+        "en": "Prohibit Heating - Zone 1"
+      },
       "getable": true,
       "setable": true,
       "uiComponent": "toggle"
     },
     "prohibit_cooling.zone1": {
       "type": "boolean",
-      "title": { "en": "Prohibit Cooling - Zone 1" },
+      "title": {
+        "en": "Prohibit Cooling - Zone 1"
+      },
       "getable": true,
       "setable": true,
       "uiComponent": "toggle"
     },
     "prohibit_heating.zone2": {
       "type": "boolean",
-      "title": { "en": "Prohibit Heating - Zone 2" },
+      "title": {
+        "en": "Prohibit Heating - Zone 2"
+      },
       "getable": true,
       "setable": true,
       "uiComponent": "toggle"
     },
     "prohibit_cooling.zone2": {
       "type": "boolean",
-      "title": { "en": "Prohibit Cooling - Zone 2" },
+      "title": {
+        "en": "Prohibit Cooling - Zone 2"
+      },
       "getable": true,
       "setable": true,
       "uiComponent": "toggle"
     },
     "legionella_now": {
       "type": "boolean",
-      "title": { "en": "Start Legionella Cycle" },
+      "title": {
+        "en": "Start Legionella Cycle"
+      },
       "getable": true,
       "setable": true,
       "uiComponent": "toggle"
