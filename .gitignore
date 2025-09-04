@@ -20,6 +20,7 @@ env.json
 
 # Testing and coverage
 coverage/
+coverage-unit/
 .nyc_output/
 test/config.json
 
