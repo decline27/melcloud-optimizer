@@ -1,22 +1,18 @@
 {
   "baseline": {
-    "totalCost": 0.51,
-    "totalEnergy": 0.6,
-    "minutesOutsideComfort": 140,
-    "switchCount": 11,
-    "avgCOP": 2.5
+    "total_cost_sek": 15.2454,
+    "total_energy_kwh": 16.9167,
+    "minutes_outside_comfort": 80,
+    "compressor_switches": 16,
+    "average_cop": 3.486,
+    "composite_score": 87.2454
   },
-  "algorithmV2": {
-    "totalCost": 0.59,
-    "totalEnergy": 0.7,
-    "minutesOutsideComfort": 140,
-    "switchCount": 16,
-    "avgCOP": 2.5
-  },
-  "improvement": {
-    "costReduction": "-15.7%",
-    "energyReduction": "-16.7%",
-    "comfortImprovement": "0.0%",
-    "switchReduction": "-45.5%"
+  "v2": {
+    "total_cost_sek": 16.3042,
+    "total_energy_kwh": 17.7917,
+    "minutes_outside_comfort": 35,
+    "compressor_switches": 18,
+    "average_cop": 3.48,
+    "composite_score": 69.8042
   }
 }
