@@ -300,6 +300,7 @@ module.exports = class BoilerDevice extends Homey.Device {
         }
 
         if (this.melCloudApi) {
+          // Use ATW zone temperature method to match device type
           const success = await this.melCloudApi.setZoneTemperature(
             this.deviceId,
             this.buildingId,
@@ -333,20 +334,32 @@ module.exports = class BoilerDevice extends Homey.Device {
         this.logger.log(`Target tank temperature changed to ${value}°C`);
         
         try {
+          // Clamp to configured constraints for tank temperature (align with optimizer)
+          const minTank = (this.homey.settings.get('min_tank_temp') as number) ?? 40;
+          const maxTank = (this.homey.settings.get('max_tank_temp') as number) ?? 60;
+          const step = (this.homey.settings.get('tank_temp_step') as number) ?? 1.0;
+          const roundToStep = (v: number, s: number) => Math.round(v / s) * s;
+          let target = roundToStep(value, step);
+          if (target < minTank) target = minTank;
+          if (target > maxTank) target = maxTank;
+          if (target !== value) {
+            this.logger.log(`Adjusted tank target to ${target}°C (constraints min=${minTank}, max=${maxTank}, step=${step})`);
+          }
+
           if (this.melCloudApi) {
             const success = await this.melCloudApi.setTankTemperature(
               this.deviceId,
               this.buildingId,
-              value
+              target
             );
 
             if (success) {
-              this.logger.log(`Successfully set target tank temperature to ${value}°C`);
+              this.logger.log(`Successfully set target tank temperature to ${target}°C`);
               
               // Task 2.1: Enable fast polling after temperature change for better responsiveness
               this.enableFastPolling('tank temperature command');
               
-              return value;
+              return target;
             } else {
               this.logger.error('Failed to set target tank temperature');
               throw new Error('Failed to set target tank temperature');

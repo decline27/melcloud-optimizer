@@ -48,6 +48,20 @@ export class MelCloudApi extends BaseApiService {
   }
 
   /**
+   * Invalidate cached device state after a successful write
+   */
+  private invalidateDeviceStateCache(deviceId: string, buildingId: number): void {
+    const cacheKey = `device_state_${deviceId}_${buildingId}`;
+    // Guard for test doubles where cache may not be initialized
+    if ((this as any).cache && typeof (this as any).cache.delete === 'function') {
+      this.cache.delete(cacheKey);
+      this.logger.debug(`Invalidated device state cache for ${deviceId} (building ${buildingId})`);
+    } else {
+      this.logger.debug(`Cache not initialized while invalidating state for ${deviceId} (building ${buildingId})`);
+    }
+  }
+
+  /**
    * Check if an error is an authentication error
    * @param error Error to check
    * @returns True if it's an authentication error
@@ -941,8 +955,20 @@ export class MelCloudApi extends BaseApiService {
         // First get current state
         const currentState = await this.getDeviceState(deviceId, buildingId);
 
+        // Diagnostic: log active operation mode to help users understand which target applies
+        const activeMode = (currentState as any).OperationModeZone1;
+        if (activeMode === 1) {
+          this.logger.debug('Device Zone 1 is in Flow mode; room target may be ignored by unit');
+        } else if (activeMode === 2) {
+          this.logger.debug('Device Zone 1 is in Curve mode; room/flow targets may be ignored by unit');
+        }
+
+        // Build payload explicitly and mark as pending command
+        const payload: any = { ...currentState };
+        payload.DeviceID = parseInt(deviceId, 10);
+        payload.HasPendingCommand = true;
         // Update temperature
-        currentState.SetTemperature = temperature;
+        payload.SetTemperature = temperature;
 
         this.logApiCall('POST', 'Device/SetAta', { deviceId, temperature });
 
@@ -952,7 +978,7 @@ export class MelCloudApi extends BaseApiService {
             headers: {
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify(currentState),
+            body: JSON.stringify(payload),
           })
         );
 
@@ -960,6 +986,7 @@ export class MelCloudApi extends BaseApiService {
 
         if (success) {
           this.logger.log(`Successfully set temperature for device ${deviceId} to ${temperature}°C`);
+          this.invalidateDeviceStateCache(deviceId, buildingId);
         } else {
           this.logger.error(`Failed to set temperature for device ${deviceId}`);
         }
@@ -1196,8 +1223,12 @@ export class MelCloudApi extends BaseApiService {
         // First get current state
         const currentState = await this.getDeviceState(deviceId, buildingId);
 
+        // Build payload explicitly and mark as pending command
+        const payload: any = { ...currentState };
+        payload.DeviceID = parseInt(deviceId, 10);
+        payload.HasPendingCommand = true;
         // Update hot water mode
-        currentState.ForcedHotWaterMode = forced;
+        payload.ForcedHotWaterMode = forced;
 
         this.logApiCall('POST', 'Device/SetAtw', { deviceId, forcedHotWaterMode: forced });
 
@@ -1207,7 +1238,7 @@ export class MelCloudApi extends BaseApiService {
             headers: {
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify(currentState),
+            body: JSON.stringify(payload),
           })
         );
 
@@ -1278,11 +1309,14 @@ export class MelCloudApi extends BaseApiService {
         // First get current state
         const currentState = await this.getDeviceState(deviceId, buildingId);
 
+        const payload: any = { ...currentState };
+        payload.DeviceID = parseInt(deviceId, 10);
+        payload.HasPendingCommand = true;
         // Update operation mode for the specified zone
         if (zone === 1) {
-          currentState.OperationModeZone1 = mode;
+          payload.OperationModeZone1 = mode;
         } else if (zone === 2) {
-          currentState.OperationModeZone2 = mode;
+          payload.OperationModeZone2 = mode;
         } else {
           throw new Error(`Invalid zone: ${zone}. Must be 1 or 2.`);
         }
@@ -1295,7 +1329,7 @@ export class MelCloudApi extends BaseApiService {
             headers: {
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify(currentState),
+            body: JSON.stringify(payload),
           })
         );
 
@@ -1303,6 +1337,7 @@ export class MelCloudApi extends BaseApiService {
 
         if (success) {
           this.logger.log(`Successfully set operation mode for device ${deviceId} zone ${zone} to ${modeName}`);
+          this.invalidateDeviceStateCache(deviceId, buildingId);
         } else {
           this.logger.error(`Failed to set operation mode for device ${deviceId} zone ${zone}`);
         }
@@ -1365,8 +1400,12 @@ export class MelCloudApi extends BaseApiService {
         // First get current state
         const currentState = await this.getDeviceState(deviceId, buildingId);
 
+        // Build payload explicitly and mark as pending command
+        const payload: any = { ...currentState };
+        payload.DeviceID = parseInt(deviceId, 10);
+        payload.HasPendingCommand = true;
         // Update power state
-        currentState.Power = power;
+        payload.Power = power;
 
         this.logApiCall('POST', 'Device/SetAtw', { deviceId, power });
 
@@ -1376,7 +1415,7 @@ export class MelCloudApi extends BaseApiService {
             headers: {
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify(currentState),
+            body: JSON.stringify(payload),
           })
         );
 
@@ -1384,6 +1423,7 @@ export class MelCloudApi extends BaseApiService {
 
         if (success) {
           this.logger.log(`Successfully set power for device ${deviceId} to ${power ? 'on' : 'off'}`);
+          this.invalidateDeviceStateCache(deviceId, buildingId);
         } else {
           this.logger.error(`Failed to set power for device ${deviceId}`);
         }
@@ -1445,16 +1485,38 @@ export class MelCloudApi extends BaseApiService {
         // First get current state
         const currentState = await this.getDeviceState(deviceId, buildingId);
 
-        // Update temperature for the specified zone
+        // Diagnostic: operation mode can affect whether room setpoint has any effect
+        const activeMode = (currentState as any).OperationModeZone1;
+        if (activeMode === 1) {
+          this.logger.debug('Device Zone 1 is in Flow mode; room setpoint may be ignored by unit');
+        } else if (activeMode === 2) {
+          this.logger.debug('Device Zone 1 is in Curve mode; room/flow setpoints may be ignored by unit');
+        }
+
+        // Update full device state with correct flags like the working hourly path
+        (currentState as any).HasPendingCommand = true;
+        (currentState as any).Power = true;
         if (zone === 1) {
-          currentState.SetTemperatureZone1 = temperature;
+          (currentState as any).SetTemperatureZone1 = temperature;
+          // EffectiveFlags for Zone1 temperature change (from working path)
+          (currentState as any).EffectiveFlags = 0x200000080;
+          (currentState as any).IdleZone1 = false;
         } else if (zone === 2) {
-          currentState.SetTemperatureZone2 = temperature;
+          (currentState as any).SetTemperatureZone2 = temperature;
+          // EffectiveFlags for Zone2 temperature change (from working path)
+          (currentState as any).EffectiveFlags = 0x800000200;
+          (currentState as any).IdleZone2 = false;
         } else {
           throw new Error(`Invalid zone: ${zone}. Must be 1 or 2.`);
         }
 
         this.logApiCall('POST', 'Device/SetAtw', { deviceId, temperature, zone });
+
+        // Optional debug to mirror hourly path logs
+        try {
+          this.logger.debug('Using Device/SetAtw endpoint with complete device state');
+          this.logger.debug('SetAtw request body (truncated): ' + JSON.stringify(currentState).substring(0, 200) + '...');
+        } catch {}
 
         // Send update with retry
         const data = await this.retryableRequest(
@@ -1462,6 +1524,7 @@ export class MelCloudApi extends BaseApiService {
             headers: {
               'Content-Type': 'application/json',
             },
+            // Send complete device state as body (observed to work reliably on ATW)
             body: JSON.stringify(currentState),
           })
         );
@@ -1470,6 +1533,29 @@ export class MelCloudApi extends BaseApiService {
 
         if (success) {
           this.logger.log(`Successfully set temperature for device ${deviceId} zone ${zone} to ${temperature}°C`);
+          this.invalidateDeviceStateCache(deviceId, buildingId);
+          // Quick verify by reading back when in room mode only (other modes may not reflect room setpoint)
+          if (activeMode === 0) {
+            try {
+              const verify = async (): Promise<boolean> => {
+                const state = await this.getDeviceState(deviceId, buildingId);
+                const got = zone === 1 ? state.SetTemperatureZone1 : state.SetTemperatureZone2;
+                return Math.abs((got ?? -999) - temperature) < 0.1; // small tolerance
+              };
+              let ok = await verify();
+              if (!ok) {
+                await new Promise(r => setTimeout(r, 1500));
+                ok = await verify();
+              }
+              if (!ok) {
+                this.logger.warn('ATW setpoint verify mismatch (room mode). Device may take longer to apply.');
+              }
+            } catch (e) {
+              this.logger.warn('Verification after setting temperature failed:', {
+                error: e instanceof Error ? e.message : String(e)
+              });
+            }
+          }
         } else {
           this.logger.error(`Failed to set temperature for device ${deviceId} zone ${zone}`);
         }
@@ -1532,10 +1618,19 @@ export class MelCloudApi extends BaseApiService {
         // First get current state
         const currentState = await this.getDeviceState(deviceId, buildingId);
 
-        // Update tank temperature
-        currentState.SetTankWaterTemperature = temperature;
+        // Update in-place on full device state and mark as pending (mirror working path)
+        (currentState as any).HasPendingCommand = true;
+        (currentState as any).Power = true;
+        (currentState as any).SetTankWaterTemperature = temperature;
+        // Ensure EffectiveFlags include tank setpoint bit (observed 0x0001_0000_0000_0000) and low 0x20
+        const flags = (currentState as any).EffectiveFlags ?? 0;
+        (currentState as any).EffectiveFlags = (flags | 0x1000000000000 | 0x20);
 
         this.logApiCall('POST', 'Device/SetAtw', { deviceId, tankTemperature: temperature });
+        try {
+          this.logger.debug('Using Device/SetAtw endpoint with complete device state for tank temperature');
+          this.logger.debug('SetAtw request body (truncated): ' + JSON.stringify(currentState).substring(0, 200) + '...');
+        } catch {}
 
         // Send update with retry
         const data = await this.retryableRequest(
@@ -1543,6 +1638,7 @@ export class MelCloudApi extends BaseApiService {
             headers: {
               'Content-Type': 'application/json',
             },
+            // Send full device state
             body: JSON.stringify(currentState),
           })
         );
@@ -1551,6 +1647,27 @@ export class MelCloudApi extends BaseApiService {
 
         if (success) {
           this.logger.log(`Successfully set tank temperature for device ${deviceId} to ${temperature}°C`);
+          this.invalidateDeviceStateCache(deviceId, buildingId);
+          // Optional quick verify with small grace period
+          try {
+            const verify = async (): Promise<boolean> => {
+              const state = await this.getDeviceState(deviceId, buildingId);
+              const got = (state as any).SetTankWaterTemperature;
+              return typeof got === 'number' && Math.abs(got - temperature) < 0.1;
+            };
+            let ok = await verify();
+            if (!ok) {
+              await new Promise(r => setTimeout(r, 1500));
+              ok = await verify();
+            }
+            if (!ok) {
+              this.logger.warn('ATW tank setpoint verify mismatch. Device may apply changes with delay.');
+            }
+          } catch (e) {
+            this.logger.warn('Verification after setting tank temperature failed:', {
+              error: e instanceof Error ? e.message : String(e)
+            });
+          }
         } else {
           this.logger.error(`Failed to set tank temperature for device ${deviceId}`);
         }
@@ -1601,17 +1718,23 @@ export class MelCloudApi extends BaseApiService {
 
       this.logger.log(`Setting holiday mode for device ${deviceId} to ${enabled}`);
       const currentState = await this.getDeviceState(deviceId, buildingId);
-
-      (currentState as any).HolidayMode = enabled;
+      const payload: any = { ...currentState };
+      payload.DeviceID = parseInt(deviceId, 10);
+      payload.HasPendingCommand = true;
+      payload.HolidayMode = enabled;
 
       this.logApiCall('POST', 'Device/SetAtw', { deviceId, holidayMode: enabled });
       const data = await this.retryableRequest(
         () => this.throttledApiCall<any>('POST', 'Device/SetAtw', {
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(currentState),
+          body: JSON.stringify(payload),
         })
       );
-      return data !== null;
+      const success = data !== null;
+      if (success) {
+        this.invalidateDeviceStateCache(deviceId, buildingId);
+      }
+      return success;
     } catch (error) {
       const appError = this.createApiError(error, { operation: 'setHolidayMode', deviceId, buildingId, enabled });
       if (appError.category === ErrorCategory.AUTHENTICATION) await this.ensureConnected();
@@ -1634,20 +1757,28 @@ export class MelCloudApi extends BaseApiService {
       const currentState = await this.getDeviceState(deviceId, buildingId);
 
       // Prefer dedicated field if present; else set OperationMode=6 (observed in state mapping)
-      if (Object.prototype.hasOwnProperty.call(currentState as any, 'LegionellaMode')) {
-        (currentState as any).LegionellaMode = true;
+      const payload: any = { ...currentState };
+      payload.DeviceID = parseInt(deviceId, 10);
+      payload.HasPendingCommand = true;
+
+      if (Object.prototype.hasOwnProperty.call(payload as any, 'LegionellaMode')) {
+        (payload as any).LegionellaMode = true;
       } else {
-        (currentState as any).OperationMode = 6;
+        (payload as any).OperationMode = 6;
       }
 
       this.logApiCall('POST', 'Device/SetAtw', { deviceId, legionella: true });
       const data = await this.retryableRequest(
         () => this.throttledApiCall<any>('POST', 'Device/SetAtw', {
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(currentState),
+          body: JSON.stringify(payload),
         })
       );
-      return data !== null;
+      const success = data !== null;
+      if (success) {
+        this.invalidateDeviceStateCache(deviceId, buildingId);
+      }
+      return success;
     } catch (error) {
       const appError = this.createApiError(error, { operation: 'startLegionellaCycle', deviceId, buildingId });
       if (appError.category === ErrorCategory.AUTHENTICATION) await this.ensureConnected();
