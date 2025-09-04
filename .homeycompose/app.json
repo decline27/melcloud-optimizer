@@ -1,6 +1,6 @@
 {
   "id": "com.melcloud.optimize",
-  "version": "12.5.6",
+  "version": "12.5.11",
   "compatibility": ">=12.2.0",
   "sdk": 3,
   "platforms": [
@@ -27,6 +27,7 @@
     "small": "/assets/images/small.png"
   },
   "brandColor": "#1E88E5",
+  "homeyCommunityTopicId": 136325,
   "support": "https://github.com/decline27/melcloud-optimizer/issues",
   "capabilities": {
     "heating_cop": {
