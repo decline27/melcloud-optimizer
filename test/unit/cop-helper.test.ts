@@ -193,6 +193,38 @@ describe('COPHelper', () => {
       expect(result).toBe(4.0); // Should return heat COP
       expect(copHelper.getAverageCOP).toHaveBeenCalledWith('daily', 'heat');
     });
+
+    it('should return fallback values when getAverageCOP fails', async () => {
+      // Mock summer season
+      jest.spyOn(copHelper, 'isSummerSeason').mockReturnValue(true);
+
+      // Mock getAverageCOP to throw an error
+      jest.spyOn(copHelper, 'getAverageCOP').mockRejectedValue(new Error('Database error'));
+
+      const result = await copHelper.getSeasonalCOP();
+
+      expect(result).toBe(2.5); // Should return summer fallback (hot water COP)
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Error getting seasonal COP, falling back to default:',
+        expect.any(Error)
+      );
+    });
+
+    it('should return fallback values for winter when getAverageCOP fails', async () => {
+      // Mock winter season
+      jest.spyOn(copHelper, 'isSummerSeason').mockReturnValue(false);
+
+      // Mock getAverageCOP to throw an error
+      jest.spyOn(copHelper, 'getAverageCOP').mockRejectedValue(new Error('Database error'));
+
+      const result = await copHelper.getSeasonalCOP();
+
+      expect(result).toBe(3.0); // Should return winter fallback (heating COP)
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Error getting seasonal COP, falling back to default:',
+        expect.any(Error)
+      );
+    });
   });
 
   describe('getAverageCOP', () => {

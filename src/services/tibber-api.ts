@@ -95,8 +95,15 @@ export class TibberApi extends BaseApiService {
     const cachedData = this.getCachedData<any>(cacheKey);
 
     if (cachedData) {
-      this.logger.debug(`Using cached Tibber price data`);
-      return cachedData;
+      // Validate price data freshness even if cached
+      if (this.isPriceDataFresh(cachedData)) {
+        this.logger.debug(`Using cached Tibber price data`);
+        return cachedData;
+      } else {
+        this.logger.warn(`Cached Tibber price data is stale, fetching fresh data`);
+        // Clear stale cache
+        this.cache.delete(cacheKey);
+      }
     }
 
     const query = `{
@@ -143,6 +150,13 @@ export class TibberApi extends BaseApiService {
 
       const formattedData = this.formatPriceData(data);
       this.logger.log(`Tibber prices retrieved: ${formattedData.prices.length} price points`);
+
+      // Validate freshness of the fetched data
+      if (!this.isPriceDataFresh(formattedData)) {
+        this.logger.warn('Fetched price data is stale - this may indicate system time issues or Tibber API delays');
+        // Still cache and return the data as it's the best we have
+        // But log a warning for monitoring
+      }
 
       // Cache the result
       this.setCachedData(cacheKey, formattedData);
@@ -222,6 +236,46 @@ export class TibberApi extends BaseApiService {
 
       // Throw the standardized error
       throw appError;
+    }
+  }
+
+  /**
+   * Check if price data is fresh (not stale)
+   * @param priceData Price data to validate
+   * @returns True if data is fresh, false if stale
+   */
+  private isPriceDataFresh(priceData: TibberPriceInfo): boolean {
+    try {
+      if (!priceData?.current?.time) {
+        this.logger.warn('Price data missing current time - considering stale');
+        return false;
+      }
+
+      const currentPriceTime = new Date(priceData.current.time);
+      const now = new Date();
+      
+      // Current price should be within the last hour (Tibber updates hourly)
+      // Allow for 5 minutes grace period for API delays
+      const maxStaleTime = 65 * 60 * 1000; // 65 minutes in milliseconds
+      const timeDiff = now.getTime() - currentPriceTime.getTime();
+
+      if (timeDiff > maxStaleTime) {
+        this.logger.warn(`Price data is stale: current price from ${currentPriceTime.toISOString()}, age: ${Math.round(timeDiff / 60000)} minutes`);
+        return false;
+      }
+
+      // Additional check: current price time should not be in the future (beyond next hour)
+      if (timeDiff < -65 * 60 * 1000) {
+        this.logger.warn(`Price data has future timestamp: ${currentPriceTime.toISOString()}, system time: ${now.toISOString()}`);
+        return false;
+      }
+
+      this.logger.debug(`Price data is fresh: current price from ${currentPriceTime.toISOString()}, age: ${Math.round(Math.abs(timeDiff) / 60000)} minutes`);
+      return true;
+    } catch (error) {
+      this.logger.error(`Error validating price data freshness: ${error}`, { error });
+      // If we can't validate, assume stale to be safe
+      return false;
     }
   }
 

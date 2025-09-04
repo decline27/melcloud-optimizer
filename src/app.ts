@@ -1111,9 +1111,17 @@ export default class HeatOptimizerApp extends App {
       try {
         const api = require('../api.js');
 
-        // The API module handles its own service cleanup internally
-        // No need to access internal services directly
-        this.logger.info('API resources cleanup completed');
+        // Call the new cleanup method to properly stop all services
+        if (typeof api.cleanup === 'function') {
+          const cleanupResult = await api.cleanup({ homey: this.homey });
+          if (cleanupResult.success) {
+            this.logger.info('API resources cleanup completed successfully');
+          } else {
+            this.logger.error('API cleanup reported failure:', cleanupResult.error);
+          }
+        } else {
+          this.logger.warn('API cleanup method not available - resources may not be fully cleaned');
+        }
       } catch (apiError) {
         this.logger.error('Error during API cleanup:', apiError as Error);
       }

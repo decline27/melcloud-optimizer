@@ -1031,7 +1031,10 @@
                 option.dataset.buildingId = device.buildingId;
                 option.dataset.hasZone1 = device.hasZone1;
                 option.dataset.hasZone2 = device.hasZone2;
+                option.dataset.hasTank = device.hasTank;
                 if (device.type) option.dataset.type = device.type;
+                if (device.SetTankWaterTemperature !== undefined) option.dataset.settankwatertemperature = device.SetTankWaterTemperature;
+                if (device.TankWaterTemperature !== undefined) option.dataset.tankwatertemperature = device.TankWaterTemperature;
                 deviceIdElement.add(option);
 
                 // Check if this is the saved device ID
@@ -1053,9 +1056,12 @@
                     zone2Fieldset.style.display = 'none';
                   }
 
-                  // Tank capability (heuristic by type)
+                  // Tank capability (check by device type and actual tank temperature support)
                   const t = (device.type || '').toString().toLowerCase();
-                  const likelyHasTank = t.includes('atw') || t.includes('boiler') || t.includes('tank');
+                  const typeHasTank = t.includes('atw') || t.includes('boiler') || t.includes('tank') || t.includes('heat_pump');
+                  const deviceHasTankData = device.SetTankWaterTemperature !== undefined || device.TankWaterTemperature !== undefined || device.hasTank;
+                  const likelyHasTank = typeHasTank || deviceHasTankData;
+                  
                   if (likelyHasTank) {
                     tankFieldset.style.display = '';
                     tankCapabilityWarning.style.display = 'none';
@@ -1117,9 +1123,12 @@
               zone2Fieldset.style.display = 'none';
             }
 
-            // Tank capability (heuristic by type)
+            // Tank capability (check by device type and actual tank temperature support)
             const t = (selectedOption.dataset.type || '').toString().toLowerCase();
-            const likelyHasTank = t.includes('atw') || t.includes('boiler') || t.includes('tank');
+            const typeHasTank = t.includes('atw') || t.includes('boiler') || t.includes('tank') || t.includes('heat_pump');
+            const deviceHasTankData = selectedOption.dataset.settankwatertemperature !== undefined || selectedOption.dataset.tankwatertemperature !== undefined || selectedOption.dataset.hastank === "true";
+            const likelyHasTank = typeHasTank || deviceHasTankData;
+            
             if (likelyHasTank) {
               tankFieldset.style.display = '';
               tankCapabilityWarning.style.display = 'none';

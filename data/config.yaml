@@ -1,0 +1,26 @@
+timezone: Europe/Stockholm
+comfort_band:
+  occupied:
+    lower_c: 20.0
+    upper_c: 21.5
+  away:
+    lower_c: 18.0
+    upper_c: 24.0
+weights:
+  cost: 1.0
+  comfort_penalty_per_minute: 0.5  # SEK per minute outside comfort
+  switch_penalty: 2.0              # SEK per compressor cycle
+preheat:
+  enable: true
+  horizon_hours: 12
+  cheap_percentile: 0.25  # Preheat during cheapest 25%
+scheduler:
+  step_minutes: 5
+  horizon_hours: 48
+safety:
+  min_cycle_minutes: 10
+  deadband_c: 0.3
+  extreme_weather_min_temp: 19.0  # Never below 19°C when outdoor < -15°C
+thermal_model:
+  r_thermal: 2.5    # °C⋅h/kW (resistance)
+  c_thermal: 10.0   # kWh/°C (capacity)

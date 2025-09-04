@@ -4232,6 +4232,10 @@ module.exports = {
           // Include information about zones if available
           hasZone1: device.data && device.data.SetTemperatureZone1 !== undefined,
           hasZone2: device.data && device.data.SetTemperatureZone2 !== undefined,
+          // Include information about tank if available
+          hasTank: device.data && (device.data.SetTankWaterTemperature !== undefined || device.data.TankWaterTemperature !== undefined),
+          SetTankWaterTemperature: device.data && device.data.SetTankWaterTemperature,
+          TankWaterTemperature: device.data && device.data.TankWaterTemperature,
           // Include current temperatures if available
           currentTemperatureZone1: device.data && device.data.RoomTemperatureZone1,
           currentTemperatureZone2: device.data && device.data.RoomTemperatureZone2,
@@ -5458,6 +5462,75 @@ module.exports = {
     } catch (err) {
       console.error('Error in runThermalDataCleanup:', err);
       return { success: false, error: err.message };
+    }
+  },
+
+  /**
+   * Cleanup all API resources to prevent memory leaks
+   * Should be called when the app is shutting down
+   */
+  async cleanup({ homey }) {
+    try {
+      homey.app.log('Starting API resources cleanup...');
+
+      // Clean up optimizer (which includes thermal model service)
+      if (global.optimizer && typeof global.optimizer.cleanup === 'function') {
+        try {
+          global.optimizer.cleanup();
+          homey.app.log('Optimizer resources cleaned up');
+        } catch (optimizerError) {
+          homey.app.error('Error cleaning up optimizer:', optimizerError);
+        }
+      }
+
+      // Clean up MELCloud API
+      if (global.melCloud && typeof global.melCloud.cleanup === 'function') {
+        try {
+          global.melCloud.cleanup();
+          homey.app.log('MELCloud API resources cleaned up');
+        } catch (melCloudError) {
+          homey.app.error('Error cleaning up MELCloud API:', melCloudError);
+        }
+      }
+
+      // Clean up Tibber API  
+      if (global.tibber && typeof global.tibber.cleanup === 'function') {
+        try {
+          global.tibber.cleanup();
+          homey.app.log('Tibber API resources cleaned up');
+        } catch (tibberError) {
+          homey.app.error('Error cleaning up Tibber API:', tibberError);
+        }
+      }
+
+      // Clean up COP Helper
+      if (global.copHelper && typeof global.copHelper.cleanup === 'function') {
+        try {
+          global.copHelper.cleanup();
+          homey.app.log('COP Helper resources cleaned up');
+        } catch (copError) {
+          homey.app.error('Error cleaning up COP Helper:', copError);
+        }
+      }
+
+      // Clear global references
+      global.optimizer = null;
+      global.melCloud = null;
+      global.tibber = null;
+      global.copHelper = null;
+
+      homey.app.log('All API resources cleaned up successfully');
+      return {
+        success: true,
+        message: 'All resources cleaned up successfully'
+      };
+
+    } catch (error) {
+      homey.app.error('Error during API cleanup:', error);
+      return {
+        success: false,
+        error: error.message
+      };
     }
   }
 };

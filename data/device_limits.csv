@@ -1,0 +1,2 @@
+min_setpoint_c,max_setpoint_c,max_rate_c_per_5min,min_cycle_minutes,max_compressor_starts_per_hour,max_power_kw
+17,24,0.1,10,6,3.5

@@ -1950,4 +1950,28 @@ export class Optimizer {
     // Positive means improved comfort, negative means reduced comfort
     return oldDeviation - newDeviation;
   }
+
+  /**
+   * Cleanup method to properly stop thermal model service and other resources
+   * Prevents memory leaks when the optimizer is destroyed
+   */
+  public cleanup(): void {
+    try {
+      if (this.thermalModelService) {
+        this.thermalModelService.stop();
+        this.thermalModelService = null;
+        this.logger.log('Thermal model service stopped and cleaned up');
+      }
+
+      if (this.copHelper) {
+        // COP helper doesn't have intervals to clean, but clear the reference
+        this.copHelper = null;
+        this.logger.log('COP helper reference cleared');
+      }
+
+      this.logger.log('Optimizer cleanup completed successfully');
+    } catch (error) {
+      this.logger.error('Error during optimizer cleanup:', error);
+    }
+  }
 }

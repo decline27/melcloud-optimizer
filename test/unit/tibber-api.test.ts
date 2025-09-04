@@ -267,5 +267,170 @@ describe('TibberApi', () => {
       expect(result.current.price).toBe(0.15);
       expect(result.prices.length).toBeGreaterThan(0);
     });
+
+    it('should detect and handle stale price data from cache', async () => {
+      // Create stale price data (2 hours old)
+      const staleTime = new Date();
+      staleTime.setHours(staleTime.getHours() - 2);
+
+      const stalePrice = {
+        current: {
+          price: 0.15,
+          time: staleTime.toISOString()
+        },
+        prices: [
+          {
+            time: staleTime.toISOString(),
+            price: 0.15
+          }
+        ]
+      };
+
+      // Mock cache to return stale data first, then fresh data after clearing
+      jest.spyOn(tibberApi as any, 'getCachedData')
+        .mockReturnValueOnce(stalePrice)   // First call returns stale data
+        .mockReturnValueOnce(null);       // Second call returns null (cleared)
+      
+      // Mock cache delete method
+      const mockCache = new Map();
+      mockCache.set = jest.fn();
+      mockCache.delete = jest.fn();
+      (tibberApi as any).cache = mockCache;
+
+      // Mock fresh API response
+      const freshTime = new Date().toISOString();
+      const freshApiResponse = {
+        data: {
+          viewer: {
+            homes: [
+              {
+                currentSubscription: {
+                  priceInfo: {
+                    current: {
+                      total: 0.20,
+                      energy: 0.15,
+                      tax: 0.05,
+                      startsAt: freshTime
+                    },
+                    today: [
+                      {
+                        total: 0.20,
+                        energy: 0.15,
+                        tax: 0.05,
+                        startsAt: freshTime
+                      }
+                    ],
+                    tomorrow: []
+                  }
+                }
+              }
+            ]
+          }
+        }
+      };
+
+      mockedFetch.mockResolvedValueOnce({
+        json: jest.fn().mockResolvedValueOnce(freshApiResponse),
+        ok: true
+      } as any);
+
+      const result = await tibberApi.getPrices();
+
+      // Should have fetched fresh data
+      expect(result.current.price).toBe(0.20);
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Cached Tibber price data is stale, fetching fresh data')
+      );
+      expect(mockCache.delete).toHaveBeenCalledWith('tibber_prices');
+    });
+
+    it('should detect future timestamps in price data', async () => {
+      // Create price data with future timestamp (2 hours in the future)
+      const futureTime = new Date();
+      futureTime.setHours(futureTime.getHours() + 2);
+
+      const futureApiResponse = {
+        data: {
+          viewer: {
+            homes: [
+              {
+                currentSubscription: {
+                  priceInfo: {
+                    current: {
+                      total: 0.20,
+                      energy: 0.15,
+                      tax: 0.05,
+                      startsAt: futureTime.toISOString()
+                    },
+                    today: [],
+                    tomorrow: []
+                  }
+                }
+              }
+            ]
+          }
+        }
+      };
+
+      mockedFetch.mockResolvedValueOnce({
+        json: jest.fn().mockResolvedValueOnce(futureApiResponse),
+        ok: true
+      } as any);
+
+      await tibberApi.getPrices();
+
+      // Should warn about future timestamp
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Fetched price data is stale - this may indicate system time issues or Tibber API delays')
+      );
+    });
+
+    it('should handle fresh price data correctly', async () => {
+      // Create fresh price data (current time)
+      const currentTime = new Date().toISOString();
+
+      const freshApiResponse = {
+        data: {
+          viewer: {
+            homes: [
+              {
+                currentSubscription: {
+                  priceInfo: {
+                    current: {
+                      total: 0.20,
+                      energy: 0.15,
+                      tax: 0.05,
+                      startsAt: currentTime
+                    },
+                    today: [
+                      {
+                        total: 0.20,
+                        energy: 0.15,
+                        tax: 0.05,
+                        startsAt: currentTime
+                      }
+                    ],
+                    tomorrow: []
+                  }
+                }
+              }
+            ]
+          }
+        }
+      };
+
+      mockedFetch.mockResolvedValueOnce({
+        json: jest.fn().mockResolvedValueOnce(freshApiResponse),
+        ok: true
+      } as any);
+
+      const result = await tibberApi.getPrices();
+
+      // Should return fresh data without warnings
+      expect(result.current.price).toBe(0.20);
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        expect.stringContaining('Price data is fresh')
+      );
+    });
   });
 });

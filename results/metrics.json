@@ -1,0 +1,22 @@
+{
+  "baseline": {
+    "totalCost": 0.51,
+    "totalEnergy": 0.6,
+    "minutesOutsideComfort": 140,
+    "switchCount": 11,
+    "avgCOP": 2.5
+  },
+  "algorithmV2": {
+    "totalCost": 0.59,
+    "totalEnergy": 0.7,
+    "minutesOutsideComfort": 140,
+    "switchCount": 16,
+    "avgCOP": 2.5
+  },
+  "improvement": {
+    "costReduction": "-15.7%",
+    "energyReduction": "-16.7%",
+    "comfortImprovement": "0.0%",
+    "switchReduction": "-45.5%"
+  }
+}

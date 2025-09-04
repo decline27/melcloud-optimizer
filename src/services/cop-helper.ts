@@ -245,14 +245,21 @@ export class COPHelper {
    * @returns COP value based on season
    */
   public async getSeasonalCOP(): Promise<number> {
-    const isSummer = this.isSummerSeason();
+    try {
+      const isSummer = this.isSummerSeason();
 
-    if (isSummer) {
-      // In summer, prioritize hot water COP
-      return await this.getAverageCOP('daily', 'water');
-    } else {
-      // In winter, prioritize heating COP
-      return await this.getAverageCOP('daily', 'heat');
+      if (isSummer) {
+        // In summer, prioritize hot water COP
+        return await this.getAverageCOP('daily', 'water');
+      } else {
+        // In winter, prioritize heating COP
+        return await this.getAverageCOP('daily', 'heat');
+      }
+    } catch (error: unknown) {
+      this.logger.error('Error getting seasonal COP, falling back to default:', error);
+      // Return reasonable default COP based on season
+      const isSummer = this.isSummerSeason();
+      return isSummer ? 2.5 : 3.0; // Hot water COP typically lower than heating COP
     }
   }
 
