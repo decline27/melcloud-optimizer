@@ -37,6 +37,90 @@ export default class HeatOptimizerApp extends App {
   private timeZoneHelper?: TimeZoneHelper;
 
   /**
+   * Format a Date to YYYY-MM-DD using local time (with timezone helper if available)
+   */
+  private formatLocalDate(date = new Date()): string {
+    const d = this.timeZoneHelper ? this.timeZoneHelper.getLocalTime().date : date;
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  /**
+   * Add an hourly savings amount to today's total and maintain a short history
+   * Returns todaySoFar and weekSoFar (last 7 days including today)
+   */
+  private addSavings(amount: number): { todaySoFar: number; weekSoFar: number } {
+    try {
+      if (typeof amount !== 'number' || isNaN(amount)) {
+        return { todaySoFar: 0, weekSoFar: 0 };
+      }
+
+      const today = this.formatLocalDate();
+      const history: Array<{ date: string; total: number }> = this.homey.settings.get('savings_history') || [];
+
+      // Find or create today's entry
+      let todayEntry = history.find(h => h.date === today);
+      if (!todayEntry) {
+        todayEntry = { date: today, total: 0 };
+        history.push(todayEntry);
+      }
+
+      // Increment today's total
+      todayEntry.total = Number((todayEntry.total + amount).toFixed(4));
+
+      // Trim history to last 30 days
+      history.sort((a, b) => a.date.localeCompare(b.date));
+      const cutoffIndex = Math.max(0, history.length - 30);
+      const trimmed = history.slice(cutoffIndex);
+
+      this.homey.settings.set('savings_history', trimmed);
+
+      // Compute last 7 days total including today
+      const todayDate = new Date(`${today}T00:00:00`);
+      const last7Cutoff = new Date(todayDate);
+      last7Cutoff.setDate(todayDate.getDate() - 6); // include 7 days window
+
+      const weekSoFar = trimmed
+        .filter(h => {
+          const d = new Date(`${h.date}T00:00:00`);
+          return d >= last7Cutoff && d <= todayDate;
+        })
+        .reduce((sum, h) => sum + (h.total || 0), 0);
+
+      return { todaySoFar: todayEntry.total, weekSoFar: Number(weekSoFar.toFixed(4)) };
+    } catch (e) {
+      this.error('Failed to add savings to history', e as Error);
+      return { todaySoFar: 0, weekSoFar: 0 };
+    }
+  }
+
+  /**
+   * Get the total savings for the last 7 days including today
+   */
+  private getWeeklySavingsTotal(): number {
+    try {
+      const today = this.formatLocalDate();
+      const todayDate = new Date(`${today}T00:00:00`);
+      const last7Cutoff = new Date(todayDate);
+      last7Cutoff.setDate(todayDate.getDate() - 6);
+
+      const history: Array<{ date: string; total: number }> = this.homey.settings.get('savings_history') || [];
+      const total = history
+        .filter(h => {
+          const d = new Date(`${h.date}T00:00:00`);
+          return d >= last7Cutoff && d <= todayDate;
+        })
+        .reduce((sum, h) => sum + (h.total || 0), 0);
+      return Number(total.toFixed(4));
+    } catch (e) {
+      this.error('Failed to compute weekly savings total', e as Error);
+      return 0;
+    }
+  }
+
+  /**
    * Get the status of the cron jobs
    * This method is used by the API to get the cron job status
    */
@@ -360,10 +444,12 @@ export default class HeatOptimizerApp extends App {
         this.log('Creating timeline entry for weekly job');
 
         if (this.timelineHelper) {
+          const weeklySavings = this.getWeeklySavingsTotal();
           await this.timelineHelper.addTimelineEntry(
             TimelineEventType.WEEKLY_CALIBRATION,
             {},
-            false
+            false,
+            { weeklySavings }
           );
           this.log('Timeline entry created using timeline helper');
         } else {
@@ -573,10 +659,12 @@ export default class HeatOptimizerApp extends App {
           this.log('Creating timeline entry for manual weekly calibration');
 
           if (this.timelineHelper) {
+            const weeklySavings = this.getWeeklySavingsTotal();
             await this.timelineHelper.addTimelineEntry(
               TimelineEventType.WEEKLY_CALIBRATION_MANUAL,
               {},
-              true // Create notification for manual triggers
+              true, // Create notification for manual triggers
+              { weeklySavings }
             );
             this.log('Timeline entry created using timeline helper');
           } else {
@@ -687,8 +775,12 @@ export default class HeatOptimizerApp extends App {
               additionalData.targetOriginal = result.data.targetOriginal;
             }
 
-            if (result.data && result.data.savings) {
+            if (result.data && typeof result.data.savings === 'number') {
               additionalData.savings = result.data.savings;
+
+              // Update accumulated savings and include "today so far"
+              const { todaySoFar } = this.addSavings(result.data.savings);
+              additionalData.todaySoFar = todaySoFar;
             }
 
             // Add any other relevant data
@@ -966,6 +1058,9 @@ export default class HeatOptimizerApp extends App {
             if (result.data && result.data.thermalCharacteristics) {
               additionalData.thermalCharacteristics = result.data.thermalCharacteristics;
             }
+
+            // Attach weekly savings total if available
+            additionalData.weeklySavings = this.getWeeklySavingsTotal();
 
             // Create the timeline entry using our standardized helper
             const notifyOnSuccess = this.homey.settings.get('notify_on_success') === true;

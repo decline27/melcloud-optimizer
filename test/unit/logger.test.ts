@@ -165,13 +165,11 @@ describe('Logger', () => {
       expect(mockApp.log).not.toHaveBeenCalled();
     });
 
-    it('should send to timeline when logToTimeline is true', () => {
+    it('should not auto-post info messages to timeline', () => {
       logger.setLogLevel(LogLevel.INFO);
       logger.info('Test info message');
-      expect(mockApp.homey.flow.runFlowCardAction).toHaveBeenCalledWith({
-        uri: 'homey:flowcardaction:homey:manager:timeline:log',
-        args: { text: 'ℹ️ Test info message' },
-      });
+      expect(mockApp.log).toHaveBeenCalledWith(expect.stringContaining('Test info message'));
+      expect(mockApp.homey.flow.runFlowCardAction).not.toHaveBeenCalled();
     });
 
     it('should handle errors when sending to timeline', async () => {
@@ -295,13 +293,14 @@ describe('Logger', () => {
   });
 
   describe('setTimelineLogging', () => {
-    it('should enable timeline logging', () => {
+    it('enables flag but does not auto-post info', () => {
       logger.setTimelineLogging(true);
       logger.info('Test message');
-      expect(mockApp.homey.flow.runFlowCardAction).toHaveBeenCalled();
+      expect(mockApp.log).toHaveBeenCalledWith(expect.stringContaining('Test message'));
+      expect(mockApp.homey.flow.runFlowCardAction).not.toHaveBeenCalled();
     });
 
-    it('should disable timeline logging', () => {
+    it('disables flag and still does not auto-post info', () => {
       logger.setTimelineLogging(false);
       logger.info('Test message');
       expect(mockApp.homey.flow.runFlowCardAction).not.toHaveBeenCalled();
