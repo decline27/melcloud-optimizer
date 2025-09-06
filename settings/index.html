@@ -385,6 +385,30 @@
       </div>
     </fieldset>
 
+    <fieldset class="homey-form-fieldset">
+      <legend class="homey-form-legend">Savings Summary</legend>
+      <div class="homey-form-group">
+        <p class="homey-form-helper">Get a quick view of your savings for today, last 7 days, and last 30 days.</p>
+        <div class="button-container">
+          <button id="view_savings_summary" class="homey-button" onclick="viewSavingsSummary()">View Savings Summary</button>
+          <button id="copy_savings_summary" class="homey-button" onclick="copySavingsSummary()" disabled>Copy Summary</button>
+        </div>
+        <div id="savings_summary_panel" style="margin-top: 15px; display: none;">
+          <h3>Savings</h3>
+          <div id="savings_summary_content" style="background-color: #f5f5f5; padding: 10px; border-radius: 5px; font-family: monospace; white-space: pre-wrap;"></div>
+          <div style="margin-top:10px;">
+            <canvas id="savings_chart_7" width="280" height="90" style="background:#fafafa;border:1px solid #eee;border-radius:4px;"></canvas>
+            <div class="homey-form-helper">Last 7 days</div>
+          </div>
+          <div style="margin-top:10px;">
+            <canvas id="savings_chart_30" width="420" height="100" style="background:#fafafa;border:1px solid #eee;border-radius:4px;"></canvas>
+            <div class="homey-form-helper">Last 30 days</div>
+          </div>
+        </div>
+        <p id="savings_summary_result" class="result-message"></p>
+      </div>
+    </fieldset>
+
     <button id="save" class="homey-button-primary-full">Save changes</button>
 
     <script type="text/javascript">
@@ -439,6 +463,231 @@
           document.getElementById('run_weekly').disabled = false;
           document.getElementById('trigger_result').textContent = "Weekly calibration completed successfully! Check the timeline for details.";
         });
+      }
+
+      // Function to view savings summary
+      function viewSavingsSummary() {
+        console.log('View savings summary button clicked');
+
+        const button = document.getElementById('view_savings_summary');
+        const resultEl = document.getElementById('savings_summary_result');
+        const panel = document.getElementById('savings_summary_panel');
+        const content = document.getElementById('savings_summary_content');
+
+        button.disabled = true;
+        resultEl.textContent = 'Fetching savings summary...';
+
+        HomeyInstance.api('GET', '/getSavingsSummary', {}, function(err, result) {
+          if (err) {
+            console.error('Error fetching savings summary:', err);
+            button.disabled = false;
+            // Fallback: if endpoint not found (older app manifest), compute on client
+            if (String(err && err.message || '').toLowerCase().includes('not found')) {
+              resultEl.textContent = 'Endpoint not found; computing summary locally...';
+              computeLocalSavingsSummary().then((local) => {
+                renderSavingsSummary(local, content, panel, resultEl, button);
+              }).catch((e) => {
+                resultEl.textContent = 'Error: ' + (e.message || 'Failed to compute local summary');
+                HomeyInstance.alert('Not found: GET /getSavingsSummary. Please update/restart the app.');
+              });
+              return;
+            }
+            resultEl.textContent = 'Error: ' + err.message;
+            return HomeyInstance.alert(err.message);
+          }
+
+          if (!result || !result.success) {
+            button.disabled = false;
+            const msg = result && result.error ? result.error : 'Unknown error retrieving savings summary';
+            resultEl.textContent = 'Error: ' + msg;
+            return HomeyInstance.alert(msg);
+          }
+          renderSavingsSummary(result, content, panel, resultEl, button);
+        });
+      }
+
+      function copySavingsSummary() {
+        const content = document.getElementById('savings_summary_content');
+        const text = content ? content.textContent : '';
+        if (!text) return;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(() => {
+            HomeyInstance.alert('Savings summary copied to clipboard.');
+          }).catch(() => {
+            // Fallback
+            const ta = document.createElement('textarea');
+            ta.value = text; document.body.appendChild(ta); ta.select();
+            try { document.execCommand('copy'); HomeyInstance.alert('Savings summary copied to clipboard.'); } finally { document.body.removeChild(ta); }
+          });
+        } else {
+          // Fallback
+          const ta = document.createElement('textarea');
+          ta.value = text; document.body.appendChild(ta); ta.select();
+          try { document.execCommand('copy'); HomeyInstance.alert('Savings summary copied to clipboard.'); } finally { document.body.removeChild(ta); }
+        }
+      }
+
+      // Helper: render result into UI
+      function renderSavingsSummary(result, content, panel, resultEl, button) {
+        const { summary, todayDate, currencyCode } = result;
+
+        // Format numbers with optional currency
+        let formatter;
+        try {
+          if (currencyCode && /^[A-Z]{3}$/.test(currencyCode)) {
+            formatter = new Intl.NumberFormat(undefined, { style: 'currency', currency: currencyCode, minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          } else {
+            formatter = new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          }
+        } catch (e) {
+          formatter = new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        const fmt = (n) => {
+          try { return formatter.format(Number(n || 0)); } catch { return String(n || 0); }
+        };
+
+        const lines = [
+          `Date: ${todayDate}`,
+          `Today: ${fmt(summary.today)}`,
+          `Yesterday: ${fmt(summary.yesterday)}`,
+          `Week to date (Mon–today): ${fmt(summary.weekToDate)}`,
+          `Last 7 days: ${fmt(summary.last7Days)}`,
+          `Month to date: ${fmt(summary.monthToDate)}`,
+          `Last 30 days: ${fmt(summary.last30Days)}`
+        ];
+        if (summary.allTime !== undefined) {
+          lines.push(`All-time total: ${fmt(summary.allTime)}`);
+        }
+
+        content.textContent = lines.join('\n');
+        panel.style.display = 'block';
+        resultEl.textContent = 'Savings summary ready!';
+        document.getElementById('copy_savings_summary').disabled = false;
+        button.disabled = false;
+
+        // Draw charts using returned or computed series
+        try {
+          const series = (result.series && Array.isArray(result.series.last30)) ? result.series.last30 : [];
+          const last7 = series.slice(-7);
+          drawBarChart('savings_chart_7', last7);
+          drawBarChart('savings_chart_30', series);
+        } catch (e) {
+          console.warn('Failed to draw savings charts:', e);
+        }
+      }
+
+      // Helper: compute summary entirely on the client from stored settings
+      function computeLocalSavingsSummary() {
+        return new Promise((resolve, reject) => {
+          try {
+            const load = (key) => new Promise((res) => Homey.get(key, (_e, v) => res(v)));
+            Promise.all([
+              load('savings_history'),
+              load('time_zone_offset'),
+              load('use_dst'),
+              load('currency') || load('currency_code')
+            ]).then(([history, tz, dst, currency]) => {
+              const normalized = Array.isArray(history) ? history.filter(h => h && typeof h.date === 'string') : [];
+              if (normalized.length === 0) {
+                return resolve({ success: true, summary: { today: 0, yesterday: 0, weekToDate: 0, last7Days: 0, monthToDate: 0, last30Days: 0 }, todayDate: '', currencyCode: currency || '', series: { last30: [] } });
+              }
+
+              // Determine today as newest entry
+              const todayStr = normalized.map(h => h.date).sort((a,b)=>a<b?-1:a>b?1:0).pop();
+              const todayDate = new Date(`${todayStr}T00:00:00`);
+              const last7Cutoff = new Date(todayDate); last7Cutoff.setDate(todayDate.getDate() - 6);
+              const last30Cutoff = new Date(todayDate); last30Cutoff.setDate(todayDate.getDate() - 29);
+              const jsDay = todayDate.getDay();
+              const offsetToMonday = (jsDay + 6) % 7;
+              const startOfWeek = new Date(todayDate); startOfWeek.setDate(todayDate.getDate() - offsetToMonday);
+              const startOfMonth = new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
+
+              const sumInWindow = (cutoff) => normalized
+                .filter(h => { const d = new Date(`${h.date}T00:00:00`); return d >= cutoff && d <= todayDate; })
+                .reduce((s, h) => s + (Number(h.total) || 0), 0);
+
+              const todayEntry = normalized.find(h => h.date === todayStr);
+              const today = Number((todayEntry?.total || 0).toFixed(4));
+              const yDate = new Date(todayDate); yDate.setDate(todayDate.getDate() - 1);
+              const yStr = `${yDate.getFullYear()}-${String(yDate.getMonth() + 1).padStart(2, '0')}-${String(yDate.getDate()).padStart(2, '0')}`;
+              const yesterday = Number(((normalized.find(h => h.date === yStr)?.total) || 0).toFixed(4));
+              const last7Days = Number(sumInWindow(last7Cutoff).toFixed(4));
+              const last30Days = Number(sumInWindow(last30Cutoff).toFixed(4));
+              const weekToDate = Number(sumInWindow(startOfWeek).toFixed(4));
+              const monthToDate = Number(sumInWindow(startOfMonth).toFixed(4));
+
+              // All-time if earlier than last30Cutoff exists
+              let allTime;
+              const earliest = normalized.map(h => h.date).sort((a,b)=>a<b?-1:a>b?1:0)[0];
+              if (earliest && new Date(`${earliest}T00:00:00`) < last30Cutoff) {
+                allTime = Number(normalized.reduce((s, h) => s + (Number(h.total) || 0), 0).toFixed(4));
+              }
+
+              // Build series
+              const seriesLast30 = [];
+              for (let i = 0; i < 30; i++) {
+                const d = new Date(last30Cutoff); d.setDate(last30Cutoff.getDate() + i);
+                const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                const entry = normalized.find(h => h.date === ds);
+                seriesLast30.push({ date: ds, total: Number(entry?.total || 0) });
+              }
+
+              resolve({
+                success: true,
+                summary: { today, yesterday, weekToDate, last7Days, monthToDate, last30Days, ...(allTime !== undefined ? { allTime } : {}) },
+                todayDate: todayStr,
+                currencyCode: currency || '',
+                series: { last30: seriesLast30 }
+              });
+            });
+          } catch (e) {
+            reject(e);
+          }
+        });
+      }
+      // Minimal bar chart renderer
+      function drawBarChart(canvasId, data) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || !canvas.getContext) return;
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width;
+        const h = canvas.height;
+        ctx.clearRect(0, 0, w, h);
+
+        if (!Array.isArray(data) || data.length === 0) return;
+        const values = data.map(d => Number(d.total || 0));
+        const maxVal = Math.max(1, ...values);
+
+        const padding = 6;
+        const barGap = 2;
+        const barCount = data.length;
+        const plotW = w - padding * 2;
+        const plotH = h - padding * 2;
+        const barW = Math.max(1, Math.floor((plotW - barGap * (barCount - 1)) / barCount));
+
+        // Axes baseline
+        ctx.strokeStyle = '#ddd';
+        ctx.beginPath();
+        ctx.moveTo(padding, h - padding);
+        ctx.lineTo(w - padding, h - padding);
+        ctx.stroke();
+
+        // Bars
+        for (let i = 0; i < barCount; i++) {
+          const val = values[i];
+          const barH = Math.round((val / maxVal) * (plotH - 10));
+          const x = padding + i * (barW + barGap);
+          const y = h - padding - barH;
+          ctx.fillStyle = i >= barCount - 7 ? '#4a90e2' : '#9ec5ff'; // last 7 highlighted for 30-day chart
+          if (barCount <= 7) ctx.fillStyle = '#4a90e2';
+          ctx.fillRect(x, y, barW, barH);
+        }
+
+        // Top marker for max
+        ctx.fillStyle = '#999';
+        ctx.font = '10px sans-serif';
+        ctx.fillText(`max ${maxVal.toFixed(2)}`, padding, padding + 10);
       }
 
       // Function to view thermal model data

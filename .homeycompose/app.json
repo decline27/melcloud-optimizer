@@ -1,6 +1,6 @@
 {
   "id": "com.melcloud.optimize",
-  "version": "12.5.12",
+  "version": "12.5.16",
   "compatibility": ">=12.2.0",
   "sdk": 3,
   "platforms": [
@@ -197,6 +197,14 @@
     "runThermalDataCleanup": {
       "method": "GET",
       "path": "/runThermalDataCleanup"
+    },
+    "getSavingsSummary": {
+      "method": "GET",
+      "path": "/getSavingsSummary"
+    },
+    "getLogSavingsSummaryClicked": {
+      "method": "GET",
+      "path": "/getLogSavingsSummaryClicked"
     }
   }
 }

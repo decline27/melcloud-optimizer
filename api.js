@@ -4171,6 +4171,216 @@ async function updateOptimizerSettings(homey) {
 module.exports = {
   // Export the updateOptimizerSettings function so it can be called from app.ts
   updateOptimizerSettings,
+  
+  /**
+   * Return a savings summary using persisted savings history in Homey settings.
+   * Computes today, last 7 days (incl. today), and last 30 days (rolling).
+   */
+  async getSavingsSummary({ homey }) {
+    try {
+      // Log like other endpoints (both console and app logger)
+      console.log('API method getSavingsSummary called');
+      homey.app.log('API method getSavingsSummary called');
+
+      // Helper to get local date string YYYY-MM-DD using Homey time zone settings
+      const getLocalDateString = () => {
+        try {
+          const tzOffset = parseInt(homey.settings.get('time_zone_offset'));
+          const useDST = !!homey.settings.get('use_dst');
+          const now = new Date();
+          const local = new Date(now.getTime());
+          if (!isNaN(tzOffset)) local.setUTCHours(now.getUTCHours() + tzOffset);
+          // Simple EU DST approximation (same approach used elsewhere in this codebase)
+          if (useDST) {
+            const m = now.getUTCMonth();
+            if (m > 2 && m < 10) {
+              local.setUTCHours(local.getUTCHours() + 1);
+            }
+          }
+          // Use local getters after applying offset math above to match app.ts behavior
+          const y = local.getFullYear();
+          const mo = String(local.getMonth() + 1).padStart(2, '0');
+          const d = String(local.getDate()).padStart(2, '0');
+          return `${y}-${mo}-${d}`;
+        } catch (e) {
+          // Fallback to system date if anything goes wrong
+          const d = new Date();
+          const y = d.getFullYear();
+          const mo = String(d.getMonth() + 1).padStart(2, '0');
+          const dd = String(d.getDate()).padStart(2, '0');
+          return `${y}-${mo}-${dd}`;
+        }
+      };
+
+      const history = homey.settings.get('savings_history') || [];
+      const normalized = Array.isArray(history) ? history.filter(h => h && typeof h.date === 'string') : [];
+      // Determine reference "today" date. Prefer the newest history date to avoid TZ drift.
+      let todayStr;
+      if (normalized.length > 0) {
+        todayStr = normalized
+          .map(h => h.date)
+          .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+          .pop();
+      } else {
+        todayStr = getLocalDateString();
+      }
+
+      const todayDate = new Date(`${todayStr}T00:00:00`);
+      const last7Cutoff = new Date(todayDate);
+      last7Cutoff.setDate(todayDate.getDate() - 6);
+      const last30Cutoff = new Date(todayDate);
+      last30Cutoff.setDate(todayDate.getDate() - 29);
+      // Week-to-date (ISO week, Monday start)
+      const jsDay = todayDate.getDay(); // 0=Sun..6=Sat
+      const offsetToMonday = (jsDay + 6) % 7; // days since Monday
+      const startOfWeek = new Date(todayDate);
+      startOfWeek.setDate(todayDate.getDate() - offsetToMonday);
+      // Month-to-date: first day of current month
+      const startOfMonth = new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
+
+      const sumInWindow = (cutoff) => normalized
+        .filter(h => {
+          const d = new Date(`${h.date}T00:00:00`);
+          return d >= cutoff && d <= todayDate;
+        })
+        .reduce((sum, h) => sum + (Number(h.total) || 0), 0);
+
+      const todayEntry = normalized.find(h => h.date === todayStr);
+      const today = Number((todayEntry?.total || 0).toFixed(4));
+      // Yesterday
+      const yDate = new Date(todayDate); yDate.setDate(todayDate.getDate() - 1);
+      const yStr = `${yDate.getFullYear()}-${String(yDate.getMonth() + 1).padStart(2, '0')}-${String(yDate.getDate()).padStart(2, '0')}`;
+      const yesterday = Number(((normalized.find(h => h.date === yStr)?.total) || 0).toFixed(4));
+      const last7Days = Number(sumInWindow(last7Cutoff).toFixed(4));
+      const last30Days = Number(sumInWindow(last30Cutoff).toFixed(4));
+      const weekToDate = Number(sumInWindow(startOfWeek).toFixed(4));
+      const monthToDate = Number(sumInWindow(startOfMonth).toFixed(4));
+
+      // Determine if history extends beyond 30 days
+      let allTime;
+      if (normalized.length > 0) {
+        const earliest = normalized
+          .map(h => h.date)
+          .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))[0];
+        if (earliest) {
+          const earliestDate = new Date(`${earliest}T00:00:00`);
+          if (earliestDate < last30Cutoff) {
+            const at = normalized.reduce((sum, h) => sum + (Number(h.total) || 0), 0);
+            allTime = Number(at.toFixed(4));
+          }
+        }
+      }
+
+      // Build contiguous 30-day series for charting (fill missing as 0)
+      const seriesLast30 = [];
+      for (let i = 0; i < 30; i++) {
+        const d = new Date(last30Cutoff);
+        d.setDate(last30Cutoff.getDate() + i);
+        const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const entry = normalized.find(h => h.date === ds);
+        seriesLast30.push({ date: ds, total: Number(entry?.total || 0) });
+      }
+
+      const currencyCode = homey.settings.get('currency') || homey.settings.get('currency_code') || '';
+
+      // Log brief summary for visibility
+      try {
+        homey.app.log(`Savings summary: today=${today.toFixed(2)}, last7=${last7Days.toFixed(2)}, mtd=${monthToDate.toFixed(2)}, last30=${last30Days.toFixed(2)}${allTime !== undefined ? ", allTime=" + allTime.toFixed(2) : ''}`);
+      } catch (_) {}
+
+      // Detailed debug info to help diagnose zeros
+      try {
+        const seriesSum = seriesLast30.reduce((s, n) => s + Number(n.total || 0), 0);
+        const debugInfo = {
+          settings: {
+            time_zone_offset: homey.settings.get('time_zone_offset'),
+            use_dst: homey.settings.get('use_dst'),
+            currency: currencyCode
+          },
+          history: {
+            rawLength: Array.isArray(history) ? history.length : 0,
+            normalizedLength: normalized.length,
+            sampleFirst: normalized.slice(0, 3),
+            sampleLast: normalized.slice(-3)
+          },
+          dates: {
+            todayStr,
+            last7Cutoff: `${last7Cutoff.getFullYear()}-${String(last7Cutoff.getMonth()+1).padStart(2,'0')}-${String(last7Cutoff.getDate()).padStart(2,'0')}`,
+            last30Cutoff: `${last30Cutoff.getFullYear()}-${String(last30Cutoff.getMonth()+1).padStart(2,'0')}-${String(last30Cutoff.getDate()).padStart(2,'0')}`,
+            startOfWeek: `${startOfWeek.getFullYear()}-${String(startOfWeek.getMonth()+1).padStart(2,'0')}-${String(startOfWeek.getDate()).padStart(2,'0')}`,
+            startOfMonth: `${startOfMonth.getFullYear()}-${String(startOfMonth.getMonth()+1).padStart(2,'0')}-${String(startOfMonth.getDate()).padStart(2,'0')}`
+          },
+          computed: {
+            today,
+            yesterday,
+            weekToDate,
+            last7Days,
+            monthToDate,
+            last30Days,
+            allTime: allTime !== undefined ? allTime : null
+          },
+          series: {
+            last30Count: seriesLast30.length,
+            last30Sum: seriesSum,
+            head: seriesLast30.slice(0, 3),
+            tail: seriesLast30.slice(-3)
+          }
+        };
+
+        const loggerProxy = { homey };
+        const dump = prettyPrintJson(debugInfo, 'SavingsSummary Debug', loggerProxy, 1);
+        homey.app.log(dump);
+      } catch (e) {
+        homey.app.log('SavingsSummary debug logging failed:', e && e.message ? e.message : String(e));
+      }
+
+      return {
+        success: true,
+        summary: {
+          today,
+          yesterday,
+          weekToDate,
+          last7Days,
+          monthToDate,
+          last30Days,
+          ...(allTime !== undefined ? { allTime } : {}),
+        },
+        todayDate: todayStr,
+        historyDays: normalized.length,
+        currencyCode,
+        timestamp: new Date().toISOString(),
+        series: {
+          last30: seriesLast30,
+        }
+      };
+    } catch (err) {
+      homey.app.error('Error in getSavingsSummary:', err);
+      return { success: false, error: err.message };
+    }
+  },
+
+  /**
+   * Log that the Settings "View Savings Summary" button was clicked.
+   */
+  async getLogSavingsSummaryClicked({ homey }) {
+    try {
+      const ts = new Date().toISOString();
+      // Prefer centralized HomeyLogger if available
+      if (homey.app && homey.app.logger && typeof homey.app.logger.info === 'function') {
+        try {
+          homey.app.logger.info('SettingsEvent', { event: 'view_savings_summary', timestamp: ts });
+        } catch (e) {
+          homey.app.log(`[SETTINGS] View Savings Summary clicked at ${ts}`);
+        }
+      } else {
+        homey.app.log(`[SETTINGS] View Savings Summary clicked at ${ts}`);
+      }
+      return { success: true, timestamp: ts };
+    } catch (err) {
+      homey.app.error('Error in getLogSavingsSummaryClicked:', err);
+      return { success: false };
+    }
+  },
 
   // API endpoint for updating optimizer settings
   async updateOptimizerSettings({ homey }) {
@@ -4445,6 +4655,43 @@ module.exports = {
         }
 
         homey.app.log('===== HOURLY OPTIMIZATION COMPLETED SUCCESSFULLY =====');
+
+        // Persist savings history for settings summary (mirror app.ts addSavings)
+        try {
+          if (typeof result.savings === 'number' && !Number.isNaN(result.savings)) {
+            const tzOffset = parseInt(homey.settings.get('time_zone_offset'));
+            const useDST = !!homey.settings.get('use_dst');
+            const now = new Date();
+            const local = new Date(now.getTime());
+            if (!Number.isNaN(tzOffset)) local.setUTCHours(now.getUTCHours() + tzOffset);
+            if (useDST) {
+              const m = now.getUTCMonth();
+              if (m > 2 && m < 10) local.setUTCHours(local.getUTCHours() + 1);
+            }
+            const y = local.getFullYear();
+            const mo = String(local.getMonth() + 1).padStart(2, '0');
+            const d = String(local.getDate()).padStart(2, '0');
+            const todayStr = `${y}-${mo}-${d}`;
+
+            const hist = homey.settings.get('savings_history') || [];
+            const arr = Array.isArray(hist) ? hist.slice() : [];
+            let todayEntry = arr.find(h => h && h.date === todayStr);
+            if (!todayEntry) {
+              todayEntry = { date: todayStr, total: 0 };
+              arr.push(todayEntry);
+            }
+            todayEntry.total = Number((Number(todayEntry.total || 0) + result.savings).toFixed(4));
+            // Keep last 30 days only
+            arr.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+            const trimmed = arr.slice(Math.max(0, arr.length - 30));
+            homey.settings.set('savings_history', trimmed);
+            homey.app.log(`Updated savings_history: +${result.savings.toFixed(4)} -> today ${todayEntry.total.toFixed(4)} (${todayStr}), size=${trimmed.length}`);
+          } else {
+            homey.app.log('No numeric savings value to persist for this optimization run.');
+          }
+        } catch (persistErr) {
+          homey.app.error('Failed to persist savings_history:', persistErr && persistErr.message ? persistErr.message : String(persistErr));
+        }
 
         return {
           success: true,
