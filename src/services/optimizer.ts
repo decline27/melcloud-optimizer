@@ -115,6 +115,7 @@ interface EnhancedOptimizationResult {
     min: number;
     max: number;
   };
+  savings?: number;
   energyMetrics?: OptimizationMetrics;
   hotWaterAction?: {
     action: 'heat_now' | 'delay' | 'maintain';
@@ -1636,9 +1637,11 @@ export class Optimizer {
       if (isSignificantChange) {
         await this.melCloud.setDeviceTemperature(this.deviceId, this.buildingId, targetTemp);
         
+        const savingsNumeric = this.calculateRealHourlySavings(safeCurrentTarget, targetTemp, currentPrice, optimizationResult.metrics, 'zone1');
         this.logger.log(`Enhanced temperature adjusted from ${safeCurrentTarget.toFixed(1)}°C to ${targetTemp.toFixed(1)}°C`, {
           reason: adjustmentReason,
-          savings: this.estimateCostSavings(targetTemp, safeCurrentTarget, currentPrice, avgPrice, optimizationResult.metrics)
+          savingsEstimated: this.estimateCostSavings(targetTemp, safeCurrentTarget, currentPrice, avgPrice, optimizationResult.metrics),
+          savingsNumeric
         });
 
         return {
@@ -1653,6 +1656,7 @@ export class Optimizer {
             min: minPrice,
             max: maxPrice
           },
+          savings: savingsNumeric,
           energyMetrics: optimizationResult.metrics,
           weather: weatherInfo || undefined,
           hotWaterAction: hotWaterAction || undefined
@@ -1660,6 +1664,7 @@ export class Optimizer {
       } else {
         this.logger.log(`No enhanced temperature adjustment needed (difference: ${tempDifference.toFixed(1)}°C < deadband: ${this.deadband}°C)`);
 
+        const savingsNumericNoChange = 0; // Numeric savings for Zone1 unchanged. Tank/Zone2 handled by API layer.
         return {
           success: true,
           action: 'no_change',
@@ -1672,6 +1677,7 @@ export class Optimizer {
             min: minPrice,
             max: maxPrice
           },
+          savings: savingsNumericNoChange,
           energyMetrics: optimizationResult.metrics,
           weather: weatherInfo || undefined,
           hotWaterAction: hotWaterAction || undefined
@@ -1720,6 +1726,51 @@ export class Optimizer {
     const weeklyCostImpact = dailyCostImpact * 7;
 
     return `Estimated ${tempDifference > 0 ? 'cost increase' : 'savings'}: ${Math.abs(weeklyCostImpact).toFixed(2)} NOK/week`;
+  }
+
+  /**
+   * Calculate hourly cost savings using real energy metrics (numeric result)
+   * Falls back to simple heuristic when metrics are not available
+   */
+  private calculateRealHourlySavings(
+    oldTemp: number,
+    newTemp: number,
+    currentPrice: number,
+    metrics?: OptimizationMetrics,
+    kind: 'zone1' | 'zone2' | 'tank' = 'zone1'
+  ): number {
+    try {
+      const tempDiff = newTemp - oldTemp;
+      if (!isFinite(tempDiff) || tempDiff === 0 || !isFinite(currentPrice)) return 0;
+
+      if (!metrics) {
+        // Fallback to simple calculation if we don't have metrics
+        return this.calculateSavings(oldTemp, newTemp, currentPrice);
+      }
+
+      // Base daily consumption (kWh/day)
+      let dailyConsumption = metrics.dailyEnergyConsumption;
+      if (!isFinite(dailyConsumption) || dailyConsumption <= 0) {
+        return this.calculateSavings(oldTemp, newTemp, currentPrice);
+      }
+
+      // Seasonal factors
+      let perDegFactor: number; // fraction of daily energy per °C
+      if (metrics.seasonalMode === 'winter') perDegFactor = 0.15 * (metrics.heatingEfficiency || 0.5);
+      else if (metrics.seasonalMode === 'summer') perDegFactor = 0.05;
+      else perDegFactor = 0.10;
+
+      // Surface adjustments
+      if (kind === 'zone2') perDegFactor *= 0.9;
+      if (kind === 'tank') perDegFactor *= 0.5;
+
+      const dailyEnergyImpact = Math.abs(tempDiff) * perDegFactor * dailyConsumption; // kWh
+      const dailyCostImpact = dailyEnergyImpact * (tempDiff > 0 ? currentPrice : -currentPrice);
+      const hourlyCostImpact = dailyCostImpact / 24;
+      return Number.isFinite(hourlyCostImpact) ? hourlyCostImpact : 0;
+    } catch {
+      return this.calculateSavings(oldTemp, newTemp, currentPrice);
+    }
   }
 
   /**

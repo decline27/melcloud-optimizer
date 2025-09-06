@@ -582,11 +582,12 @@
         return new Promise((resolve, reject) => {
           try {
             const load = (key) => new Promise((res) => Homey.get(key, (_e, v) => res(v)));
+            // Load currency and currency_code separately, then choose the first truthy value
             Promise.all([
               load('savings_history'),
               load('time_zone_offset'),
               load('use_dst'),
-              load('currency') || load('currency_code')
+              Promise.all([load('currency'), load('currency_code')]).then(([c1, c2]) => c1 || c2 || '')
             ]).then(([history, tz, dst, currency]) => {
               const normalized = Array.isArray(history) ? history.filter(h => h && typeof h.date === 'string') : [];
               if (normalized.length === 0) {

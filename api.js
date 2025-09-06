@@ -3003,17 +3003,83 @@ class Optimizer {
     return targetTemp;
   }
 
-  calculateSavings(oldTemp, newTemp, currentPrice) {
-    // Simple model: each degree lower saves about 5% energy
-    const tempDiff = oldTemp - newTemp;
-    const energySavingPercent = tempDiff * 5;
+  calculateSavings(oldTemp, newTemp, currentPrice, kind = 'zone1') {
+    // Heuristic model with per-surface weighting and inclusion of Zone2/Tank
+    // kind: 'zone1' | 'zone2' | 'tank'
+    const tempDiff = (Number(oldTemp) || 0) - (Number(newTemp) || 0);
+    if (!isFinite(tempDiff) || !isFinite(currentPrice)) return 0;
 
-    // Convert to monetary value (very rough estimate)
-    // Assuming average consumption of 1 kWh per hour
-    const hourlyConsumption = 1; // kWh
-    const savings = (energySavingPercent / 100) * hourlyConsumption * currentPrice;
+    // Base assumptions
+    const baseHourlyConsumptionKWh = 1.0; // nominal baseline per hour
 
-    return savings;
+    // Per-degree percentage impact by kind (relative surface/impact)
+    const perDegPct = kind === 'tank' ? 2.0 : kind === 'zone2' ? 4.0 : 5.0; // % per °C
+
+    // Multiplier by kind for relative impact vs Zone1
+    const kindMultiplier = kind === 'tank' ? 0.8 : kind === 'zone2' ? 0.9 : 1.0;
+
+    const energySavingPercent = tempDiff * perDegPct * kindMultiplier;
+    const savings = (energySavingPercent / 100) * baseHourlyConsumptionKWh * currentPrice;
+    return Number.isFinite(savings) ? savings : 0;
+  }
+
+  /**
+   * Calculate hourly cost impact using real MELCloud energy data (when available).
+   * Falls back to heuristic when data is missing.
+   * kind: 'zone1' | 'zone2' | 'tank'
+   */
+  async calculateRealHourlySavings(oldTemp, newTemp, currentPrice, kind = 'zone1') {
+    try {
+      const tempDiff = (Number(newTemp) || 0) - (Number(oldTemp) || 0);
+      if (!isFinite(tempDiff) || tempDiff === 0) return 0;
+
+      // Fetch COP/energy data
+      const copData = await this.melCloud.getCOPData(this.deviceId, this.buildingId);
+      const dev = copData && (copData.Device || copData.device || copData);
+      const heatConsumed = Number(dev?.DailyHeatingEnergyConsumed || 0);
+      const heatProduced = Number(dev?.DailyHeatingEnergyProduced || 0);
+      const waterConsumed = Number(dev?.DailyHotWaterEnergyConsumed || 0);
+      const waterProduced = Number(dev?.DailyHotWaterEnergyProduced || 0);
+
+      const heatingCOP = heatConsumed > 0 ? (heatProduced / heatConsumed) : 0;
+      const hotWaterCOP = waterConsumed > 0 ? (waterProduced / waterConsumed) : 0;
+
+      // Determine seasonal mode roughly from usage balance
+      let seasonalMode = 'transition';
+      if (heatConsumed < 1) seasonalMode = 'summer';
+      else if (heatConsumed > waterConsumed * 2) seasonalMode = 'winter';
+
+      // Choose the relevant daily consumption component for the change kind
+      let dailyConsumption = heatConsumed + waterConsumed;
+      if (kind === 'tank') dailyConsumption = Math.max(waterConsumed, 0);
+      else dailyConsumption = Math.max(heatConsumed, 0);
+      if (!isFinite(dailyConsumption) || dailyConsumption <= 0) {
+        // Fallback if energy not available
+        return this.calculateSavings(oldTemp, newTemp, currentPrice, kind);
+      }
+
+      // Normalize COP into an efficiency 0..1 (relative to COP=3 as "good")
+      const heatEff = Math.min(heatingCOP / 3, 1) || 0.5;
+      const waterEff = Math.min(hotWaterCOP / 3, 1) || 0.5;
+
+      // Per-degree energy impact factor
+      let perDegFactor; // as fraction of daily energy
+      if (seasonalMode === 'winter') perDegFactor = 0.15 * heatEff;
+      else if (seasonalMode === 'summer') perDegFactor = 0.05;
+      else perDegFactor = 0.10;
+
+      // Adjust by surface kind
+      if (kind === 'zone2') perDegFactor *= 0.9;
+      if (kind === 'tank') perDegFactor *= 0.5; // tank changes have smaller whole-day effect
+
+      const dailyEnergyImpact = Math.abs(tempDiff) * perDegFactor * dailyConsumption; // kWh
+      const dailyCostImpact = dailyEnergyImpact * (tempDiff > 0 ? currentPrice : -currentPrice);
+      const hourlyCostImpact = dailyCostImpact / 24;
+      return Number.isFinite(hourlyCostImpact) ? hourlyCostImpact : 0;
+    } catch (_) {
+      // Fallback on any error
+      return this.calculateSavings(oldTemp, newTemp, currentPrice, kind);
+    }
   }
 
   /**
@@ -3746,8 +3812,17 @@ class Optimizer {
         
         this.logger.log(`Enhanced temperature adjusted from ${currentTarget.toFixed(1)}°C to ${targetTemp.toFixed(1)}°C`);
 
-        // Calculate savings and comfort impact
-        const savings = this.calculateSavings(currentTarget, targetTemp, currentPrice);
+        // Calculate savings across Zone1/Zone2/Tank using real energy data when available
+        let savings = await this.calculateRealHourlySavings(currentTarget, targetTemp, currentPrice, 'zone1');
+        try {
+          if (zone2Result && typeof zone2Result.fromTemp === 'number' && typeof zone2Result.toTemp === 'number') {
+            savings += await this.calculateRealHourlySavings(zone2Result.fromTemp, zone2Result.toTemp, currentPrice, 'zone2');
+          }
+          if (tankResult && typeof tankResult.fromTemp === 'number' && typeof tankResult.toTemp === 'number') {
+            savings += await this.calculateRealHourlySavings(tankResult.fromTemp, tankResult.toTemp, currentPrice, 'tank');
+          }
+        } catch (_) {}
+        // Calculate comfort impact
         const comfort = this.calculateComfortImpact(currentTarget, targetTemp);
 
         // Get price forecasting data
@@ -3825,8 +3900,18 @@ class Optimizer {
       } else {
         this.logger.log(`No enhanced temperature adjustment needed (difference: ${tempDifference.toFixed(1)}°C < deadband: ${deadband}°C)`);
 
-        // Calculate savings and comfort impact even for no change
-        const savings = this.calculateSavings(currentTarget, targetTemp, currentPrice);
+        // Calculate savings from Zone2/Tank even if Zone1 unchanged
+        let savings = 0;
+        try {
+          if (zone2Result && typeof zone2Result.fromTemp === 'number' && typeof zone2Result.toTemp === 'number') {
+            savings += await this.calculateRealHourlySavings(zone2Result.fromTemp, zone2Result.toTemp, currentPrice, 'zone2');
+          }
+          if (tankResult && typeof tankResult.fromTemp === 'number' && typeof tankResult.toTemp === 'number') {
+            savings += await this.calculateRealHourlySavings(tankResult.fromTemp, tankResult.toTemp, currentPrice, 'tank');
+          }
+        } catch (_) {}
+        // Comfort impact based on Zone1 request (unchanged)
+        const savingsNoChange = savings;
         const comfort = this.calculateComfortImpact(currentTarget, targetTemp);
 
         // Get price forecasting data
@@ -3846,7 +3931,7 @@ class Optimizer {
             level: priceLevel,
             percentile: pricePercentile
           },
-          savings: savings,
+          savings: savingsNoChange,
           comfort: comfort,
           // Add compatibility fields for getThermalModelData
           targetTemp: currentTarget,        // Expected by getThermalModelData
@@ -4658,7 +4743,35 @@ module.exports = {
 
         // Persist savings history for settings summary (mirror app.ts addSavings)
         try {
-          if (typeof result.savings === 'number' && !Number.isNaN(result.savings)) {
+          // Ensure an hourly savings number exists; if missing, derive from changes
+          let computedSavings = (typeof result.savings === 'number' && !Number.isNaN(result.savings)) ? result.savings : 0;
+          if (!(typeof result.savings === 'number' && !Number.isNaN(result.savings))) {
+            try {
+              const p = result.priceData?.current || 0;
+              if (result.fromTemp !== undefined && result.toTemp !== undefined) {
+                if (typeof optimizer.calculateRealHourlySavings === 'function') {
+                  computedSavings += await optimizer.calculateRealHourlySavings(result.fromTemp, result.toTemp, p, 'zone1');
+                } else {
+                  computedSavings += optimizer.calculateSavings(result.fromTemp, result.toTemp, p, 'zone1');
+                }
+              }
+              if (result.zone2Data && result.zone2Data.fromTemp !== undefined && result.zone2Data.toTemp !== undefined) {
+                if (typeof optimizer.calculateRealHourlySavings === 'function') {
+                  computedSavings += await optimizer.calculateRealHourlySavings(result.zone2Data.fromTemp, result.zone2Data.toTemp, p, 'zone2');
+                } else {
+                  computedSavings += optimizer.calculateSavings(result.zone2Data.fromTemp, result.zone2Data.toTemp, p, 'zone2');
+                }
+              }
+              if (result.tankData && result.tankData.fromTemp !== undefined && result.tankData.toTemp !== undefined) {
+                if (typeof optimizer.calculateRealHourlySavings === 'function') {
+                  computedSavings += await optimizer.calculateRealHourlySavings(result.tankData.fromTemp, result.tankData.toTemp, p, 'tank');
+                } else {
+                  computedSavings += optimizer.calculateSavings(result.tankData.fromTemp, result.tankData.toTemp, p, 'tank');
+                }
+              }
+            } catch (_) {}
+          }
+          if (typeof computedSavings === 'number' && !Number.isNaN(computedSavings)) {
             const tzOffset = parseInt(homey.settings.get('time_zone_offset'));
             const useDST = !!homey.settings.get('use_dst');
             const now = new Date();
@@ -4680,12 +4793,12 @@ module.exports = {
               todayEntry = { date: todayStr, total: 0 };
               arr.push(todayEntry);
             }
-            todayEntry.total = Number((Number(todayEntry.total || 0) + result.savings).toFixed(4));
+            todayEntry.total = Number((Number(todayEntry.total || 0) + computedSavings).toFixed(4));
             // Keep last 30 days only
             arr.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
             const trimmed = arr.slice(Math.max(0, arr.length - 30));
             homey.settings.set('savings_history', trimmed);
-            homey.app.log(`Updated savings_history: +${result.savings.toFixed(4)} -> today ${todayEntry.total.toFixed(4)} (${todayStr}), size=${trimmed.length}`);
+            homey.app.log(`Updated savings_history: +${computedSavings.toFixed(4)} -> today ${todayEntry.total.toFixed(4)} (${todayStr}), size=${trimmed.length}`);
           } else {
             homey.app.log('No numeric savings value to persist for this optimization run.');
           }
