@@ -5102,24 +5102,7 @@ module.exports = {
           // Store the last run time in settings
           homey.settings.set('last_hourly_run', currentTime);
 
-          // Add a timeline entry for the automatic trigger
-          try {
-            homey.app.log('Creating timeline entry for hourly job');
-
-            // Create a timeline helper wrapper instance
-            const timelineHelper = new TimelineHelperWrapper(homey);
-
-            // Create the timeline entry using our standardized helper
-            await timelineHelper.addTimelineEntry(
-              TimelineEventType.HOURLY_OPTIMIZATION,
-              {},
-              false
-            );
-
-            homey.app.log('Timeline entry created successfully');
-          } catch (err) {
-            homey.app.error('Failed to create timeline entry for automatic trigger', err);
-          }
+          // Intentionally skip timeline post for cron trigger (noisy/duplicative)
 
           // Call the hourly optimizer
           try {
@@ -5140,24 +5123,7 @@ module.exports = {
           // Store the last run time in settings
           homey.settings.set('last_weekly_run', currentTime);
 
-          // Add a timeline entry for the automatic trigger
-          try {
-            homey.app.log('Creating timeline entry for weekly job');
-
-            // Create a timeline helper wrapper instance
-            const timelineHelper = new TimelineHelperWrapper(homey);
-
-            // Create the timeline entry using our standardized helper
-            await timelineHelper.addTimelineEntry(
-              TimelineEventType.WEEKLY_CALIBRATION,
-              {},
-              false
-            );
-
-            homey.app.log('Timeline entry created successfully');
-          } catch (err) {
-            homey.app.error('Failed to create timeline entry for automatic trigger', err);
-          }
+          // Intentionally skip timeline post for cron trigger (noisy/duplicative)
 
           // Call the weekly calibration
           try {
@@ -5197,24 +5163,7 @@ module.exports = {
         global.hourlyJob = hourlyJob;
         global.weeklyJob = weeklyJob;
 
-        // Add a timeline entry for the cron job initialization
-        try {
-          homey.app.log('Creating timeline entry for cron job initialization');
-
-          // Create a timeline helper wrapper instance
-          const timelineHelper = new TimelineHelperWrapper(homey);
-
-          // Create the timeline entry using our standardized helper
-          await timelineHelper.addTimelineEntry(
-            TimelineEventType.CRON_JOB_INITIALIZED,
-            {},
-            false
-          );
-
-          homey.app.log('Timeline entry created successfully');
-        } catch (err) {
-          homey.app.error('Failed to create timeline entry for cron job initialization', err);
-        }
+        // Skip timeline post for cron initialization (not needed)
 
         // Update the cron status in settings
         await this.getUpdateCronStatus({ homey });
