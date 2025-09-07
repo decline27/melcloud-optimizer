@@ -23,63 +23,63 @@ Answering explicitly:
 
 ```mermaid
 flowchart LR
-  subgraph Homey App
-    UI[Settings/Flows]
-    API[API Layer (api.js)]
-    OPT[Optimizer (src/services/optimizer.ts)]
-    TM[Thermal Model (src/services/thermal-model)]
-    HW[Hot Water Service (src/services/hot-water)]
-    COP[COP Helper (src/services/cop-helper.ts)]
+  subgraph Homey_App
+    UI[Settings and Flows];
+    API[API Layer - api.js];
+    OPT[Optimizer - src services optimizer.ts];
+    TM[Thermal Model - src services thermal model];
+    HW[Hot Water Service - src services hot water];
+    COP[COP Helper - src services cop helper.ts];
   end
 
-  TIB[Tibber]
-  MEL[MELCloud]
-  WTH[Weather]
+  TIB[Tibber];
+  MEL[MELCloud];
+  WTH[Weather];
 
-  TIB <--> API
-  WTH --> OPT
-  MEL <--> API
-  API <--> OPT
-  OPT <--> TM
-  OPT <--> COP
-  OPT <--> HW
+  TIB <--> API;
+  WTH --> OPT;
+  MEL <--> API;
+  API <--> OPT;
+  OPT <--> TM;
+  OPT <--> COP;
+  OPT <--> HW;
 ```
 
 Proposed boundary with Optimization Engine (pure, DI-friendly):
 
 ```mermaid
 flowchart LR
-  subgraph Homey App
-    UI[Settings/Flows]
-    API[API Layer]
-    ADP[Device/Tibber/Weather Adapters]
+  subgraph Homey_App
+    UI[Settings and Flows];
+    API[API Layer];
+    ADP[Device Tibber Weather Adapters];
   end
 
-  subgraph Optimization Engine (Pure)
-    ENG[optimization/engine.ts]
-    CFG[config.example.json]
+  subgraph Optimization_Engine
+    ENG[Optimization Engine Core];
+    CFG[Engine Config Defaults];
   end
 
-  ADP -->|prices, telemetry, weather| ENG
-  ENG -->|setpoint/DHW decisions| ADP
-  API --> ADP
+  ADP -->|prices, telemetry, weather| ENG;
+  ENG -->|setpoint and DHW decisions| ADP;
+  API --> ADP;
 ```
 
 Data Flow (Price/Forecast → Decision Pipeline):
 
 ```mermaid
 flowchart TD
-  TIB[Tibber API] -->|today+tomorrow| PRICE[Price Cache + Freshness Check]
-  WTH[Weather API] --> SNAP[Weather Snapshot]
-  MEL[MELCloud API] --> TELE[Telemetry (indoor/outdoor, tank, energy)]
-  PRICE --> ENG[Optimization Engine]
-  SNAP --> ENG
-  TELE --> ENG
-  ENG --> DEC{Decision}
-  DEC -->|setpoint| MEL
-  DEC -->|DHW forced/auto| MEL
-  MEL --> STATE[Updated Device State]
-  STATE --> LOGS[Structured Logs + KPIs]
+  TIB[Tibber API] -->|today and tomorrow| PRICE[Price Cache and Freshness Check];
+  WTH[Weather API] --> SNAP[Weather Snapshot];
+  MEL[MELCloud API] --> TELE[Telemetry indoor and outdoor, tank, energy];
+  PRICE --> ENG[Optimization Engine];
+  SNAP --> ENG;
+  TELE --> ENG;
+  ENG --> DEC{Decision};
+  DEC -->|setpoint| MEL;
+  DEC -->|DHW forced or auto| MEL;
+  MEL --> STATE[Updated Device State];
+  STATE --> LOGS[Structured Logs and KPIs];
 ```
 
 ## Control Flow
@@ -87,34 +87,33 @@ flowchart TD
 Heating (hourly):
 
 ```mermaid
-stateDiagram-v2
-  [*] --> ReadInputs
-  ReadInputs: Get device state, Tibber prices, weather
-  ReadInputs --> Validate
-  Validate --> Hold: Stale price or invalid state
-  Validate --> Decide
-  Decide: Engine computes target within comfort band; preheat/coast
-  Decide --> Clamp: Min/Max, deadband, extreme-weather guardrail
-  Clamp --> Lockout?
-  Lockout?: Min setpoint change interval met?
-  Lockout? --> Apply: yes
-  Lockout? --> Hold: no
-  Apply: Set setpoint; persist last-change ts
-  Hold --> [*]
-  Apply --> [*]
+flowchart LR
+  A[Read inputs: device, prices, weather] --> B{Inputs valid};
+  B -- No --> H[Hold: stale or invalid data];
+  B -- Yes --> C[Decide: Engine/classic + comfort band];
+  C --> D[Clamp: min/max and deadband];
+  D --> E{Lockout window met?};
+  E -- No --> H;
+  E -- Yes --> F[Apply setpoint change];
+  F --> G[Persist last-change time];
+  H --> I[Done];
+  G --> I;
 ```
 
 DHW (hourly):
 
 ```mermaid
-stateDiagram-v2
-  [*] --> Read
-  Read: Get price window and (optional) usage pattern
-  Read --> Decide
-  Decide: If price <= 25th pct → heat_now; >= 75th pct → delay; else maintain
-  Decide --> Actuate
-  Actuate: Toggle forced/auto hot water mode (safe, reversible)
-  Actuate --> [*]
+flowchart LR
+  A[Read price window and patterns] --> B{Price window};
+  B -- Low --> C[Heat now];
+  B -- High --> D[Delay];
+  B -- Mid --> E[Maintain];
+  C --> F[Toggle forced];
+  D --> G[Toggle auto];
+  E --> H[No change];
+  F --> I[Done];
+  G --> I;
+  H --> I;
 ```
 
 ## Data Sources & Freshness
@@ -211,6 +210,29 @@ Sample datasets:
   - Quick run: `npm run simulate`
   - Custom: `node scripts/simulate.js --data data/timeseries.csv --config data/config.yaml --output results/`
   - Outputs: `results/baseline_decisions.csv`, `results/v2_decisions.csv`, `results/metrics.json`
+
+## Using The Settings
+
+- Enable the Engine:
+  - In the app Settings, toggle `Use Optimization Engine` ON and Save changes. No restart required.
+  - The hourly run logs “Engine: ON …” with your comfort bands, safety, and preheat snapshot. If it’s OFF, the log prints `Engine: OFF` with the raw setting value.
+
+- Suggested defaults (good starting point):
+  - Occupied band: 20.0–21.0°C
+  - Away band: 19.0–20.5°C
+  - Deadband: 0.3°C; Min setpoint change interval: 15 min
+  - Extreme-cold minimum: 20°C
+  - Preheat: enabled, horizon 12h, cheap percentile 0.25
+
+- Reading results:
+  - Timeline entry includes: Zone1, Zone2, Tank changes and “Projected daily savings”.
+  - Savings persistence: `savings_history` (today, last 7/30 days) updates on every run (Engine or classic).
+  - Engine reason strings are prefixed with `Engine: …` when the Engine chose the target.
+
+- Tips:
+  - To preheat more aggressively, increase `comfort_upper_occupied` or cheap percentile (e.g., 0.3).
+  - To reduce cycling, increase deadband (e.g., 0.4–0.5) or the `Min setpoint interval`.
+  - Devices in Flow/Curve modes may not apply room targets; the Engine still optimizes within bands and the device applies via heating curve.
 
 ## Config Options (Recommended Defaults)
 
