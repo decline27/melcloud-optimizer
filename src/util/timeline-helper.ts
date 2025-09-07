@@ -366,8 +366,28 @@ export class TimelineHelper {
             message += `. Hot water tank: ${additionalData.tankOriginal}°C to ${additionalData.tankTemp}°C`;
           }
 
-          // Add savings information if available - prioritize daily savings over hourly
-          if (additionalData.dailySavings !== undefined || additionalData.savings !== undefined) {
+          // Add savings information
+          // Prefer an accumulated "today so far" value if provided
+          if (additionalData.todaySoFar !== undefined) {
+            try {
+              const userLocale = this.homey.i18n?.getLanguage() || 'en-US';
+              const userCurrency = CurrencyDetector.getCurrencyWithFallback(this.homey);
+
+              const formattedToday = new Intl.NumberFormat(userLocale, {
+                style: 'currency',
+                currency: userCurrency,
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+              }).format(additionalData.todaySoFar);
+
+              message += `. Today so far: ${formattedToday}`;
+            } catch (error) {
+              message += `. Today so far: €${Number(additionalData.todaySoFar).toFixed(2)}`;
+              this.logger.error('Error formatting currency:', error);
+            }
+          }
+          // Otherwise, fall back to projected daily savings (legacy behaviour)
+          else if (additionalData.dailySavings !== undefined || additionalData.savings !== undefined) {
             try {
               // Get the user's locale or default to the system locale
               const userLocale = this.homey.i18n?.getLanguage() || 'en-US';
@@ -405,6 +425,49 @@ export class TimelineHelper {
 
           if (additionalData.method) {
             message += ` using ${additionalData.method} method`;
+          }
+
+          // Optionally append weekly savings total if provided
+          if (additionalData.weeklySavings !== undefined) {
+            try {
+              const userLocale = this.homey.i18n?.getLanguage() || 'en-US';
+              const userCurrency = CurrencyDetector.getCurrencyWithFallback(this.homey);
+
+              const formattedWeekly = new Intl.NumberFormat(userLocale, {
+                style: 'currency',
+                currency: userCurrency,
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+              }).format(additionalData.weeklySavings);
+
+              message += `. Weekly total savings: ${formattedWeekly}`;
+            } catch (error) {
+              message += `. Weekly total savings: €${Number(additionalData.weeklySavings).toFixed(2)}`;
+              this.logger.error('Error formatting currency for weekly savings:', error);
+            }
+          }
+        } else if (
+          eventType === TimelineEventType.WEEKLY_CALIBRATION ||
+          eventType === TimelineEventType.WEEKLY_CALIBRATION_MANUAL
+        ) {
+          // For weekly start events, append current weekly total if provided
+          if (additionalData.weeklySavings !== undefined) {
+            try {
+              const userLocale = this.homey.i18n?.getLanguage() || 'en-US';
+              const userCurrency = CurrencyDetector.getCurrencyWithFallback(this.homey);
+
+              const formattedWeekly = new Intl.NumberFormat(userLocale, {
+                style: 'currency',
+                currency: userCurrency,
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+              }).format(additionalData.weeklySavings);
+
+              message += `. Weekly total so far: ${formattedWeekly}`;
+            } catch (error) {
+              message += `. Weekly total so far: €${Number(additionalData.weeklySavings).toFixed(2)}`;
+              this.logger.error('Error formatting currency for weekly savings (start):', error);
+            }
           }
         }
       }

@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon';
+import { CronJob } from 'cron';
 
 // Constants for storage keys
 const COP_SNAPSHOTS_DAILY = 'cop_snapshots_daily';
@@ -37,23 +38,39 @@ export class COPHelper {
    */
   private scheduleJobs(): void {
     try {
-      // DAILY at 00:05
-      this.dailyJob = this.homey.scheduler.scheduleTask('5 0 * * *', async () => {
-        this.logger.log('Daily COP calculation job triggered');
-        await this.compute('daily');
-      });
+      if (this.homey && this.homey.scheduler && typeof this.homey.scheduler.scheduleTask === 'function') {
+        // Prefer Homey scheduler when available
+        this.dailyJob = this.homey.scheduler.scheduleTask('5 0 * * *', async () => {
+          this.logger.log('Daily COP calculation job triggered');
+          await this.compute('daily');
+        });
 
-      // WEEKLY every Monday at 00:10
-      this.weeklyJob = this.homey.scheduler.scheduleTask('10 0 * * 1', async () => {
-        this.logger.log('Weekly COP calculation job triggered');
-        await this.compute('weekly');
-      });
+        this.weeklyJob = this.homey.scheduler.scheduleTask('10 0 * * 1', async () => {
+          this.logger.log('Weekly COP calculation job triggered');
+          await this.compute('weekly');
+        });
 
-      // MONTHLY on the 1st at 00:15
-      this.monthlyJob = this.homey.scheduler.scheduleTask('15 0 1 * *', async () => {
-        this.logger.log('Monthly COP calculation job triggered');
-        await this.compute('monthly');
-      });
+        this.monthlyJob = this.homey.scheduler.scheduleTask('15 0 1 * *', async () => {
+          this.logger.log('Monthly COP calculation job triggered');
+          await this.compute('monthly');
+        });
+      } else {
+        // Fallback to node-cron CronJob if Homey scheduler is unavailable
+        this.dailyJob = new CronJob('0 5 0 * * *', async () => {
+          this.logger.log('Daily COP calculation job triggered');
+          await this.compute('daily');
+        }, null, true);
+
+        this.weeklyJob = new CronJob('0 10 0 * * 1', async () => {
+          this.logger.log('Weekly COP calculation job triggered');
+          await this.compute('weekly');
+        }, null, true);
+
+        this.monthlyJob = new CronJob('0 15 0 1 * *', async () => {
+          this.logger.log('Monthly COP calculation job triggered');
+          await this.compute('monthly');
+        }, null, true);
+      }
 
       this.logger.log('COP calculation jobs scheduled');
     } catch (error: unknown) {
@@ -228,14 +245,21 @@ export class COPHelper {
    * @returns COP value based on season
    */
   public async getSeasonalCOP(): Promise<number> {
-    const isSummer = this.isSummerSeason();
+    try {
+      const isSummer = this.isSummerSeason();
 
-    if (isSummer) {
-      // In summer, prioritize hot water COP
-      return await this.getAverageCOP('daily', 'water');
-    } else {
-      // In winter, prioritize heating COP
-      return await this.getAverageCOP('daily', 'heat');
+      if (isSummer) {
+        // In summer, prioritize hot water COP
+        return await this.getAverageCOP('daily', 'water');
+      } else {
+        // In winter, prioritize heating COP
+        return await this.getAverageCOP('daily', 'heat');
+      }
+    } catch (error: unknown) {
+      this.logger.error('Error getting seasonal COP, falling back to default:', error);
+      // Return reasonable default COP based on season
+      const isSummer = this.isSummerSeason();
+      return isSummer ? 2.5 : 3.0; // Hot water COP typically lower than heating COP
     }
   }
 

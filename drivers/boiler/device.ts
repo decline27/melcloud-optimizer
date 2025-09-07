@@ -150,7 +150,8 @@ module.exports = class BoilerDevice extends Homey.Device {
       'meter_power.produced_hotwater',
       'heating_cop',
       'hotwater_cop',
-      'alarm_generic.offline'
+      'alarm_generic.offline',
+      'holiday_mode'
     ];
 
     // Zone 2 capabilities - added conditionally
@@ -299,6 +300,7 @@ module.exports = class BoilerDevice extends Homey.Device {
         }
 
         if (this.melCloudApi) {
+          // Use ATW zone temperature method to match device type
           const success = await this.melCloudApi.setZoneTemperature(
             this.deviceId,
             this.buildingId,
@@ -332,20 +334,32 @@ module.exports = class BoilerDevice extends Homey.Device {
         this.logger.log(`Target tank temperature changed to ${value}°C`);
         
         try {
+          // Clamp to configured constraints for tank temperature (align with optimizer)
+          const minTank = (this.homey.settings.get('min_tank_temp') as number) ?? 40;
+          const maxTank = (this.homey.settings.get('max_tank_temp') as number) ?? 60;
+          const step = (this.homey.settings.get('tank_temp_step') as number) ?? 1.0;
+          const roundToStep = (v: number, s: number) => Math.round(v / s) * s;
+          let target = roundToStep(value, step);
+          if (target < minTank) target = minTank;
+          if (target > maxTank) target = maxTank;
+          if (target !== value) {
+            this.logger.log(`Adjusted tank target to ${target}°C (constraints min=${minTank}, max=${maxTank}, step=${step})`);
+          }
+
           if (this.melCloudApi) {
             const success = await this.melCloudApi.setTankTemperature(
               this.deviceId,
               this.buildingId,
-              value
+              target
             );
 
             if (success) {
-              this.logger.log(`Successfully set target tank temperature to ${value}°C`);
+              this.logger.log(`Successfully set target tank temperature to ${target}°C`);
               
               // Task 2.1: Enable fast polling after temperature change for better responsiveness
               this.enableFastPolling('tank temperature command');
               
-              return value;
+              return target;
             } else {
               this.logger.error('Failed to set target tank temperature');
               throw new Error('Failed to set target tank temperature');
@@ -383,6 +397,40 @@ module.exports = class BoilerDevice extends Homey.Device {
         }
       } catch (error) {
         this.logger.error('Error setting hot water mode:', error);
+        throw error;
+      }
+    });
+
+    // Listen for holiday mode changes
+    this.registerCapabilityListener('holiday_mode', async (value: boolean) => {
+      this.logger.log(`Holiday mode changed to ${value}`);
+      try {
+        if (!this.melCloudApi) throw new Error('MELCloud API not available');
+        const success = await this.melCloudApi.setHolidayMode(this.deviceId, this.buildingId, value);
+        if (success) return value; else throw new Error('Failed to set holiday mode');
+      } catch (error) {
+        this.logger.error('Error setting holiday mode:', error);
+        throw error;
+      }
+    });
+
+
+    // Legionella start (momentary)
+    this.registerCapabilityListener('legionella_now', async (value: boolean) => {
+      this.logger.log(`Legionella start requested: ${value}`);
+      if (!value) return false; // ignore turning off
+      try {
+        if (!this.melCloudApi) throw new Error('MELCloud API not available');
+        const success = await this.melCloudApi.startLegionellaCycle(this.deviceId, this.buildingId);
+        if (success) {
+          // Auto-reset the toggle back to false
+          try { await this.setCapabilityValue('legionella_now', false); } catch (e) {}
+          return true;
+        } else {
+          throw new Error('Failed to start legionella cycle');
+        }
+      } catch (error) {
+        this.logger.error('Error starting legionella cycle:', error);
         throw error;
       }
     });
@@ -543,6 +591,7 @@ module.exports = class BoilerDevice extends Homey.Device {
         }
       });
     }
+
   }
 
   /**
@@ -789,6 +838,16 @@ module.exports = class BoilerDevice extends Homey.Device {
 
       // Update operational states
       await this.updateOperationalStates(deviceState);
+
+      // Update holiday mode
+      if (this.hasCapability('holiday_mode') && (deviceState as any).HolidayMode !== undefined) {
+        const current = this.getCapabilityValue('holiday_mode');
+        if (current !== (deviceState as any).HolidayMode) {
+          await this.setCapabilityValue('holiday_mode', (deviceState as any).HolidayMode);
+          this.logger.log(`Updated holiday mode: ${(deviceState as any).HolidayMode}`);
+        }
+      }
+
 
       this.logger.debug('Device capabilities updated successfully');
 
@@ -1291,28 +1350,36 @@ module.exports = class BoilerDevice extends Homey.Device {
    */
   private initializeCircuitBreakers() {
     try {
-      // Main API calls circuit breaker
+      // Main API calls circuit breaker - more resilient configuration
       this.apiCircuitBreaker = new CircuitBreaker(
         `API-${this.deviceId}`,
         this.logger,
         {
-          failureThreshold: 3,        // Open after 3 consecutive failures
-          resetTimeout: 60000,        // Try again after 1 minute
-          halfOpenSuccessThreshold: 2, // Close after 2 successes
-          timeout: 15000,             // 15 second request timeout
+          failureThreshold: 5,        // Increased from 3 to 5
+          resetTimeout: 120000,       // Increased from 60000 to 120000 (2 minutes)
+          halfOpenSuccessThreshold: 3, // Increased from 2 to 3
+          timeout: 30000,             // Increased from 15000 to 30000 (30 seconds)
+          maxResetTimeout: 1800000,   // Maximum 30 minutes for exponential backoff
+          backoffMultiplier: 2,       // Enable exponential backoff
+          adaptiveThresholds: true,   // Enable adaptive behavior
+          successRateWindow: 3600000, // 1 hour success rate window
           monitorInterval: 300000     // Log status every 5 minutes
         }
       );
 
-      // Energy reporting circuit breaker (more lenient)
+      // Energy reporting circuit breaker - even more tolerant for non-critical operations
       this.energyCircuitBreaker = new CircuitBreaker(
         `Energy-${this.deviceId}`,
         this.logger,
         {
-          failureThreshold: 5,        // More tolerant for energy calls
-          resetTimeout: 300000,       // 5 minute reset timeout
-          halfOpenSuccessThreshold: 1,
-          timeout: 20000,
+          failureThreshold: 8,        // More tolerant for energy calls
+          resetTimeout: 300000,       // 5 minute base timeout
+          halfOpenSuccessThreshold: 2, // Require 2 successes
+          timeout: 45000,             // 45 second timeout for energy operations
+          maxResetTimeout: 3600000,   // Maximum 1 hour for exponential backoff
+          backoffMultiplier: 1.5,     // Slower backoff for energy calls
+          adaptiveThresholds: true,   // Enable adaptive behavior
+          successRateWindow: 7200000, // 2 hour success rate window
           monitorInterval: 600000     // Log status every 10 minutes
         }
       );

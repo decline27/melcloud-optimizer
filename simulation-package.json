@@ -1,0 +1,29 @@
+{
+  "name": "@melcloud/optimization-simulator",
+  "version": "1.0.0",
+  "description": "Command-line simulator for comparing MELCloud optimization algorithms",
+  "main": "simulate.js",
+  "scripts": {
+    "simulate": "node simulate.js",
+    "test": "npm run simulate -- --data data/timeseries.csv --config data/config.yaml --output results/",
+    "clean": "rm -rf results/*"
+  },
+  "bin": {
+    "melcloud-simulate": "./simulate.js"
+  },
+  "dependencies": {
+    "commander": "^11.0.0"
+  },
+  "devDependencies": {
+    "js-yaml": "^4.1.0"
+  },
+  "keywords": [
+    "melcloud",
+    "optimization",
+    "heat-pump",
+    "simulation",
+    "electricity-prices"
+  ],
+  "author": "MELCloud Optimization Team",
+  "license": "MIT"
+}

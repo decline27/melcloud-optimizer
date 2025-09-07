@@ -116,11 +116,15 @@ describe('HeatOptimizerApp focused coverage tests', () => {
     (app as any).timelineHelper = {};
     (app as any).memoryUsageInterval = setInterval(() => {}, 1000);
 
+    // Mock the API cleanup function to return success
+    const mockApi = require('../../api.js');
+    mockApi.cleanup = jest.fn().mockResolvedValue({ success: true });
+
     await (app as any).onUninit();
 
     // Verify that the logger was called with the stopping message
     expect((app as any).logger.marker).toHaveBeenCalledWith('MELCloud Optimizer App Stopping');
-    expect((app as any).logger.info).toHaveBeenCalledWith('API resources cleanup completed');
+    expect((app as any).logger.info).toHaveBeenCalledWith('API resources cleanup completed successfully');
   });
 
   test('runInitialDataCleanup schedules cleanup after delay', async () => {

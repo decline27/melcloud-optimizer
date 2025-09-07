@@ -1,7 +1,7 @@
 {
   "_comment": "This file is generated. Please edit .homeycompose/app.json instead.",
   "id": "com.melcloud.optimize",
-  "version": "12.5.5",
+  "version": "12.5.16",
   "compatibility": ">=12.2.0",
   "sdk": 3,
   "platforms": [
@@ -28,6 +28,7 @@
     "small": "/assets/images/small.png"
   },
   "brandColor": "#1E88E5",
+  "homeyCommunityTopicId": 136325,
   "support": "https://github.com/decline27/melcloud-optimizer/issues",
   "api": {
     "getRunHourlyOptimizer": {
@@ -89,6 +90,14 @@
     "runThermalDataCleanup": {
       "method": "GET",
       "path": "/runThermalDataCleanup"
+    },
+    "getSavingsSummary": {
+      "method": "GET",
+      "path": "/getSavingsSummary"
+    },
+    "getLogSavingsSummaryClicked": {
+      "method": "GET",
+      "path": "/getLogSavingsSummaryClicked"
     }
   },
   "drivers": [
@@ -123,7 +132,9 @@
         "meter_power.produced_hotwater",
         "heating_cop",
         "hotwater_cop",
-        "alarm_generic.offline"
+        "alarm_generic.offline",
+        "holiday_mode",
+        "legionella_now"
       ],
       "capabilitiesOptions": {
         "measure_temperature": {
@@ -485,6 +496,21 @@
           "title": {
             "en": "Device Offline"
           }
+        },
+        "holiday_mode": {
+          "title": {
+            "en": "Holiday Mode"
+          },
+          "type": "boolean"
+        },
+        "legionella_now": {
+          "title": {
+            "en": "Start Legionella Cycle"
+          },
+          "type": "boolean",
+          "hint": {
+            "en": "Toggle on to start; will auto reset"
+          }
         }
       },
       "platforms": [
@@ -555,6 +581,15 @@
       "uiComponent": "sensor",
       "insights": true
     },
+    "holiday_mode": {
+      "type": "boolean",
+      "title": {
+        "en": "Holiday Mode"
+      },
+      "getable": true,
+      "setable": true,
+      "uiComponent": "toggle"
+    },
     "hotwater_cop": {
       "type": "number",
       "title": {
@@ -570,6 +605,15 @@
       "setable": false,
       "uiComponent": "sensor",
       "insights": true
+    },
+    "legionella_now": {
+      "type": "boolean",
+      "title": {
+        "en": "Start Legionella Cycle"
+      },
+      "getable": true,
+      "setable": true,
+      "uiComponent": "toggle"
     }
   }
 }

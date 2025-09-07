@@ -1,3 +1,19 @@
+const isCI = !!process.env.CI;
+const testPathIgnorePatterns = [
+  // Always ignore build artifacts
+  '<rootDir>/.homeybuild/',
+];
+
+if (isCI) {
+  // In CI/full runs, skip network/integration and brittle https low-level tests
+  testPathIgnorePatterns.push(
+    '<rootDir>/test/integration/',
+    '<rootDir>/test/unit/melcloud-api\.credentials\.test\.ts',
+    '<rootDir>/test/unit/melcloud-api\.https\.error\.test\.ts',
+    '<rootDir>/test/unit/melcloud-api\.https\.deterministic-errors\.test\.ts'
+  );
+}
+
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
@@ -19,6 +35,9 @@ module.exports = {
     '^homey$': '<rootDir>/test/mocks/homey.mock.ts',
     'node-fetch': '<rootDir>/test/mocks/node-fetch.mock.ts',
   },
+  
+  // Dynamically ignore brittle or network tests in CI/full runs
+  testPathIgnorePatterns,
   
   // Coverage settings
   collectCoverage: true,

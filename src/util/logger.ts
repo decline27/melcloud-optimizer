@@ -249,10 +249,6 @@ export class HomeyLogger implements Logger {
     if (this.logLevel <= LogLevel.INFO && this.isCategoryEnabled(LogCategory.GENERAL)) {
       // Use Homey's built-in logging - this will appear in the terminal with 'homey app run'
       this.app.log(`INFO: ${this.getLogPrefix()}${message}`, ...args);
-
-      if (this.logToTimeline) {
-        this.sendToTimeline(`ℹ️ ${message}`);
-      }
     }
   }
 
@@ -289,10 +285,6 @@ export class HomeyLogger implements Logger {
       } else {
         this.app.log(`WARN: ${this.getLogPrefix()}⚠️ ${message}`);
       }
-
-      if (this.logToTimeline) {
-        this.sendToTimeline(`⚠️ ${message}`, 'warning');
-      }
     }
   }
 
@@ -315,11 +307,6 @@ export class HomeyLogger implements Logger {
         this.app.error(`ERROR: ${this.getLogPrefix()}🔴 ${message}`, this.formatValue(context));
       } else {
         this.app.error(`ERROR: ${this.getLogPrefix()}🔴 ${message}`);
-      }
-
-      if (this.logToTimeline) {
-        const errorMessage = error instanceof Error ? error.message : error ? String(error) : '';
-        this.sendToTimeline(`🔴 ${message}${errorMessage ? `: ${errorMessage}` : ''}`, 'error');
       }
     }
   }

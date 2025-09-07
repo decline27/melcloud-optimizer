@@ -1,9 +1,8 @@
 /**
- * Circuit Breaker Pattern Implementation
+ * Circuit Breaker Pattern Implementation with Adaptive Behavior
  * 
- * This utility implements the circuit breaker pattern to prevent cascading failures
- * when external services are unavailable. It tracks failures and temporarily disables
- * calls to a service if it's failing consistently.
+ * Enhanced implementation with exponential backoff, adaptive thresholds,
+ * and better resilience against intermittent failures.
  */
 
 import { Logger } from './logger';
@@ -18,29 +17,37 @@ export enum CircuitState {
 }
 
 /**
- * Circuit breaker options
+ * Circuit breaker options with adaptive features
  */
 export interface CircuitBreakerOptions {
   failureThreshold: number;     // Number of failures before opening circuit
-  resetTimeout: number;         // Time in ms to wait before trying again (half-open)
+  resetTimeout: number;         // Base time in ms to wait before trying again (half-open)
   halfOpenSuccessThreshold: number; // Number of successes in half-open state to close circuit
   timeout?: number;             // Request timeout in ms
   monitorInterval?: number;     // Interval to log circuit state
+  maxResetTimeout?: number;     // Maximum reset timeout (for exponential backoff)
+  backoffMultiplier?: number;   // Multiplier for exponential backoff
+  adaptiveThresholds?: boolean; // Enable adaptive threshold adjustment
+  successRateWindow?: number;   // Time window for success rate calculation (ms)
 }
 
 /**
- * Default circuit breaker options
+ * Default circuit breaker options with improved resilience
  */
 const DEFAULT_OPTIONS: CircuitBreakerOptions = {
-  failureThreshold: 5,
-  resetTimeout: 30000, // 30 seconds
-  halfOpenSuccessThreshold: 2,
-  timeout: 10000, // 10 seconds
-  monitorInterval: 60000 // 1 minute
+  failureThreshold: 5,          // Increased from 3 to 5
+  resetTimeout: 120000,         // Increased from 30000 to 120000 (2 minutes)
+  halfOpenSuccessThreshold: 3,  // Increased from 1-2 to 3 for more stability
+  timeout: 30000,               // Increased from 10000-15000 to 30000 (30 seconds)
+  monitorInterval: 300000,      // 5 minutes (reduced logging frequency)
+  maxResetTimeout: 1800000,     // Maximum 30 minutes for exponential backoff
+  backoffMultiplier: 2,         // Double the timeout on each consecutive failure
+  adaptiveThresholds: true,     // Enable adaptive behavior
+  successRateWindow: 3600000    // 1 hour window for success rate tracking
 };
 
 /**
- * Circuit breaker implementation
+ * Circuit breaker implementation with adaptive features
  */
 export class CircuitBreaker {
   private state: CircuitState = CircuitState.CLOSED;
@@ -51,6 +58,12 @@ export class CircuitBreaker {
   private monitorTimer: NodeJS.Timeout | null = null;
   private options: CircuitBreakerOptions;
   private logger: Logger;
+  
+  // Adaptive behavior tracking
+  private consecutiveFailures: number = 0;
+  private currentResetTimeout: number;
+  private successHistory: Array<{timestamp: number, success: boolean}> = [];
+  private adaptiveFailureThreshold: number;
 
   /**
    * Constructor
@@ -65,6 +78,8 @@ export class CircuitBreaker {
   ) {
     this.options = { ...DEFAULT_OPTIONS, ...options };
     this.logger = logger;
+    this.currentResetTimeout = this.options.resetTimeout;
+    this.adaptiveFailureThreshold = this.options.failureThreshold;
 
     // Start monitoring if interval is set
     if (this.options.monitorInterval && this.options.monitorInterval > 0) {
@@ -82,7 +97,7 @@ export class CircuitBreaker {
     // Check if circuit is open
     if (this.state === CircuitState.OPEN) {
       // Check if it's time to try again
-      if (Date.now() - this.lastFailureTime >= this.options.resetTimeout) {
+      if (Date.now() - this.lastFailureTime >= this.currentResetTimeout) {
         this.halfOpen();
       } else {
         this.logger.warn(`Circuit ${this.name} is OPEN - failing fast`);
@@ -125,24 +140,29 @@ export class CircuitBreaker {
   }
 
   /**
-   * Handle successful execution
+   * Handle successful execution with adaptive behavior
    */
   private onSuccess(): void {
     if (this.state === CircuitState.HALF_OPEN) {
       this.successes++;
       this.logger.debug(`Circuit ${this.name} success in HALF_OPEN state (${this.successes}/${this.options.halfOpenSuccessThreshold})`);
 
-      if (this.successes >= this.options.halfOpenSuccessThreshold) {
+      if (this.successes >= (this.options.halfOpenSuccessThreshold || 3)) {
         this.close();
       }
     } else {
-      // Reset failures in closed state
+      // Reset failure tracking in closed state
+      this.consecutiveFailures = 0;
+      this.currentResetTimeout = this.options.resetTimeout;
       this.failures = 0;
     }
+
+    // Track success for adaptive behavior
+    this.updateSuccessHistory(true);
   }
 
   /**
-   * Handle failed execution
+   * Handle failed execution with adaptive behavior
    * @param error Error that occurred
    */
   private onFailure(error: unknown): void {
@@ -150,9 +170,12 @@ export class CircuitBreaker {
     this.lastFailureTime = Date.now();
 
     const errorMessage = error instanceof Error ? error.message : String(error);
-    this.logger.warn(`Circuit ${this.name} failure: ${errorMessage} (${this.failures}/${this.options.failureThreshold})`);
+    this.logger.warn(`Circuit ${this.name} failure: ${errorMessage} (${this.failures}/${this.adaptiveFailureThreshold})`);
 
-    if (this.state === CircuitState.CLOSED && this.failures >= this.options.failureThreshold) {
+    // Track failure for adaptive behavior
+    this.updateSuccessHistory(false);
+
+    if (this.state === CircuitState.CLOSED && this.failures >= this.adaptiveFailureThreshold) {
       this.open();
     } else if (this.state === CircuitState.HALF_OPEN) {
       this.open();
@@ -160,15 +183,22 @@ export class CircuitBreaker {
   }
 
   /**
-   * Open the circuit
+   * Open the circuit with exponential backoff
    */
   private open(): void {
     this.state = CircuitState.OPEN;
     this.failures = 0;
     this.successes = 0;
     this.lastFailureTime = Date.now();
+    this.consecutiveFailures++;
     
-    this.logger.warn(`Circuit ${this.name} OPENED`);
+    // Implement exponential backoff
+    this.currentResetTimeout = Math.min(
+      this.currentResetTimeout * (this.options.backoffMultiplier || 2), 
+      this.options.maxResetTimeout || 1800000
+    );
+    
+    this.logger.warn(`Circuit ${this.name} OPENED (attempt ${this.consecutiveFailures}, reset in ${this.currentResetTimeout}ms)`);
     
     // Schedule reset
     if (this.resetTimer) {
@@ -177,7 +207,7 @@ export class CircuitBreaker {
     
     this.resetTimer = setTimeout(() => {
       this.halfOpen();
-    }, this.options.resetTimeout);
+    }, this.currentResetTimeout);
   }
 
   /**
@@ -198,6 +228,7 @@ export class CircuitBreaker {
     this.state = CircuitState.CLOSED;
     this.failures = 0;
     this.successes = 0;
+    this.currentResetTimeout = this.options.resetTimeout; // Reset to base timeout
     
     this.logger.info(`Circuit ${this.name} CLOSED - service is operational`);
   }
@@ -231,6 +262,46 @@ export class CircuitBreaker {
     if (this.monitorTimer) {
       clearInterval(this.monitorTimer);
       this.monitorTimer = null;
+    }
+  }
+
+  /**
+   * Update success/failure history for adaptive behavior
+   * @param success Whether the operation was successful
+   */
+  private updateSuccessHistory(success: boolean): void {
+    const now = Date.now();
+    this.successHistory.push({ timestamp: now, success });
+
+    // Remove outdated entries
+    const windowStart = now - (this.options.successRateWindow || 3600000);
+    this.successHistory = this.successHistory.filter(entry => entry.timestamp >= windowStart);
+
+    // Adjust failure threshold adaptively
+    if (this.options.adaptiveThresholds) {
+      const successCount = this.successHistory.filter(entry => entry.success).length;
+      const totalCount = this.successHistory.length;
+      
+      if (totalCount >= 10) { // Need minimum sample size
+        const successRate = successCount / totalCount;
+        
+        // Adjust threshold based on success rate
+        if (successRate > 0.95) {
+          // Very reliable service - can be more tolerant of failures
+          this.adaptiveFailureThreshold = Math.max(7, this.options.failureThreshold);
+        } else if (successRate > 0.85) {
+          // Reliable service - use base threshold
+          this.adaptiveFailureThreshold = this.options.failureThreshold;
+        } else if (successRate > 0.70) {
+          // Moderately reliable - be slightly more sensitive
+          this.adaptiveFailureThreshold = Math.max(3, this.options.failureThreshold - 1);
+        } else {
+          // Unreliable service - be more sensitive
+          this.adaptiveFailureThreshold = Math.max(2, Math.floor(this.options.failureThreshold / 2));
+        }
+        
+        this.logger.debug(`Circuit ${this.name} adaptive threshold: ${this.adaptiveFailureThreshold} (success rate: ${(successRate * 100).toFixed(1)}%)`);
+      }
     }
   }
 }

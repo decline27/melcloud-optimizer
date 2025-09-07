@@ -1,6 +1,6 @@
 {
   "id": "com.melcloud.optimize",
-  "version": "12.5.5",
+  "version": "12.5.16",
   "compatibility": ">=12.2.0",
   "sdk": 3,
   "platforms": [
@@ -27,6 +27,7 @@
     "small": "/assets/images/small.png"
   },
   "brandColor": "#1E88E5",
+  "homeyCommunityTopicId": 136325,
   "support": "https://github.com/decline27/melcloud-optimizer/issues",
   "capabilities": {
     "heating_cop": {
@@ -66,6 +67,69 @@
       "setable": false,
       "uiComponent": "sensor",
       "icon": "/assets/icon.svg"
+    },
+    "holiday_mode": {
+      "type": "boolean",
+      "title": {
+        "en": "Holiday Mode"
+      },
+      "getable": true,
+      "setable": true,
+      "uiComponent": "toggle"
+    },
+    "prohibit_hotwater": {
+      "type": "boolean",
+      "title": {
+        "en": "Prohibit Hot Water"
+      },
+      "getable": true,
+      "setable": true,
+      "uiComponent": "toggle"
+    },
+    "prohibit_heating.zone1": {
+      "type": "boolean",
+      "title": {
+        "en": "Prohibit Heating - Zone 1"
+      },
+      "getable": true,
+      "setable": true,
+      "uiComponent": "toggle"
+    },
+    "prohibit_cooling.zone1": {
+      "type": "boolean",
+      "title": {
+        "en": "Prohibit Cooling - Zone 1"
+      },
+      "getable": true,
+      "setable": true,
+      "uiComponent": "toggle"
+    },
+    "prohibit_heating.zone2": {
+      "type": "boolean",
+      "title": {
+        "en": "Prohibit Heating - Zone 2"
+      },
+      "getable": true,
+      "setable": true,
+      "uiComponent": "toggle"
+    },
+    "prohibit_cooling.zone2": {
+      "type": "boolean",
+      "title": {
+        "en": "Prohibit Cooling - Zone 2"
+      },
+      "getable": true,
+      "setable": true,
+      "uiComponent": "toggle"
+    },
+    "legionella_now": {
+      "type": "boolean",
+      "title": {
+        "en": "Start Legionella Cycle"
+      },
+      "getable": true,
+      "setable": true,
+      "uiComponent": "toggle"
     }
   },
   "flow": {
@@ -133,6 +197,14 @@
     "runThermalDataCleanup": {
       "method": "GET",
       "path": "/runThermalDataCleanup"
+    },
+    "getSavingsSummary": {
+      "method": "GET",
+      "path": "/getSavingsSummary"
+    },
+    "getLogSavingsSummaryClicked": {
+      "method": "GET",
+      "path": "/getLogSavingsSummaryClicked"
     }
   }
 }

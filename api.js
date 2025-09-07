@@ -3003,17 +3003,83 @@ class Optimizer {
     return targetTemp;
   }
 
-  calculateSavings(oldTemp, newTemp, currentPrice) {
-    // Simple model: each degree lower saves about 5% energy
-    const tempDiff = oldTemp - newTemp;
-    const energySavingPercent = tempDiff * 5;
+  calculateSavings(oldTemp, newTemp, currentPrice, kind = 'zone1') {
+    // Heuristic model with per-surface weighting and inclusion of Zone2/Tank
+    // kind: 'zone1' | 'zone2' | 'tank'
+    const tempDiff = (Number(oldTemp) || 0) - (Number(newTemp) || 0);
+    if (!isFinite(tempDiff) || !isFinite(currentPrice)) return 0;
 
-    // Convert to monetary value (very rough estimate)
-    // Assuming average consumption of 1 kWh per hour
-    const hourlyConsumption = 1; // kWh
-    const savings = (energySavingPercent / 100) * hourlyConsumption * currentPrice;
+    // Base assumptions
+    const baseHourlyConsumptionKWh = 1.0; // nominal baseline per hour
 
-    return savings;
+    // Per-degree percentage impact by kind (relative surface/impact)
+    const perDegPct = kind === 'tank' ? 2.0 : kind === 'zone2' ? 4.0 : 5.0; // % per °C
+
+    // Multiplier by kind for relative impact vs Zone1
+    const kindMultiplier = kind === 'tank' ? 0.8 : kind === 'zone2' ? 0.9 : 1.0;
+
+    const energySavingPercent = tempDiff * perDegPct * kindMultiplier;
+    const savings = (energySavingPercent / 100) * baseHourlyConsumptionKWh * currentPrice;
+    return Number.isFinite(savings) ? savings : 0;
+  }
+
+  /**
+   * Calculate hourly cost impact using real MELCloud energy data (when available).
+   * Falls back to heuristic when data is missing.
+   * kind: 'zone1' | 'zone2' | 'tank'
+   */
+  async calculateRealHourlySavings(oldTemp, newTemp, currentPrice, kind = 'zone1') {
+    try {
+      const tempDiff = (Number(newTemp) || 0) - (Number(oldTemp) || 0);
+      if (!isFinite(tempDiff) || tempDiff === 0) return 0;
+
+      // Fetch COP/energy data
+      const copData = await this.melCloud.getCOPData(this.deviceId, this.buildingId);
+      const dev = copData && (copData.Device || copData.device || copData);
+      const heatConsumed = Number(dev?.DailyHeatingEnergyConsumed || 0);
+      const heatProduced = Number(dev?.DailyHeatingEnergyProduced || 0);
+      const waterConsumed = Number(dev?.DailyHotWaterEnergyConsumed || 0);
+      const waterProduced = Number(dev?.DailyHotWaterEnergyProduced || 0);
+
+      const heatingCOP = heatConsumed > 0 ? (heatProduced / heatConsumed) : 0;
+      const hotWaterCOP = waterConsumed > 0 ? (waterProduced / waterConsumed) : 0;
+
+      // Determine seasonal mode roughly from usage balance
+      let seasonalMode = 'transition';
+      if (heatConsumed < 1) seasonalMode = 'summer';
+      else if (heatConsumed > waterConsumed * 2) seasonalMode = 'winter';
+
+      // Choose the relevant daily consumption component for the change kind
+      let dailyConsumption = heatConsumed + waterConsumed;
+      if (kind === 'tank') dailyConsumption = Math.max(waterConsumed, 0);
+      else dailyConsumption = Math.max(heatConsumed, 0);
+      if (!isFinite(dailyConsumption) || dailyConsumption <= 0) {
+        // Fallback if energy not available
+        return this.calculateSavings(oldTemp, newTemp, currentPrice, kind);
+      }
+
+      // Normalize COP into an efficiency 0..1 (relative to COP=3 as "good")
+      const heatEff = Math.min(heatingCOP / 3, 1) || 0.5;
+      const waterEff = Math.min(hotWaterCOP / 3, 1) || 0.5;
+
+      // Per-degree energy impact factor
+      let perDegFactor; // as fraction of daily energy
+      if (seasonalMode === 'winter') perDegFactor = 0.15 * heatEff;
+      else if (seasonalMode === 'summer') perDegFactor = 0.05;
+      else perDegFactor = 0.10;
+
+      // Adjust by surface kind
+      if (kind === 'zone2') perDegFactor *= 0.9;
+      if (kind === 'tank') perDegFactor *= 0.5; // tank changes have smaller whole-day effect
+
+      const dailyEnergyImpact = Math.abs(tempDiff) * perDegFactor * dailyConsumption; // kWh
+      const dailyCostImpact = dailyEnergyImpact * (tempDiff > 0 ? currentPrice : -currentPrice);
+      const hourlyCostImpact = dailyCostImpact / 24;
+      return Number.isFinite(hourlyCostImpact) ? hourlyCostImpact : 0;
+    } catch (_) {
+      // Fallback on any error
+      return this.calculateSavings(oldTemp, newTemp, currentPrice, kind);
+    }
   }
 
   /**
@@ -3746,8 +3812,17 @@ class Optimizer {
         
         this.logger.log(`Enhanced temperature adjusted from ${currentTarget.toFixed(1)}°C to ${targetTemp.toFixed(1)}°C`);
 
-        // Calculate savings and comfort impact
-        const savings = this.calculateSavings(currentTarget, targetTemp, currentPrice);
+        // Calculate savings across Zone1/Zone2/Tank using real energy data when available
+        let savings = await this.calculateRealHourlySavings(currentTarget, targetTemp, currentPrice, 'zone1');
+        try {
+          if (zone2Result && typeof zone2Result.fromTemp === 'number' && typeof zone2Result.toTemp === 'number') {
+            savings += await this.calculateRealHourlySavings(zone2Result.fromTemp, zone2Result.toTemp, currentPrice, 'zone2');
+          }
+          if (tankResult && typeof tankResult.fromTemp === 'number' && typeof tankResult.toTemp === 'number') {
+            savings += await this.calculateRealHourlySavings(tankResult.fromTemp, tankResult.toTemp, currentPrice, 'tank');
+          }
+        } catch (_) {}
+        // Calculate comfort impact
         const comfort = this.calculateComfortImpact(currentTarget, targetTemp);
 
         // Get price forecasting data
@@ -3825,8 +3900,18 @@ class Optimizer {
       } else {
         this.logger.log(`No enhanced temperature adjustment needed (difference: ${tempDifference.toFixed(1)}°C < deadband: ${deadband}°C)`);
 
-        // Calculate savings and comfort impact even for no change
-        const savings = this.calculateSavings(currentTarget, targetTemp, currentPrice);
+        // Calculate savings from Zone2/Tank even if Zone1 unchanged
+        let savings = 0;
+        try {
+          if (zone2Result && typeof zone2Result.fromTemp === 'number' && typeof zone2Result.toTemp === 'number') {
+            savings += await this.calculateRealHourlySavings(zone2Result.fromTemp, zone2Result.toTemp, currentPrice, 'zone2');
+          }
+          if (tankResult && typeof tankResult.fromTemp === 'number' && typeof tankResult.toTemp === 'number') {
+            savings += await this.calculateRealHourlySavings(tankResult.fromTemp, tankResult.toTemp, currentPrice, 'tank');
+          }
+        } catch (_) {}
+        // Comfort impact based on Zone1 request (unchanged)
+        const savingsNoChange = savings;
         const comfort = this.calculateComfortImpact(currentTarget, targetTemp);
 
         // Get price forecasting data
@@ -3846,7 +3931,7 @@ class Optimizer {
             level: priceLevel,
             percentile: pricePercentile
           },
-          savings: savings,
+          savings: savingsNoChange,
           comfort: comfort,
           // Add compatibility fields for getThermalModelData
           targetTemp: currentTarget,        // Expected by getThermalModelData
@@ -4171,6 +4256,216 @@ async function updateOptimizerSettings(homey) {
 module.exports = {
   // Export the updateOptimizerSettings function so it can be called from app.ts
   updateOptimizerSettings,
+  
+  /**
+   * Return a savings summary using persisted savings history in Homey settings.
+   * Computes today, last 7 days (incl. today), and last 30 days (rolling).
+   */
+  async getSavingsSummary({ homey }) {
+    try {
+      // Log like other endpoints (both console and app logger)
+      console.log('API method getSavingsSummary called');
+      homey.app.log('API method getSavingsSummary called');
+
+      // Helper to get local date string YYYY-MM-DD using Homey time zone settings
+      const getLocalDateString = () => {
+        try {
+          const tzOffset = parseInt(homey.settings.get('time_zone_offset'));
+          const useDST = !!homey.settings.get('use_dst');
+          const now = new Date();
+          const local = new Date(now.getTime());
+          if (!isNaN(tzOffset)) local.setUTCHours(now.getUTCHours() + tzOffset);
+          // Simple EU DST approximation (same approach used elsewhere in this codebase)
+          if (useDST) {
+            const m = now.getUTCMonth();
+            if (m > 2 && m < 10) {
+              local.setUTCHours(local.getUTCHours() + 1);
+            }
+          }
+          // Use local getters after applying offset math above to match app.ts behavior
+          const y = local.getFullYear();
+          const mo = String(local.getMonth() + 1).padStart(2, '0');
+          const d = String(local.getDate()).padStart(2, '0');
+          return `${y}-${mo}-${d}`;
+        } catch (e) {
+          // Fallback to system date if anything goes wrong
+          const d = new Date();
+          const y = d.getFullYear();
+          const mo = String(d.getMonth() + 1).padStart(2, '0');
+          const dd = String(d.getDate()).padStart(2, '0');
+          return `${y}-${mo}-${dd}`;
+        }
+      };
+
+      const history = homey.settings.get('savings_history') || [];
+      const normalized = Array.isArray(history) ? history.filter(h => h && typeof h.date === 'string') : [];
+      // Determine reference "today" date. Prefer the newest history date to avoid TZ drift.
+      let todayStr;
+      if (normalized.length > 0) {
+        todayStr = normalized
+          .map(h => h.date)
+          .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+          .pop();
+      } else {
+        todayStr = getLocalDateString();
+      }
+
+      const todayDate = new Date(`${todayStr}T00:00:00`);
+      const last7Cutoff = new Date(todayDate);
+      last7Cutoff.setDate(todayDate.getDate() - 6);
+      const last30Cutoff = new Date(todayDate);
+      last30Cutoff.setDate(todayDate.getDate() - 29);
+      // Week-to-date (ISO week, Monday start)
+      const jsDay = todayDate.getDay(); // 0=Sun..6=Sat
+      const offsetToMonday = (jsDay + 6) % 7; // days since Monday
+      const startOfWeek = new Date(todayDate);
+      startOfWeek.setDate(todayDate.getDate() - offsetToMonday);
+      // Month-to-date: first day of current month
+      const startOfMonth = new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
+
+      const sumInWindow = (cutoff) => normalized
+        .filter(h => {
+          const d = new Date(`${h.date}T00:00:00`);
+          return d >= cutoff && d <= todayDate;
+        })
+        .reduce((sum, h) => sum + (Number(h.total) || 0), 0);
+
+      const todayEntry = normalized.find(h => h.date === todayStr);
+      const today = Number((todayEntry?.total || 0).toFixed(4));
+      // Yesterday
+      const yDate = new Date(todayDate); yDate.setDate(todayDate.getDate() - 1);
+      const yStr = `${yDate.getFullYear()}-${String(yDate.getMonth() + 1).padStart(2, '0')}-${String(yDate.getDate()).padStart(2, '0')}`;
+      const yesterday = Number(((normalized.find(h => h.date === yStr)?.total) || 0).toFixed(4));
+      const last7Days = Number(sumInWindow(last7Cutoff).toFixed(4));
+      const last30Days = Number(sumInWindow(last30Cutoff).toFixed(4));
+      const weekToDate = Number(sumInWindow(startOfWeek).toFixed(4));
+      const monthToDate = Number(sumInWindow(startOfMonth).toFixed(4));
+
+      // Determine if history extends beyond 30 days
+      let allTime;
+      if (normalized.length > 0) {
+        const earliest = normalized
+          .map(h => h.date)
+          .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))[0];
+        if (earliest) {
+          const earliestDate = new Date(`${earliest}T00:00:00`);
+          if (earliestDate < last30Cutoff) {
+            const at = normalized.reduce((sum, h) => sum + (Number(h.total) || 0), 0);
+            allTime = Number(at.toFixed(4));
+          }
+        }
+      }
+
+      // Build contiguous 30-day series for charting (fill missing as 0)
+      const seriesLast30 = [];
+      for (let i = 0; i < 30; i++) {
+        const d = new Date(last30Cutoff);
+        d.setDate(last30Cutoff.getDate() + i);
+        const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const entry = normalized.find(h => h.date === ds);
+        seriesLast30.push({ date: ds, total: Number(entry?.total || 0) });
+      }
+
+      const currencyCode = homey.settings.get('currency') || homey.settings.get('currency_code') || '';
+
+      // Log brief summary for visibility
+      try {
+        homey.app.log(`Savings summary: today=${today.toFixed(2)}, last7=${last7Days.toFixed(2)}, mtd=${monthToDate.toFixed(2)}, last30=${last30Days.toFixed(2)}${allTime !== undefined ? ", allTime=" + allTime.toFixed(2) : ''}`);
+      } catch (_) {}
+
+      // Detailed debug info to help diagnose zeros
+      try {
+        const seriesSum = seriesLast30.reduce((s, n) => s + Number(n.total || 0), 0);
+        const debugInfo = {
+          settings: {
+            time_zone_offset: homey.settings.get('time_zone_offset'),
+            use_dst: homey.settings.get('use_dst'),
+            currency: currencyCode
+          },
+          history: {
+            rawLength: Array.isArray(history) ? history.length : 0,
+            normalizedLength: normalized.length,
+            sampleFirst: normalized.slice(0, 3),
+            sampleLast: normalized.slice(-3)
+          },
+          dates: {
+            todayStr,
+            last7Cutoff: `${last7Cutoff.getFullYear()}-${String(last7Cutoff.getMonth()+1).padStart(2,'0')}-${String(last7Cutoff.getDate()).padStart(2,'0')}`,
+            last30Cutoff: `${last30Cutoff.getFullYear()}-${String(last30Cutoff.getMonth()+1).padStart(2,'0')}-${String(last30Cutoff.getDate()).padStart(2,'0')}`,
+            startOfWeek: `${startOfWeek.getFullYear()}-${String(startOfWeek.getMonth()+1).padStart(2,'0')}-${String(startOfWeek.getDate()).padStart(2,'0')}`,
+            startOfMonth: `${startOfMonth.getFullYear()}-${String(startOfMonth.getMonth()+1).padStart(2,'0')}-${String(startOfMonth.getDate()).padStart(2,'0')}`
+          },
+          computed: {
+            today,
+            yesterday,
+            weekToDate,
+            last7Days,
+            monthToDate,
+            last30Days,
+            allTime: allTime !== undefined ? allTime : null
+          },
+          series: {
+            last30Count: seriesLast30.length,
+            last30Sum: seriesSum,
+            head: seriesLast30.slice(0, 3),
+            tail: seriesLast30.slice(-3)
+          }
+        };
+
+        const loggerProxy = { homey };
+        const dump = prettyPrintJson(debugInfo, 'SavingsSummary Debug', loggerProxy, 1);
+        homey.app.log(dump);
+      } catch (e) {
+        homey.app.log('SavingsSummary debug logging failed:', e && e.message ? e.message : String(e));
+      }
+
+      return {
+        success: true,
+        summary: {
+          today,
+          yesterday,
+          weekToDate,
+          last7Days,
+          monthToDate,
+          last30Days,
+          ...(allTime !== undefined ? { allTime } : {}),
+        },
+        todayDate: todayStr,
+        historyDays: normalized.length,
+        currencyCode,
+        timestamp: new Date().toISOString(),
+        series: {
+          last30: seriesLast30,
+        }
+      };
+    } catch (err) {
+      homey.app.error('Error in getSavingsSummary:', err);
+      return { success: false, error: err.message };
+    }
+  },
+
+  /**
+   * Log that the Settings "View Savings Summary" button was clicked.
+   */
+  async getLogSavingsSummaryClicked({ homey }) {
+    try {
+      const ts = new Date().toISOString();
+      // Prefer centralized HomeyLogger if available
+      if (homey.app && homey.app.logger && typeof homey.app.logger.info === 'function') {
+        try {
+          homey.app.logger.info('SettingsEvent', { event: 'view_savings_summary', timestamp: ts });
+        } catch (e) {
+          homey.app.log(`[SETTINGS] View Savings Summary clicked at ${ts}`);
+        }
+      } else {
+        homey.app.log(`[SETTINGS] View Savings Summary clicked at ${ts}`);
+      }
+      return { success: true, timestamp: ts };
+    } catch (err) {
+      homey.app.error('Error in getLogSavingsSummaryClicked:', err);
+      return { success: false };
+    }
+  },
 
   // API endpoint for updating optimizer settings
   async updateOptimizerSettings({ homey }) {
@@ -4232,6 +4527,10 @@ module.exports = {
           // Include information about zones if available
           hasZone1: device.data && device.data.SetTemperatureZone1 !== undefined,
           hasZone2: device.data && device.data.SetTemperatureZone2 !== undefined,
+          // Include information about tank if available
+          hasTank: device.data && (device.data.SetTankWaterTemperature !== undefined || device.data.TankWaterTemperature !== undefined),
+          SetTankWaterTemperature: device.data && device.data.SetTankWaterTemperature,
+          TankWaterTemperature: device.data && device.data.TankWaterTemperature,
           // Include current temperatures if available
           currentTemperatureZone1: device.data && device.data.RoomTemperatureZone1,
           currentTemperatureZone2: device.data && device.data.RoomTemperatureZone2,
@@ -4317,7 +4616,8 @@ module.exports = {
 
         // Log price data
         if (result.priceData) {
-          homey.app.log(`💰 Price Data: Current: ${result.priceData.current}kr/kWh, Next Hour: ${result.priceData.nextHour}kr/kWh`);
+          const nextHourVal = (result.priceData && typeof result.priceData.nextHour === 'number') ? result.priceData.nextHour : 'n/a';
+          homey.app.log(`💰 Price Data: Current: ${result.priceData.current}kr/kWh, Next Hour: ${nextHourVal}kr/kWh`);
         }
 
         // Send to timeline using our standardized TimelineHelperWrapper
@@ -4382,25 +4682,47 @@ module.exports = {
             additionalData.weather = result.weather;
           }
 
-          // Add Zone2 and tank optimization info if available
-          if (result.zone2Temperature) {
-            additionalData.zone2Temperature = result.zone2Temperature;
-          }
-          
-          if (result.tankTemperature) {
-            additionalData.tankTemperature = result.tankTemperature;
+          // Add Zone2 optimization info only if device supports Zone2 and data exists
+          if (result.zone2Temperature &&
+              typeof result.zone2Temperature === 'object' &&
+              result.zone2Temperature.targetTemp !== undefined &&
+              result.zone2Temperature.targetOriginal !== undefined) {
+            additionalData.zone2Temp = result.zone2Temperature.targetTemp;
+            additionalData.zone2Original = result.zone2Temperature.targetOriginal;
           }
 
-          // Calculate daily savings (only if temperature was actually changed)
+          // Add tank optimization info if data exists
+          if (result.tankTemperature &&
+              typeof result.tankTemperature === 'object' &&
+              result.tankTemperature.targetTemp !== undefined &&
+              result.tankTemperature.targetOriginal !== undefined) {
+            additionalData.tankTemp = result.tankTemperature.targetTemp;
+            additionalData.tankOriginal = result.tankTemperature.targetOriginal;
+          }
+
+          // Calculate projected daily savings (only if temperature was actually changed)
           if (result.action === 'temperature_adjusted' && Math.abs(result.toTemp - result.fromTemp) > 0.1) {
-            // Use the savings already calculated by the optimizer
-            const dailySavings = result.savings || 0;
-            
-            if (Math.abs(dailySavings) > 0.1) {
-              additionalData.dailySavings = dailySavings;
-              
+            const hourlySavings = result.savings || 0;
+            let projectedDailySavings = 0;
+
+            try {
+              // Prefer the optimizer's enhanced daily savings calculation when available
+              if (optimizer && typeof optimizer.calculateDailySavings === 'function') {
+                projectedDailySavings = optimizer.calculateDailySavings(hourlySavings);
+              } else {
+                projectedDailySavings = hourlySavings * 24;
+              }
+            } catch (calcErr) {
+              // Fallback if anything goes wrong
+              homey.app.error('Error calculating projected daily savings, using simple estimate:', calcErr);
+              projectedDailySavings = hourlySavings * 24;
+            }
+
+            if (Math.abs(projectedDailySavings) > 0.1) {
+              additionalData.dailySavings = projectedDailySavings;
+
               // Log the projected daily savings for debugging
-              homey.app.log(`Hourly optimization projected daily savings: ${dailySavings.toFixed(2)} NOK/day`);
+              homey.app.log(`Hourly optimization projected daily savings: ${projectedDailySavings.toFixed(2)} NOK/day`);
             }
           }
 
@@ -4418,6 +4740,71 @@ module.exports = {
         }
 
         homey.app.log('===== HOURLY OPTIMIZATION COMPLETED SUCCESSFULLY =====');
+
+        // Persist savings history for settings summary (mirror app.ts addSavings)
+        try {
+          // Ensure an hourly savings number exists; if missing, derive from changes
+          let computedSavings = (typeof result.savings === 'number' && !Number.isNaN(result.savings)) ? result.savings : 0;
+          if (!(typeof result.savings === 'number' && !Number.isNaN(result.savings))) {
+            try {
+              const p = result.priceData?.current || 0;
+              if (result.fromTemp !== undefined && result.toTemp !== undefined) {
+                if (typeof optimizer.calculateRealHourlySavings === 'function') {
+                  computedSavings += await optimizer.calculateRealHourlySavings(result.fromTemp, result.toTemp, p, 'zone1');
+                } else {
+                  computedSavings += optimizer.calculateSavings(result.fromTemp, result.toTemp, p, 'zone1');
+                }
+              }
+              if (result.zone2Data && result.zone2Data.fromTemp !== undefined && result.zone2Data.toTemp !== undefined) {
+                if (typeof optimizer.calculateRealHourlySavings === 'function') {
+                  computedSavings += await optimizer.calculateRealHourlySavings(result.zone2Data.fromTemp, result.zone2Data.toTemp, p, 'zone2');
+                } else {
+                  computedSavings += optimizer.calculateSavings(result.zone2Data.fromTemp, result.zone2Data.toTemp, p, 'zone2');
+                }
+              }
+              if (result.tankData && result.tankData.fromTemp !== undefined && result.tankData.toTemp !== undefined) {
+                if (typeof optimizer.calculateRealHourlySavings === 'function') {
+                  computedSavings += await optimizer.calculateRealHourlySavings(result.tankData.fromTemp, result.tankData.toTemp, p, 'tank');
+                } else {
+                  computedSavings += optimizer.calculateSavings(result.tankData.fromTemp, result.tankData.toTemp, p, 'tank');
+                }
+              }
+            } catch (_) {}
+          }
+          if (typeof computedSavings === 'number' && !Number.isNaN(computedSavings)) {
+            const tzOffset = parseInt(homey.settings.get('time_zone_offset'));
+            const useDST = !!homey.settings.get('use_dst');
+            const now = new Date();
+            const local = new Date(now.getTime());
+            if (!Number.isNaN(tzOffset)) local.setUTCHours(now.getUTCHours() + tzOffset);
+            if (useDST) {
+              const m = now.getUTCMonth();
+              if (m > 2 && m < 10) local.setUTCHours(local.getUTCHours() + 1);
+            }
+            const y = local.getFullYear();
+            const mo = String(local.getMonth() + 1).padStart(2, '0');
+            const d = String(local.getDate()).padStart(2, '0');
+            const todayStr = `${y}-${mo}-${d}`;
+
+            const hist = homey.settings.get('savings_history') || [];
+            const arr = Array.isArray(hist) ? hist.slice() : [];
+            let todayEntry = arr.find(h => h && h.date === todayStr);
+            if (!todayEntry) {
+              todayEntry = { date: todayStr, total: 0 };
+              arr.push(todayEntry);
+            }
+            todayEntry.total = Number((Number(todayEntry.total || 0) + computedSavings).toFixed(4));
+            // Keep last 30 days only
+            arr.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+            const trimmed = arr.slice(Math.max(0, arr.length - 30));
+            homey.settings.set('savings_history', trimmed);
+            homey.app.log(`Updated savings_history: +${computedSavings.toFixed(4)} -> today ${todayEntry.total.toFixed(4)} (${todayStr}), size=${trimmed.length}`);
+          } else {
+            homey.app.log('No numeric savings value to persist for this optimization run.');
+          }
+        } catch (persistErr) {
+          homey.app.error('Failed to persist savings_history:', persistErr && persistErr.message ? persistErr.message : String(persistErr));
+        }
 
         return {
           success: true,
@@ -4715,24 +5102,7 @@ module.exports = {
           // Store the last run time in settings
           homey.settings.set('last_hourly_run', currentTime);
 
-          // Add a timeline entry for the automatic trigger
-          try {
-            homey.app.log('Creating timeline entry for hourly job');
-
-            // Create a timeline helper wrapper instance
-            const timelineHelper = new TimelineHelperWrapper(homey);
-
-            // Create the timeline entry using our standardized helper
-            await timelineHelper.addTimelineEntry(
-              TimelineEventType.HOURLY_OPTIMIZATION,
-              {},
-              false
-            );
-
-            homey.app.log('Timeline entry created successfully');
-          } catch (err) {
-            homey.app.error('Failed to create timeline entry for automatic trigger', err);
-          }
+          // Intentionally skip timeline post for cron trigger (noisy/duplicative)
 
           // Call the hourly optimizer
           try {
@@ -4753,24 +5123,7 @@ module.exports = {
           // Store the last run time in settings
           homey.settings.set('last_weekly_run', currentTime);
 
-          // Add a timeline entry for the automatic trigger
-          try {
-            homey.app.log('Creating timeline entry for weekly job');
-
-            // Create a timeline helper wrapper instance
-            const timelineHelper = new TimelineHelperWrapper(homey);
-
-            // Create the timeline entry using our standardized helper
-            await timelineHelper.addTimelineEntry(
-              TimelineEventType.WEEKLY_CALIBRATION,
-              {},
-              false
-            );
-
-            homey.app.log('Timeline entry created successfully');
-          } catch (err) {
-            homey.app.error('Failed to create timeline entry for automatic trigger', err);
-          }
+          // Intentionally skip timeline post for cron trigger (noisy/duplicative)
 
           // Call the weekly calibration
           try {
@@ -4810,24 +5163,7 @@ module.exports = {
         global.hourlyJob = hourlyJob;
         global.weeklyJob = weeklyJob;
 
-        // Add a timeline entry for the cron job initialization
-        try {
-          homey.app.log('Creating timeline entry for cron job initialization');
-
-          // Create a timeline helper wrapper instance
-          const timelineHelper = new TimelineHelperWrapper(homey);
-
-          // Create the timeline entry using our standardized helper
-          await timelineHelper.addTimelineEntry(
-            TimelineEventType.CRON_JOB_INITIALIZED,
-            {},
-            false
-          );
-
-          homey.app.log('Timeline entry created successfully');
-        } catch (err) {
-          homey.app.error('Failed to create timeline entry for cron job initialization', err);
-        }
+        // Skip timeline post for cron initialization (not needed)
 
         // Update the cron status in settings
         await this.getUpdateCronStatus({ homey });
@@ -5435,6 +5771,75 @@ module.exports = {
     } catch (err) {
       console.error('Error in runThermalDataCleanup:', err);
       return { success: false, error: err.message };
+    }
+  },
+
+  /**
+   * Cleanup all API resources to prevent memory leaks
+   * Should be called when the app is shutting down
+   */
+  async cleanup({ homey }) {
+    try {
+      homey.app.log('Starting API resources cleanup...');
+
+      // Clean up optimizer (which includes thermal model service)
+      if (global.optimizer && typeof global.optimizer.cleanup === 'function') {
+        try {
+          global.optimizer.cleanup();
+          homey.app.log('Optimizer resources cleaned up');
+        } catch (optimizerError) {
+          homey.app.error('Error cleaning up optimizer:', optimizerError);
+        }
+      }
+
+      // Clean up MELCloud API
+      if (global.melCloud && typeof global.melCloud.cleanup === 'function') {
+        try {
+          global.melCloud.cleanup();
+          homey.app.log('MELCloud API resources cleaned up');
+        } catch (melCloudError) {
+          homey.app.error('Error cleaning up MELCloud API:', melCloudError);
+        }
+      }
+
+      // Clean up Tibber API  
+      if (global.tibber && typeof global.tibber.cleanup === 'function') {
+        try {
+          global.tibber.cleanup();
+          homey.app.log('Tibber API resources cleaned up');
+        } catch (tibberError) {
+          homey.app.error('Error cleaning up Tibber API:', tibberError);
+        }
+      }
+
+      // Clean up COP Helper
+      if (global.copHelper && typeof global.copHelper.cleanup === 'function') {
+        try {
+          global.copHelper.cleanup();
+          homey.app.log('COP Helper resources cleaned up');
+        } catch (copError) {
+          homey.app.error('Error cleaning up COP Helper:', copError);
+        }
+      }
+
+      // Clear global references
+      global.optimizer = null;
+      global.melCloud = null;
+      global.tibber = null;
+      global.copHelper = null;
+
+      homey.app.log('All API resources cleaned up successfully');
+      return {
+        success: true,
+        message: 'All resources cleaned up successfully'
+      };
+
+    } catch (error) {
+      homey.app.error('Error during API cleanup:', error);
+      return {
+        success: false,
+        error: error.message
+      };
     }
   }
 };

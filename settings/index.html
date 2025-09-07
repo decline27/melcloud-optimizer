@@ -73,18 +73,19 @@
           <input type="checkbox" id="show_manual_entry" />
           <span>Show manual ID entry fields</span>
         </label>
+        <p class="homey-form-helper">Note: This option only affects this page and is not saved.</p>
       </div>
 
       <div id="manual_id_entry" style="display: none;">
         <div class="homey-form-group">
           <label class="homey-form-label" for="manual_device_id">Manual Device ID</label>
           <input class="homey-form-input" id="manual_device_id" type="text" value="" />
-          <p class="homey-form-helper">The ID of your heat pump device in MELCloud</p>
+          <p class="homey-form-helper">The ID of your heat pump device in MELCloud (not stored; used only when saving)</p>
         </div>
         <div class="homey-form-group">
           <label class="homey-form-label" for="manual_building_id">Manual Building ID</label>
           <input class="homey-form-input" id="manual_building_id" type="text" value="" />
-          <p class="homey-form-helper">The ID of the building where your heat pump is located</p>
+          <p class="homey-form-helper">The ID of the building (not stored; used only when saving)</p>
         </div>
       </div>
     </fieldset>
@@ -114,7 +115,7 @@
       </div>
     </fieldset>
 
-    <fieldset class="homey-form-fieldset">
+    <fieldset class="homey-form-fieldset" id="zone2_fieldset">
       <legend class="homey-form-legend">Zone 2 Temperature Settings</legend>
       <div class="homey-form-group">
         <label class="homey-form-label" for="enable_zone2">Enable Zone 2 Control</label>
@@ -142,7 +143,7 @@
       </div>
     </fieldset>
 
-    <fieldset class="homey-form-fieldset">
+    <fieldset class="homey-form-fieldset" id="tank_fieldset">
       <legend class="homey-form-legend">Hot Water Tank Settings</legend>
       <div class="homey-form-group">
         <label class="homey-form-label" for="enable_tank_control">Enable Hot Water Tank Control</label>
@@ -151,6 +152,7 @@
           <span>Enable optimization of hot water tank temperature</span>
         </label>
         <p class="homey-form-helper">Enable optimization of hot water tank temperature based on electricity prices. Suggested default: Enabled - allows the system to store hot water as thermal energy when electricity is cheap.</p>
+        <p id="tank_capability_warning" class="homey-form-helper" style="display:none;color:#b00;">This device may not support tank water temperature control. If unsupported, these settings have no effect.</p>
       </div>
       <div class="homey-form-group">
         <label class="homey-form-label" for="min_tank_temp">Minimum Tank Temperature (°C)</label>
@@ -170,25 +172,7 @@
     </fieldset>
 
     <fieldset class="homey-form-fieldset">
-      <legend class="homey-form-legend">Hot Water Usage Pattern Analysis</legend>
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="enable_usage_patterns">Enable Usage Pattern Analysis</label>
-        <label class="homey-form-checkbox">
-          <input type="checkbox" id="enable_usage_patterns" checked />
-          <span>Enable hot water usage pattern analysis and optimization</span>
-        </label>
-        <p class="homey-form-helper">Analyzes your hot water usage patterns to optimize tank temperature based on your household's needs. This provides more efficient hot water heating than price-based optimization alone.</p>
-      </div>
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="max_data_points">Maximum Data Points</label>
-        <input class="homey-form-input" id="max_data_points" type="number" min="100" max="5000" step="100" value="1000" />
-        <p class="homey-form-helper">Maximum number of data points to store for pattern analysis. Higher values provide more accurate patterns but use more memory. Default: 1000</p>
-      </div>
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="data_retention_days">Data Retention (days)</label>
-        <input class="homey-form-input" id="data_retention_days" type="number" min="7" max="90" step="1" value="30" />
-        <p class="homey-form-helper">Number of days to keep hot water usage data. Older data will be automatically removed. Default: 30 days</p>
-      </div>
+      <legend class="homey-form-legend">Hot Water Usage Patterns</legend>
       <div class="button-container">
         <button id="reset_patterns" class="homey-button" onclick="resetHotWaterPatterns()">Reset Usage Patterns</button>
         <button id="clear_keep_patterns" class="homey-button-warning" onclick="clearHotWaterData(true)">Clear Data (Keep Patterns)</button>
@@ -196,6 +180,27 @@
       </div>
       <p class="homey-form-helper">Reset Usage Patterns: Resets learned patterns to default values.<br>Clear Data (Keep Patterns): Removes detailed data points but keeps aggregated usage patterns.<br>Clear All Data: Removes all collected usage data and resets patterns.</p>
       <p id="hot_water_action_result" class="result-message"></p>
+    </fieldset>
+
+    <fieldset class="homey-form-fieldset">
+      <legend class="homey-form-legend">Notifications</legend>
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="notify_on_success">Notify On Success</label>
+        <label class="homey-form-checkbox">
+          <input type="checkbox" id="notify_on_success" />
+          <span>Send a notification when optimization/calibration succeeds</span>
+        </label>
+        <p class="homey-form-helper">When enabled, you will receive a Homey notification for successful hourly optimization and weekly calibration.</p>
+      </div>
+    </fieldset>
+
+    <fieldset class="homey-form-fieldset">
+      <legend class="homey-form-legend">Localization</legend>
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="currency_code">Currency (ISO 4217)</label>
+        <input class="homey-form-input" id="currency_code" type="text" placeholder="e.g., NOK, SEK, EUR" />
+        <p class="homey-form-helper">Optional. Overrides automatic currency detection for timeline messages. Use a 3-letter code (e.g., NOK, SEK, EUR, DKK, USD).</p>
+      </div>
     </fieldset>
 
     <fieldset class="homey-form-fieldset">
@@ -225,6 +230,7 @@
         </div>
         <button id="detect-location" class="homey-button-primary">Detect My Location</button>
         <p class="homey-form-helper">You can find your coordinates using <a href="https://www.latlong.net/" target="_blank">LatLong.net</a> or similar services</p>
+        <p id="weather_location_warning" class="homey-form-helper" style="display:none;color:#b00;">Weather is enabled but coordinates are missing. Set latitude and longitude for accurate weather optimization.</p>
       </div>
     </fieldset>
 
@@ -379,6 +385,30 @@
       </div>
     </fieldset>
 
+    <fieldset class="homey-form-fieldset">
+      <legend class="homey-form-legend">Savings Summary</legend>
+      <div class="homey-form-group">
+        <p class="homey-form-helper">Get a quick view of your savings for today, last 7 days, and last 30 days.</p>
+        <div class="button-container">
+          <button id="view_savings_summary" class="homey-button" onclick="viewSavingsSummary()">View Savings Summary</button>
+          <button id="copy_savings_summary" class="homey-button" onclick="copySavingsSummary()" disabled>Copy Summary</button>
+        </div>
+        <div id="savings_summary_panel" style="margin-top: 15px; display: none;">
+          <h3>Savings</h3>
+          <div id="savings_summary_content" style="background-color: #f5f5f5; padding: 10px; border-radius: 5px; font-family: monospace; white-space: pre-wrap;"></div>
+          <div style="margin-top:10px;">
+            <canvas id="savings_chart_7" width="280" height="90" style="background:#fafafa;border:1px solid #eee;border-radius:4px;"></canvas>
+            <div class="homey-form-helper">Last 7 days</div>
+          </div>
+          <div style="margin-top:10px;">
+            <canvas id="savings_chart_30" width="420" height="100" style="background:#fafafa;border:1px solid #eee;border-radius:4px;"></canvas>
+            <div class="homey-form-helper">Last 30 days</div>
+          </div>
+        </div>
+        <p id="savings_summary_result" class="result-message"></p>
+      </div>
+    </fieldset>
+
     <button id="save" class="homey-button-primary-full">Save changes</button>
 
     <script type="text/javascript">
@@ -433,6 +463,232 @@
           document.getElementById('run_weekly').disabled = false;
           document.getElementById('trigger_result').textContent = "Weekly calibration completed successfully! Check the timeline for details.";
         });
+      }
+
+      // Function to view savings summary
+      function viewSavingsSummary() {
+        console.log('View savings summary button clicked');
+
+        const button = document.getElementById('view_savings_summary');
+        const resultEl = document.getElementById('savings_summary_result');
+        const panel = document.getElementById('savings_summary_panel');
+        const content = document.getElementById('savings_summary_content');
+
+        button.disabled = true;
+        resultEl.textContent = 'Fetching savings summary...';
+
+        HomeyInstance.api('GET', '/getSavingsSummary', {}, function(err, result) {
+          if (err) {
+            console.error('Error fetching savings summary:', err);
+            button.disabled = false;
+            // Fallback: if endpoint not found (older app manifest), compute on client
+            if (String(err && err.message || '').toLowerCase().includes('not found')) {
+              resultEl.textContent = 'Endpoint not found; computing summary locally...';
+              computeLocalSavingsSummary().then((local) => {
+                renderSavingsSummary(local, content, panel, resultEl, button);
+              }).catch((e) => {
+                resultEl.textContent = 'Error: ' + (e.message || 'Failed to compute local summary');
+                HomeyInstance.alert('Not found: GET /getSavingsSummary. Please update/restart the app.');
+              });
+              return;
+            }
+            resultEl.textContent = 'Error: ' + err.message;
+            return HomeyInstance.alert(err.message);
+          }
+
+          if (!result || !result.success) {
+            button.disabled = false;
+            const msg = result && result.error ? result.error : 'Unknown error retrieving savings summary';
+            resultEl.textContent = 'Error: ' + msg;
+            return HomeyInstance.alert(msg);
+          }
+          renderSavingsSummary(result, content, panel, resultEl, button);
+        });
+      }
+
+      function copySavingsSummary() {
+        const content = document.getElementById('savings_summary_content');
+        const text = content ? content.textContent : '';
+        if (!text) return;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(() => {
+            HomeyInstance.alert('Savings summary copied to clipboard.');
+          }).catch(() => {
+            // Fallback
+            const ta = document.createElement('textarea');
+            ta.value = text; document.body.appendChild(ta); ta.select();
+            try { document.execCommand('copy'); HomeyInstance.alert('Savings summary copied to clipboard.'); } finally { document.body.removeChild(ta); }
+          });
+        } else {
+          // Fallback
+          const ta = document.createElement('textarea');
+          ta.value = text; document.body.appendChild(ta); ta.select();
+          try { document.execCommand('copy'); HomeyInstance.alert('Savings summary copied to clipboard.'); } finally { document.body.removeChild(ta); }
+        }
+      }
+
+      // Helper: render result into UI
+      function renderSavingsSummary(result, content, panel, resultEl, button) {
+        const { summary, todayDate, currencyCode } = result;
+
+        // Format numbers with optional currency
+        let formatter;
+        try {
+          if (currencyCode && /^[A-Z]{3}$/.test(currencyCode)) {
+            formatter = new Intl.NumberFormat(undefined, { style: 'currency', currency: currencyCode, minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          } else {
+            formatter = new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          }
+        } catch (e) {
+          formatter = new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        const fmt = (n) => {
+          try { return formatter.format(Number(n || 0)); } catch { return String(n || 0); }
+        };
+
+        const lines = [
+          `Date: ${todayDate}`,
+          `Today: ${fmt(summary.today)}`,
+          `Yesterday: ${fmt(summary.yesterday)}`,
+          `Week to date (Mon–today): ${fmt(summary.weekToDate)}`,
+          `Last 7 days: ${fmt(summary.last7Days)}`,
+          `Month to date: ${fmt(summary.monthToDate)}`,
+          `Last 30 days: ${fmt(summary.last30Days)}`
+        ];
+        if (summary.allTime !== undefined) {
+          lines.push(`All-time total: ${fmt(summary.allTime)}`);
+        }
+
+        content.textContent = lines.join('\n');
+        panel.style.display = 'block';
+        resultEl.textContent = 'Savings summary ready!';
+        document.getElementById('copy_savings_summary').disabled = false;
+        button.disabled = false;
+
+        // Draw charts using returned or computed series
+        try {
+          const series = (result.series && Array.isArray(result.series.last30)) ? result.series.last30 : [];
+          const last7 = series.slice(-7);
+          drawBarChart('savings_chart_7', last7);
+          drawBarChart('savings_chart_30', series);
+        } catch (e) {
+          console.warn('Failed to draw savings charts:', e);
+        }
+      }
+
+      // Helper: compute summary entirely on the client from stored settings
+      function computeLocalSavingsSummary() {
+        return new Promise((resolve, reject) => {
+          try {
+            const load = (key) => new Promise((res) => Homey.get(key, (_e, v) => res(v)));
+            // Load currency and currency_code separately, then choose the first truthy value
+            Promise.all([
+              load('savings_history'),
+              load('time_zone_offset'),
+              load('use_dst'),
+              Promise.all([load('currency'), load('currency_code')]).then(([c1, c2]) => c1 || c2 || '')
+            ]).then(([history, tz, dst, currency]) => {
+              const normalized = Array.isArray(history) ? history.filter(h => h && typeof h.date === 'string') : [];
+              if (normalized.length === 0) {
+                return resolve({ success: true, summary: { today: 0, yesterday: 0, weekToDate: 0, last7Days: 0, monthToDate: 0, last30Days: 0 }, todayDate: '', currencyCode: currency || '', series: { last30: [] } });
+              }
+
+              // Determine today as newest entry
+              const todayStr = normalized.map(h => h.date).sort((a,b)=>a<b?-1:a>b?1:0).pop();
+              const todayDate = new Date(`${todayStr}T00:00:00`);
+              const last7Cutoff = new Date(todayDate); last7Cutoff.setDate(todayDate.getDate() - 6);
+              const last30Cutoff = new Date(todayDate); last30Cutoff.setDate(todayDate.getDate() - 29);
+              const jsDay = todayDate.getDay();
+              const offsetToMonday = (jsDay + 6) % 7;
+              const startOfWeek = new Date(todayDate); startOfWeek.setDate(todayDate.getDate() - offsetToMonday);
+              const startOfMonth = new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
+
+              const sumInWindow = (cutoff) => normalized
+                .filter(h => { const d = new Date(`${h.date}T00:00:00`); return d >= cutoff && d <= todayDate; })
+                .reduce((s, h) => s + (Number(h.total) || 0), 0);
+
+              const todayEntry = normalized.find(h => h.date === todayStr);
+              const today = Number((todayEntry?.total || 0).toFixed(4));
+              const yDate = new Date(todayDate); yDate.setDate(todayDate.getDate() - 1);
+              const yStr = `${yDate.getFullYear()}-${String(yDate.getMonth() + 1).padStart(2, '0')}-${String(yDate.getDate()).padStart(2, '0')}`;
+              const yesterday = Number(((normalized.find(h => h.date === yStr)?.total) || 0).toFixed(4));
+              const last7Days = Number(sumInWindow(last7Cutoff).toFixed(4));
+              const last30Days = Number(sumInWindow(last30Cutoff).toFixed(4));
+              const weekToDate = Number(sumInWindow(startOfWeek).toFixed(4));
+              const monthToDate = Number(sumInWindow(startOfMonth).toFixed(4));
+
+              // All-time if earlier than last30Cutoff exists
+              let allTime;
+              const earliest = normalized.map(h => h.date).sort((a,b)=>a<b?-1:a>b?1:0)[0];
+              if (earliest && new Date(`${earliest}T00:00:00`) < last30Cutoff) {
+                allTime = Number(normalized.reduce((s, h) => s + (Number(h.total) || 0), 0).toFixed(4));
+              }
+
+              // Build series
+              const seriesLast30 = [];
+              for (let i = 0; i < 30; i++) {
+                const d = new Date(last30Cutoff); d.setDate(last30Cutoff.getDate() + i);
+                const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                const entry = normalized.find(h => h.date === ds);
+                seriesLast30.push({ date: ds, total: Number(entry?.total || 0) });
+              }
+
+              resolve({
+                success: true,
+                summary: { today, yesterday, weekToDate, last7Days, monthToDate, last30Days, ...(allTime !== undefined ? { allTime } : {}) },
+                todayDate: todayStr,
+                currencyCode: currency || '',
+                series: { last30: seriesLast30 }
+              });
+            });
+          } catch (e) {
+            reject(e);
+          }
+        });
+      }
+      // Minimal bar chart renderer
+      function drawBarChart(canvasId, data) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || !canvas.getContext) return;
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width;
+        const h = canvas.height;
+        ctx.clearRect(0, 0, w, h);
+
+        if (!Array.isArray(data) || data.length === 0) return;
+        const values = data.map(d => Number(d.total || 0));
+        const maxVal = Math.max(1, ...values);
+
+        const padding = 6;
+        const barGap = 2;
+        const barCount = data.length;
+        const plotW = w - padding * 2;
+        const plotH = h - padding * 2;
+        const barW = Math.max(1, Math.floor((plotW - barGap * (barCount - 1)) / barCount));
+
+        // Axes baseline
+        ctx.strokeStyle = '#ddd';
+        ctx.beginPath();
+        ctx.moveTo(padding, h - padding);
+        ctx.lineTo(w - padding, h - padding);
+        ctx.stroke();
+
+        // Bars
+        for (let i = 0; i < barCount; i++) {
+          const val = values[i];
+          const barH = Math.round((val / maxVal) * (plotH - 10));
+          const x = padding + i * (barW + barGap);
+          const y = h - padding - barH;
+          ctx.fillStyle = i >= barCount - 7 ? '#4a90e2' : '#9ec5ff'; // last 7 highlighted for 30-day chart
+          if (barCount <= 7) ctx.fillStyle = '#4a90e2';
+          ctx.fillRect(x, y, barW, barH);
+        }
+
+        // Top marker for max
+        ctx.fillStyle = '#999';
+        ctx.font = '10px sans-serif';
+        ctx.fillText(`max ${maxVal.toFixed(2)}`, padding, padding + 10);
       }
 
       // Function to view thermal model data
@@ -730,11 +986,14 @@
         const timeZoneOffsetElement = document.getElementById("time_zone_offset");
         const useDstElement = document.getElementById("use_dst");
         const logLevelElement = document.getElementById("log_level");
+        const notifyOnSuccessElement = document.getElementById("notify_on_success");
+        const currencyCodeElement = document.getElementById("currency_code");
         const saveElement = document.getElementById("save");
 
         // Zone2 elements
         const enableZone2Element = document.getElementById("enable_zone2");
         const zone2SettingsDiv = document.getElementById("zone2_settings");
+        const zone2Fieldset = document.getElementById("zone2_fieldset");
         const minTempZone2Element = document.getElementById("min_temp_zone2");
         const maxTempZone2Element = document.getElementById("max_temp_zone2");
         const tempStepZone2Element = document.getElementById("temp_step_zone2");
@@ -750,11 +1009,23 @@
         const minTankTempElement = document.getElementById("min_tank_temp");
         const maxTankTempElement = document.getElementById("max_tank_temp");
         const tankTempStepElement = document.getElementById("tank_temp_step");
+        const tankFieldset = document.getElementById("tank_fieldset");
+        const tankCapabilityWarning = document.getElementById("tank_capability_warning");
+
+        // Weather location warning helper
+        function updateWeatherLocationWarning() {
+          const warn = document.getElementById('weather_location_warning');
+          if (!warn) return;
+          const enabled = useWeatherDataElement.checked;
+          const latOk = latitudeElement.value !== '' && !isNaN(parseFloat(latitudeElement.value));
+          const lonOk = longitudeElement.value !== '' && !isNaN(parseFloat(longitudeElement.value));
+          warn.style.display = enabled && (!latOk || !lonOk) ? 'block' : 'none';
+        }
+        useWeatherDataElement.addEventListener('change', updateWeatherLocationWarning);
+        latitudeElement.addEventListener('input', updateWeatherLocationWarning);
+        longitudeElement.addEventListener('input', updateWeatherLocationWarning);
         
-        // Hot water usage pattern elements
-        const enableUsagePatternsElement = document.getElementById("enable_usage_patterns");
-        const maxDataPointsElement = document.getElementById("max_data_points");
-        const dataRetentionDaysElement = document.getElementById("data_retention_days");
+        // Removed: unused hot water pattern inputs (UI-only previously)
         const resetPatternsButton = document.getElementById("reset_patterns");
         const clearAllDataButton = document.getElementById("clear_all_data");
         // Buttons now use onclick attributes with global functions
@@ -819,19 +1090,32 @@
           if (value !== undefined) logLevelElement.value = value;
         });
 
+        Homey.get("notify_on_success", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) notifyOnSuccessElement.checked = !!value;
+        });
+
+        Homey.get("currency", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined && value !== null) currencyCodeElement.value = value;
+        });
+
         Homey.get("use_weather_data", function (err, value) {
           if (err) return Homey.alert(err);
           if (value !== undefined) useWeatherDataElement.checked = value;
+          updateWeatherLocationWarning();
         });
 
         Homey.get("latitude", function (err, value) {
           if (err) return Homey.alert(err);
           if (value !== undefined) latitudeElement.value = value;
+          updateWeatherLocationWarning();
         });
 
         Homey.get("longitude", function (err, value) {
           if (err) return Homey.alert(err);
           if (value !== undefined) longitudeElement.value = value;
+          updateWeatherLocationWarning();
         });
 
         // Load comfort profile settings
@@ -890,24 +1174,9 @@
           if (value !== undefined) tempStepZone2Element.value = value;
         });
 
-        // Load manual entry settings
-        Homey.get("show_manual_entry", function (err, value) {
-          if (err) return Homey.alert(err);
-          if (value !== undefined) {
-            showManualEntryElement.checked = value;
-            manualIdEntryDiv.style.display = value ? 'block' : 'none';
-          }
-        });
-
-        Homey.get("manual_device_id", function (err, value) {
-          if (err) return Homey.alert(err);
-          if (value !== undefined) manualDeviceIdElement.value = value;
-        });
-
-        Homey.get("manual_building_id", function (err, value) {
-          if (err) return Homey.alert(err);
-          if (value !== undefined) manualBuildingIdElement.value = value;
-        });
+        // Manual entry controls are not persisted; default to hidden
+        showManualEntryElement.checked = false;
+        manualIdEntryDiv.style.display = 'none';
 
         // Load hot water tank settings
         Homey.get("enable_tank_control", function (err, value) {
@@ -930,24 +1199,7 @@
           if (value !== undefined) tankTempStepElement.value = value;
         });
         
-        // Load hot water usage pattern settings
-        Homey.get("enable_usage_patterns", function (err, value) {
-          if (err) return Homey.alert(err);
-          if (value !== undefined) enableUsagePatternsElement.checked = value;
-          else enableUsagePatternsElement.checked = true; // Default to enabled
-        });
-        
-        Homey.get("max_data_points", function (err, value) {
-          if (err) return Homey.alert(err);
-          if (value !== undefined) maxDataPointsElement.value = value;
-          else maxDataPointsElement.value = 1000; // Default value
-        });
-        
-        Homey.get("data_retention_days", function (err, value) {
-          if (err) return Homey.alert(err);
-          if (value !== undefined) dataRetentionDaysElement.value = value;
-          else dataRetentionDaysElement.value = 30; // Default value
-        });
+        // Removed: loads for unused hot water pattern settings
 
         // Load COP settings
         Homey.get("cop_weight", function (err, value) {
@@ -1029,6 +1281,10 @@
                 option.dataset.buildingId = device.buildingId;
                 option.dataset.hasZone1 = device.hasZone1;
                 option.dataset.hasZone2 = device.hasZone2;
+                option.dataset.hasTank = device.hasTank;
+                if (device.type) option.dataset.type = device.type;
+                if (device.SetTankWaterTemperature !== undefined) option.dataset.settankwatertemperature = device.SetTankWaterTemperature;
+                if (device.TankWaterTemperature !== undefined) option.dataset.tankwatertemperature = device.TankWaterTemperature;
                 deviceIdElement.add(option);
 
                 // Check if this is the saved device ID
@@ -1043,9 +1299,25 @@
                   if (device.hasZone2) {
                     enableZone2Element.disabled = false;
                     document.querySelector('label[for="enable_zone2"]').style.opacity = 1;
+                    zone2Fieldset.style.display = '';
                   } else {
                     enableZone2Element.disabled = true;
                     document.querySelector('label[for="enable_zone2"]').style.opacity = 0.5;
+                    zone2Fieldset.style.display = 'none';
+                  }
+
+                  // Tank capability (check by device type and actual tank temperature support)
+                  const t = (device.type || '').toString().toLowerCase();
+                  const typeHasTank = t.includes('atw') || t.includes('boiler') || t.includes('tank') || t.includes('heat_pump');
+                  const deviceHasTankData = device.SetTankWaterTemperature !== undefined || device.TankWaterTemperature !== undefined || device.hasTank;
+                  const likelyHasTank = typeHasTank || deviceHasTankData;
+                  
+                  if (likelyHasTank) {
+                    tankFieldset.style.display = '';
+                    tankCapabilityWarning.style.display = 'none';
+                  } else {
+                    tankFieldset.style.display = 'none';
+                    enableTankControlElement.checked = false;
                   }
                 }
               });
@@ -1092,11 +1364,27 @@
             if (selectedOption.dataset.hasZone2 === "true") {
               enableZone2Element.disabled = false;
               document.querySelector('label[for="enable_zone2"]').style.opacity = 1;
+              zone2Fieldset.style.display = '';
             } else {
               enableZone2Element.disabled = true;
               enableZone2Element.checked = false;
               zone2SettingsDiv.style.display = 'none';
               document.querySelector('label[for="enable_zone2"]').style.opacity = 0.5;
+              zone2Fieldset.style.display = 'none';
+            }
+
+            // Tank capability (check by device type and actual tank temperature support)
+            const t = (selectedOption.dataset.type || '').toString().toLowerCase();
+            const typeHasTank = t.includes('atw') || t.includes('boiler') || t.includes('tank') || t.includes('heat_pump');
+            const deviceHasTankData = selectedOption.dataset.settankwatertemperature !== undefined || selectedOption.dataset.tankwatertemperature !== undefined || selectedOption.dataset.hastank === "true";
+            const likelyHasTank = typeHasTank || deviceHasTankData;
+            
+            if (likelyHasTank) {
+              tankFieldset.style.display = '';
+              tankCapabilityWarning.style.display = 'none';
+            } else {
+              tankFieldset.style.display = 'none';
+              enableTankControlElement.checked = false;
             }
           }
         });
@@ -1189,18 +1477,7 @@
             });
           }
 
-          // Save manual entry settings
-          Homey.set("show_manual_entry", showManualEntryElement.checked, function (err) {
-            if (err) return Homey.alert(err);
-          });
-
-          Homey.set("manual_device_id", manualDeviceIdElement.value, function (err) {
-            if (err) return Homey.alert(err);
-          });
-
-          Homey.set("manual_building_id", parseInt(manualBuildingIdElement.value) || 0, function (err) {
-            if (err) return Homey.alert(err);
-          });
+          // Do not persist UI-only manual entry settings
 
           Homey.set("tibber_token", tibberTokenElement.value, function (err) {
             if (err) return Homey.alert(err);
@@ -1219,6 +1496,29 @@
           Homey.set("log_level", parseInt(logLevelElement.value), function (err) {
             if (err) return Homey.alert(err);
           });
+
+          Homey.set("notify_on_success", notifyOnSuccessElement.checked, function (err) {
+            if (err) return Homey.alert(err);
+          });
+
+          // Save currency code (optional)
+          const code = (currencyCodeElement.value || '').trim();
+          if (code) {
+            const normalized = code.toUpperCase();
+            if (/^[A-Z]{3}$/.test(normalized)) {
+              Homey.set("currency", normalized, function (err) {
+                if (err) return Homey.alert(err);
+              });
+            } else {
+              Homey.alert('Invalid currency code. Use a 3-letter ISO code like NOK, SEK, EUR.');
+              return;
+            }
+          } else {
+            // Clear custom currency if input empty
+            Homey.set("currency", '', function (err) {
+              if (err) return Homey.alert(err);
+            });
+          }
 
           Homey.set("use_weather_data", useWeatherDataElement.checked, function (err) {
             if (err) return Homey.alert(err);
@@ -1347,30 +1647,7 @@
             return;
           }
           
-          // Save hot water usage pattern settings
-          Homey.set("enable_usage_patterns", enableUsagePatternsElement.checked, function (err) {
-            if (err) return Homey.alert(err);
-          });
-          
-          const maxDataPoints = parseInt(maxDataPointsElement.value);
-          if (!isNaN(maxDataPoints) && maxDataPoints >= 100 && maxDataPoints <= 5000) {
-            Homey.set("max_data_points", maxDataPoints, function (err) {
-              if (err) return Homey.alert(err);
-            });
-          } else if (maxDataPointsElement.value) {
-            Homey.alert('Invalid maximum data points value. Must be between 100 and 5000.');
-            return;
-          }
-          
-          const dataRetentionDays = parseInt(dataRetentionDaysElement.value);
-          if (!isNaN(dataRetentionDays) && dataRetentionDays >= 7 && dataRetentionDays <= 90) {
-            Homey.set("data_retention_days", dataRetentionDays, function (err) {
-              if (err) return Homey.alert(err);
-            });
-          } else if (dataRetentionDaysElement.value) {
-            Homey.alert('Invalid data retention days value. Must be between 7 and 90.');
-            return;
-          }
+          // Removed: persistence for unused hot water pattern settings
 
           // Save Zone2 settings
           Homey.set("enable_zone2", enableZone2Element.checked, function (err) {

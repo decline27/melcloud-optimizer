@@ -4,6 +4,7 @@ import { COPHelper } from './services/cop-helper';
 import { TimelineHelper, TimelineEventType } from './util/timeline-helper';
 import { HomeyLogger, LogLevel, LogCategory } from './util/logger';
 import { HotWaterService } from './services/hot-water';
+import { TimeZoneHelper } from './util/time-zone-helper';
 import {
   LogEntry,
   ThermalModel,
@@ -33,6 +34,91 @@ export default class HeatOptimizerApp extends App {
     includeSourceModule: true
   });
   private memoryUsageInterval?: NodeJS.Timeout;
+  private timeZoneHelper?: TimeZoneHelper;
+
+  /**
+   * Format a Date to YYYY-MM-DD using local time (with timezone helper if available)
+   */
+  private formatLocalDate(date = new Date()): string {
+    const d = this.timeZoneHelper ? this.timeZoneHelper.getLocalTime().date : date;
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  /**
+   * Add an hourly savings amount to today's total and maintain a short history
+   * Returns todaySoFar and weekSoFar (last 7 days including today)
+   */
+  private addSavings(amount: number): { todaySoFar: number; weekSoFar: number } {
+    try {
+      if (typeof amount !== 'number' || isNaN(amount)) {
+        return { todaySoFar: 0, weekSoFar: 0 };
+      }
+
+      const today = this.formatLocalDate();
+      const history: Array<{ date: string; total: number }> = this.homey.settings.get('savings_history') || [];
+
+      // Find or create today's entry
+      let todayEntry = history.find(h => h.date === today);
+      if (!todayEntry) {
+        todayEntry = { date: today, total: 0 };
+        history.push(todayEntry);
+      }
+
+      // Increment today's total
+      todayEntry.total = Number((todayEntry.total + amount).toFixed(4));
+
+      // Trim history to last 30 days
+      history.sort((a, b) => a.date.localeCompare(b.date));
+      const cutoffIndex = Math.max(0, history.length - 30);
+      const trimmed = history.slice(cutoffIndex);
+
+      this.homey.settings.set('savings_history', trimmed);
+
+      // Compute last 7 days total including today
+      const todayDate = new Date(`${today}T00:00:00`);
+      const last7Cutoff = new Date(todayDate);
+      last7Cutoff.setDate(todayDate.getDate() - 6); // include 7 days window
+
+      const weekSoFar = trimmed
+        .filter(h => {
+          const d = new Date(`${h.date}T00:00:00`);
+          return d >= last7Cutoff && d <= todayDate;
+        })
+        .reduce((sum, h) => sum + (h.total || 0), 0);
+
+      return { todaySoFar: todayEntry.total, weekSoFar: Number(weekSoFar.toFixed(4)) };
+    } catch (e) {
+      this.error('Failed to add savings to history', e as Error);
+      return { todaySoFar: 0, weekSoFar: 0 };
+    }
+  }
+
+  /**
+   * Get the total savings for the last 7 days including today
+   */
+  private getWeeklySavingsTotal(): number {
+    try {
+      const today = this.formatLocalDate();
+      const todayDate = new Date(`${today}T00:00:00`);
+      const last7Cutoff = new Date(todayDate);
+      last7Cutoff.setDate(todayDate.getDate() - 6);
+
+      const history: Array<{ date: string; total: number }> = this.homey.settings.get('savings_history') || [];
+      const total = history
+        .filter(h => {
+          const d = new Date(`${h.date}T00:00:00`);
+          return d >= last7Cutoff && d <= todayDate;
+        })
+        .reduce((sum, h) => sum + (h.total || 0), 0);
+      return Number(total.toFixed(4));
+    } catch (e) {
+      this.error('Failed to compute weekly savings total', e as Error);
+      return 0;
+    }
+  }
 
   /**
    * Get the status of the cron jobs
@@ -179,11 +265,9 @@ export default class HeatOptimizerApp extends App {
 
     // Initialize COP Helper
     try {
-      this.copHelper = new COPHelper(this.homey, this);
+      // Pass the logger instance to the helper
+      this.copHelper = new COPHelper(this.homey, this.logger as any);
       this.logger.info('COP Helper initialized');
-
-      // Make it available globally
-      (global as any).copHelper = this.copHelper;
     } catch (error) {
       this.logger.error('Failed to initialize COP Helper', error as Error);
     }
@@ -192,9 +276,6 @@ export default class HeatOptimizerApp extends App {
     try {
       this.hotWaterService = new HotWaterService(this.homey);
       this.logger.info('Hot Water Service initialized');
-      
-      // Make it available globally
-      (global as any).hotWaterService = this.hotWaterService;
     } catch (error) {
       this.logger.error('Failed to initialize Hot Water Service', error as Error);
     }
@@ -203,9 +284,6 @@ export default class HeatOptimizerApp extends App {
     try {
       this.timelineHelper = new TimelineHelper(this.homey, this.logger);
       this.logger.info('Timeline Helper initialized');
-
-      // Make it available globally
-      (global as any).timelineHelper = this.timelineHelper;
     } catch (error) {
       this.logger.error('Failed to initialize Timeline Helper', error as Error);
     }
@@ -254,8 +332,10 @@ export default class HeatOptimizerApp extends App {
       includeSourceModule: true
     });
 
-    // Make the logger available globally for other modules
-    (global as any).logger = this.logger;
+    // Initialize Time Zone Helper with current settings
+    const tzOffset = this.homey.settings.get('time_zone_offset') || 2;
+    const useDST = this.homey.settings.get('use_dst') || false;
+    this.timeZoneHelper = new TimeZoneHelper(this.logger, Number(tzOffset), Boolean(useDST));
 
     // Log initialization
     this.log(`Centralized logger initialized with level: ${LogLevel[logLevel]}`);
@@ -267,39 +347,11 @@ export default class HeatOptimizerApp extends App {
    */
   public initializeCronJobs() {
     this.log('===== INITIALIZING CRON JOBS =====');
-
-    // Get the time zone offset from Homey settings - default to UTC+2 (Sweden/Denmark time zone)
-    const timeZoneOffset = this.homey.settings.get('time_zone_offset') || 2;
-
-    // Check if DST is enabled in settings
-    const useDST = this.homey.settings.get('use_dst') || false;
-
-    // Get the current time
-    const now = new Date();
-
-    // Create a local time object using the Homey time zone offset
-    const localTime = new Date(now.getTime());
-    localTime.setUTCHours(now.getUTCHours() + parseInt(timeZoneOffset));
-
-    // If DST is enabled, check if we're in DST period (simplified approach for Europe)
-    let effectiveOffset = parseInt(timeZoneOffset);
-    if (useDST) {
-      // Simple check for European DST (last Sunday in March to last Sunday in October)
-      const month = now.getUTCMonth(); // 0-11
-      if (month > 2 && month < 10) { // April (3) through October (9)
-        localTime.setUTCHours(localTime.getUTCHours() + 1);
-        effectiveOffset += 1;
-        this.log('DST is active, adding 1 hour to the time zone offset');
-      }
-    }
-
-    this.log('Current UTC time:', now.toISOString());
-    this.log('Homey local time:', localTime.toUTCString());
-    this.log(`Homey time zone offset: ${timeZoneOffset} hours${useDST ? ' (with DST enabled)' : ''}`);
-
-    // Determine the time zone name from the effective offset
-    const timeZoneString = `UTC${effectiveOffset >= 0 ? '+' : ''}${Math.abs(effectiveOffset)}`;
-
+    // Resolve time zone via helper
+    const tzHelper = this.timeZoneHelper;
+    const timeZoneString = tzHelper ? tzHelper.getTimeZoneString() : 'UTC+0';
+    const localInfo = tzHelper ? tzHelper.getLocalTime() : { timeZoneOffset: 0, effectiveOffset: 0, timeString: new Date().toUTCString() } as any;
+    this.log('Homey local time:', localInfo.timeString);
     this.log(`Using Homey time zone: ${timeZoneString}`);
 
     // Hourly job - runs at minute 5 of every hour
@@ -308,18 +360,7 @@ export default class HeatOptimizerApp extends App {
     this.hourlyJob = new CronJob('0 5 * * * *', async () => {
       // Add a more visible log message
       const currentTime = new Date();
-
-      // Create a local time object using the Homey time zone offset
-      const localCurrentTime = new Date(currentTime.getTime());
-      localCurrentTime.setUTCHours(currentTime.getUTCHours() + parseInt(timeZoneOffset));
-
-      // Apply DST if enabled and in DST period
-      if (useDST) {
-        const month = currentTime.getUTCMonth(); // 0-11
-        if (month > 2 && month < 10) { // April (3) through October (9)
-          localCurrentTime.setUTCHours(localCurrentTime.getUTCHours() + 1);
-        }
-      }
+      const localCurrentTime = this.timeZoneHelper ? this.timeZoneHelper.getLocalTime().date : new Date(currentTime.getTime());
 
       this.log('===== AUTOMATIC HOURLY CRON JOB TRIGGERED =====');
       this.log(`Current UTC time: ${currentTime.toISOString()}`);
@@ -363,16 +404,7 @@ export default class HeatOptimizerApp extends App {
               excerpt: 'MELCloud Optimizer: 🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP',
             });
             this.log('Timeline entry created using notifications API');
-          }
-          // Finally try homey.flow if available
-          else if (typeof this.homey.flow === 'object' && typeof this.homey.flow.runFlowCardAction === 'function') {
-            await this.homey.flow.runFlowCardAction({
-              uri: 'homey:flowcardaction:homey:manager:timeline:log',
-              args: { text: '🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP' }
-            });
-            this.log('Timeline entry created using flow API');
-          }
-          else {
+          } else {
             this.log('No timeline API available, using log only');
           }
         }
@@ -392,18 +424,7 @@ export default class HeatOptimizerApp extends App {
     this.weeklyJob = new CronJob('0 5 2 * * 0', async () => {
       // Add a more visible log message
       const currentTime = new Date();
-
-      // Create a local time object using the Homey time zone offset
-      const localCurrentTime = new Date(currentTime.getTime());
-      localCurrentTime.setUTCHours(currentTime.getUTCHours() + parseInt(timeZoneOffset));
-
-      // Apply DST if enabled and in DST period
-      if (useDST) {
-        const month = currentTime.getUTCMonth(); // 0-11
-        if (month > 2 && month < 10) { // April (3) through October (9)
-          localCurrentTime.setUTCHours(localCurrentTime.getUTCHours() + 1);
-        }
-      }
+      const localCurrentTime = this.timeZoneHelper ? this.timeZoneHelper.getLocalTime().date : new Date(currentTime.getTime());
 
       this.log('===== AUTOMATIC WEEKLY CRON JOB TRIGGERED =====');
       this.log(`Current UTC time: ${currentTime.toISOString()}`);
@@ -423,10 +444,12 @@ export default class HeatOptimizerApp extends App {
         this.log('Creating timeline entry for weekly job');
 
         if (this.timelineHelper) {
+          const weeklySavings = this.getWeeklySavingsTotal();
           await this.timelineHelper.addTimelineEntry(
             TimelineEventType.WEEKLY_CALIBRATION,
             {},
-            false
+            false,
+            { weeklySavings }
           );
           this.log('Timeline entry created using timeline helper');
         } else {
@@ -447,16 +470,7 @@ export default class HeatOptimizerApp extends App {
               excerpt: 'MELCloud Optimizer: 📈 Automatic weekly calibration | Updating thermal model with latest data',
             });
             this.log('Timeline entry created using notifications API');
-          }
-          // Finally try homey.flow if available
-          else if (typeof this.homey.flow === 'object' && typeof this.homey.flow.runFlowCardAction === 'function') {
-            await this.homey.flow.runFlowCardAction({
-              uri: 'homey:flowcardaction:homey:manager:timeline:log',
-              args: { text: '📈 Automatic weekly calibration | Updating thermal model with latest data' }
-            });
-            this.log('Timeline entry created using flow API');
-          }
-          else {
+          } else {
             this.log('No timeline API available, using log only');
           }
         }
@@ -505,9 +519,9 @@ export default class HeatOptimizerApp extends App {
       },
       lastUpdated: new Date().toISOString(),
       homeyTimeZone: timeZoneString,
-      homeyTimeZoneOffset: timeZoneOffset,
-      homeyDST: useDST,
-      homeyEffectiveOffset: effectiveOffset
+      homeyTimeZoneOffset: localInfo.timeZoneOffset,
+      homeyDST: this.timeZoneHelper ? this.timeZoneHelper.isInDSTperiod() : false,
+      homeyEffectiveOffset: localInfo.effectiveOffset
     });
 
     this.log(`Hourly cron job started - next run at: ${nextHourlyRun.toString()}`);
@@ -645,10 +659,12 @@ export default class HeatOptimizerApp extends App {
           this.log('Creating timeline entry for manual weekly calibration');
 
           if (this.timelineHelper) {
+            const weeklySavings = this.getWeeklySavingsTotal();
             await this.timelineHelper.addTimelineEntry(
               TimelineEventType.WEEKLY_CALIBRATION_MANUAL,
               {},
-              true // Create notification for manual triggers
+              true, // Create notification for manual triggers
+              { weeklySavings }
             );
             this.log('Timeline entry created using timeline helper');
           } else {
@@ -671,13 +687,6 @@ export default class HeatOptimizerApp extends App {
               this.log('Timeline entry created using notifications API');
             }
             // Finally try homey.flow if available
-            else if (typeof this.homey.flow === 'object' && typeof this.homey.flow.runFlowCardAction === 'function') {
-              await this.homey.flow.runFlowCardAction({
-                uri: 'homey:flowcardaction:homey:manager:timeline:log',
-                args: { text: '📊 Manual weekly calibration | Analyzing thermal model based on collected data' }
-              });
-              this.log('Timeline entry created using flow API');
-            }
             else {
               this.log('No timeline API available, using log only');
             }
@@ -766,8 +775,12 @@ export default class HeatOptimizerApp extends App {
               additionalData.targetOriginal = result.data.targetOriginal;
             }
 
-            if (result.data && result.data.savings) {
+            if (result.data && typeof result.data.savings === 'number') {
               additionalData.savings = result.data.savings;
+
+              // Update accumulated savings and include "today so far"
+              const { todaySoFar } = this.addSavings(result.data.savings);
+              additionalData.todaySoFar = todaySoFar;
             }
 
             // Add any other relevant data
@@ -780,10 +793,11 @@ export default class HeatOptimizerApp extends App {
             }
 
             // Create the timeline entry using our standardized helper
+            const notifyOnSuccess = this.homey.settings.get('notify_on_success') === true;
             await this.timelineHelper.addTimelineEntry(
               TimelineEventType.HOURLY_OPTIMIZATION_RESULT,
               {}, // No specific details needed
-              false, // Don't create notification for success
+              notifyOnSuccess, // Respect user setting for success notifications
               additionalData
             );
           }
@@ -1045,11 +1059,15 @@ export default class HeatOptimizerApp extends App {
               additionalData.thermalCharacteristics = result.data.thermalCharacteristics;
             }
 
+            // Attach weekly savings total if available
+            additionalData.weeklySavings = this.getWeeklySavingsTotal();
+
             // Create the timeline entry using our standardized helper
+            const notifyOnSuccess = this.homey.settings.get('notify_on_success') === true;
             await this.timelineHelper.addTimelineEntry(
               TimelineEventType.WEEKLY_CALIBRATION_RESULT,
               {}, // No specific details needed
-              false, // Don't create notification for success
+              notifyOnSuccess, // Respect user setting for success notifications
               additionalData
             );
           }
@@ -1188,9 +1206,17 @@ export default class HeatOptimizerApp extends App {
       try {
         const api = require('../api.js');
 
-        // The API module handles its own service cleanup internally
-        // No need to access internal services directly
-        this.logger.info('API resources cleanup completed');
+        // Call the new cleanup method to properly stop all services
+        if (typeof api.cleanup === 'function') {
+          const cleanupResult = await api.cleanup({ homey: this.homey });
+          if (cleanupResult.success) {
+            this.logger.info('API resources cleanup completed successfully');
+          } else {
+            this.logger.error('API cleanup reported failure:', cleanupResult.error);
+          }
+        } else {
+          this.logger.warn('API cleanup method not available - resources may not be fully cleaned');
+        }
       } catch (apiError) {
         this.logger.error('Error during API cleanup:', apiError as Error);
       }
@@ -1212,22 +1238,6 @@ export default class HeatOptimizerApp extends App {
         this.logger.info('Cleaning up memory usage monitoring');
         clearInterval(this.memoryUsageInterval);
         this.memoryUsageInterval = undefined;
-      }
-
-      // Remove global references
-      if ((global as any).logger === this.logger) {
-        this.logger.info('Removing global logger reference');
-        (global as any).logger = undefined;
-      }
-
-      if ((global as any).copHelper === this.copHelper) {
-        this.logger.info('Removing global COP helper reference');
-        (global as any).copHelper = undefined;
-      }
-
-      if ((global as any).timelineHelper === this.timelineHelper) {
-        this.logger.info('Removing global timeline helper reference');
-        (global as any).timelineHelper = undefined;
       }
 
       // Final cleanup

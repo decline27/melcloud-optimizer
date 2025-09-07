@@ -9,9 +9,9 @@ import {
   WeatherData,
   ThermalModel,
   OptimizationResult,
-  HomeyApp,
-  isError
+  HomeyApp
 } from '../types';
+import { isError } from '../util/error-handler';
 import { EnhancedSavingsCalculator, OptimizationData, SavingsCalculationResult } from '../util/enhanced-savings-calculator';
 import { HomeyLogger } from '../util/logger';
 
@@ -115,11 +115,18 @@ interface EnhancedOptimizationResult {
     min: number;
     max: number;
   };
+  savings?: number;
   energyMetrics?: OptimizationMetrics;
   hotWaterAction?: {
     action: 'heat_now' | 'delay' | 'maintain';
     reason: string;
     scheduledTime?: string;
+  };
+  // Optional weather snapshot for timeline/details integration
+  weather?: {
+    current?: Partial<WeatherData>;
+    adjustment?: { adjustment: number; reason: string };
+    trend?: { trend: string; details: string };
   };
 }
 
@@ -1476,6 +1483,35 @@ export class Optimizer {
       let targetTemp = optimizationResult.targetTemp;
       let adjustmentReason = optimizationResult.reason;
 
+      // Apply weather-based adjustment when available (uses forecast + price context)
+      let weatherInfo: any = null;
+      if (this.weatherApi && typeof (this.weatherApi as any).getForecast === 'function' && typeof (this.weatherApi as any).calculateWeatherBasedAdjustment === 'function') {
+        try {
+          const forecast = await (this.weatherApi as any).getForecast();
+          const weatherAdjustment = (this.weatherApi as any).calculateWeatherBasedAdjustment(
+            forecast,
+            currentTemp,
+            currentTarget,
+            currentPrice,
+            avgPrice
+          );
+          const trend = (this.weatherApi as any).getWeatherTrend ? (this.weatherApi as any).getWeatherTrend(forecast) : null;
+
+          if (weatherAdjustment && typeof weatherAdjustment.adjustment === 'number' && Math.abs(weatherAdjustment.adjustment) >= 0.1) {
+            targetTemp += weatherAdjustment.adjustment;
+            adjustmentReason += ` + Weather: ${weatherAdjustment.reason} (${weatherAdjustment.adjustment > 0 ? '+' : ''}${weatherAdjustment.adjustment.toFixed(1)}°C)`;
+          }
+
+          weatherInfo = {
+            current: forecast && forecast.current ? forecast.current : undefined,
+            adjustment: weatherAdjustment,
+            trend
+          };
+        } catch (wErr) {
+          this.logger.error('Weather-based adjustment failed', wErr as Error);
+        }
+      }
+
       // Clamp to valid range
       if (targetTemp < this.minTemp) {
         targetTemp = this.minTemp;
@@ -1601,9 +1637,11 @@ export class Optimizer {
       if (isSignificantChange) {
         await this.melCloud.setDeviceTemperature(this.deviceId, this.buildingId, targetTemp);
         
+        const savingsNumeric = this.calculateRealHourlySavings(safeCurrentTarget, targetTemp, currentPrice, optimizationResult.metrics, 'zone1');
         this.logger.log(`Enhanced temperature adjusted from ${safeCurrentTarget.toFixed(1)}°C to ${targetTemp.toFixed(1)}°C`, {
           reason: adjustmentReason,
-          savings: this.estimateCostSavings(targetTemp, safeCurrentTarget, currentPrice, avgPrice, optimizationResult.metrics)
+          savingsEstimated: this.estimateCostSavings(targetTemp, safeCurrentTarget, currentPrice, avgPrice, optimizationResult.metrics),
+          savingsNumeric
         });
 
         return {
@@ -1618,12 +1656,15 @@ export class Optimizer {
             min: minPrice,
             max: maxPrice
           },
+          savings: savingsNumeric,
           energyMetrics: optimizationResult.metrics,
+          weather: weatherInfo || undefined,
           hotWaterAction: hotWaterAction || undefined
         };
       } else {
         this.logger.log(`No enhanced temperature adjustment needed (difference: ${tempDifference.toFixed(1)}°C < deadband: ${this.deadband}°C)`);
 
+        const savingsNumericNoChange = 0; // Numeric savings for Zone1 unchanged. Tank/Zone2 handled by API layer.
         return {
           success: true,
           action: 'no_change',
@@ -1636,7 +1677,9 @@ export class Optimizer {
             min: minPrice,
             max: maxPrice
           },
+          savings: savingsNumericNoChange,
           energyMetrics: optimizationResult.metrics,
+          weather: weatherInfo || undefined,
           hotWaterAction: hotWaterAction || undefined
         };
       }
@@ -1683,6 +1726,51 @@ export class Optimizer {
     const weeklyCostImpact = dailyCostImpact * 7;
 
     return `Estimated ${tempDifference > 0 ? 'cost increase' : 'savings'}: ${Math.abs(weeklyCostImpact).toFixed(2)} NOK/week`;
+  }
+
+  /**
+   * Calculate hourly cost savings using real energy metrics (numeric result)
+   * Falls back to simple heuristic when metrics are not available
+   */
+  private calculateRealHourlySavings(
+    oldTemp: number,
+    newTemp: number,
+    currentPrice: number,
+    metrics?: OptimizationMetrics,
+    kind: 'zone1' | 'zone2' | 'tank' = 'zone1'
+  ): number {
+    try {
+      const tempDiff = newTemp - oldTemp;
+      if (!isFinite(tempDiff) || tempDiff === 0 || !isFinite(currentPrice)) return 0;
+
+      if (!metrics) {
+        // Fallback to simple calculation if we don't have metrics
+        return this.calculateSavings(oldTemp, newTemp, currentPrice);
+      }
+
+      // Base daily consumption (kWh/day)
+      let dailyConsumption = metrics.dailyEnergyConsumption;
+      if (!isFinite(dailyConsumption) || dailyConsumption <= 0) {
+        return this.calculateSavings(oldTemp, newTemp, currentPrice);
+      }
+
+      // Seasonal factors
+      let perDegFactor: number; // fraction of daily energy per °C
+      if (metrics.seasonalMode === 'winter') perDegFactor = 0.15 * (metrics.heatingEfficiency || 0.5);
+      else if (metrics.seasonalMode === 'summer') perDegFactor = 0.05;
+      else perDegFactor = 0.10;
+
+      // Surface adjustments
+      if (kind === 'zone2') perDegFactor *= 0.9;
+      if (kind === 'tank') perDegFactor *= 0.5;
+
+      const dailyEnergyImpact = Math.abs(tempDiff) * perDegFactor * dailyConsumption; // kWh
+      const dailyCostImpact = dailyEnergyImpact * (tempDiff > 0 ? currentPrice : -currentPrice);
+      const hourlyCostImpact = dailyCostImpact / 24;
+      return Number.isFinite(hourlyCostImpact) ? hourlyCostImpact : 0;
+    } catch {
+      return this.calculateSavings(oldTemp, newTemp, currentPrice);
+    }
   }
 
   /**
@@ -1912,5 +2000,29 @@ export class Optimizer {
 
     // Positive means improved comfort, negative means reduced comfort
     return oldDeviation - newDeviation;
+  }
+
+  /**
+   * Cleanup method to properly stop thermal model service and other resources
+   * Prevents memory leaks when the optimizer is destroyed
+   */
+  public cleanup(): void {
+    try {
+      if (this.thermalModelService) {
+        this.thermalModelService.stop();
+        this.thermalModelService = null;
+        this.logger.log('Thermal model service stopped and cleaned up');
+      }
+
+      if (this.copHelper) {
+        // COP helper doesn't have intervals to clean, but clear the reference
+        this.copHelper = null;
+        this.logger.log('COP helper reference cleared');
+      }
+
+      this.logger.log('Optimizer cleanup completed successfully');
+    } catch (error) {
+      this.logger.error('Error during optimizer cleanup:', error);
+    }
   }
 }

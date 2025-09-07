@@ -1,460 +1,230 @@
-/**
- * Weather API Service for MELCloud Optimizer
- * Uses the Met.no API (Norwegian Meteorological Institute)
- *
- * This service fetches weather data and forecasts for a specific location
- * to enhance the MELCloud optimization algorithm with weather-based adjustments.
- */
+// Weather API integration used by api.js and optimizer.
+// Fetches forecast from Met.no Locationforecast API and computes
+// a simple, safe adjustment used during optimization.
 
 const https = require('https');
-const { URL } = require('url');
 
 class WeatherApi {
-  /**
-   * Create a new WeatherApi instance
-   * @param {string} userAgent - User agent string for API requests (required by Met.no)
-   * @param {Object} logger - Logger instance for logging messages
-   */
-  constructor(userAgent, logger = console) {
-    this.userAgent = userAgent || 'MELCloudOptimizer/1.0 github.com/decline27/melcloud-optimizer';
-    this.logger = logger;
-    this.baseUrl = 'https://api.met.no/weatherapi/locationforecast/2.0';
-    this.cachedForecasts = new Map(); // Cache forecasts to reduce API calls
-    this.cacheExpiryTime = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+  constructor(userAgent, logger) {
+    this.userAgent = userAgent || 'MELCloudOptimizer (+https://homey.app/)';
+    this.logger = logger || console;
+    this._lastForecast = null;
+    this._lastFetchTs = 0;
   }
 
-  /**
-   * Get weather forecast for a specific location
-   * @param {number} latitude - Latitude in decimal degrees
-   * @param {number} longitude - Longitude in decimal degrees
-   * @param {number} altitude - Altitude in meters (optional)
-   * @returns {Promise<Object>} - Weather forecast data
-   */
-  async getForecast(latitude, longitude, altitude = null) {
-    try {
-      this.logger.log(`Getting weather forecast for location: ${latitude}, ${longitude}, altitude: ${altitude || 'not specified'}`);
-
-      // Create cache key based on coordinates (rounded to 2 decimal places)
-      const cacheKey = `${parseFloat(latitude).toFixed(2)},${parseFloat(longitude).toFixed(2)}`;
-
-      // Check if we have a valid cached forecast
-      const cachedForecast = this.cachedForecasts.get(cacheKey);
-      if (cachedForecast && (Date.now() - cachedForecast.timestamp) < this.cacheExpiryTime) {
-        const cacheAge = Math.round((Date.now() - cachedForecast.timestamp) / (60 * 1000)); // in minutes
-        this.logger.log(`Using cached weather forecast (${cacheAge} minutes old, expires in ${Math.round((this.cacheExpiryTime - (Date.now() - cachedForecast.timestamp)) / (60 * 60 * 1000))} hours)`);
-        return cachedForecast.data;
-      }
-
-      // Build the API URL
-      let url = `${this.baseUrl}/compact?lat=${latitude}&lon=${longitude}`;
-      if (altitude !== null) {
-        url += `&altitude=${Math.round(altitude)}`;
-      }
-
-      // Make the API request
-      const data = await this.makeRequest(url);
-
-      // Process the forecast data
-      const processedData = this.processWeatherData(data);
-
-      // Cache the forecast
-      this.cachedForecasts.set(cacheKey, {
-        timestamp: Date.now(),
-        data: processedData
-      });
-
-      return processedData;
-    } catch (error) {
-      this.logger.error('Error getting weather forecast:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Process the raw weather data from Met.no API
-   * @param {Object} data - Raw weather data from API
-   * @returns {Object} - Processed weather data
-   */
-  processWeatherData(data) {
-    try {
-      // Extract relevant information from the API response
-      const result = {
-        location: {
-          latitude: data.geometry.coordinates[1],
-          longitude: data.geometry.coordinates[0],
-          altitude: data.geometry.coordinates[2]
-        },
-        units: {
-          temperature: 'celsius',
-          windSpeed: 'm/s',
-          precipitation: 'mm',
-          pressure: 'hPa',
-          humidity: '%'
-        },
-        current: null,
-        hourly: [],
-        daily: []
-      };
-
-      // Process timeseries data
-      if (data.properties && data.properties.timeseries) {
-        const timeseries = data.properties.timeseries;
-
-        // Set current weather (first timepoint)
-        if (timeseries.length > 0) {
-          result.current = this.extractWeatherData(timeseries[0]);
-        }
-
-        // Process hourly forecast (next 24 hours)
-        for (let i = 0; i < Math.min(24, timeseries.length); i++) {
-          result.hourly.push(this.extractWeatherData(timeseries[i]));
-        }
-
-        // Process daily forecast (aggregate by day for next 7 days)
-        const dailyMap = new Map();
-
-        for (const item of timeseries) {
-          const date = new Date(item.time);
-          const dateKey = date.toISOString().split('T')[0];
-
-          if (!dailyMap.has(dateKey)) {
-            dailyMap.set(dateKey, {
-              date: dateKey,
-              temperatures: [],
-              precipitations: [],
-              windSpeeds: [],
-              symbols: []
-            });
-          }
-
-          const daily = dailyMap.get(dateKey);
-          const data = this.extractWeatherData(item);
-
-          daily.temperatures.push(data.temperature);
-
-          if (data.precipitation !== undefined) {
-            daily.precipitations.push(data.precipitation);
-          }
-
-          if (data.windSpeed !== undefined) {
-            daily.windSpeeds.push(data.windSpeed);
-          }
-
-          if (data.symbol !== undefined) {
-            daily.symbols.push(data.symbol);
-          }
-        }
-
-        // Calculate daily aggregates
-        for (const [dateKey, daily] of dailyMap) {
-          // Only include complete days (with at least 12 data points)
-          if (daily.temperatures.length >= 12) {
-            result.daily.push({
-              date: dateKey,
-              temperatureMin: Math.min(...daily.temperatures),
-              temperatureMax: Math.max(...daily.temperatures),
-              temperatureAvg: daily.temperatures.reduce((sum, temp) => sum + temp, 0) / daily.temperatures.length,
-              precipitation: daily.precipitations.reduce((sum, precip) => sum + (precip || 0), 0),
-              windSpeedAvg: daily.windSpeeds.length > 0
-                ? daily.windSpeeds.reduce((sum, speed) => sum + speed, 0) / daily.windSpeeds.length
-                : undefined,
-              // Most common symbol for the day
-              symbol: daily.symbols.length > 0
-                ? this.getMostFrequent(daily.symbols)
-                : undefined
-            });
-          }
-        }
-
-        // Sort daily forecasts by date
-        result.daily.sort((a, b) => a.date.localeCompare(b.date));
-      }
-
-      return result;
-    } catch (error) {
-      this.logger.error('Error processing weather data:', error);
-      throw new Error(`Failed to process weather data: ${error.message}`);
-    }
-  }
-
-  /**
-   * Extract weather data from a single timepoint
-   * @param {Object} timepoint - Single timepoint from the API
-   * @returns {Object} - Extracted weather data
-   */
-  extractWeatherData(timepoint) {
-    const result = {
-      time: timepoint.time
+  // Internal: simple HTTPS GET returning parsed JSON
+  _getJSON(url) {
+    const headers = {
+      'User-Agent': this.userAgent,
+      'Accept': 'application/json'
     };
-
-    // Extract instant data
-    if (timepoint.data && timepoint.data.instant && timepoint.data.instant.details) {
-      const details = timepoint.data.instant.details;
-
-      result.temperature = details.air_temperature;
-      result.humidity = details.relative_humidity;
-      result.pressure = details.air_pressure_at_sea_level;
-      result.windSpeed = details.wind_speed;
-      result.windDirection = details.wind_from_direction;
-      result.cloudCover = details.cloud_area_fraction;
-    }
-
-    // Extract next 1 hour data
-    if (timepoint.data && timepoint.data.next_1_hours) {
-      if (timepoint.data.next_1_hours.summary && timepoint.data.next_1_hours.summary.symbol_code) {
-        result.symbol = timepoint.data.next_1_hours.summary.symbol_code;
-      }
-
-      if (timepoint.data.next_1_hours.details && timepoint.data.next_1_hours.details.precipitation_amount) {
-        result.precipitation = timepoint.data.next_1_hours.details.precipitation_amount;
-      }
-    }
-    // If next_1_hours is not available, try next_6_hours
-    else if (timepoint.data && timepoint.data.next_6_hours) {
-      if (timepoint.data.next_6_hours.summary && timepoint.data.next_6_hours.summary.symbol_code) {
-        result.symbol = timepoint.data.next_6_hours.summary.symbol_code;
-      }
-
-      if (timepoint.data.next_6_hours.details) {
-        if (timepoint.data.next_6_hours.details.precipitation_amount) {
-          result.precipitation = timepoint.data.next_6_hours.details.precipitation_amount / 6; // Convert to hourly
-        }
-
-        if (timepoint.data.next_6_hours.details.air_temperature_max) {
-          result.temperatureMax = timepoint.data.next_6_hours.details.air_temperature_max;
-        }
-
-        if (timepoint.data.next_6_hours.details.air_temperature_min) {
-          result.temperatureMin = timepoint.data.next_6_hours.details.air_temperature_min;
-        }
-      }
-    }
-
-    return result;
-  }
-
-  /**
-   * Find the most frequent item in an array
-   * @param {Array} arr - Array of items
-   * @returns {*} - Most frequent item
-   */
-  getMostFrequent(arr) {
-    const counts = {};
-    let maxItem = null;
-    let maxCount = 0;
-
-    for (const item of arr) {
-      counts[item] = (counts[item] || 0) + 1;
-      if (counts[item] > maxCount) {
-        maxCount = counts[item];
-        maxItem = item;
-      }
-    }
-
-    return maxItem;
-  }
-
-  /**
-   * Make an HTTP request to the Met.no API
-   * @param {string} url - URL to request
-   * @returns {Promise<Object>} - Parsed JSON response
-   */
-  async makeRequest(url) {
     return new Promise((resolve, reject) => {
-      const urlObj = new URL(url);
-      const options = {
-        hostname: urlObj.hostname,
-        path: urlObj.pathname + urlObj.search,
-        method: 'GET',
-        headers: {
-          'User-Agent': this.userAgent,
-          'Accept': 'application/json'
-        }
-      };
-
-      this.logger.log(`Making weather API request to: ${url}`);
-
-      const req = https.request(options, (res) => {
+      const req = https.get(url, { headers }, (res) => {
         let data = '';
-
-        res.on('data', (chunk) => {
-          data += chunk;
-        });
-
+        res.on('data', (chunk) => { data += chunk; });
         res.on('end', () => {
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            try {
-              const parsedData = JSON.parse(data);
-              resolve(parsedData);
-            } catch (error) {
-              reject(new Error(`Failed to parse weather API response: ${error.message}`));
-            }
-          } else {
-            reject(new Error(`Weather API request failed with status code ${res.statusCode}: ${data}`));
+          try {
+            const json = JSON.parse(data);
+            resolve(json);
+          } catch (err) {
+            reject(err);
           }
         });
       });
-
-      req.on('error', (error) => {
-        reject(new Error(`Weather API request error: ${error.message}`));
+      req.on('error', reject);
+      req.setTimeout(15000, () => {
+        req.destroy(new Error('Weather request timed out'));
       });
-
-      req.end();
     });
   }
 
-  /**
-   * Calculate the heat loss coefficient based on weather conditions
-   * @param {number} indoorTemp - Indoor temperature in Celsius
-   * @param {number} outdoorTemp - Outdoor temperature in Celsius
-   * @param {number} windSpeed - Wind speed in m/s
-   * @returns {number} - Heat loss coefficient
-   */
-  calculateHeatLossCoefficient(indoorTemp, outdoorTemp, windSpeed) {
-    // Basic heat loss is proportional to temperature difference
-    const tempDiff = indoorTemp - outdoorTemp;
-
-    // Wind chill effect increases heat loss
-    // Using a simplified model: higher wind speeds increase heat loss
-    const windFactor = 1 + (windSpeed * 0.1); // 10% increase per m/s of wind
-
-    return tempDiff * windFactor;
-  }
-
-  /**
-   * Calculate the solar gain coefficient based on weather conditions
-   * @param {number} cloudCover - Cloud cover percentage (0-100)
-   * @param {string} symbol - Weather symbol code
-   * @returns {number} - Solar gain coefficient (0-1)
-   */
-  calculateSolarGainCoefficient(cloudCover, symbol) {
-    // Base solar gain is inverse of cloud cover
-    let solarGain = 1 - (cloudCover / 100);
-
-    // Adjust based on weather symbol if available
-    if (symbol) {
-      if (symbol.includes('clearsky')) {
-        solarGain = Math.max(solarGain, 0.9); // Clear sky has high solar gain
-      } else if (symbol.includes('fair')) {
-        solarGain = Math.max(solarGain, 0.7); // Fair weather has good solar gain
-      } else if (symbol.includes('cloudy')) {
-        solarGain = Math.min(solarGain, 0.5); // Cloudy weather reduces solar gain
-      } else if (symbol.includes('rain') || symbol.includes('snow')) {
-        solarGain = Math.min(solarGain, 0.3); // Precipitation significantly reduces solar gain
+  // Convert Met.no compact response to the structure expected by the app
+  _mapMetNoToForecast(json) {
+    try {
+      const ts = json && json.properties && Array.isArray(json.properties.timeseries) ? json.properties.timeseries : [];
+      if (!ts.length) {
+        return this._emptyForecast();
       }
-    }
 
-    return solarGain;
+      const first = ts[0];
+      const instant = (first.data && first.data.instant && first.data.instant.details) || {};
+      const nextSymbol = (first.data && first.data.next_1_hours && first.data.next_1_hours.summary && first.data.next_1_hours.summary.symbol_code) || 'na';
+
+      const current = {
+        temperature: this._numOrNull(instant.air_temperature),
+        humidity: this._numOrNull(instant.relative_humidity),
+        windSpeed: this._numOrNull(instant.wind_speed),
+        cloudCover: this._numOrNull(instant.cloud_area_fraction),
+        symbol: nextSymbol
+      };
+
+      const hourly = ts.slice(0, 48).map(entry => {
+        const det = (entry.data && entry.data.instant && entry.data.instant.details) || {};
+        const sym = (entry.data && entry.data.next_1_hours && entry.data.next_1_hours.summary && entry.data.next_1_hours.summary.symbol_code) || 'na';
+        return {
+          time: entry.time,
+          temperature: this._numOrNull(det.air_temperature),
+          humidity: this._numOrNull(det.relative_humidity),
+          windSpeed: this._numOrNull(det.wind_speed),
+          cloudCover: this._numOrNull(det.cloud_area_fraction),
+          symbol: sym
+        };
+      });
+
+      return { current, hourly };
+    } catch (err) {
+      this._log('Error mapping Met.no response', err);
+      return this._emptyForecast();
+    }
   }
 
-  /**
-   * Calculate the optimal temperature adjustment based on weather forecast
-   * @param {Object} forecast - Weather forecast data
-   * @param {number} currentIndoorTemp - Current indoor temperature
-   * @param {number} currentTargetTemp - Current target temperature
-   * @param {number} currentPrice - Current electricity price
-   * @param {number} avgPrice - Average electricity price
-   * @returns {Object} - Temperature adjustment recommendation
-   */
-  calculateWeatherBasedAdjustment(forecast, currentIndoorTemp, currentTargetTemp, currentPrice, avgPrice) {
-    if (!forecast || !forecast.current) {
-      return { adjustment: 0, reason: 'No weather data available' };
-    }
-
-    // Get current weather conditions
-    const outdoorTemp = forecast.current.temperature;
-    const windSpeed = forecast.current.windSpeed || 0;
-    const cloudCover = forecast.current.cloudCover || 50; // Default to 50% if not available
-    const symbol = forecast.current.symbol;
-
-    // Calculate heat loss coefficient
-    const heatLoss = this.calculateHeatLossCoefficient(currentIndoorTemp, outdoorTemp, windSpeed);
-
-    // Calculate solar gain coefficient
-    const solarGain = this.calculateSolarGainCoefficient(cloudCover, symbol);
-
-    // Calculate weather-based adjustment
-    // Higher heat loss suggests increasing temperature
-    // Higher solar gain suggests decreasing temperature
-    // Price ratio affects the magnitude of adjustment
-    const priceRatio = currentPrice / avgPrice;
-    const weatherAdjustment = (heatLoss * 0.05) - (solarGain * 0.5);
-    const priceAdjustedWeatherEffect = weatherAdjustment / priceRatio;
-
-    // Limit the adjustment to a reasonable range (-1 to +1)
-    const adjustment = Math.max(-1, Math.min(1, priceAdjustedWeatherEffect));
-
-    // Determine the reason for adjustment
-    let reason = '';
-    if (adjustment > 0.2) {
-      reason = 'Cold and/or windy conditions, increasing temperature';
-    } else if (adjustment < -0.2) {
-      reason = 'Sunny conditions with solar gain, decreasing temperature';
-    } else {
-      reason = 'Weather conditions have minimal impact';
-    }
-
+  _numOrNull(v) { return typeof v === 'number' ? v : null; }
+  _emptyForecast() {
     return {
-      adjustment,
-      reason,
-      factors: {
-        outdoorTemp,
-        windSpeed,
-        cloudCover,
-        heatLoss,
-        solarGain,
-        priceRatio
-      }
+      current: { temperature: null, humidity: null, windSpeed: null, cloudCover: null, symbol: 'na' },
+      hourly: []
     };
   }
+  _log(msg, ...args) { try { (this.logger && this.logger.log ? this.logger.log : console.log)(msg, ...args); } catch (_) {} }
+  _error(msg, err) { try { (this.logger && this.logger.error ? this.logger.error : console.error)(msg, err); } catch (_) {} }
 
-  /**
-   * Get weather trend for the next 24 hours
-   * @param {Object} forecast - Weather forecast data
-   * @returns {Object} - Weather trend information
-   */
+  // Fetch forecast from Met.no (with 5-minute cache)
+  async getForecast(latitude, longitude, _options) {
+    try {
+      const now = Date.now();
+      if (this._lastForecast && (now - this._lastFetchTs) < 5 * 60 * 1000) {
+        return this._lastForecast;
+      }
+
+      const lat = Number(latitude);
+      const lon = Number(longitude);
+      if (!isFinite(lat) || !isFinite(lon)) {
+        // Fallback to Homey settings if not provided
+        const h = this.logger && this.logger.homey;
+        const userLat = h && h.settings && h.settings.get('latitude');
+        const userLon = h && h.settings && h.settings.get('longitude');
+        const fLat = Number(userLat) || 59.9; // Oslo fallback
+        const fLon = Number(userLon) || 10.7;
+        return await this.getForecast(fLat, fLon);
+      }
+
+      const url = `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`;
+      const json = await this._getJSON(url);
+      const mapped = this._mapMetNoToForecast(json);
+      this._lastForecast = mapped;
+      this._lastFetchTs = now;
+      return mapped;
+    } catch (err) {
+      this._error('Weather forecast fetch failed', err);
+      return this._emptyForecast();
+    }
+  }
+
+  // Provide immediate current conditions; derive from forecast if necessary
+  async getCurrentWeather() {
+    try {
+      const h = this.logger && this.logger.homey;
+      const userLat = h && h.settings && h.settings.get('latitude');
+      const userLon = h && h.settings && h.settings.get('longitude');
+      const lat = Number(userLat) || 59.9;
+      const lon = Number(userLon) || 10.7;
+      const forecast = await this.getForecast(lat, lon);
+      return forecast.current;
+    } catch (err) {
+      this._error('getCurrentWeather failed', err);
+      return { temperature: null, humidity: null, windSpeed: null, cloudCover: null, precipitation: null };
+    }
+  }
+
+  // Calculate a bounded adjustment using near-term forecast and price context
+  // Signature compatible with api.js: (forecast, currentTemp, targetTemp, currentPrice, avgPrice)
+  calculateWeatherBasedAdjustment(forecast, currentTemp, targetTemp, currentPrice, avgPrice) {
+    try {
+      if (!forecast || !forecast.hourly || forecast.hourly.length === 0) {
+        return { adjustment: 0, reason: 'No weather forecast available' };
+      }
+
+      const curr = forecast.current || {};
+      const nowTemp = typeof curr.temperature === 'number' ? curr.temperature : (typeof currentTemp === 'number' ? currentTemp : null);
+      const wind = typeof curr.windSpeed === 'number' ? curr.windSpeed : 0;
+
+      // Average of next 6 hours
+      const next6 = forecast.hourly.slice(0, 6).map(h => h && typeof h.temperature === 'number' ? h.temperature : nowTemp).filter(v => typeof v === 'number');
+      if (!next6.length || nowTemp === null) {
+        return { adjustment: 0, reason: 'Insufficient weather data' };
+      }
+      const avg6 = next6.reduce((a, b) => a + b, 0) / next6.length;
+      const delta6h = avg6 - nowTemp; // >0 warming, <0 cooling expected
+
+      // Base adjustment policy
+      let adj = 0;
+      let why = [];
+      const absDelta = Math.abs(delta6h);
+
+      if (delta6h <= -3) {
+        // Imminent cooling: preheat modestly
+        adj = Math.min(0.2 + absDelta * 0.1, 0.8);
+        why.push('incoming cold front');
+      } else if (delta6h >= 3) {
+        // Imminent warming: allow coasting
+        adj = -Math.min(0.2 + absDelta * 0.08, 0.6);
+        why.push('incoming warm period');
+      } else {
+        // Small changes -> no adjustment
+        adj = 0;
+        why.push('stable weather');
+      }
+
+      // Wind amplifies heat loss during cooling periods
+      if (adj > 0) { // only when preheating
+        const windFactor = 1 + Math.min(wind / 15, 0.5); // up to +50%
+        adj *= windFactor;
+        if (wind > 6) why.push(`wind ${wind.toFixed(1)}m/s`);
+      }
+
+      // Price context: favor preheating when cheap, coasting when expensive
+      if (typeof currentPrice === 'number' && typeof avgPrice === 'number' && avgPrice > 0) {
+        const ratio = currentPrice / avgPrice;
+        if (adj > 0 && ratio <= 0.7) { // cheap now, preheat more
+          adj *= 1.2;
+          why.push('cheap price');
+        } else if (adj < 0 && ratio >= 1.3) { // expensive now, coast more
+          adj *= 1.2;
+          why.push('expensive price');
+        }
+      }
+
+      // Bound the adjustment and round lightly
+      adj = Math.max(-1.0, Math.min(1.0, adj));
+      adj = Math.round(adj * 10) / 10; // 0.1°C precision here; final clamping/rules applied downstream
+
+      const reason = `${why.join(', ')}` || 'weather-based adjustment';
+      return { adjustment: adj, reason };
+    } catch (err) {
+      this._error('calculateWeatherBasedAdjustment failed', err);
+      return { adjustment: 0, reason: 'Weather adjustment error' };
+    }
+  }
+
+  // Simple trend classification using next-6h average vs now
   getWeatherTrend(forecast) {
-    if (!forecast || !forecast.hourly || forecast.hourly.length === 0) {
-      return { trend: 'unknown', details: 'No forecast data available' };
+    try {
+      if (!forecast || !forecast.hourly || forecast.hourly.length === 0) {
+        return { trend: 'unknown', details: 'No forecast' };
+      }
+      const curr = forecast.current || {};
+      const nowTemp = typeof curr.temperature === 'number' ? curr.temperature : null;
+      const next6 = forecast.hourly.slice(0, 6).map(h => h && typeof h.temperature === 'number' ? h.temperature : nowTemp).filter(v => typeof v === 'number');
+      if (!next6.length || nowTemp === null) return { trend: 'unknown', details: 'Insufficient data' };
+      const avg6 = next6.reduce((a, b) => a + b, 0) / next6.length;
+      const d = avg6 - nowTemp;
+      if (d <= -3) return { trend: 'cooling', details: 'Significant cooling in next 6h' };
+      if (d >= 3) return { trend: 'warming', details: 'Significant warming in next 6h' };
+      return { trend: 'stable', details: 'Minor temperature change in next 6h' };
+    } catch (err) {
+      this._error('getWeatherTrend failed', err);
+      return { trend: 'unknown', details: 'Error computing trend' };
     }
-
-    const hourly = forecast.hourly;
-
-    // Calculate temperature trend
-    const temperatures = hourly.map(h => h.temperature).filter(t => t !== undefined);
-    const firstTemp = temperatures[0];
-    const lastTemp = temperatures[temperatures.length - 1];
-    const tempDiff = lastTemp - firstTemp;
-
-    // Calculate precipitation trend
-    const precipitations = hourly.map(h => h.precipitation || 0);
-    const totalPrecipitation = precipitations.reduce((sum, p) => sum + p, 0);
-    const hasPrecipitation = totalPrecipitation > 0.5; // More than 0.5mm in 24h
-
-    // Determine overall trend
-    let trend = 'stable';
-    let details = '';
-
-    if (tempDiff > 3) {
-      trend = 'warming';
-      details = `Temperature rising by ${tempDiff.toFixed(1)}°C over next 24h`;
-    } else if (tempDiff < -3) {
-      trend = 'cooling';
-      details = `Temperature falling by ${Math.abs(tempDiff).toFixed(1)}°C over next 24h`;
-    } else {
-      details = `Temperature relatively stable (${tempDiff.toFixed(1)}°C change)`;
-    }
-
-    if (hasPrecipitation) {
-      details += `, with ${totalPrecipitation.toFixed(1)}mm precipitation expected`;
-    }
-
-    return {
-      trend,
-      details,
-      temperatureChange: tempDiff,
-      precipitation: totalPrecipitation
-    };
   }
 }
 

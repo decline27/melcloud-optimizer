@@ -29,7 +29,9 @@
     "meter_power.produced_hotwater",
     "heating_cop",
     "hotwater_cop",
-    "alarm_generic.offline"
+    "alarm_generic.offline",
+    "holiday_mode",
+    "legionella_now"
   ],
   "capabilitiesOptions": {
     "measure_temperature": {
@@ -391,6 +393,15 @@
       "title": {
         "en": "Device Offline"
       }
+    },
+    "holiday_mode": {
+      "title": { "en": "Holiday Mode" },
+      "type": "boolean"
+    },
+    "legionella_now": {
+      "title": { "en": "Start Legionella Cycle" },
+      "type": "boolean",
+      "hint": { "en": "Toggle on to start; will auto reset" }
     }
   },
   "platforms": [

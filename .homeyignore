@@ -2,6 +2,7 @@
 src/
 test/
 coverage/
+coverage-unit/
 docs/
 logs/
 memory-bank/
