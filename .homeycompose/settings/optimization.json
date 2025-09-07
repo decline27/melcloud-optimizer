@@ -1,0 +1,150 @@
+{
+  "id": "optimization",
+  "title": { "en": "Optimization Engine" },
+  "hint": {
+    "en": "Tune how the app optimizes for cost and comfort. You can enable the new Optimization Engine which uses a clear comfort band, price-aware preheating, and safety lockouts."
+  },
+  "children": [
+    {
+      "id": "engine_group",
+      "type": "group",
+      "label": { "en": "Engine" },
+      "children": [
+        {
+          "id": "use_engine",
+          "type": "checkbox",
+          "label": { "en": "Use Optimization Engine (recommended)" },
+          "value": false,
+          "hint": {
+            "en": "When enabled, target temperatures are decided by the Engine: comfort band control, price-aware preheat/coast, and anti–short-cycling. Disable to fall back to classic optimizer."
+          }
+        }
+      ]
+    },
+    {
+      "id": "safety_group",
+      "type": "group",
+      "label": { "en": "Safety & Stability" },
+      "children": [
+        {
+          "id": "deadband_c",
+          "type": "number",
+          "label": { "en": "Deadband (°C)" },
+          "min": 0.1,
+          "max": 2.0,
+          "step": 0.1,
+          "value": 0.3,
+          "hint": {
+            "en": "Small temperature window around the target to avoid jitter."
+          }
+        },
+        {
+          "id": "min_setpoint_change_minutes",
+          "type": "number",
+          "label": { "en": "Min Setpoint Change Interval (minutes)" },
+          "min": 5,
+          "max": 180,
+          "step": 5,
+          "value": 15,
+          "hint": {
+            "en": "Anti–short-cycling lockout. Prevents frequent setpoint changes."
+          }
+        },
+        {
+          "id": "extreme_weather_min_temp",
+          "type": "number",
+          "label": { "en": "Extreme Cold Minimum (°C)" },
+          "min": 16,
+          "max": 23,
+          "value": 20,
+          "hint": {
+            "en": "Minimum indoor target during very cold weather (e.g., <= -15°C outside)."
+          }
+        }
+      ]
+    },
+    {
+      "id": "comfort_group",
+      "type": "group",
+      "label": { "en": "Comfort Bands" },
+      "children": [
+        {
+          "id": "occupied",
+          "type": "checkbox",
+          "label": { "en": "Home is occupied" },
+          "value": true,
+          "hint": { "en": "Used by the Engine to choose the appropriate comfort band (can also be automated via Flows)." }
+        },
+        {
+          "id": "comfort_lower_occupied",
+          "type": "number",
+          "label": { "en": "Occupied: Lower (°C)" },
+          "min": 18,
+          "max": 23,
+          "step": 0.5,
+          "value": 20.0
+        },
+        {
+          "id": "comfort_upper_occupied",
+          "type": "number",
+          "label": { "en": "Occupied: Upper (°C)" },
+          "min": 19,
+          "max": 24,
+          "step": 0.5,
+          "value": 21.0
+        },
+        {
+          "id": "comfort_lower_away",
+          "type": "number",
+          "label": { "en": "Away: Lower (°C)" },
+          "min": 17,
+          "max": 22,
+          "step": 0.5,
+          "value": 19.0
+        },
+        {
+          "id": "comfort_upper_away",
+          "type": "number",
+          "label": { "en": "Away: Upper (°C)" },
+          "min": 18,
+          "max": 23,
+          "step": 0.5,
+          "value": 20.5
+        }
+      ]
+    },
+    {
+      "id": "preheat_group",
+      "type": "group",
+      "label": { "en": "Price-Aware Preheating" },
+      "children": [
+        {
+          "id": "preheat_enable",
+          "type": "checkbox",
+          "label": { "en": "Enable preheating in cheap hours" },
+          "value": true
+        },
+        {
+          "id": "preheat_horizon_hours",
+          "type": "number",
+          "label": { "en": "Look-ahead horizon (hours)" },
+          "min": 6,
+          "max": 36,
+          "step": 1,
+          "value": 12
+        },
+        {
+          "id": "preheat_cheap_percentile",
+          "type": "number",
+          "label": { "en": "Cheap price percentile (0..1)" },
+          "min": 0.05,
+          "max": 0.5,
+          "step": 0.05,
+          "value": 0.25,
+          "hint": { "en": "Treat hours equal/below this percentile as ‘cheap’." }
+        }
+      ]
+    }
+  ]
+}
+

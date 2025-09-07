@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
-const api: any = require('../../api.js');
+const apiModule: any = require('../../api.js');
 
 describe('api.js — real module tests using __test helpers', () => {
   let homey: any;
@@ -21,14 +21,14 @@ describe('api.js — real module tests using __test helpers', () => {
     };
 
     // Ensure a clean module state
-    if (api.__test && typeof api.__test.resetAll === 'function') {
-      api.__test.resetAll();
+    if (apiModule.__test && typeof apiModule.__test.resetAll === 'function') {
+      apiModule.__test.resetAll();
     }
   });
 
   afterEach(() => {
-    if (api.__test && typeof api.__test.resetAll === 'function') {
-      api.__test.resetAll();
+    if (apiModule.__test && typeof apiModule.__test.resetAll === 'function') {
+      apiModule.__test.resetAll();
     }
   });
 
@@ -57,9 +57,9 @@ describe('api.js — real module tests using __test helpers', () => {
       setCOPSettings: jest.fn()
     };
 
-    api.__test.setServices({ melCloud: melCloudMock, tibber: tibberMock, optimizer: optimizerMock, weather: {} });
+    apiModule.__test.setServices({ melCloud: melCloudMock, tibber: tibberMock, optimizer: optimizerMock, weather: {} });
 
-    const res = await api.getDeviceList({ homey });
+    const res = await apiModule.getDeviceList({ homey });
 
     expect(res.success).toBe(true);
     expect(Array.isArray(res.devices)).toBe(true);
@@ -90,9 +90,9 @@ describe('api.js — real module tests using __test helpers', () => {
       thermalModelService: { getMemoryUsage: jest.fn().mockReturnValue({}) }
     };
 
-    api.__test.setServices({ melCloud: melCloudMock, tibber: tibberMock, optimizer: optimizerMock, weather: {} });
+    apiModule.__test.setServices({ melCloud: melCloudMock, tibber: tibberMock, optimizer: optimizerMock, weather: {} });
 
-    const res = await api.getRunHourlyOptimizer({ homey });
+    const res = await apiModule.getRunHourlyOptimizer({ homey });
 
     expect(res.success).toBe(true);
     expect(optimizerMock.runEnhancedOptimization).toHaveBeenCalled();
@@ -113,17 +113,17 @@ describe('api.js — real module tests using __test helpers', () => {
       thermalModel: { K: 0.5 }
     };
 
-    api.__test.setServices({ melCloud: melCloudMock, tibber: tibberMock, optimizer: optimizerMock, weather: {} });
+    apiModule.__test.setServices({ melCloud: melCloudMock, tibber: tibberMock, optimizer: optimizerMock, weather: {} });
 
     // Default historicalData is empty -> should return not enough data
-    const res1 = await api.getRunWeeklyCalibration({ homey });
+    const res1 = await apiModule.getRunWeeklyCalibration({ homey });
     expect(res1.success).toBe(false);
     expect(res1.historicalDataCount).toBeDefined();
 
     // Now inject enough historical data and run again
-    api.__test.setHistoricalData({ optimizations: new Array(30).fill({}), lastCalibration: null });
+    apiModule.__test.setHistoricalData({ optimizations: new Array(30).fill({}), lastCalibration: null });
 
-    const res2 = await api.getRunWeeklyCalibration({ homey });
+    const res2 = await apiModule.getRunWeeklyCalibration({ homey });
     expect(res2.success).toBe(true);
     expect(optimizerMock.runWeeklyCalibration).toHaveBeenCalled();
   });

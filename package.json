@@ -17,7 +17,8 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:ci": "jest --ci --coverage --watchAll=false",
-    "clean": "rm -rf .homeybuild coverage",
+    "clean": "rm -rf .homeybuild coverage results",
+    "simulate": "node scripts/simulate.js --data data/timeseries.csv --config data/config.yaml --output results/",
     "validate": "homey app validate",
     "homey:install": "homey app install"
   },

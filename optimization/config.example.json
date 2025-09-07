@@ -1,0 +1,11 @@
+{
+  "comfortOccupied": { "lowerC": 20.0, "upperC": 21.0 },
+  "comfortAway": { "lowerC": 19.0, "upperC": 20.5 },
+  "minSetpointC": 18,
+  "maxSetpointC": 23,
+  "stepMinutes": 60,
+  "preheat": { "enable": true, "horizonHours": 12, "cheapPercentile": 0.25 },
+  "safety": { "deadbandC": 0.3, "minSetpointChangeMinutes": 15, "extremeWeatherMinC": 20 },
+  "thermal": { "rThermal": 2.5, "cThermal": 10 }
+}
+

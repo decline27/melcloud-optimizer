@@ -3511,6 +3511,74 @@ class Optimizer {
       
       // Calculate target temperature using comfort-adjusted range and inverted price
       let targetTemp = comfortAdjustedMin + (comfortAdjustedMax - comfortAdjustedMin) * priceInverted;
+
+      // Optional: Use pure Optimization Engine (if available and enabled)
+      try {
+        const ue = this.logger?.homey?.settings?.get('use_engine');
+        const useEngine = (ue === true) || (ue === 'true') || (ue === 1);
+        if (useEngine) {
+          let eng;
+          try {
+            // Prefer compiled JS path used by Homey build
+            eng = require('./.homeybuild/optimization/engine.js');
+          } catch (_) {
+            try { eng = require('./optimization/engine.js'); } catch (_) { eng = null; }
+          }
+
+          if (eng && typeof eng.computeHeatingDecision === 'function') {
+            // Map settings to engine config with safe defaults
+            const get = (k, d) => {
+              try { const v = this.logger?.homey?.settings?.get(k); return (v === undefined || v === null) ? d : v; } catch { return d; }
+            };
+            const cfg = Object.assign({}, eng.DefaultEngineConfig);
+            cfg.minSetpointC = this.minTemp;
+            cfg.maxSetpointC = this.maxTemp;
+            cfg.safety.deadbandC = Number(get('deadband_c', cfg.safety.deadbandC));
+            cfg.safety.minSetpointChangeMinutes = Number(get('min_setpoint_change_minutes', cfg.safety.minSetpointChangeMinutes));
+            cfg.safety.extremeWeatherMinC = Number(get('extreme_weather_min_temp', cfg.safety.extremeWeatherMinC));
+            cfg.comfortOccupied.lowerC = Number(get('comfort_lower_occupied', cfg.comfortOccupied.lowerC));
+            cfg.comfortOccupied.upperC = Number(get('comfort_upper_occupied', cfg.comfortOccupied.upperC));
+            cfg.comfortAway.lowerC = Number(get('comfort_lower_away', cfg.comfortAway.lowerC));
+            cfg.comfortAway.upperC = Number(get('comfort_upper_away', cfg.comfortAway.upperC));
+            cfg.preheat.enable = get('preheat_enable', cfg.preheat.enable) !== false;
+            cfg.preheat.horizonHours = Number(get('preheat_horizon_hours', cfg.preheat.horizonHours));
+            cfg.preheat.cheapPercentile = Number(get('preheat_cheap_percentile', cfg.preheat.cheapPercentile));
+
+            const occupied = get('occupied', true) !== false;
+            const engineDecision = eng.computeHeatingDecision(cfg, {
+              now: new Date(),
+              occupied,
+              prices: priceData.prices.map(p => ({ time: p.time, price: p.price })),
+              currentPrice,
+              telemetry: { indoorC: currentTemp, targetC: currentTarget },
+              weather: { outdoorC: outdoorTemp },
+              lastSetpointChangeMs: Number(get('last_setpoint_change_ms', null)) || null
+            });
+
+            // Log engine status snapshot
+            this.logger.log('Engine: ON', {
+              occupied,
+              bands: { occupied: [cfg.comfortOccupied.lowerC, cfg.comfortOccupied.upperC], away: [cfg.comfortAway.lowerC, cfg.comfortAway.upperC] },
+              safety: { deadband: cfg.safety.deadbandC, minChangeMin: cfg.safety.minSetpointChangeMinutes },
+              preheat: { enable: cfg.preheat.enable, horizon: cfg.preheat.horizonHours, cheapPct: cfg.preheat.cheapPercentile }
+            });
+
+            if (engineDecision && engineDecision.action === 'set_target') {
+              targetTemp = engineDecision.toC;
+              adjustmentReason = `Engine: ${engineDecision.reason}`;
+            } else if (engineDecision) {
+              targetTemp = currentTarget; // maintain
+              adjustmentReason = `Engine: ${engineDecision.reason}`;
+            }
+          } else {
+            this.logger.log('Engine: OFF', { reason: 'engine module not available' });
+          }
+        } else {
+          this.logger.log('Engine: OFF', { use_engine_setting: ue });
+        }
+      } catch (engErr) {
+        try { this.logger.warn?.('Engine integration error; using classic optimizer', engErr); } catch {}
+      }
       
       this.logger.log(`Temperature calculation: normalized=${priceNormalized.toFixed(2)}, inverted=${priceInverted.toFixed(2)}, target=${targetTemp.toFixed(1)}°C`);
       this.logger.log(`Current room temperature: ${currentTemp}°C`);
@@ -4599,6 +4667,25 @@ module.exports = {
         // Run the enhanced optimization with real API data
         const result = await optimizer.runEnhancedOptimization();
 
+        // Quick-win DHW scheduling: toggle forced hot-water when cheap
+        try {
+          const enableTank = homey.settings.get('enable_tank_control') === true;
+          if (enableTank && result && result.hotWaterAction && result.hotWaterAction.action) {
+            const action = result.hotWaterAction.action;
+            const deviceId = homey.settings.get('device_id') || 'Boiler';
+            const buildingId = parseInt(homey.settings.get('building_id') || '0') || undefined;
+            if (action === 'heat_now') {
+              await melCloud.setHotWaterMode(deviceId, buildingId, true);
+              homey.app.log('DHW action: Forced hot water mode (cheap price window)');
+            } else if (action === 'delay') {
+              await melCloud.setHotWaterMode(deviceId, buildingId, false);
+              homey.app.log('DHW action: Auto mode (delaying in expensive window)');
+            }
+          }
+        } catch (dhwErr) {
+          homey.app.error('DHW scheduling toggle failed:', dhwErr && dhwErr.message ? dhwErr.message : String(dhwErr));
+        }
+
         // Log the enhanced optimization result
         homey.app.log('Enhanced optimization result:', JSON.stringify(result, null, 2));
 
@@ -4700,30 +4787,17 @@ module.exports = {
             additionalData.tankOriginal = result.tankTemperature.targetOriginal;
           }
 
-          // Calculate projected daily savings (only if temperature was actually changed)
-          if (result.action === 'temperature_adjusted' && Math.abs(result.toTemp - result.fromTemp) > 0.1) {
-            const hourlySavings = result.savings || 0;
-            let projectedDailySavings = 0;
-
-            try {
-              // Prefer the optimizer's enhanced daily savings calculation when available
-              if (optimizer && typeof optimizer.calculateDailySavings === 'function') {
-                projectedDailySavings = optimizer.calculateDailySavings(hourlySavings);
-              } else {
-                projectedDailySavings = hourlySavings * 24;
-              }
-            } catch (calcErr) {
-              // Fallback if anything goes wrong
-              homey.app.error('Error calculating projected daily savings, using simple estimate:', calcErr);
-              projectedDailySavings = hourlySavings * 24;
+          // Calculate and include projected daily savings for timeline (always include, even if small)
+          try {
+            const hourlySavings = Number(result.savings || 0);
+            let projectedDailySavings = hourlySavings * 24;
+            if (optimizer && typeof optimizer.calculateDailySavings === 'function') {
+              projectedDailySavings = optimizer.calculateDailySavings(hourlySavings);
             }
-
-            if (Math.abs(projectedDailySavings) > 0.1) {
-              additionalData.dailySavings = projectedDailySavings;
-
-              // Log the projected daily savings for debugging
-              homey.app.log(`Hourly optimization projected daily savings: ${projectedDailySavings.toFixed(2)} NOK/day`);
-            }
+            additionalData.dailySavings = projectedDailySavings;
+            homey.app.log(`Hourly optimization projected daily savings: ${projectedDailySavings.toFixed(2)} NOK/day`);
+          } catch (calcErr) {
+            homey.app.error('Error calculating projected daily savings (timeline):', calcErr);
           }
 
           // Create the timeline entry using our standardized helper
@@ -5778,7 +5852,8 @@ module.exports = {
    * Cleanup all API resources to prevent memory leaks
    * Should be called when the app is shutting down
    */
-  async cleanup({ homey }) {
+  // Private cleanup (not exposed as HTTP endpoint)
+  async internalCleanup({ homey }) {
     try {
       homey.app.log('Starting API resources cleanup...');
 
@@ -5843,6 +5918,20 @@ module.exports = {
     }
   }
 };
+
+// Hide internalCleanup from ManagerApi endpoint enumeration (keep it private)
+try {
+  if (module && module.exports && typeof module.exports.internalCleanup === 'function') {
+    const __ic = module.exports.internalCleanup;
+    delete module.exports.internalCleanup;
+    Object.defineProperty(module.exports, 'internalCleanup', {
+      value: __ic,
+      enumerable: false,
+      writable: false,
+      configurable: false
+    });
+  }
+} catch (_) {}
 
 // Test helpers - only exposed when running in test environment
 if (process.env.NODE_ENV === 'test') {

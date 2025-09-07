@@ -14,6 +14,7 @@ import {
 import { isError } from '../util/error-handler';
 import { EnhancedSavingsCalculator, OptimizationData, SavingsCalculationResult } from '../util/enhanced-savings-calculator';
 import { HomeyLogger } from '../util/logger';
+import { DefaultEngineConfig, computeHeatingDecision } from '../../optimization/engine';
 
 /**
  * Real energy data from MELCloud API
@@ -141,6 +142,9 @@ export class Optimizer {
   private maxTemp: number = 22;
   private tempStep: number = 0.5;
   private deadband: number = 0.3; // Minimum temperature change to trigger adjustment
+  // Safety: avoid frequent setpoint changes (anti–short-cycling proxy)
+  private minSetpointChangeMinutes: number = 15;
+  private lastSetpointChangeMs: number | null = null;
   private thermalModelService: ThermalModelService | null = null;
   private useThermalLearning: boolean = false;
   private copHelper: COPHelper | null = null;
@@ -216,6 +220,20 @@ export class Optimizer {
 
         this.logger.log(`COP settings loaded - Weight: ${this.copWeight}, Auto Seasonal: ${this.autoSeasonalMode}, Summer Mode: ${this.summerMode}`);
         
+        // Load safety constraints
+        const mins = Number(homey.settings.get('min_setpoint_change_minutes'));
+        if (!Number.isNaN(mins) && mins > 0 && mins < 180) {
+          this.minSetpointChangeMinutes = mins;
+        }
+        const persistedLast = Number(homey.settings.get('last_setpoint_change_ms'));
+        if (Number.isFinite(persistedLast) && persistedLast > 0) {
+          this.lastSetpointChangeMs = persistedLast;
+        }
+        const db = Number(homey.settings.get('deadband_c'));
+        if (!Number.isNaN(db) && db > 0.1 && db < 2) {
+          this.deadband = db;
+        }
+
         // Initialize thermal mass model from historical data
         this.initializeThermalMassFromHistory();
         
@@ -1462,6 +1480,25 @@ export class Optimizer {
       const minPrice = Math.min(...priceData.prices.map((p: any) => p.price));
       const maxPrice = Math.max(...priceData.prices.map((p: any) => p.price));
 
+      // Validate price freshness (failsafe)
+      try {
+        const t = (priceData.current && (priceData.current as any).time) ? new Date((priceData.current as any).time).getTime() : NaN;
+        const ageMin = Number.isFinite(t) ? (Date.now() - t) / 60000 : Infinity;
+        if (!(ageMin >= 0 && ageMin <= 65)) {
+          this.logger.warn(`Price data appears stale or in the future (age=${ageMin.toFixed(1)} min). Holding setpoint.`);
+          return {
+            success: true,
+            action: 'no_change',
+            fromTemp: currentTarget ?? currentTemp ?? 20,
+            toTemp: currentTarget ?? currentTemp ?? 20,
+            reason: 'Stale price data; safe hold',
+            priceData: { current: currentPrice, average: avgPrice, min: minPrice, max: maxPrice }
+          };
+        }
+      } catch (e) {
+        this.logger.warn('Failed to validate price freshness; proceeding cautiously');
+      }
+
       this.logger.log('Enhanced optimization state:', {
         currentTemp: currentTemp?.toFixed(1),
         currentTarget: currentTarget?.toFixed(1),
@@ -1482,6 +1519,96 @@ export class Optimizer {
 
       let targetTemp = optimizationResult.targetTemp;
       let adjustmentReason = optimizationResult.reason;
+
+      // Optional: Use pure Optimization Engine when enabled (robust boolean parsing)
+      let useEngine = false;
+      if (this.homey) {
+        try {
+          const ue = this.homey.settings.get('use_engine');
+          useEngine = (ue === true) || (ue === 'true') || (ue === 1);
+        } catch {}
+      }
+      if (useEngine) {
+        try {
+          const occupied = this.homey ? (this.homey.settings.get('occupied') !== false) : true;
+          const comfortLowerOcc = Number(this.homey?.settings.get('comfort_lower_occupied'));
+          const comfortUpperOcc = Number(this.homey?.settings.get('comfort_upper_occupied'));
+          const comfortLowerAway = Number(this.homey?.settings.get('comfort_lower_away'));
+          const comfortUpperAway = Number(this.homey?.settings.get('comfort_upper_away'));
+
+          const engineCfg = {
+            ...DefaultEngineConfig,
+            comfortOccupied: {
+              lowerC: Number.isFinite(comfortLowerOcc) ? comfortLowerOcc : DefaultEngineConfig.comfortOccupied.lowerC,
+              upperC: Number.isFinite(comfortUpperOcc) ? comfortUpperOcc : DefaultEngineConfig.comfortOccupied.upperC,
+            },
+            comfortAway: {
+              lowerC: Number.isFinite(comfortLowerAway) ? comfortLowerAway : DefaultEngineConfig.comfortAway.lowerC,
+              upperC: Number.isFinite(comfortUpperAway) ? comfortUpperAway : DefaultEngineConfig.comfortAway.upperC,
+            },
+            minSetpointC: this.minTemp,
+            maxSetpointC: this.maxTemp,
+            safety: {
+              deadbandC: this.deadband,
+              minSetpointChangeMinutes: this.minSetpointChangeMinutes,
+              extremeWeatherMinC: Number(this.homey?.settings.get('extreme_weather_min_temp')) || DefaultEngineConfig.safety.extremeWeatherMinC,
+            },
+            preheat: {
+              enable: this.homey?.settings.get('preheat_enable') !== false,
+              horizonHours: Number(this.homey?.settings.get('preheat_horizon_hours')) || DefaultEngineConfig.preheat.horizonHours,
+              cheapPercentile: Number(this.homey?.settings.get('preheat_cheap_percentile')) || DefaultEngineConfig.preheat.cheapPercentile,
+            },
+            thermal: {
+              rThermal: Number(this.homey?.settings.get('r_thermal')) || DefaultEngineConfig.thermal.rThermal,
+              cThermal: Number(this.homey?.settings.get('c_thermal')) || DefaultEngineConfig.thermal.cThermal,
+            }
+          } as typeof DefaultEngineConfig;
+
+          const engineDecision = computeHeatingDecision(engineCfg, {
+            now: new Date(),
+            occupied,
+            prices: priceData.prices,
+            currentPrice,
+            telemetry: { indoorC: currentTemp ?? 20, targetC: currentTarget ?? 20 },
+            weather: { outdoorC: outdoorTemp },
+            lastSetpointChangeMs: this.lastSetpointChangeMs ?? (this.homey ? Number(this.homey.settings.get('last_setpoint_change_ms')) : null)
+          });
+
+          // Explicit ON marker with config snapshot for easier troubleshooting
+          try {
+            this.logger.log('Engine: ON', {
+              occupied,
+              bands: {
+                occupied: [engineCfg.comfortOccupied.lowerC, engineCfg.comfortOccupied.upperC],
+                away: [engineCfg.comfortAway.lowerC, engineCfg.comfortAway.upperC]
+              },
+              safety: { deadband: this.deadband, minChangeMin: this.minSetpointChangeMinutes },
+              preheat: { enable: engineCfg.preheat.enable, horizon: engineCfg.preheat.horizonHours, cheapPct: engineCfg.preheat.cheapPercentile }
+            });
+          } catch {}
+
+          if (engineDecision.action === 'set_target') {
+            targetTemp = engineDecision.toC;
+            adjustmentReason = `Engine: ${engineDecision.reason}`;
+          } else {
+            targetTemp = currentTarget ?? targetTemp;
+            adjustmentReason = `Engine: ${engineDecision.reason}`;
+          }
+
+          this.logger.log('Engine decision applied', {
+            from: currentTarget ?? 20,
+            to: targetTemp,
+            reason: adjustmentReason
+          });
+        } catch (e) {
+          this.logger.error('Engine decision failed; using optimizer result', e);
+        }
+      } else {
+        try {
+          const raw = this.homey ? this.homey.settings.get('use_engine') : undefined;
+          this.logger.log('Engine: OFF', { use_engine_setting: raw });
+        } catch {}
+      }
 
       // Apply weather-based adjustment when available (uses forecast + price context)
       let weatherInfo: any = null;
@@ -1633,9 +1760,26 @@ export class Optimizer {
         });
       }
 
-      // Apply temperature change if significant
-      if (isSignificantChange) {
+      // Anti–short-cycling lockout: avoid frequent setpoint changes
+      let lockoutActive = false;
+      try {
+        const last = (this.homey && Number(this.homey.settings.get('last_setpoint_change_ms'))) || this.lastSetpointChangeMs || 0;
+        const sinceMin = last > 0 ? (Date.now() - last) / 60000 : Infinity;
+        lockoutActive = sinceMin < this.minSetpointChangeMinutes;
+        if (lockoutActive) {
+          this.logger.log(`Setpoint change lockout active (${sinceMin.toFixed(1)}m since last < ${this.minSetpointChangeMinutes}m)`);
+        }
+      } catch {}
+
+      // Apply temperature change if significant and not within lockout window
+      if (isSignificantChange && !lockoutActive) {
         await this.melCloud.setDeviceTemperature(this.deviceId, this.buildingId, targetTemp);
+        // Persist last change timestamp for stability across restarts
+        try {
+          const now = Date.now();
+          this.lastSetpointChangeMs = now;
+          if (this.homey) this.homey.settings.set('last_setpoint_change_ms', now);
+        } catch {}
         
         const savingsNumeric = this.calculateRealHourlySavings(safeCurrentTarget, targetTemp, currentPrice, optimizationResult.metrics, 'zone1');
         this.logger.log(`Enhanced temperature adjusted from ${safeCurrentTarget.toFixed(1)}°C to ${targetTemp.toFixed(1)}°C`, {
@@ -1662,6 +1806,7 @@ export class Optimizer {
           hotWaterAction: hotWaterAction || undefined
         };
       } else {
+        // No change either due to small delta or lockout
         this.logger.log(`No enhanced temperature adjustment needed (difference: ${tempDifference.toFixed(1)}°C < deadband: ${this.deadband}°C)`);
 
         const savingsNumericNoChange = 0; // Numeric savings for Zone1 unchanged. Tank/Zone2 handled by API layer.
@@ -1670,7 +1815,9 @@ export class Optimizer {
           action: 'no_change',
           fromTemp: safeCurrentTarget,
           toTemp: safeCurrentTarget,
-          reason: `Temperature difference ${tempDifference.toFixed(1)}°C below deadband ${this.deadband}°C`,
+          reason: lockoutActive
+            ? `Setpoint change lockout (${this.minSetpointChangeMinutes}m) to prevent cycling`
+            : `Temperature difference ${tempDifference.toFixed(1)}°C below deadband ${this.deadband}°C`,
           priceData: {
             current: currentPrice,
             average: avgPrice,

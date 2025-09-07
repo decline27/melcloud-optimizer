@@ -143,6 +143,122 @@
       </div>
     </fieldset>
 
+    <!-- Optimization Engine Settings -->
+    <fieldset class="homey-form-fieldset" id="engine_fieldset">
+      <legend class="homey-form-legend">Optimization Engine</legend>
+
+      <div class="homey-form-group">
+        <div style="background:#f7fbff;border:1px solid #dbe9ff;border-radius:6px;padding:10px;">
+          <div style="font-weight:600;margin-bottom:6px;">How the Engine saves money</div>
+          <div class="homey-form-helper" style="margin:0;">
+            • Shifts heating to cheap hours (preheat), coasts in expensive hours.<br>
+            • Keeps comfort within a band (occupied vs away).<br>
+            • Reduces compressor cycling with a deadband and a minimum interval between changes.<br>
+            • Applies weather context (for example, warm trend → smaller targets).
+          </div>
+        </div>
+      </div>
+
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="use_engine">Use Optimization Engine</label>
+        <label class="homey-form-checkbox">
+          <input type="checkbox" id="use_engine" />
+          <span>Comfort band control + price-aware preheating (recommended)</span>
+        </label>
+        <p class="homey-form-helper">Turn on the new engine for clearer control and savings. Turn off to use the classic optimizer. Suggested default: <b>Enabled</b>.</p>
+        <p class="homey-form-helper">Impact: When enabled, decisions prioritize cost within your comfort band and respect the safety limits below.</p>
+      </div>
+
+      <div class="homey-form-group">
+        <label class="homey-form-label">Safety & Stability</label>
+        <div class="homey-form-row">
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="deadband_c">Deadband (°C)</label>
+            <input class="homey-form-input" id="deadband_c" type="number" min="0.1" max="2.0" step="0.1" value="0.3" />
+            <p class="homey-form-helper">Small window around target to avoid jitter. Suggested default: <b>0.3°C</b>.</p>
+            <p class="homey-form-helper">Impact: Larger deadband = fewer changes and less cycling (smoother), but slower fine‑tuning. Typical range 0.3–0.5°C.</p>
+          </div>
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="min_setpoint_change_minutes">Min Setpoint Interval (min)</label>
+            <input class="homey-form-input" id="min_setpoint_change_minutes" type="number" min="5" max="180" step="5" value="15" />
+            <p class="homey-form-helper">Anti–short‑cycling lockout between changes. Suggested default: <b>15 minutes</b>.</p>
+            <p class="homey-form-helper">Impact: Higher values reduce compressor starts and avoid fighting defrost cycles; too high can slow reactions to big price swings.</p>
+          </div>
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="extreme_weather_min_temp">Extreme Cold Min (°C)</label>
+            <input class="homey-form-input" id="extreme_weather_min_temp" type="number" min="16" max="23" step="0.5" value="20" />
+            <p class="homey-form-helper">Minimum indoor target during deep cold. Suggested default: <b>20°C</b>.</p>
+            <p class="homey-form-helper">Impact: Protects comfort/COP during cold snaps (prevents over‑setbacks). Increase if your home cools quickly.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="homey-form-group">
+        <label class="homey-form-label">Comfort Bands</label>
+        <div class="homey-form-row">
+          <div class="homey-form-col">
+            <label class="homey-form-checkbox">
+              <input type="checkbox" id="occupied" />
+              <span>Home is occupied</span>
+            </label>
+            <p class="homey-form-helper">Use occupied band; turn off for away band. Can be automated via Flows. Suggested default: <b>Enabled</b>.</p>
+          </div>
+        </div>
+        <div class="homey-form-row">
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="comfort_lower_occupied">Occupied Lower (°C)</label>
+            <input class="homey-form-input" id="comfort_lower_occupied" type="number" min="18" max="23" step="0.5" value="20" />
+            <p class="homey-form-helper">Suggested default: <b>20.0°C</b>.</p>
+            <p class="homey-form-helper">Impact: Lower values increase savings in expensive hours but feel cooler. Adjust to your comfort.</p>
+          </div>
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="comfort_upper_occupied">Occupied Upper (°C)</label>
+            <input class="homey-form-input" id="comfort_upper_occupied" type="number" min="19" max="24" step="0.5" value="21" />
+            <p class="homey-form-helper">Suggested default: <b>21.0°C</b>.</p>
+            <p class="homey-form-helper">Impact: Higher values allow more preheating in cheap hours (store heat), improving savings when a price spike is coming.</p>
+          </div>
+        </div>
+        <div class="homey-form-row">
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="comfort_lower_away">Away Lower (°C)</label>
+            <input class="homey-form-input" id="comfort_lower_away" type="number" min="17" max="22" step="0.5" value="19" />
+            <p class="homey-form-helper">Suggested default: <b>19.0°C</b>.</p>
+            <p class="homey-form-helper">Impact: Away band reduces cost when nobody’s home; keep within safe bounds for building/frost protection.</p>
+          </div>
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="comfort_upper_away">Away Upper (°C)</label>
+            <input class="homey-form-input" id="comfort_upper_away" type="number" min="18" max="23" step="0.5" value="20.5" />
+            <p class="homey-form-helper">Suggested default: <b>20.5°C</b>.</p>
+            <p class="homey-form-helper">Tip: Keep a 0.8–1.5°C spread between lower/upper for stable control.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="homey-form-group">
+        <label class="homey-form-label">Price‑Aware Preheating</label>
+        <label class="homey-form-checkbox">
+          <input type="checkbox" id="preheat_enable" />
+          <span>Enable preheating in cheap hours</span>
+        </label>
+        <p class="homey-form-helper">Suggested default: <b>Enabled</b>. Builds thermal buffer during low-price hours for use during peaks.</p>
+        <div class="homey-form-row">
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="preheat_horizon_hours">Horizon (hours)</label>
+            <input class="homey-form-input" id="preheat_horizon_hours" type="number" min="6" max="36" step="1" value="12" />
+            <p class="homey-form-helper">How far ahead to evaluate prices. Suggested default: <b>12 hours</b>.</p>
+            <p class="homey-form-helper">Impact: Longer horizon anticipates evening spikes earlier; too long can include noisy data. Try 12–24h.</p>
+          </div>
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="preheat_cheap_percentile">Cheap percentile (0–1)</label>
+            <input class="homey-form-input" id="preheat_cheap_percentile" type="number" min="0.05" max="0.5" step="0.05" value="0.25" />
+            <p class="homey-form-helper">Treat hours at or below this percentile as cheap. Suggested default: <b>0.25</b> (25th percentile).</p>
+            <p class="homey-form-helper">Impact: Lower values preheat only in the very cheapest hours (more selective). Higher values preheat more often.</p>
+          </div>
+        </div>
+        <p class="homey-form-helper">Note: Some devices set to Flow/Curve modes may ignore room target changes. The Engine still optimizes within your comfort band, but the unit may apply targets via heating curve.</p>
+      </div>
+    </fieldset>
+
     <fieldset class="homey-form-fieldset" id="tank_fieldset">
       <legend class="homey-form-legend">Hot Water Tank Settings</legend>
       <div class="homey-form-group">
@@ -152,6 +268,7 @@
           <span>Enable optimization of hot water tank temperature</span>
         </label>
         <p class="homey-form-helper">Enable optimization of hot water tank temperature based on electricity prices. Suggested default: Enabled - allows the system to store hot water as thermal energy when electricity is cheap.</p>
+        <p class="homey-form-helper">Impact: Shifts DHW heating to cheap hours (with a small step and 0.5°C deadband for stability). Min/Max protect comfort and legionella schedules.</p>
         <p id="tank_capability_warning" class="homey-form-helper" style="display:none;color:#b00;">This device may not support tank water temperature control. If unsupported, these settings have no effect.</p>
       </div>
       <div class="homey-form-group">
@@ -1012,6 +1129,20 @@
         const tankFieldset = document.getElementById("tank_fieldset");
         const tankCapabilityWarning = document.getElementById("tank_capability_warning");
 
+        // Engine elements
+        const useEngineElement = document.getElementById("use_engine");
+        const deadbandElement = document.getElementById("deadband_c");
+        const minChangeMinutesElement = document.getElementById("min_setpoint_change_minutes");
+        const extremeMinElement = document.getElementById("extreme_weather_min_temp");
+        const occupiedElement = document.getElementById("occupied");
+        const comfortLowerOccElement = document.getElementById("comfort_lower_occupied");
+        const comfortUpperOccElement = document.getElementById("comfort_upper_occupied");
+        const comfortLowerAwayElement = document.getElementById("comfort_lower_away");
+        const comfortUpperAwayElement = document.getElementById("comfort_upper_away");
+        const preheatEnableElement = document.getElementById("preheat_enable");
+        const preheatHorizonElement = document.getElementById("preheat_horizon_hours");
+        const preheatPercentileElement = document.getElementById("preheat_cheap_percentile");
+
         // Weather location warning helper
         function updateWeatherLocationWarning() {
           const warn = document.getElementById('weather_location_warning');
@@ -1084,6 +1215,20 @@
           if (err) return Homey.alert(err);
           if (value !== undefined) maxTempElement.value = value;
         });
+
+        // Load engine settings
+        Homey.get("use_engine", function (err, value) { if (!err && value !== undefined) useEngineElement.checked = !!value; });
+        Homey.get("deadband_c", function (err, value) { if (!err && value !== undefined) deadbandElement.value = value; });
+        Homey.get("min_setpoint_change_minutes", function (err, value) { if (!err && value !== undefined) minChangeMinutesElement.value = value; });
+        Homey.get("extreme_weather_min_temp", function (err, value) { if (!err && value !== undefined) extremeMinElement.value = value; });
+        Homey.get("occupied", function (err, value) { if (!err && value !== undefined) occupiedElement.checked = !!value; });
+        Homey.get("comfort_lower_occupied", function (err, value) { if (!err && value !== undefined) comfortLowerOccElement.value = value; });
+        Homey.get("comfort_upper_occupied", function (err, value) { if (!err && value !== undefined) comfortUpperOccElement.value = value; });
+        Homey.get("comfort_lower_away", function (err, value) { if (!err && value !== undefined) comfortLowerAwayElement.value = value; });
+        Homey.get("comfort_upper_away", function (err, value) { if (!err && value !== undefined) comfortUpperAwayElement.value = value; });
+        Homey.get("preheat_enable", function (err, value) { if (!err && value !== undefined) preheatEnableElement.checked = !!value; });
+        Homey.get("preheat_horizon_hours", function (err, value) { if (!err && value !== undefined) preheatHorizonElement.value = value; });
+        Homey.get("preheat_cheap_percentile", function (err, value) { if (!err && value !== undefined) preheatPercentileElement.value = value; });
 
         Homey.get("log_level", function (err, value) {
           if (err) return Homey.alert(err);
@@ -1605,6 +1750,49 @@
           Homey.set("summer_mode", summerModeElement.checked, function (err) {
             if (err) return Homey.alert(err);
           });
+
+          // Save Engine settings
+          Homey.set("use_engine", useEngineElement.checked, function (err) { if (err) return Homey.alert(err); });
+          const deadband = parseFloat(deadbandElement.value);
+          if (!isNaN(deadband) && deadband >= 0.1 && deadband <= 2.0) {
+            Homey.set("deadband_c", deadband, function (err) { if (err) return Homey.alert(err); });
+          } else if (deadbandElement.value) { Homey.alert('Invalid Deadband. 0.1–2.0°C'); return; }
+
+          const minChange = parseInt(minChangeMinutesElement.value);
+          if (!isNaN(minChange) && minChange >= 5 && minChange <= 180) {
+            Homey.set("min_setpoint_change_minutes", minChange, function (err) { if (err) return Homey.alert(err); });
+          } else if (minChangeMinutesElement.value) { Homey.alert('Invalid Min Setpoint Interval. 5–180 min'); return; }
+
+          const extremeMin = parseFloat(extremeMinElement.value);
+          if (!isNaN(extremeMin) && extremeMin >= 16 && extremeMin <= 23) {
+            Homey.set("extreme_weather_min_temp", extremeMin, function (err) { if (err) return Homey.alert(err); });
+          } else if (extremeMinElement.value) { Homey.alert('Invalid Extreme Cold Min. 16–23°C'); return; }
+
+          Homey.set("occupied", occupiedElement.checked, function (err) { if (err) return Homey.alert(err); });
+
+          const clo = parseFloat(comfortLowerOccElement.value);
+          const cuo = parseFloat(comfortUpperOccElement.value);
+          if (!isNaN(clo) && !isNaN(cuo) && clo >= 18 && clo <= 23 && cuo >= 19 && cuo <= 24 && clo < cuo) {
+            Homey.set("comfort_lower_occupied", clo, function (err) { if (err) return Homey.alert(err); });
+            Homey.set("comfort_upper_occupied", cuo, function (err) { if (err) return Homey.alert(err); });
+          } else if (comfortLowerOccElement.value || comfortUpperOccElement.value) { Homey.alert('Invalid Occupied band. Lower 18–23, Upper 19–24, Lower < Upper'); return; }
+
+          const cla = parseFloat(comfortLowerAwayElement.value);
+          const cua = parseFloat(comfortUpperAwayElement.value);
+          if (!isNaN(cla) && !isNaN(cua) && cla >= 17 && cla <= 22 && cua >= 18 && cua <= 23 && cla < cua) {
+            Homey.set("comfort_lower_away", cla, function (err) { if (err) return Homey.alert(err); });
+            Homey.set("comfort_upper_away", cua, function (err) { if (err) return Homey.alert(err); });
+          } else if (comfortLowerAwayElement.value || comfortUpperAwayElement.value) { Homey.alert('Invalid Away band. Lower 17–22, Upper 18–23, Lower < Upper'); return; }
+
+          Homey.set("preheat_enable", preheatEnableElement.checked, function (err) { if (err) return Homey.alert(err); });
+          const horizon = parseInt(preheatHorizonElement.value);
+          if (!isNaN(horizon) && horizon >= 6 && horizon <= 36) {
+            Homey.set("preheat_horizon_hours", horizon, function (err) { if (err) return Homey.alert(err); });
+          } else if (preheatHorizonElement.value) { Homey.alert('Invalid horizon. 6–36h'); return; }
+          const pct = parseFloat(preheatPercentileElement.value);
+          if (!isNaN(pct) && pct >= 0.05 && pct <= 0.5) {
+            Homey.set("preheat_cheap_percentile", pct, function (err) { if (err) return Homey.alert(err); });
+          } else if (preheatPercentileElement.value) { Homey.alert('Invalid cheap percentile. 0.05–0.5'); return; }
 
           // Save hot water tank settings
           Homey.set("enable_tank_control", enableTankControlElement.checked, function (err) {
