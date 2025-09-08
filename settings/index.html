@@ -321,6 +321,20 @@
     </fieldset>
 
     <fieldset class="homey-form-fieldset">
+      <legend class="homey-form-legend">Costs & Consumption</legend>
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="grid_fee_per_kwh">Grid Fee (per kWh)</label>
+        <input class="homey-form-input" id="grid_fee_per_kwh" type="number" min="0" step="0.01" placeholder="e.g., 1.04" />
+        <p class="homey-form-helper">Optional. Adds your local grid fee to the electricity price when calculating savings. Example: 1.04 SEK/kWh.</p>
+      </div>
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="baseline_hourly_consumption">Baseline Hourly Consumption (kWh/h)</label>
+        <input class="homey-form-input" id="baseline_hourly_consumption" type="number" min="0" step="0.1" placeholder="e.g., 1.5" />
+        <p class="homey-form-helper">Optional. Override for average hourly electricity use of heating/hot water. If not set, the app uses measured data when available, otherwise a 1.0 kWh/h default.</p>
+      </div>
+    </fieldset>
+
+    <fieldset class="homey-form-fieldset">
       <legend class="homey-form-legend">Weather Integration</legend>
       <div class="homey-form-group">
         <label class="homey-form-label" for="use_weather_data">Use Weather Data</label>
@@ -509,6 +523,7 @@
         <div class="button-container">
           <button id="view_savings_summary" class="homey-button" onclick="viewSavingsSummary()">View Savings Summary</button>
           <button id="copy_savings_summary" class="homey-button" onclick="copySavingsSummary()" disabled>Copy Summary</button>
+          <button id="dump_savings_debug" class="homey-button" onclick="dumpSavingsDebug()">Dump Savings Debug</button>
         </div>
         <div id="savings_summary_panel" style="margin-top: 15px; display: none;">
           <h3>Savings</h3>
@@ -677,11 +692,30 @@
           lines.push(`All-time total: ${fmt(summary.allTime)}`);
         }
 
+        // First render basic lines
         content.textContent = lines.join('\n');
         panel.style.display = 'block';
         resultEl.textContent = 'Savings summary ready!';
         document.getElementById('copy_savings_summary').disabled = false;
         button.disabled = false;
+
+        // Append a hint with applied cost parameters (grid fee, baseline) once loaded
+        try {
+          const load = (key) => new Promise((res) => Homey.get(key, (_e, v) => res(v)));
+          Promise.all([
+            load('grid_fee_per_kwh'),
+            load('baseline_hourly_consumption_kwh')
+          ]).then(([gridFee, baseline]) => {
+            const gf = Number(gridFee || 0);
+            const base = Number(baseline || 0);
+            const gfTxt = (() => {
+              try { return formatter.format(gf) + '/kWh'; } catch { return (gf.toFixed(2)) + '/kWh'; }
+            })();
+            const baseTxt = base > 0 ? `${base.toFixed(2)} kWh/h` : 'auto';
+            const hint = `Applied cost parameters: Grid fee ${gfTxt}, Baseline hourly ${baseTxt}`;
+            content.textContent = lines.concat(['', hint]).join('\n');
+          }).catch(() => {/* ignore */});
+        } catch (e) { /* ignore */ }
 
         // Draw charts using returned or computed series
         try {
@@ -761,6 +795,33 @@
             });
           } catch (e) {
             reject(e);
+          }
+        });
+      }
+
+      // Dump savings-related in-memory state to terminal and show a short notice
+      function dumpSavingsDebug() {
+        const btn = document.getElementById('dump_savings_debug');
+        btn.disabled = true;
+        HomeyInstance.api('GET', '/getSavingsDebugState', {}, function(err, result) {
+          btn.disabled = false;
+          if (err || !result || result.success === false) {
+            const msg = (err && err.message) || (result && result.error) || 'Failed to dump savings debug state';
+            if ((msg || '').toLowerCase().includes('not found')) {
+              return HomeyInstance.alert('Endpoint not found. Please update/restart the app so app.json includes GET /getSavingsDebugState. Also verify the app id matches your build (com.melcloud.optimize).');
+            }
+            return HomeyInstance.alert(msg);
+          }
+          try {
+            // Show a compact confirmation with key counts
+            const d = result.dump || {};
+            const msg = `Debug dump written to app log.\n` +
+              `history=${(d.savings_history && d.savings_history.length) || 0}, ` +
+              `optimizations=${(d.optimizations_memory && d.optimizations_memory.length) || 0}, ` +
+              `upcomingPrices=${d.tibber && d.tibber.upcomingCount || 0}`;
+            HomeyInstance.alert(msg);
+          } catch (_) {
+            HomeyInstance.alert('Debug dump created. Check the app logs.');
           }
         });
       }
@@ -1129,6 +1190,10 @@
         const tankFieldset = document.getElementById("tank_fieldset");
         const tankCapabilityWarning = document.getElementById("tank_capability_warning");
 
+        // Costs & consumption elements
+        const gridFeeElement = document.getElementById("grid_fee_per_kwh");
+        const baselineHourlyConsumptionElement = document.getElementById("baseline_hourly_consumption");
+
         // Engine elements
         const useEngineElement = document.getElementById("use_engine");
         const deadbandElement = document.getElementById("deadband_c");
@@ -1202,6 +1267,14 @@
         Homey.get("tibber_token", function (err, value) {
           if (err) return Homey.alert(err);
           if (value) tibberTokenElement.value = value;
+        });
+
+        // Load costs & consumption settings
+        Homey.get("grid_fee_per_kwh", function (err, value) {
+          if (!err && value !== undefined && value !== null) gridFeeElement.value = value;
+        });
+        Homey.get("baseline_hourly_consumption_kwh", function (err, value) {
+          if (!err && value !== undefined && value !== null) baselineHourlyConsumptionElement.value = value;
         });
 
 
@@ -1627,6 +1700,26 @@
           Homey.set("tibber_token", tibberTokenElement.value, function (err) {
             if (err) return Homey.alert(err);
           });
+
+          // Save costs & consumption
+          (function() {
+            const gf = parseFloat(gridFeeElement.value);
+            if (!isNaN(gf) && gf >= 0) {
+              Homey.set("grid_fee_per_kwh", gf, function (err) { if (err) return Homey.alert(err); });
+            } else if (gridFeeElement.value === "") {
+              Homey.set("grid_fee_per_kwh", 0, function (err) { if (err) return Homey.alert(err); });
+            } else {
+              return Homey.alert('Invalid grid fee. Must be a non-negative number.');
+            }
+            const base = parseFloat(baselineHourlyConsumptionElement.value);
+            if (!isNaN(base) && base >= 0) {
+              Homey.set("baseline_hourly_consumption_kwh", base, function (err) { if (err) return Homey.alert(err); });
+            } else if (baselineHourlyConsumptionElement.value === "") {
+              Homey.set("baseline_hourly_consumption_kwh", 0, function (err) { if (err) return Homey.alert(err); });
+            } else {
+              return Homey.alert('Invalid baseline hourly consumption. Must be a non-negative number.');
+            }
+          })();
 
 
 

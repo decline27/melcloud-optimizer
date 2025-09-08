@@ -1872,7 +1872,8 @@ export class Optimizer {
     const dailyCostImpact = dailyEnergyImpact * (tempDifference > 0 ? currentPrice : -currentPrice);
     const weeklyCostImpact = dailyCostImpact * 7;
 
-    return `Estimated ${tempDifference > 0 ? 'cost increase' : 'savings'}: ${Math.abs(weeklyCostImpact).toFixed(2)} NOK/week`;
+    const currencyCode = (this.homey as any)?.settings?.get('currency') || (this.homey as any)?.settings?.get('currency_code') || 'NOK';
+    return `Estimated ${tempDifference > 0 ? 'cost increase' : 'savings'}: ${Math.abs(weeklyCostImpact).toFixed(2)} ${currencyCode}/week`;
   }
 
   /**
@@ -2104,16 +2105,31 @@ export class Optimizer {
    * @returns Estimated savings
    */
   private calculateSavings(oldTemp: number, newTemp: number, currentPrice: number): number {
-    // Simple model: each degree lower saves about 5% energy
-    const tempDiff = oldTemp - newTemp;
-    const energySavingPercent = tempDiff * 5;
+    // Heuristic: each degree lower saves about 5% energy
+    const tempDiff = Number(oldTemp) - Number(newTemp);
+    if (!Number.isFinite(tempDiff) || !Number.isFinite(currentPrice)) return 0;
 
-    // Convert to monetary value (very rough estimate)
-    // Assuming average consumption of 1 kWh per hour
-    const hourlyConsumption = 1; // kWh
-    const savings = (energySavingPercent / 100) * hourlyConsumption * currentPrice;
+    // Include optional grid fee in price
+    const gridFee: number = Number(this.homey?.settings.get('grid_fee_per_kwh')) || 0;
+    const effectivePrice = currentPrice + (Number.isFinite(gridFee) ? gridFee : 0);
 
-    return savings;
+    // Determine baseline hourly consumption (kWh)
+    const baselineOverride: number = Number(this.homey?.settings.get('baseline_hourly_consumption_kwh')) || 0;
+    let baseHourlyConsumptionKWh = 1.0;
+
+    // Prefer measured daily consumption if available, then override, else default
+    try {
+      const dailyFromMetrics = this.optimizationMetrics?.dailyEnergyConsumption;
+      if (Number.isFinite(dailyFromMetrics) && (dailyFromMetrics || 0) > 0) {
+        baseHourlyConsumptionKWh = Math.max(0, (dailyFromMetrics as number) / 24);
+      } else if (Number.isFinite(baselineOverride) && baselineOverride > 0) {
+        baseHourlyConsumptionKWh = baselineOverride;
+      }
+    } catch (_) { /* keep default */ }
+
+    const energySavingPercent = tempDiff * 5; // % per °C
+    const savings = (energySavingPercent / 100) * baseHourlyConsumptionKWh * effectivePrice;
+    return Number.isFinite(savings) ? savings : 0;
   }
 
   /**
@@ -2124,13 +2140,48 @@ export class Optimizer {
    */
   calculateEnhancedDailySavings(
     currentHourSavings: number,
-    historicalOptimizations: OptimizationData[] = []
+    historicalOptimizations: OptimizationData[] = [],
+    futurePriceFactors?: number[]
   ): SavingsCalculationResult {
     return this.enhancedSavingsCalculator.calculateEnhancedDailySavings(
       currentHourSavings,
       historicalOptimizations,
-      new Date().getHours()
+      new Date().getHours(),
+      futurePriceFactors
     );
+  }
+
+  /**
+   * Calculate enhanced daily savings using Tibber prices (price-aware projection)
+   */
+  async calculateEnhancedDailySavingsUsingTibber(
+    currentHourSavings: number,
+    historicalOptimizations: OptimizationData[] = []
+  ): Promise<SavingsCalculationResult> {
+    try {
+      const currentHour = new Date().getHours();
+      const gridFee: number = Number(this.homey?.settings.get('grid_fee_per_kwh')) || 0;
+      const pd = await this.tibber.getPrices();
+      const now = new Date();
+      const currentEffective = (Number(pd.current?.price) || 0) + (Number.isFinite(gridFee) ? gridFee : 0);
+      let priceFactors: number[] | undefined = undefined;
+      if (currentEffective > 0 && Array.isArray(pd.prices)) {
+        const upcoming = pd.prices.filter(p => new Date(p.time) > now);
+        priceFactors = upcoming.map(p => {
+          const eff = (Number(p.price) || 0) + (Number.isFinite(gridFee) ? gridFee : 0);
+          return currentEffective > 0 ? eff / currentEffective : 1;
+        });
+      }
+      return this.enhancedSavingsCalculator.calculateEnhancedDailySavings(
+        currentHourSavings,
+        historicalOptimizations,
+        currentHour,
+        priceFactors
+      );
+    } catch (_) {
+      // Fallback to non-price-aware calculation
+      return this.calculateEnhancedDailySavings(currentHourSavings, historicalOptimizations);
+    }
   }
 
   /**

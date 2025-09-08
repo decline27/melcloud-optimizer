@@ -205,6 +205,10 @@
     "getLogSavingsSummaryClicked": {
       "method": "GET",
       "path": "/getLogSavingsSummaryClicked"
+    },
+    "getSavingsDebugState": {
+      "method": "GET",
+      "path": "/getSavingsDebugState"
     }
   }
 }
