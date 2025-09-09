@@ -706,7 +706,88 @@
               load('use_dst'),
               Promise.all([load('currency'), load('currency_code')]).then(([c1, c2]) => c1 || c2 || '')
             ]).then(([history, tz, dst, currency]) => {
-              const normalized = Array.isArray(history) ? history.filter(h => h && typeof h.date === 'string') : [];
+              const rawNormalized = Array.isArray(history) ? history.filter(h => h && typeof h.date === 'string') : [];
+              
+              // Helper functions for currency handling
+              const CURRENCY_DECIMALS = {
+                'JPY': 0, 'KWD': 3, 'BHD': 3, 'JOD': 3, 'OMR': 3, 'TND': 3
+              };
+              const getCurrencyDecimals = (curr) => {
+                if (!curr || typeof curr !== 'string') return 2;
+                return CURRENCY_DECIMALS[curr.toUpperCase()] || 2;
+              };
+              const minorToMajor = (minorAmount, decimals = 2) => {
+                if (typeof minorAmount !== 'number' || isNaN(minorAmount)) return 0;
+                if (typeof decimals !== 'number' || decimals < 0 || decimals > 10) decimals = 2;
+                return minorAmount / Math.pow(10, decimals);
+              };
+              const majorToMinor = (majorAmount, decimals = 2) => {
+                if (typeof majorAmount !== 'number' || isNaN(majorAmount)) return 0;
+                if (typeof decimals !== 'number' || decimals < 0 || decimals > 10) decimals = 2;
+                return Math.round(majorAmount * Math.pow(10, decimals));
+              };
+              const parseEntryToMinor = (entry, defaultDecimals = 2, defaultCurrency = '') => {
+                if (!entry || typeof entry !== 'object') {
+                  return { date: '', totalMinor: 0, currency: defaultCurrency, decimals: defaultDecimals };
+                }
+                // If already in new format, return as-is (with validation)
+                if (typeof entry.totalMinor === 'number') {
+                  return {
+                    date: entry.date || '',
+                    totalMinor: Math.round(entry.totalMinor) || 0,
+                    currency: entry.currency || defaultCurrency,
+                    decimals: typeof entry.decimals === 'number' ? entry.decimals : defaultDecimals
+                  };
+                }
+                // Legacy format migration: convert .total (major units) to .totalMinor (minor units)
+                if (typeof entry.total === 'number') {
+                  const entryCurrency = entry.currency || defaultCurrency;
+                  const decimals = typeof entry.decimals === 'number' ? entry.decimals : (entryCurrency ? getCurrencyDecimals(entryCurrency) : defaultDecimals);
+                  return {
+                    date: entry.date || '',
+                    totalMinor: majorToMinor(entry.total, decimals),
+                    currency: entryCurrency,
+                    decimals: decimals
+                  };
+                }
+                // Fallback for malformed entries
+                return { date: entry.date || '', totalMinor: 0, currency: defaultCurrency, decimals: defaultDecimals };
+              };
+
+              // Migrate legacy entries and convert to normalized format with major units for calculations
+              const normalized = [];
+              const defaultDecimals = getCurrencyDecimals(currency);
+              let migrationPerformed = false;
+              
+              for (const entry of rawNormalized) {
+                if (typeof entry.totalMinor === 'number') {
+                  // New format: convert to major units for calculations
+                  const decimals = typeof entry.decimals === 'number' ? entry.decimals : defaultDecimals;
+                  normalized.push({
+                    date: entry.date,
+                    total: minorToMajor(entry.totalMinor, decimals),
+                    currency: entry.currency || '',
+                    decimals: decimals
+                  });
+                } else if (typeof entry.total === 'number') {
+                  // Legacy format: use as-is but mark for migration
+                  normalized.push({
+                    date: entry.date,
+                    total: entry.total,
+                    currency: entry.currency || '',
+                    decimals: typeof entry.decimals === 'number' ? entry.decimals : defaultDecimals
+                  });
+                  migrationPerformed = true;
+                }
+              }
+              
+              // If migration was needed, save the updated format back to settings
+              if (migrationPerformed && rawNormalized.length > 0) {
+                const migratedHistory = rawNormalized.map(entry => parseEntryToMinor(entry, defaultDecimals, currency));
+                Homey.set('savings_history', migratedHistory);
+                console.log(`Client-side: Migrated ${rawNormalized.length} savings history entries to new format with per-entry decimals`);
+              }
+
               if (normalized.length === 0) {
                 return resolve({ success: true, summary: { today: 0, yesterday: 0, weekToDate: 0, last7Days: 0, monthToDate: 0, last30Days: 0 }, todayDate: '', currencyCode: currency || '', series: { last30: [] } });
               }
@@ -751,11 +832,32 @@
                 seriesLast30.push({ date: ds, total: Number(entry?.total || 0) });
               }
 
+              // Determine currency code - prefer global setting or most common currency in series
+              let currencyCode = currency || '';
+              if (!currencyCode && normalized.length > 0) {
+                // Find the most common currency in the history
+                const currencyFreq = {};
+                for (const entry of normalized) {
+                  if (entry.currency) {
+                    currencyFreq[entry.currency] = (currencyFreq[entry.currency] || 0) + 1;
+                  }
+                }
+                const currencies = Object.keys(currencyFreq);
+                if (currencies.length > 0) {
+                  currencyCode = currencies.reduce((a, b) => currencyFreq[a] > currencyFreq[b] ? a : b);
+                  
+                  // Log if mixed currencies found
+                  if (currencies.length > 1) {
+                    console.log(`Client-side: Mixed currencies found in savings history: ${currencies.join(', ')}. Using most common: ${currencyCode}`);
+                  }
+                }
+              }
+
               resolve({
                 success: true,
                 summary: { today, yesterday, weekToDate, last7Days, monthToDate, last30Days, ...(allTime !== undefined ? { allTime } : {}) },
                 todayDate: todayStr,
-                currencyCode: currency || '',
+                currencyCode: currencyCode || '',
                 series: { last30: seriesLast30 }
               });
             });

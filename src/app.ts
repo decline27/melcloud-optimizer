@@ -49,7 +49,7 @@ export default class HeatOptimizerApp extends App {
 
   /**
    * Add an hourly savings amount to today's total and maintain a short history
-   * Returns todaySoFar and weekSoFar (last 7 days including today)
+   * Returns todaySoFar and weekSoFar (last 7 days including today) in major units
    */
   private addSavings(amount: number): { todaySoFar: number; weekSoFar: number } {
     try {
@@ -58,38 +58,80 @@ export default class HeatOptimizerApp extends App {
       }
 
       const today = this.formatLocalDate();
-      const history: Array<{ date: string; total: number }> = this.homey.settings.get('savings_history') || [];
+      const history: Array<any> = this.homey.settings.get('savings_history') || [];
 
-      // Find or create today's entry
-      let todayEntry = history.find(h => h.date === today);
-      if (!todayEntry) {
-        todayEntry = { date: today, total: 0 };
-        history.push(todayEntry);
+      // Determine currency and decimals for this entry
+      const currency = this.getConfiguredCurrency();
+      const decimals = this.getCurrencyDecimals(currency);
+      
+      // Convert amount (assumed major units) to integer minor units
+      const amountMinor = this.majorToMinor(amount, decimals);
+
+      // Migrate any legacy entries and find/create today's entry
+      let migrationPerformed = false;
+      for (let i = 0; i < history.length; i++) {
+        const entry = history[i];
+        if (entry && typeof entry.total === 'number' && typeof entry.totalMinor !== 'number') {
+          // Migrate legacy entry
+          history[i] = this.parseEntryToMinor(entry, decimals, currency);
+          migrationPerformed = true;
+        }
       }
 
-      // Increment today's total
-      todayEntry.total = Number((todayEntry.total + amount).toFixed(4));
+      // Find or create today's entry
+      let todayEntry = history.find(h => h && h.date === today);
+      if (!todayEntry) {
+        todayEntry = { date: today, totalMinor: 0, currency: currency, decimals: decimals };
+        history.push(todayEntry);
+      } else {
+        // Ensure today's entry is in new format
+        todayEntry = this.parseEntryToMinor(todayEntry, decimals, currency);
+        // Update the entry in history
+        const index = history.findIndex(h => h && h.date === today);
+        if (index >= 0) history[index] = todayEntry;
+      }
+
+      // Increment today's totalMinor
+      todayEntry.totalMinor = Math.round((todayEntry.totalMinor || 0) + amountMinor);
+      if (!todayEntry.currency) todayEntry.currency = currency;
+      if (typeof todayEntry.decimals !== 'number') todayEntry.decimals = decimals;
 
       // Trim history to last 30 days
-      history.sort((a, b) => a.date.localeCompare(b.date));
+      history.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
       const cutoffIndex = Math.max(0, history.length - 30);
       const trimmed = history.slice(cutoffIndex);
 
       this.homey.settings.set('savings_history', trimmed);
 
-      // Compute last 7 days total including today
+      if (migrationPerformed) {
+        this.log(`Migrated ${history.length} savings history entries to new format during addSavings`);
+      }
+
+      // Compute last 7 days total including today (in major units for return)
       const todayDate = new Date(`${today}T00:00:00`);
       const last7Cutoff = new Date(todayDate);
       last7Cutoff.setDate(todayDate.getDate() - 6); // include 7 days window
 
       const weekSoFar = trimmed
         .filter(h => {
+          if (!h || !h.date) return false;
           const d = new Date(`${h.date}T00:00:00`);
           return d >= last7Cutoff && d <= todayDate;
         })
-        .reduce((sum, h) => sum + (h.total || 0), 0);
+        .reduce((sum, h) => {
+          if (typeof h.totalMinor === 'number') {
+            const entryDecimals = typeof h.decimals === 'number' ? h.decimals : decimals;
+            return sum + this.minorToMajor(h.totalMinor, entryDecimals);
+          } else if (typeof h.total === 'number') {
+            // Legacy format fallback
+            return sum + h.total;
+          }
+          return sum;
+        }, 0);
 
-      return { todaySoFar: todayEntry.total, weekSoFar: Number(weekSoFar.toFixed(4)) };
+      const todaySoFar = this.minorToMajor(todayEntry.totalMinor, todayEntry.decimals);
+
+      return { todaySoFar: Number(todaySoFar.toFixed(4)), weekSoFar: Number(weekSoFar.toFixed(4)) };
     } catch (e) {
       this.error('Failed to add savings to history', e as Error);
       return { todaySoFar: 0, weekSoFar: 0 };
@@ -97,7 +139,7 @@ export default class HeatOptimizerApp extends App {
   }
 
   /**
-   * Get the total savings for the last 7 days including today
+   * Get the total savings for the last 7 days including today (in major units)
    */
   private getWeeklySavingsTotal(): number {
     try {
@@ -106,18 +148,106 @@ export default class HeatOptimizerApp extends App {
       const last7Cutoff = new Date(todayDate);
       last7Cutoff.setDate(todayDate.getDate() - 6);
 
-      const history: Array<{ date: string; total: number }> = this.homey.settings.get('savings_history') || [];
+      const history: Array<any> = this.homey.settings.get('savings_history') || [];
+      const defaultDecimals = this.getCurrencyDecimals(this.getConfiguredCurrency());
+      
       const total = history
         .filter(h => {
+          if (!h || !h.date) return false;
           const d = new Date(`${h.date}T00:00:00`);
           return d >= last7Cutoff && d <= todayDate;
         })
-        .reduce((sum, h) => sum + (h.total || 0), 0);
+        .reduce((sum, h) => {
+          if (typeof h.totalMinor === 'number') {
+            const entryDecimals = typeof h.decimals === 'number' ? h.decimals : defaultDecimals;
+            return sum + this.minorToMajor(h.totalMinor, entryDecimals);
+          } else if (typeof h.total === 'number') {
+            // Legacy format fallback
+            return sum + h.total;
+          }
+          return sum;
+        }, 0);
       return Number(total.toFixed(4));
     } catch (e) {
       this.error('Failed to compute weekly savings total', e as Error);
       return 0;
     }
+  }
+
+  /**
+   * Get the configured currency from settings
+   */
+  private getConfiguredCurrency(): string {
+    return this.homey.settings.get('currency') || this.homey.settings.get('currency_code') || '';
+  }
+
+  /**
+   * Get the number of decimal places for a currency
+   */
+  private getCurrencyDecimals(currency: string): number {
+    if (!currency || typeof currency !== 'string') return 2;
+    const CURRENCY_DECIMALS: Record<string, number> = {
+      'JPY': 0,  // Japanese Yen has no fractional units
+      'KWD': 3,  // Kuwaiti Dinar has 3 decimal places
+      'BHD': 3,  // Bahraini Dinar has 3 decimal places
+      'JOD': 3,  // Jordanian Dinar has 3 decimal places
+      'OMR': 3,  // Omani Rial has 3 decimal places
+      'TND': 3,  // Tunisian Dinar has 3 decimal places
+      // Most other currencies use 2 decimal places (default)
+    };
+    return CURRENCY_DECIMALS[currency.toUpperCase()] || 2;
+  }
+
+  /**
+   * Convert an amount in major units to minor units using specified decimals
+   */
+  private majorToMinor(majorAmount: number, decimals = 2): number {
+    if (typeof majorAmount !== 'number' || isNaN(majorAmount)) return 0;
+    if (typeof decimals !== 'number' || decimals < 0 || decimals > 10) decimals = 2;
+    return Math.round(majorAmount * Math.pow(10, decimals));
+  }
+
+  /**
+   * Convert an amount in minor units to major units using specified decimals
+   */
+  private minorToMajor(minorAmount: number, decimals = 2): number {
+    if (typeof minorAmount !== 'number' || isNaN(minorAmount)) return 0;
+    if (typeof decimals !== 'number' || decimals < 0 || decimals > 10) decimals = 2;
+    return minorAmount / Math.pow(10, decimals);
+  }
+
+  /**
+   * Parse a savings history entry to ensure it has totalMinor with proper migration
+   */
+  private parseEntryToMinor(entry: any, defaultDecimals = 2, defaultCurrency = ''): any {
+    if (!entry || typeof entry !== 'object') {
+      return { date: '', totalMinor: 0, currency: defaultCurrency, decimals: defaultDecimals };
+    }
+
+    // If already in new format, return as-is (with validation)
+    if (typeof entry.totalMinor === 'number') {
+      return {
+        date: entry.date || '',
+        totalMinor: Math.round(entry.totalMinor) || 0,
+        currency: entry.currency || defaultCurrency,
+        decimals: typeof entry.decimals === 'number' ? entry.decimals : defaultDecimals
+      };
+    }
+
+    // Legacy format migration: convert .total (major units) to .totalMinor (minor units)
+    if (typeof entry.total === 'number') {
+      const currency = entry.currency || defaultCurrency;
+      const decimals = typeof entry.decimals === 'number' ? entry.decimals : (currency ? this.getCurrencyDecimals(currency) : defaultDecimals);
+      return {
+        date: entry.date || '',
+        totalMinor: this.majorToMinor(entry.total, decimals),
+        currency: currency,
+        decimals: decimals
+      };
+    }
+
+    // Fallback for malformed entries
+    return { date: entry.date || '', totalMinor: 0, currency: defaultCurrency, decimals: defaultDecimals };
   }
 
   /**
