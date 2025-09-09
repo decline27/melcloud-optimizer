@@ -5,6 +5,7 @@ import { TimelineHelper, TimelineEventType } from './util/timeline-helper';
 import { HomeyLogger, LogLevel, LogCategory } from './util/logger';
 import { HotWaterService } from './services/hot-water';
 import { TimeZoneHelper } from './util/time-zone-helper';
+import { majorToMinor, minorToMajor, getCurrencyDecimals, resolveCurrency } from './util/currency-utils';
 import {
   LogEntry,
   ThermalModel,
@@ -50,6 +51,7 @@ export default class HeatOptimizerApp extends App {
   /**
    * Add an hourly savings amount to today's total and maintain a short history
    * Returns todaySoFar and weekSoFar (last 7 days including today)
+   * Now stores amounts in integer minor units with currency and decimals
    */
   private addSavings(amount: number): { todaySoFar: number; weekSoFar: number } {
     try {
@@ -57,39 +59,98 @@ export default class HeatOptimizerApp extends App {
         return { todaySoFar: 0, weekSoFar: 0 };
       }
 
-      const today = this.formatLocalDate();
-      const history: Array<{ date: string; total: number }> = this.homey.settings.get('savings_history') || [];
+      // Resolve currency from settings or use empty string
+      const currency = resolveCurrency(
+        this.homey.settings.get('currency_code'),
+        this.homey.settings.get('currency')
+      );
+      const decimals = getCurrencyDecimals(currency);
 
-      // Find or create today's entry
+      // Convert major unit amount to minor units for storage
+      const minorAmount = majorToMinor(amount, currency, decimals);
+
+      const today = this.formatLocalDate();
+      const history: Array<{ date: string; total?: number; totalMinor?: number; currency?: string; decimals?: number }> = 
+        this.homey.settings.get('savings_history') || [];
+
+      // Find or create today's entry, migrating legacy format if needed
       let todayEntry = history.find(h => h.date === today);
       if (!todayEntry) {
-        todayEntry = { date: today, total: 0 };
+        // Create new entry in new format
+        todayEntry = { 
+          date: today, 
+          totalMinor: 0,
+          currency: currency || undefined,
+          decimals: currency ? decimals : undefined
+        };
         history.push(todayEntry);
+      } else {
+        // Migrate legacy entry if needed
+        if (todayEntry.totalMinor === undefined && todayEntry.total !== undefined) {
+          // Legacy entry - convert to new format
+          const legacyAmount = todayEntry.total || 0;
+          const resolvedDecimals = todayEntry.decimals ?? decimals;
+          todayEntry.totalMinor = majorToMinor(legacyAmount, currency, resolvedDecimals);
+          if (currency) {
+            todayEntry.currency = currency;
+            todayEntry.decimals = decimals;
+          }
+          // Remove legacy field
+          delete todayEntry.total;
+        }
       }
 
-      // Increment today's total
-      todayEntry.total = Number((todayEntry.total + amount).toFixed(4));
+      // Increment today's total (in minor units)
+      todayEntry.totalMinor = (todayEntry.totalMinor || 0) + minorAmount;
+
+      // Update currency/decimals if we now have a currency but entry didn't have one
+      if (currency && !todayEntry.currency) {
+        todayEntry.currency = currency;
+        todayEntry.decimals = decimals;
+      }
 
       // Trim history to last 30 days
       history.sort((a, b) => a.date.localeCompare(b.date));
       const cutoffIndex = Math.max(0, history.length - 30);
       const trimmed = history.slice(cutoffIndex);
 
+      // Migrate any remaining legacy entries in the trimmed history
+      for (const entry of trimmed) {
+        if (entry.totalMinor === undefined && entry.total !== undefined) {
+          const legacyAmount = entry.total || 0;
+          const entryDecimals = entry.decimals ?? decimals;
+          const entryCurrency = entry.currency || currency;
+          entry.totalMinor = majorToMinor(legacyAmount, entryCurrency, entryDecimals);
+          if (currency && !entry.currency) {
+            entry.currency = currency;
+            entry.decimals = decimals;
+          }
+          delete entry.total;
+        }
+      }
+
       this.homey.settings.set('savings_history', trimmed);
 
-      // Compute last 7 days total including today
+      // Compute last 7 days total including today (convert back to major units for return)
       const todayDate = new Date(`${today}T00:00:00`);
       const last7Cutoff = new Date(todayDate);
       last7Cutoff.setDate(todayDate.getDate() - 6); // include 7 days window
 
-      const weekSoFar = trimmed
+      const weekSoFarMinor = trimmed
         .filter(h => {
           const d = new Date(`${h.date}T00:00:00`);
           return d >= last7Cutoff && d <= todayDate;
         })
-        .reduce((sum, h) => sum + (h.total || 0), 0);
+        .reduce((sum, h) => sum + (h.totalMinor || 0), 0);
 
-      return { todaySoFar: todayEntry.total, weekSoFar: Number(weekSoFar.toFixed(4)) };
+      // Convert back to major units for return values
+      const todaySoFarMajor = minorToMajor(todayEntry.totalMinor || 0, currency, decimals);
+      const weekSoFarMajor = minorToMajor(weekSoFarMinor, currency, decimals);
+
+      return { 
+        todaySoFar: Number(todaySoFarMajor.toFixed(4)), 
+        weekSoFar: Number(weekSoFarMajor.toFixed(4)) 
+      };
     } catch (e) {
       this.error('Failed to add savings to history', e as Error);
       return { todaySoFar: 0, weekSoFar: 0 };
@@ -98,22 +159,60 @@ export default class HeatOptimizerApp extends App {
 
   /**
    * Get the total savings for the last 7 days including today
+   * Now handles both new format (totalMinor) and legacy format (total) with migration
    */
   private getWeeklySavingsTotal(): number {
     try {
+      // Resolve currency from settings
+      const currency = resolveCurrency(
+        this.homey.settings.get('currency_code'),
+        this.homey.settings.get('currency')
+      );
+      const decimals = getCurrencyDecimals(currency);
+
       const today = this.formatLocalDate();
       const todayDate = new Date(`${today}T00:00:00`);
       const last7Cutoff = new Date(todayDate);
       last7Cutoff.setDate(todayDate.getDate() - 6);
 
-      const history: Array<{ date: string; total: number }> = this.homey.settings.get('savings_history') || [];
-      const total = history
-        .filter(h => {
-          const d = new Date(`${h.date}T00:00:00`);
-          return d >= last7Cutoff && d <= todayDate;
-        })
-        .reduce((sum, h) => sum + (h.total || 0), 0);
-      return Number(total.toFixed(4));
+      const history: Array<{ date: string; total?: number; totalMinor?: number; currency?: string; decimals?: number }> = 
+        this.homey.settings.get('savings_history') || [];
+      
+      let totalMinor = 0;
+      let needsSave = false;
+
+      for (const h of history) {
+        const d = new Date(`${h.date}T00:00:00`);
+        if (d >= last7Cutoff && d <= todayDate) {
+          if (h.totalMinor !== undefined) {
+            // New format - use directly
+            totalMinor += h.totalMinor;
+          } else if (h.total !== undefined) {
+            // Legacy format - convert and migrate
+            const entryDecimals = h.decimals ?? decimals;
+            const convertedMinor = majorToMinor(h.total, h.currency || currency, entryDecimals);
+            totalMinor += convertedMinor;
+            
+            // Migrate the entry
+            h.totalMinor = convertedMinor;
+            if (currency && !h.currency) {
+              h.currency = currency;
+              h.decimals = decimals;
+            }
+            delete h.total;
+            needsSave = true;
+          }
+        }
+      }
+
+      // Save migrated history if any entries were converted
+      if (needsSave) {
+        this.homey.settings.set('savings_history', history);
+      }
+
+      // Convert back to major units for return
+      const totalMajor = minorToMajor(totalMinor, currency, decimals);
+      return Number(totalMajor.toFixed(4));
     } catch (e) {
       this.error('Failed to compute weekly savings total', e as Error);
       return 0;
