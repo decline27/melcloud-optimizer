@@ -699,16 +699,82 @@
         return new Promise((resolve, reject) => {
           try {
             const load = (key) => new Promise((res) => Homey.get(key, (_e, v) => res(v)));
+            
+            // Currency utilities (copied from TypeScript utility)
+            const CURRENCY_DECIMALS = {
+              'JPY': 0, 'KWD': 3, 'BHD': 3, 'CLF': 4, 'TND': 3, 'OMR': 3, 'IQD': 3, 'JOD': 3, 'LYD': 3
+            };
+            const DEFAULT_DECIMALS = 2;
+            const getCurrencyDecimals = (currency) => {
+              if (!currency || typeof currency !== 'string') return DEFAULT_DECIMALS;
+              return CURRENCY_DECIMALS[currency.toUpperCase()] ?? DEFAULT_DECIMALS;
+            };
+            const majorToMinor = (majorAmount, currency, decimals) => {
+              if (typeof majorAmount !== 'number' || isNaN(majorAmount)) return 0;
+              const actualDecimals = decimals ?? getCurrencyDecimals(currency);
+              return Math.round(majorAmount * Math.pow(10, actualDecimals));
+            };
+            const minorToMajor = (minorAmount, currency, decimals) => {
+              if (typeof minorAmount !== 'number' || isNaN(minorAmount)) return 0;
+              const actualDecimals = decimals ?? getCurrencyDecimals(currency);
+              return minorAmount / Math.pow(10, actualDecimals);
+            };
+            const resolveCurrency = (...sources) => {
+              for (const source of sources) {
+                if (source && typeof source === 'string') {
+                  const normalized = source.toUpperCase().trim();
+                  if (/^[A-Z]{3}$/.test(normalized)) return normalized;
+                }
+              }
+              return '';
+            };
+            
             // Load currency and currency_code separately, then choose the first truthy value
             Promise.all([
               load('savings_history'),
               load('time_zone_offset'),
               load('use_dst'),
-              Promise.all([load('currency'), load('currency_code')]).then(([c1, c2]) => c1 || c2 || '')
+              Promise.all([load('currency'), load('currency_code')]).then(([c1, c2]) => resolveCurrency(c1, c2))
             ]).then(([history, tz, dst, currency]) => {
               const normalized = Array.isArray(history) ? history.filter(h => h && typeof h.date === 'string') : [];
+              
+              // Migration helper: convert legacy entry to new format
+              const migrateEntry = (entry) => {
+                if (entry.totalMinor === undefined && entry.total !== undefined) {
+                  const entryDecimals = entry.decimals ?? getCurrencyDecimals(entry.currency || currency);
+                  const entryCurrency = entry.currency || currency;
+                  entry.totalMinor = majorToMinor(entry.total, entryCurrency, entryDecimals);
+                  if (currency && !entry.currency) {
+                    entry.currency = currency;
+                    entry.decimals = getCurrencyDecimals(currency);
+                  }
+                  delete entry.total;
+                  return true;
+                }
+                return false;
+              };
+              
+              // Migrate legacy entries
+              let needsSave = false;
+              for (const entry of normalized) {
+                if (migrateEntry(entry)) {
+                  needsSave = true;
+                }
+              }
+              
+              // Save migrated data if needed
+              if (needsSave) {
+                Homey.set('savings_history', normalized, () => {});
+              }
+              
               if (normalized.length === 0) {
-                return resolve({ success: true, summary: { today: 0, yesterday: 0, weekToDate: 0, last7Days: 0, monthToDate: 0, last30Days: 0 }, todayDate: '', currencyCode: currency || '', series: { last30: [] } });
+                return resolve({ 
+                  success: true, 
+                  summary: { today: 0, yesterday: 0, weekToDate: 0, last7Days: 0, monthToDate: 0, last30Days: 0 }, 
+                  todayDate: '', 
+                  currencyCode: currency || '', 
+                  series: { last30: [] } 
+                });
               }
 
               // Determine today as newest entry
@@ -721,15 +787,44 @@
               const startOfWeek = new Date(todayDate); startOfWeek.setDate(todayDate.getDate() - offsetToMonday);
               const startOfMonth = new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
 
-              const sumInWindow = (cutoff) => normalized
-                .filter(h => { const d = new Date(`${h.date}T00:00:00`); return d >= cutoff && d <= todayDate; })
-                .reduce((s, h) => s + (Number(h.total) || 0), 0);
+              // Enhanced helper to get value for specific date (handles both formats)
+              const getValueForDate = (dateStr) => {
+                const entry = normalized.find(h => h.date === dateStr);
+                if (!entry) return 0;
+                
+                if (entry.totalMinor !== undefined) {
+                  const entryDecimals = entry.decimals ?? getCurrencyDecimals(entry.currency || currency);
+                  return minorToMajor(entry.totalMinor, entry.currency || currency, entryDecimals);
+                } else if (entry.total !== undefined) {
+                  return entry.total; // Legacy format
+                }
+                return 0;
+              };
 
-              const todayEntry = normalized.find(h => h.date === todayStr);
-              const today = Number((todayEntry?.total || 0).toFixed(4));
+              // Enhanced sum function for window calculations
+              const sumInWindow = (cutoff) => {
+                let totalMinor = 0;
+                const entriesInWindow = normalized.filter(h => {
+                  const d = new Date(`${h.date}T00:00:00`);
+                  return d >= cutoff && d <= todayDate;
+                });
+
+                for (const h of entriesInWindow) {
+                  if (h.totalMinor !== undefined) {
+                    totalMinor += h.totalMinor;
+                  } else if (h.total !== undefined) {
+                    const entryDecimals = h.decimals ?? getCurrencyDecimals(h.currency || currency);
+                    totalMinor += majorToMinor(h.total, h.currency || currency, entryDecimals);
+                  }
+                }
+
+                return minorToMajor(totalMinor, currency);
+              };
+
+              const today = Number(getValueForDate(todayStr).toFixed(4));
               const yDate = new Date(todayDate); yDate.setDate(todayDate.getDate() - 1);
               const yStr = `${yDate.getFullYear()}-${String(yDate.getMonth() + 1).padStart(2, '0')}-${String(yDate.getDate()).padStart(2, '0')}`;
-              const yesterday = Number(((normalized.find(h => h.date === yStr)?.total) || 0).toFixed(4));
+              const yesterday = Number(getValueForDate(yStr).toFixed(4));
               const last7Days = Number(sumInWindow(last7Cutoff).toFixed(4));
               const last30Days = Number(sumInWindow(last30Cutoff).toFixed(4));
               const weekToDate = Number(sumInWindow(startOfWeek).toFixed(4));
@@ -739,7 +834,16 @@
               let allTime;
               const earliest = normalized.map(h => h.date).sort((a,b)=>a<b?-1:a>b?1:0)[0];
               if (earliest && new Date(`${earliest}T00:00:00`) < last30Cutoff) {
-                allTime = Number(normalized.reduce((s, h) => s + (Number(h.total) || 0), 0).toFixed(4));
+                let allTimeMinor = 0;
+                for (const h of normalized) {
+                  if (h.totalMinor !== undefined) {
+                    allTimeMinor += h.totalMinor;
+                  } else if (h.total !== undefined) {
+                    const entryDecimals = h.decimals ?? getCurrencyDecimals(h.currency || currency);
+                    allTimeMinor += majorToMinor(h.total, h.currency || currency, entryDecimals);
+                  }
+                }
+                allTime = Number(minorToMajor(allTimeMinor, currency).toFixed(4));
               }
 
               // Build series
@@ -747,8 +851,8 @@
               for (let i = 0; i < 30; i++) {
                 const d = new Date(last30Cutoff); d.setDate(last30Cutoff.getDate() + i);
                 const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-                const entry = normalized.find(h => h.date === ds);
-                seriesLast30.push({ date: ds, total: Number(entry?.total || 0) });
+                const value = getValueForDate(ds);
+                seriesLast30.push({ date: ds, total: Number(value || 0) });
               }
 
               resolve({
