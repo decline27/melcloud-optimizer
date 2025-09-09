@@ -36,6 +36,36 @@ export default class HeatOptimizerApp extends App {
   private memoryUsageInterval?: NodeJS.Timeout;
   private timeZoneHelper?: TimeZoneHelper;
 
+  // Currency decimals fallback map
+  private static readonly currencyDecimals: Record<string, number> = {
+    'JPY': 0,
+    'KWD': 3,
+    // Default is 2 for most currencies
+  };
+
+  /**
+   * Get decimal places for a currency (default 2)
+   */
+  private getCurrencyDecimals(currency: string): number {
+    return HeatOptimizerApp.currencyDecimals[currency?.toUpperCase()] ?? 2;
+  }
+
+  /**
+   * Convert major currency units to minor units (e.g. 1.23 EUR -> 123 cents)
+   */
+  public majorToMinor(amount: number, decimals: number): number {
+    if (typeof amount !== 'number' || isNaN(amount)) return 0;
+    return Math.round(amount * Math.pow(10, decimals));
+  }
+
+  /**
+   * Convert minor currency units to major units (e.g. 123 cents -> 1.23 EUR)
+   */
+  public minorToMajor(amount: number, decimals: number): number {
+    if (typeof amount !== 'number' || isNaN(amount)) return 0;
+    return amount / Math.pow(10, decimals);
+  }
+
   /**
    * Format a Date to YYYY-MM-DD using local time (with timezone helper if available)
    */
@@ -48,8 +78,33 @@ export default class HeatOptimizerApp extends App {
   }
 
   /**
+   * Migrate legacy savings entry to new format with minor units
+   */
+  private migrateLegacyEntry(entry: any, currency: string, decimals: number): any {
+    if (entry.totalMinor !== undefined) {
+      // Already migrated
+      return entry;
+    }
+    
+    if (entry.total !== undefined) {
+      // Legacy entry, convert to new format
+      const totalMinor = this.majorToMinor(entry.total, decimals);
+      return {
+        date: entry.date,
+        totalMinor,
+        currency,
+        decimals
+      };
+    }
+    
+    // Unknown format, return as-is
+    return entry;
+  }
+
+  /**
    * Add an hourly savings amount to today's total and maintain a short history
-   * Returns todaySoFar and weekSoFar (last 7 days including today)
+   * Amount should be in major units and will be converted to integer minor units
+   * Returns todaySoFar and weekSoFar (last 7 days including today) in major units
    */
   private addSavings(amount: number): { todaySoFar: number; weekSoFar: number } {
     try {
@@ -58,38 +113,67 @@ export default class HeatOptimizerApp extends App {
       }
 
       const today = this.formatLocalDate();
-      const history: Array<{ date: string; total: number }> = this.homey.settings.get('savings_history') || [];
+      
+      // Get currency settings - prefer currency_code, fall back to currency
+      const currency = this.homey.settings.get('currency_code') || this.homey.settings.get('currency') || '';
+      const decimals = this.getCurrencyDecimals(currency);
+      
+      // Convert amount to minor units
+      const amountMinor = this.majorToMinor(amount, decimals);
+      
+      const rawHistory = this.homey.settings.get('savings_history') || [];
+      
+      // Migrate legacy entries and normalize the history
+      const history = rawHistory.map((h: any) => this.migrateLegacyEntry(h, currency, decimals));
 
       // Find or create today's entry
-      let todayEntry = history.find(h => h.date === today);
+      let todayEntry = history.find((h: any) => h.date === today);
       if (!todayEntry) {
-        todayEntry = { date: today, total: 0 };
+        todayEntry = { 
+          date: today, 
+          totalMinor: 0,
+          currency,
+          decimals
+        };
         history.push(todayEntry);
+      } else {
+        // Ensure currency and decimals are set on existing entry
+        if (!todayEntry.currency) todayEntry.currency = currency;
+        if (todayEntry.decimals === undefined) todayEntry.decimals = decimals;
       }
 
-      // Increment today's total
-      todayEntry.total = Number((todayEntry.total + amount).toFixed(4));
+      // Increment today's total (in minor units)
+      todayEntry.totalMinor = (todayEntry.totalMinor || 0) + amountMinor;
 
       // Trim history to last 30 days
-      history.sort((a, b) => a.date.localeCompare(b.date));
+      history.sort((a: any, b: any) => a.date.localeCompare(b.date));
       const cutoffIndex = Math.max(0, history.length - 30);
       const trimmed = history.slice(cutoffIndex);
 
       this.homey.settings.set('savings_history', trimmed);
 
-      // Compute last 7 days total including today
+      // Compute last 7 days total including today (convert back to major units)
       const todayDate = new Date(`${today}T00:00:00`);
       const last7Cutoff = new Date(todayDate);
       last7Cutoff.setDate(todayDate.getDate() - 6); // include 7 days window
 
-      const weekSoFar = trimmed
-        .filter(h => {
+      const weekSoFarMinor = trimmed
+        .filter((h: any) => {
           const d = new Date(`${h.date}T00:00:00`);
           return d >= last7Cutoff && d <= todayDate;
         })
-        .reduce((sum, h) => sum + (h.total || 0), 0);
+        .reduce((sum: number, h: any) => {
+          const entryDecimals = h.decimals ?? decimals;
+          return sum + (h.totalMinor || 0);
+        }, 0);
 
-      return { todaySoFar: todayEntry.total, weekSoFar: Number(weekSoFar.toFixed(4)) };
+      const todaySoFar = this.minorToMajor(todayEntry.totalMinor, decimals);
+      const weekSoFar = this.minorToMajor(weekSoFarMinor, decimals);
+
+      return { 
+        todaySoFar: Number(todaySoFar.toFixed(4)), 
+        weekSoFar: Number(weekSoFar.toFixed(4)) 
+      };
     } catch (e) {
       this.error('Failed to add savings to history', e as Error);
       return { todaySoFar: 0, weekSoFar: 0 };
@@ -106,13 +190,24 @@ export default class HeatOptimizerApp extends App {
       const last7Cutoff = new Date(todayDate);
       last7Cutoff.setDate(todayDate.getDate() - 6);
 
-      const history: Array<{ date: string; total: number }> = this.homey.settings.get('savings_history') || [];
-      const total = history
-        .filter(h => {
+      // Get currency settings
+      const currency = this.homey.settings.get('currency_code') || this.homey.settings.get('currency') || '';
+      const decimals = this.getCurrencyDecimals(currency);
+
+      const rawHistory = this.homey.settings.get('savings_history') || [];
+      
+      // Migrate legacy entries and calculate total
+      const totalMinor = rawHistory
+        .map((h: any) => this.migrateLegacyEntry(h, currency, decimals))
+        .filter((h: any) => {
           const d = new Date(`${h.date}T00:00:00`);
           return d >= last7Cutoff && d <= todayDate;
         })
-        .reduce((sum, h) => sum + (h.total || 0), 0);
+        .reduce((sum: number, h: any) => {
+          return sum + (h.totalMinor || 0);
+        }, 0);
+      
+      const total = this.minorToMajor(totalMinor, decimals);
       return Number(total.toFixed(4));
     } catch (e) {
       this.error('Failed to compute weekly savings total', e as Error);

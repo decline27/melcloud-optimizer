@@ -733,20 +733,82 @@
         return new Promise((resolve, reject) => {
           try {
             const load = (key) => new Promise((res) => Homey.get(key, (_e, v) => res(v)));
+            
+            // Currency helper functions (same as in API)
+            const currencyDecimals = {
+              'JPY': 0,
+              'KWD': 3,
+              // Default is 2 for most currencies
+            };
+
+            const getCurrencyDecimals = (currency) => {
+              return currencyDecimals[currency?.toUpperCase()] ?? 2;
+            };
+
+            const majorToMinor = (amount, decimals) => {
+              if (typeof amount !== 'number' || isNaN(amount)) return 0;
+              return Math.round(amount * Math.pow(10, decimals));
+            };
+
+            const minorToMajor = (amount, decimals) => {
+              if (typeof amount !== 'number' || isNaN(amount)) return 0;
+              return amount / Math.pow(10, decimals);
+            };
+
+            // Migrate legacy entry to new format
+            const migrateLegacyEntry = (entry, currency, decimals) => {
+              if (entry.totalMinor !== undefined) {
+                // Already migrated, but ensure currency and decimals are set
+                if (!entry.currency && currency) entry.currency = currency;
+                if (entry.decimals === undefined) entry.decimals = decimals;
+                return entry;
+              }
+              
+              if (entry.total !== undefined) {
+                // Legacy entry, convert to new format
+                const totalMinor = majorToMinor(entry.total, decimals);
+                return {
+                  date: entry.date,
+                  totalMinor,
+                  currency,
+                  decimals
+                };
+              }
+              
+              // Unknown format, return as-is
+              return entry;
+            };
+
             // Load currency and currency_code separately, then choose the first truthy value
             Promise.all([
               load('savings_history'),
               load('time_zone_offset'),
               load('use_dst'),
               Promise.all([load('currency'), load('currency_code')]).then(([c1, c2]) => c1 || c2 || '')
-            ]).then(([history, tz, dst, currency]) => {
-              const normalized = Array.isArray(history) ? history.filter(h => h && typeof h.date === 'string') : [];
-              if (normalized.length === 0) {
+            ]).then(([rawHistory, tz, dst, currency]) => {
+              const decimals = getCurrencyDecimals(currency);
+              
+              // Migrate legacy entries and normalize the history
+              const migratedHistory = Array.isArray(rawHistory) 
+                ? rawHistory.filter(h => h && typeof h.date === 'string').map(h => migrateLegacyEntry(h, currency, decimals))
+                : [];
+              
+              if (migratedHistory.length === 0) {
                 return resolve({ success: true, summary: { today: 0, yesterday: 0, weekToDate: 0, last7Days: 0, monthToDate: 0, last30Days: 0 }, todayDate: '', currencyCode: currency || '', series: { last30: [] } });
               }
 
+              // Check for mixed currencies
+              const currencies = new Set(migratedHistory.map(h => h.currency).filter(Boolean));
+              let resolvedCurrency = currency;
+              if (currencies.size > 1) {
+                console.warn('Mixed currencies detected in savings history:', Array.from(currencies));
+                resolvedCurrency = ''; // Empty currency code for mixed currencies
+              } else if (currencies.size === 1) {
+                resolvedCurrency = Array.from(currencies)[0];
+              }
+
               // Determine today as newest entry
-              const todayStr = normalized.map(h => h.date).sort((a,b)=>a<b?-1:a>b?1:0).pop();
+              const todayStr = migratedHistory.map(h => h.date).sort((a,b)=>a<b?-1:a>b?1:0).pop();
               const todayDate = new Date(`${todayStr}T00:00:00`);
               const last7Cutoff = new Date(todayDate); last7Cutoff.setDate(todayDate.getDate() - 6);
               const last30Cutoff = new Date(todayDate); last30Cutoff.setDate(todayDate.getDate() - 29);
@@ -755,15 +817,24 @@
               const startOfWeek = new Date(todayDate); startOfWeek.setDate(todayDate.getDate() - offsetToMonday);
               const startOfMonth = new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
 
-              const sumInWindow = (cutoff) => normalized
+              const sumInWindow = (cutoff) => migratedHistory
                 .filter(h => { const d = new Date(`${h.date}T00:00:00`); return d >= cutoff && d <= todayDate; })
-                .reduce((s, h) => s + (Number(h.total) || 0), 0);
+                .reduce((s, h) => {
+                  const entryDecimals = h.decimals ?? decimals;
+                  const majorValue = minorToMajor(h.totalMinor || 0, entryDecimals);
+                  return s + majorValue;
+                }, 0);
 
-              const todayEntry = normalized.find(h => h.date === todayStr);
-              const today = Number((todayEntry?.total || 0).toFixed(4));
+              const todayEntry = migratedHistory.find(h => h.date === todayStr);
+              const todayDecimals = todayEntry?.decimals ?? decimals;
+              const today = Number((minorToMajor(todayEntry?.totalMinor || 0, todayDecimals)).toFixed(4));
+              
               const yDate = new Date(todayDate); yDate.setDate(todayDate.getDate() - 1);
               const yStr = `${yDate.getFullYear()}-${String(yDate.getMonth() + 1).padStart(2, '0')}-${String(yDate.getDate()).padStart(2, '0')}`;
-              const yesterday = Number(((normalized.find(h => h.date === yStr)?.total) || 0).toFixed(4));
+              const yesterdayEntry = migratedHistory.find(h => h.date === yStr);
+              const yesterdayDecimals = yesterdayEntry?.decimals ?? decimals;
+              const yesterday = Number((minorToMajor(yesterdayEntry?.totalMinor || 0, yesterdayDecimals)).toFixed(4));
+              
               const last7Days = Number(sumInWindow(last7Cutoff).toFixed(4));
               const last30Days = Number(sumInWindow(last30Cutoff).toFixed(4));
               const weekToDate = Number(sumInWindow(startOfWeek).toFixed(4));
@@ -771,9 +842,13 @@
 
               // All-time if earlier than last30Cutoff exists
               let allTime;
-              const earliest = normalized.map(h => h.date).sort((a,b)=>a<b?-1:a>b?1:0)[0];
+              const earliest = migratedHistory.map(h => h.date).sort((a,b)=>a<b?-1:a>b?1:0)[0];
               if (earliest && new Date(`${earliest}T00:00:00`) < last30Cutoff) {
-                allTime = Number(normalized.reduce((s, h) => s + (Number(h.total) || 0), 0).toFixed(4));
+                allTime = Number(migratedHistory.reduce((s, h) => {
+                  const entryDecimals = h.decimals ?? decimals;
+                  const majorValue = minorToMajor(h.totalMinor || 0, entryDecimals);
+                  return s + majorValue;
+                }, 0).toFixed(4));
               }
 
               // Build series
@@ -781,15 +856,17 @@
               for (let i = 0; i < 30; i++) {
                 const d = new Date(last30Cutoff); d.setDate(last30Cutoff.getDate() + i);
                 const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-                const entry = normalized.find(h => h.date === ds);
-                seriesLast30.push({ date: ds, total: Number(entry?.total || 0) });
+                const entry = migratedHistory.find(h => h.date === ds);
+                const entryDecimals = entry?.decimals ?? decimals;
+                const majorValue = entry ? minorToMajor(entry.totalMinor || 0, entryDecimals) : 0;
+                seriesLast30.push({ date: ds, total: Number(majorValue) });
               }
 
               resolve({
                 success: true,
                 summary: { today, yesterday, weekToDate, last7Days, monthToDate, last30Days, ...(allTime !== undefined ? { allTime } : {}) },
                 todayDate: todayStr,
-                currencyCode: currency || '',
+                currencyCode: resolvedCurrency || '',
                 series: { last30: seriesLast30 }
               });
             });
