@@ -4335,6 +4335,27 @@ module.exports = {
       console.log('API method getSavingsSummary called');
       homey.app.log('API method getSavingsSummary called');
 
+      // Currency decimals fallback map
+      const currencyDecimals = {
+        'JPY': 0,
+        'KWD': 3,
+        // Default is 2 for most currencies
+      };
+
+      const getCurrencyDecimals = (currency) => {
+        return currencyDecimals[currency?.toUpperCase()] ?? 2;
+      };
+
+      const majorToMinor = (amount, decimals) => {
+        if (typeof amount !== 'number' || isNaN(amount)) return 0;
+        return Math.round(amount * Math.pow(10, decimals));
+      };
+
+      const minorToMajor = (amount, decimals) => {
+        if (typeof amount !== 'number' || isNaN(amount)) return 0;
+        return amount / Math.pow(10, decimals);
+      };
+
       // Helper to get local date string YYYY-MM-DD using Homey time zone settings
       const getLocalDateString = () => {
         try {
@@ -4365,12 +4386,58 @@ module.exports = {
         }
       };
 
-      const history = homey.settings.get('savings_history') || [];
-      const normalized = Array.isArray(history) ? history.filter(h => h && typeof h.date === 'string') : [];
+      // Get currency settings
+      const currency = homey.settings.get('currency_code') || homey.settings.get('currency') || '';
+      const decimals = getCurrencyDecimals(currency);
+
+      // Migrate legacy entry to new format
+      const migrateLegacyEntry = (entry) => {
+        if (entry.totalMinor !== undefined) {
+          // Already migrated, but ensure currency and decimals are set
+          if (!entry.currency && currency) entry.currency = currency;
+          if (entry.decimals === undefined) entry.decimals = decimals;
+          return entry;
+        }
+        
+        if (entry.total !== undefined) {
+          // Legacy entry, convert to new format
+          const totalMinor = majorToMinor(entry.total, decimals);
+          return {
+            date: entry.date,
+            totalMinor,
+            currency,
+            decimals
+          };
+        }
+        
+        // Unknown format, return as-is
+        return entry;
+      };
+
+      const rawHistory = homey.settings.get('savings_history') || [];
+      const migratedHistory = Array.isArray(rawHistory) 
+        ? rawHistory.filter(h => h && typeof h.date === 'string').map(migrateLegacyEntry)
+        : [];
+
+      // Persist migrated history back to settings
+      if (migratedHistory.length > 0) {
+        homey.settings.set('savings_history', migratedHistory);
+      }
+
+      // Check for mixed currencies and warn if found
+      const currencies = new Set(migratedHistory.map(h => h.currency).filter(Boolean));
+      let resolvedCurrency = currency;
+      if (currencies.size > 1) {
+        homey.app.log('WARNING: Mixed currencies detected in savings history:', Array.from(currencies));
+        resolvedCurrency = ''; // Empty currency code for mixed currencies
+      } else if (currencies.size === 1) {
+        resolvedCurrency = Array.from(currencies)[0];
+      }
+
       // Determine reference "today" date. Prefer the newest history date to avoid TZ drift.
       let todayStr;
-      if (normalized.length > 0) {
-        todayStr = normalized
+      if (migratedHistory.length > 0) {
+        todayStr = migratedHistory
           .map(h => h.date)
           .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
           .pop();
@@ -4391,19 +4458,28 @@ module.exports = {
       // Month-to-date: first day of current month
       const startOfMonth = new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
 
-      const sumInWindow = (cutoff) => normalized
+      const sumInWindow = (cutoff) => migratedHistory
         .filter(h => {
           const d = new Date(`${h.date}T00:00:00`);
           return d >= cutoff && d <= todayDate;
         })
-        .reduce((sum, h) => sum + (Number(h.total) || 0), 0);
+        .reduce((sum, h) => {
+          const entryDecimals = h.decimals ?? decimals;
+          const majorValue = minorToMajor(h.totalMinor || 0, entryDecimals);
+          return sum + majorValue;
+        }, 0);
 
-      const todayEntry = normalized.find(h => h.date === todayStr);
-      const today = Number((todayEntry?.total || 0).toFixed(4));
+      const todayEntry = migratedHistory.find(h => h.date === todayStr);
+      const todayDecimals = todayEntry?.decimals ?? decimals;
+      const today = Number((minorToMajor(todayEntry?.totalMinor || 0, todayDecimals)).toFixed(4));
+      
       // Yesterday
       const yDate = new Date(todayDate); yDate.setDate(todayDate.getDate() - 1);
       const yStr = `${yDate.getFullYear()}-${String(yDate.getMonth() + 1).padStart(2, '0')}-${String(yDate.getDate()).padStart(2, '0')}`;
-      const yesterday = Number(((normalized.find(h => h.date === yStr)?.total) || 0).toFixed(4));
+      const yesterdayEntry = migratedHistory.find(h => h.date === yStr);
+      const yesterdayDecimals = yesterdayEntry?.decimals ?? decimals;
+      const yesterday = Number((minorToMajor(yesterdayEntry?.totalMinor || 0, yesterdayDecimals)).toFixed(4));
+      
       const last7Days = Number(sumInWindow(last7Cutoff).toFixed(4));
       const last30Days = Number(sumInWindow(last30Cutoff).toFixed(4));
       const weekToDate = Number(sumInWindow(startOfWeek).toFixed(4));
@@ -4411,14 +4487,18 @@ module.exports = {
 
       // Determine if history extends beyond 30 days
       let allTime;
-      if (normalized.length > 0) {
-        const earliest = normalized
+      if (migratedHistory.length > 0) {
+        const earliest = migratedHistory
           .map(h => h.date)
           .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))[0];
         if (earliest) {
           const earliestDate = new Date(`${earliest}T00:00:00`);
           if (earliestDate < last30Cutoff) {
-            const at = normalized.reduce((sum, h) => sum + (Number(h.total) || 0), 0);
+            const at = migratedHistory.reduce((sum, h) => {
+              const entryDecimals = h.decimals ?? decimals;
+              const majorValue = minorToMajor(h.totalMinor || 0, entryDecimals);
+              return sum + majorValue;
+            }, 0);
             allTime = Number(at.toFixed(4));
           }
         }
@@ -4430,11 +4510,11 @@ module.exports = {
         const d = new Date(last30Cutoff);
         d.setDate(last30Cutoff.getDate() + i);
         const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        const entry = normalized.find(h => h.date === ds);
-        seriesLast30.push({ date: ds, total: Number(entry?.total || 0) });
+        const entry = migratedHistory.find(h => h.date === ds);
+        const entryDecimals = entry?.decimals ?? decimals;
+        const majorValue = entry ? minorToMajor(entry.totalMinor || 0, entryDecimals) : 0;
+        seriesLast30.push({ date: ds, total: Number(majorValue) });
       }
-
-      const currencyCode = homey.settings.get('currency') || homey.settings.get('currency_code') || '';
 
       // Log brief summary for visibility
       try {
@@ -4448,13 +4528,15 @@ module.exports = {
           settings: {
             time_zone_offset: homey.settings.get('time_zone_offset'),
             use_dst: homey.settings.get('use_dst'),
-            currency: currencyCode
+            currency: resolvedCurrency,
+            currency_decimals: decimals
           },
           history: {
-            rawLength: Array.isArray(history) ? history.length : 0,
-            normalizedLength: normalized.length,
-            sampleFirst: normalized.slice(0, 3),
-            sampleLast: normalized.slice(-3)
+            rawLength: Array.isArray(rawHistory) ? rawHistory.length : 0,
+            migratedLength: migratedHistory.length,
+            sampleFirst: migratedHistory.slice(0, 3),
+            sampleLast: migratedHistory.slice(-3),
+            mixedCurrencies: currencies.size > 1 ? Array.from(currencies) : null
           },
           dates: {
             todayStr,
@@ -4499,8 +4581,8 @@ module.exports = {
           ...(allTime !== undefined ? { allTime } : {}),
         },
         todayDate: todayStr,
-        historyDays: normalized.length,
-        currencyCode,
+        historyDays: migratedHistory.length,
+        currencyCode: resolvedCurrency,
         timestamp: new Date().toISOString(),
         series: {
           last30: seriesLast30,
@@ -4817,6 +4899,45 @@ module.exports = {
 
         // Persist savings history for settings summary (mirror app.ts addSavings)
         try {
+          // Currency helper functions (same as in getSavingsSummary)
+          const currencyDecimals = {
+            'JPY': 0,
+            'KWD': 3,
+            // Default is 2 for most currencies
+          };
+
+          const getCurrencyDecimals = (currency) => {
+            return currencyDecimals[currency?.toUpperCase()] ?? 2;
+          };
+
+          const majorToMinor = (amount, decimals) => {
+            if (typeof amount !== 'number' || isNaN(amount)) return 0;
+            return Math.round(amount * Math.pow(10, decimals));
+          };
+
+          const migrateLegacyEntry = (entry, currency, decimals) => {
+            if (entry.totalMinor !== undefined) {
+              // Already migrated, but ensure currency and decimals are set
+              if (!entry.currency && currency) entry.currency = currency;
+              if (entry.decimals === undefined) entry.decimals = decimals;
+              return entry;
+            }
+            
+            if (entry.total !== undefined) {
+              // Legacy entry, convert to new format
+              const totalMinor = majorToMinor(entry.total, decimals);
+              return {
+                date: entry.date,
+                totalMinor,
+                currency,
+                decimals
+              };
+            }
+            
+            // Unknown format, return as-is
+            return entry;
+          };
+
           // Ensure an hourly savings number exists; if missing, derive from changes
           let computedSavings = (typeof result.savings === 'number' && !Number.isNaN(result.savings)) ? result.savings : 0;
           if (!(typeof result.savings === 'number' && !Number.isNaN(result.savings))) {
@@ -4860,19 +4981,45 @@ module.exports = {
             const d = String(local.getDate()).padStart(2, '0');
             const todayStr = `${y}-${mo}-${d}`;
 
-            const hist = homey.settings.get('savings_history') || [];
-            const arr = Array.isArray(hist) ? hist.slice() : [];
-            let todayEntry = arr.find(h => h && h.date === todayStr);
+            // Get currency settings
+            const currency = homey.settings.get('currency_code') || homey.settings.get('currency') || '';
+            const decimals = getCurrencyDecimals(currency);
+
+            // Convert savings amount to minor units
+            const computedSavingsMinor = majorToMinor(computedSavings, decimals);
+
+            const rawHistory = homey.settings.get('savings_history') || [];
+            const arr = Array.isArray(rawHistory) ? rawHistory.slice() : [];
+            
+            // Migrate legacy entries
+            const migratedArr = arr.map(h => migrateLegacyEntry(h, currency, decimals));
+            
+            let todayEntry = migratedArr.find(h => h && h.date === todayStr);
             if (!todayEntry) {
-              todayEntry = { date: todayStr, total: 0 };
-              arr.push(todayEntry);
+              todayEntry = { 
+                date: todayStr, 
+                totalMinor: 0,
+                currency,
+                decimals
+              };
+              migratedArr.push(todayEntry);
+            } else {
+              // Ensure currency and decimals are set on existing entry
+              if (!todayEntry.currency) todayEntry.currency = currency;
+              if (todayEntry.decimals === undefined) todayEntry.decimals = decimals;
             }
-            todayEntry.total = Number((Number(todayEntry.total || 0) + computedSavings).toFixed(4));
+            
+            // Add savings in minor units
+            todayEntry.totalMinor = (todayEntry.totalMinor || 0) + computedSavingsMinor;
+            
             // Keep last 30 days only
-            arr.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-            const trimmed = arr.slice(Math.max(0, arr.length - 30));
+            migratedArr.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+            const trimmed = migratedArr.slice(Math.max(0, migratedArr.length - 30));
             homey.settings.set('savings_history', trimmed);
-            homey.app.log(`Updated savings_history: +${computedSavings.toFixed(4)} -> today ${todayEntry.total.toFixed(4)} (${todayStr}), size=${trimmed.length}`);
+            
+            // Convert back to major units for logging
+            const todayMajor = todayEntry.totalMinor / Math.pow(10, decimals);
+            homey.app.log(`Updated savings_history: +${computedSavings.toFixed(4)} -> today ${todayMajor.toFixed(4)} (${todayStr}), size=${trimmed.length}`);
           } else {
             homey.app.log('No numeric savings value to persist for this optimization run.');
           }
