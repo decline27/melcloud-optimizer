@@ -5,6 +5,100 @@
 const https = require('https');
 const { TimelineHelperWrapper, TimelineEventType } = require('./timeline-helper-wrapper');
 
+// Currency to decimals mapping for accurate minor unit conversion
+const CURRENCY_DECIMALS = {
+  'JPY': 0,  // Japanese Yen has no fractional units
+  'KWD': 3,  // Kuwaiti Dinar has 3 decimal places
+  'BHD': 3,  // Bahraini Dinar has 3 decimal places
+  'JOD': 3,  // Jordanian Dinar has 3 decimal places
+  'OMR': 3,  // Omani Rial has 3 decimal places
+  'TND': 3,  // Tunisian Dinar has 3 decimal places
+  // Most other currencies use 2 decimal places (default)
+};
+
+/**
+ * Get the configured currency from settings
+ * @param {Object} homey - Homey instance
+ * @returns {string} Currency code or empty string
+ */
+function getConfiguredCurrency(homey) {
+  return homey.settings.get('currency') || homey.settings.get('currency_code') || '';
+}
+
+/**
+ * Get the number of decimal places for a currency
+ * @param {string} currency - ISO 4217 currency code
+ * @returns {number} Number of decimal places (0-3, default 2)
+ */
+function getCurrencyDecimals(currency) {
+  if (!currency || typeof currency !== 'string') return 2;
+  const upperCurrency = currency.toUpperCase();
+  const result = CURRENCY_DECIMALS[upperCurrency];
+  return result !== undefined ? result : 2;
+}
+
+/**
+ * Convert an amount in major units to minor units using specified decimals
+ * @param {number} majorAmount - Amount in major units (e.g., 123.45)
+ * @param {number} decimals - Number of decimal places (default 2)
+ * @returns {number} Amount in minor units as integer (e.g., 12345)
+ */
+function majorToMinor(majorAmount, decimals = 2) {
+  if (typeof majorAmount !== 'number' || isNaN(majorAmount)) return 0;
+  if (typeof decimals !== 'number' || decimals < 0 || decimals > 10) decimals = 2;
+  return Math.round(majorAmount * Math.pow(10, decimals));
+}
+
+/**
+ * Convert an amount in minor units to major units using specified decimals
+ * @param {number} minorAmount - Amount in minor units as integer (e.g., 12345)
+ * @param {number} decimals - Number of decimal places (default 2)
+ * @returns {number} Amount in major units (e.g., 123.45)
+ */
+function minorToMajor(minorAmount, decimals = 2) {
+  if (typeof minorAmount !== 'number' || isNaN(minorAmount)) return 0;
+  if (typeof decimals !== 'number' || decimals < 0 || decimals > 10) decimals = 2;
+  return minorAmount / Math.pow(10, decimals);
+}
+
+/**
+ * Parse a savings history entry to ensure it has totalMinor with proper migration
+ * @param {Object} entry - History entry (legacy or new format)
+ * @param {number} defaultDecimals - Default decimals to use for migration (default 2)
+ * @param {string} defaultCurrency - Default currency to use for migration (default '')
+ * @returns {Object} Entry with totalMinor, currency, and decimals
+ */
+function parseEntryToMinor(entry, defaultDecimals = 2, defaultCurrency = '') {
+  if (!entry || typeof entry !== 'object') {
+    return { date: '', totalMinor: 0, currency: defaultCurrency, decimals: defaultDecimals };
+  }
+
+  // If already in new format, return as-is (with validation)
+  if (typeof entry.totalMinor === 'number') {
+    return {
+      date: entry.date || '',
+      totalMinor: Math.round(entry.totalMinor) || 0,
+      currency: entry.currency || defaultCurrency,
+      decimals: typeof entry.decimals === 'number' ? entry.decimals : defaultDecimals
+    };
+  }
+
+  // Legacy format migration: convert .total (major units) to .totalMinor (minor units)
+  if (typeof entry.total === 'number') {
+    const currency = entry.currency || defaultCurrency;
+    const decimals = typeof entry.decimals === 'number' ? entry.decimals : (currency ? getCurrencyDecimals(currency) : defaultDecimals);
+    return {
+      date: entry.date || '',
+      totalMinor: majorToMinor(entry.total, decimals),
+      currency: currency,
+      decimals: decimals
+    };
+  }
+
+  // Fallback for malformed entries
+  return { date: entry.date || '', totalMinor: 0, currency: defaultCurrency, decimals: defaultDecimals };
+}
+
 /**
  * Helper function to pretty-print JSON data
  * @param {Object} data - The data to format
@@ -4366,7 +4460,53 @@ module.exports = {
       };
 
       const history = homey.settings.get('savings_history') || [];
-      const normalized = Array.isArray(history) ? history.filter(h => h && typeof h.date === 'string') : [];
+      const rawNormalized = Array.isArray(history) ? history.filter(h => h && typeof h.date === 'string') : [];
+      
+      // Migrate legacy entries and convert to normalized format with major units for calculations
+      const normalized = [];
+      const configuredCurrency = getConfiguredCurrency(homey);
+      const defaultDecimals = getCurrencyDecimals(configuredCurrency);
+      let migrationPerformed = false;
+      
+      for (const entry of rawNormalized) {
+        if (typeof entry.totalMinor === 'number') {
+          // New format: convert to major units for calculations
+          const decimals = typeof entry.decimals === 'number' ? entry.decimals : defaultDecimals;
+          normalized.push({
+            date: entry.date,
+            total: minorToMajor(entry.totalMinor, decimals),
+            currency: entry.currency || '',
+            decimals: decimals
+          });
+        } else if (typeof entry.total === 'number') {
+          // Legacy format: use as-is but mark for migration
+          // For legacy entries, use configured currency and its decimals
+          const entryDecimals = typeof entry.decimals === 'number' ? entry.decimals : defaultDecimals;
+          normalized.push({
+            date: entry.date,
+            total: entry.total,
+            currency: entry.currency || configuredCurrency,
+            decimals: entryDecimals
+          });
+          migrationPerformed = true;
+        }
+      }
+      
+      // If migration was performed, save the updated format back to settings
+      if (migrationPerformed) {
+        const migratedHistory = rawNormalized.map(entry => {
+          if (typeof entry.totalMinor === 'number') {
+            // Already new format, return as-is
+            return entry;
+          } else {
+            // Legacy format: migrate using configured currency decimals
+            return parseEntryToMinor(entry, defaultDecimals, configuredCurrency);
+          }
+        });
+        homey.settings.set('savings_history', migratedHistory);
+        homey.app.log(`Migrated ${rawNormalized.length} savings history entries to new format with per-entry decimals`);
+      }
+
       // Determine reference "today" date. Prefer the newest history date to avoid TZ drift.
       let todayStr;
       if (normalized.length > 0) {
@@ -4434,7 +4574,29 @@ module.exports = {
         seriesLast30.push({ date: ds, total: Number(entry?.total || 0) });
       }
 
-      const currencyCode = homey.settings.get('currency') || homey.settings.get('currency_code') || '';
+      // Determine currency code - prefer global setting or most common currency in series
+      let currencyCode = configuredCurrency;
+      
+      if (!currencyCode && normalized.length > 0) {
+        // Find the most common currency in the history
+        const currencyFreq = {};
+        for (const entry of normalized) {
+          if (entry.currency) {
+            currencyFreq[entry.currency] = (currencyFreq[entry.currency] || 0) + 1;
+          }
+        }
+        const currencies = Object.keys(currencyFreq);
+        if (currencies.length > 0) {
+          currencyCode = currencies.reduce((a, b) => currencyFreq[a] > currencyFreq[b] ? a : b);
+          
+          // Log if mixed currencies found
+          if (currencies.length > 1) {
+            homey.app.log(`Mixed currencies found in savings history: ${currencies.join(', ')}. Using most common: ${currencyCode}`);
+          }
+        }
+      }
+      
+      currencyCode = currencyCode || '';
 
       // Log brief summary for visibility
       try {
@@ -4860,19 +5022,48 @@ module.exports = {
             const d = String(local.getDate()).padStart(2, '0');
             const todayStr = `${y}-${mo}-${d}`;
 
+            // Determine currency and decimals for this entry
+            const currency = getConfiguredCurrency(homey) || result.priceData?.currency || '';
+            const decimals = getCurrencyDecimals(currency);
+            
+            // Convert computedSavings (assumed major units) to integer minor units
+            const savingsMinor = majorToMinor(computedSavings, decimals);
+
             const hist = homey.settings.get('savings_history') || [];
             const arr = Array.isArray(hist) ? hist.slice() : [];
-            let todayEntry = arr.find(h => h && h.date === todayStr);
+            
+            // Migrate any legacy entries and find/create today's entry
+            let todayEntry = null;
+            for (let i = 0; i < arr.length; i++) {
+              const entry = arr[i];
+              if (entry && entry.date === todayStr) {
+                // Migrate legacy format if needed
+                todayEntry = parseEntryToMinor(entry, decimals, currency);
+                arr[i] = todayEntry;
+                break;
+              } else if (entry && typeof entry.total === 'number') {
+                // Migrate other legacy entries we encounter
+                arr[i] = parseEntryToMinor(entry, decimals, currency);
+              }
+            }
+            
             if (!todayEntry) {
-              todayEntry = { date: todayStr, total: 0 };
+              todayEntry = { date: todayStr, totalMinor: 0, currency: currency, decimals: decimals };
               arr.push(todayEntry);
             }
-            todayEntry.total = Number((Number(todayEntry.total || 0) + computedSavings).toFixed(4));
+            
+            // Update today's totalMinor and set currency/decimals if unset
+            todayEntry.totalMinor = Math.round((todayEntry.totalMinor || 0) + savingsMinor);
+            if (!todayEntry.currency) todayEntry.currency = currency;
+            if (typeof todayEntry.decimals !== 'number') todayEntry.decimals = decimals;
+
             // Keep last 30 days only
             arr.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
             const trimmed = arr.slice(Math.max(0, arr.length - 30));
             homey.settings.set('savings_history', trimmed);
-            homey.app.log(`Updated savings_history: +${computedSavings.toFixed(4)} -> today ${todayEntry.total.toFixed(4)} (${todayStr}), size=${trimmed.length}`);
+            
+            const todayMajor = minorToMajor(todayEntry.totalMinor, todayEntry.decimals);
+            homey.app.log(`Updated savings_history: +${computedSavings.toFixed(4)} -> today ${todayMajor.toFixed(4)} ${currency} (${todayStr}), totalMinor=${todayEntry.totalMinor}, decimals=${todayEntry.decimals}, size=${trimmed.length}`);
           } else {
             homey.app.log('No numeric savings value to persist for this optimization run.');
           }
