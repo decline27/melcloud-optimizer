@@ -39,11 +39,20 @@ describe('getSavingsSummary', () => {
     anchorDay = 20; // keep within month boundaries
     base = new Date(Date.UTC(y, m, anchorDay, 0, 0, 0));
     const toDateStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    const history: Array<{date: string; total: number}> = [];
+    
+    // Create history with new data format (minor units)
+    const history: Array<{date: string; totalMinor: number; currency: string; decimals: number}> = [];
     for (let i = 9; i >= 0; i--) {
       const d = new Date(base.getTime());
       d.setDate(d.getDate() - i);
-      history.push({ date: toDateStr(d), total: i + 1 }); // totals: 1..10
+      const majorValue = i + 1; // totals: 1..10 in major units
+      const minorValue = majorValue * 100; // Convert to minor units (EUR cents)
+      history.push({ 
+        date: toDateStr(d), 
+        totalMinor: minorValue,
+        currency: 'EUR',
+        decimals: 2
+      });
     }
     settingsStore['savings_history'] = history;
   });
@@ -107,13 +116,20 @@ describe('getSavingsSummary', () => {
     settingsStore['use_dst'] = false;
     settingsStore['currency'] = 'EUR';
 
-    // Build 35-day history ending at anchorDay
+    // Build 35-day history ending at anchorDay using new format
     const toDateStr = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
-    const hist: Array<{date:string; total:number}> = [];
+    const hist: Array<{date:string; totalMinor:number; currency:string; decimals:number}> = [];
     for (let i = 34; i >= 0; i--) {
       const d = new Date(base.getTime());
       d.setUTCDate(d.getUTCDate() - i);
-      hist.push({ date: toDateStr(d), total: i + 1 }); // 1..35, with today=1, yesterday=2
+      const majorValue = i + 1; // 1..35, with today=1, yesterday=2
+      const minorValue = majorValue * 100; // Convert to EUR cents
+      hist.push({ 
+        date: toDateStr(d), 
+        totalMinor: minorValue,
+        currency: 'EUR',
+        decimals: 2
+      });
     }
     settingsStore['savings_history'] = hist;
 
@@ -144,5 +160,115 @@ describe('getSavingsSummary', () => {
     expect(res.summary.today).toBe(0);
     expect(res.summary.last7Days).toBe(0);
     expect(res.summary.last30Days).toBe(0);
+  });
+
+  test('migrates legacy entries from total to totalMinor', async () => {
+    const settingsStore: any = {};
+    const homey3: any = {
+      app: { log: jest.fn(), error: jest.fn() },
+      settings: {
+        get: jest.fn((k: string) => settingsStore[k]),
+        set: jest.fn((k: string, v: any) => { settingsStore[k] = v; })
+      }
+    };
+
+    settingsStore['time_zone_offset'] = 0;
+    settingsStore['use_dst'] = false;
+    settingsStore['currency'] = 'EUR';
+
+    // Legacy format data
+    const toDateStr = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+    const legacyHistory: Array<{date: string; total: number}> = [];
+    for (let i = 4; i >= 0; i--) {
+      const d = new Date(base.getTime());
+      d.setDate(d.getDate() - i);
+      legacyHistory.push({ date: toDateStr(d), total: i + 1 }); // 1..5
+    }
+    settingsStore['savings_history'] = legacyHistory;
+
+    const res = await api.getSavingsSummary({ homey: homey3 });
+    expect(res.success).toBe(true);
+    expect(res.summary.today).toBe(1); // First day (i=4, total=5) becomes today=1
+    expect(res.summary.last7Days).toBe(15); // Sum of 1..5 = 15
+
+    // Check that the migration happened
+    expect(homey3.settings.set).toHaveBeenCalledWith('savings_history', 
+      expect.arrayContaining([
+        expect.objectContaining({
+          totalMinor: expect.any(Number),
+          currency: 'EUR',
+          decimals: 2
+        })
+      ])
+    );
+  });
+
+  test('handles mixed currencies with warning and empty currency code', async () => {
+    const settingsStore: any = {};
+    const homey4: any = {
+      app: { log: jest.fn(), error: jest.fn() },
+      settings: {
+        get: jest.fn((k: string) => settingsStore[k]),
+        set: jest.fn((k: string, v: any) => { settingsStore[k] = v; })
+      }
+    };
+
+    settingsStore['time_zone_offset'] = 0;
+    settingsStore['use_dst'] = false;
+    settingsStore['currency'] = 'EUR';
+
+    // Mixed currency data
+    const toDateStr = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+    const mixedHistory = [
+      { date: toDateStr(new Date(base.getTime() - 2 * 24 * 60 * 60 * 1000)), totalMinor: 100, currency: 'EUR', decimals: 2 },
+      { date: toDateStr(new Date(base.getTime() - 1 * 24 * 60 * 60 * 1000)), totalMinor: 200, currency: 'USD', decimals: 2 },
+      { date: toDateStr(base), totalMinor: 300, currency: 'JPY', decimals: 0 }
+    ];
+    settingsStore['savings_history'] = mixedHistory;
+
+    const res = await api.getSavingsSummary({ homey: homey4 });
+    expect(res.success).toBe(true);
+    expect(res.currencyCode).toBe(''); // Empty for mixed currencies
+    
+    // Check that warning was logged
+    expect(homey4.app.log).toHaveBeenCalledWith(
+      'WARNING: Mixed currencies detected in savings history:', 
+      expect.arrayContaining(['EUR', 'USD', 'JPY'])
+    );
+  });
+
+  test('handles per-entry decimals correctly', async () => {
+    const settingsStore: any = {};
+    const homey5: any = {
+      app: { log: jest.fn(), error: jest.fn() },
+      settings: {
+        get: jest.fn((k: string) => settingsStore[k]),
+        set: jest.fn((k: string, v: any) => { settingsStore[k] = v; })
+      }
+    };
+
+    settingsStore['time_zone_offset'] = 0;
+    settingsStore['use_dst'] = false;
+    settingsStore['currency'] = 'JPY'; // Default 0 decimals
+
+    // Mixed decimals data
+    const toDateStr = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+    const mixedDecimalsHistory = [
+      { date: toDateStr(new Date(base.getTime() - 1 * 24 * 60 * 60 * 1000)), totalMinor: 100, currency: 'EUR', decimals: 2 }, // 1.00 EUR
+      { date: toDateStr(base), totalMinor: 150, currency: 'JPY', decimals: 0 } // 150 JPY
+    ];
+    settingsStore['savings_history'] = mixedDecimalsHistory;
+
+    const res = await api.getSavingsSummary({ homey: homey5 });
+    expect(res.success).toBe(true);
+    
+    // Today (JPY): 150 minor units with 0 decimals = 150 major units
+    expect(res.summary.today).toBe(150);
+    
+    // Yesterday (EUR): 100 minor units with 2 decimals = 1.00 major units
+    expect(res.summary.yesterday).toBe(1);
+    
+    // Last 7 days: 150 + 1 = 151
+    expect(res.summary.last7Days).toBe(151);
   });
 });
