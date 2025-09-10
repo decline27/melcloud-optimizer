@@ -36,6 +36,36 @@ export default class HeatOptimizerApp extends App {
   private memoryUsageInterval?: NodeJS.Timeout;
   private timeZoneHelper?: TimeZoneHelper;
 
+  // Currency decimals fallback map
+  private static readonly currencyDecimals: Record<string, number> = {
+    JPY: 0,
+    KWD: 3,
+    // Default is 2 for most currencies
+  };
+
+  /**
+   * Get decimal places for a currency (default 2)
+   */
+  private getCurrencyDecimals(currency: string): number {
+    return HeatOptimizerApp.currencyDecimals[currency?.toUpperCase()] ?? 2;
+  }
+
+  /**
+   * Convert major currency units to minor units (e.g. 1.23 EUR -> 123 cents)
+   */
+  public majorToMinor(amount: number, decimals: number): number {
+    if (typeof amount !== 'number' || isNaN(amount)) return 0;
+    return Math.round(amount * Math.pow(10, decimals));
+  }
+
+  /**
+   * Convert minor currency units to major units (e.g. 123 cents -> 1.23 EUR)
+   */
+  public minorToMajor(amount: number, decimals: number): number {
+    if (typeof amount !== 'number' || isNaN(amount)) return 0;
+    return amount / Math.pow(10, decimals);
+  }
+
   /**
    * Format a Date to YYYY-MM-DD using local time (with timezone helper if available)
    */
@@ -48,8 +78,33 @@ export default class HeatOptimizerApp extends App {
   }
 
   /**
+   * Migrate legacy savings entry to new format with minor units
+   */
+  private migrateLegacyEntry(entry: any, currency: string, decimals: number): any {
+    if (entry.totalMinor !== undefined) {
+      // Already migrated
+      return entry;
+    }
+
+    if (entry.total !== undefined) {
+      // Legacy entry, convert to new format
+      const totalMinor = this.majorToMinor(entry.total, decimals);
+      return {
+        date: entry.date,
+        totalMinor,
+        currency,
+        decimals
+      };
+    }
+
+    // Unknown format, return as-is
+    return entry;
+  }
+
+  /**
    * Add an hourly savings amount to today's total and maintain a short history
-   * Returns todaySoFar and weekSoFar (last 7 days including today)
+   * Amount should be in major units and will be converted to integer minor units
+   * Returns todaySoFar and weekSoFar (last 7 days including today) in major units
    */
   private addSavings(amount: number): { todaySoFar: number; weekSoFar: number } {
     try {
@@ -58,38 +113,66 @@ export default class HeatOptimizerApp extends App {
       }
 
       const today = this.formatLocalDate();
-      const history: Array<{ date: string; total: number }> = this.homey.settings.get('savings_history') || [];
+      
+      // Get currency settings - prefer currency_code, fall back to currency
+      const currency = this.homey.settings.get('currency_code') || this.homey.settings.get('currency') || '';
+      const decimals = this.getCurrencyDecimals(currency);
+
+      // Convert amount to minor units
+      const amountMinor = this.majorToMinor(amount, decimals);
+
+      const rawHistory = this.homey.settings.get('savings_history') || [];
+
+      // Migrate legacy entries and normalize the history
+      const history = rawHistory.map((h: any) => this.migrateLegacyEntry(h, currency, decimals));
 
       // Find or create today's entry
-      let todayEntry = history.find(h => h.date === today);
+      let todayEntry: any = history.find((h: any) => h.date === today);
       if (!todayEntry) {
-        todayEntry = { date: today, total: 0 };
+        todayEntry = {
+          date: today,
+          totalMinor: 0,
+          currency,
+          decimals
+        };
         history.push(todayEntry);
+      } else {
+        // Ensure currency and decimals are set on existing entry
+        if (!todayEntry.currency) todayEntry.currency = currency;
+        if (todayEntry.decimals === undefined) todayEntry.decimals = decimals;
       }
 
-      // Increment today's total
-      todayEntry.total = Number((todayEntry.total + amount).toFixed(4));
+      // Increment today's total (in minor units)
+      todayEntry.totalMinor = (todayEntry.totalMinor || 0) + amountMinor;
 
       // Trim history to last 30 days
-      history.sort((a, b) => a.date.localeCompare(b.date));
+      history.sort((a: any, b: any) => a.date.localeCompare(b.date));
       const cutoffIndex = Math.max(0, history.length - 30);
       const trimmed = history.slice(cutoffIndex);
 
       this.homey.settings.set('savings_history', trimmed);
 
-      // Compute last 7 days total including today
+      // Compute last 7 days total including today (convert back to major units)
       const todayDate = new Date(`${today}T00:00:00`);
       const last7Cutoff = new Date(todayDate);
       last7Cutoff.setDate(todayDate.getDate() - 6); // include 7 days window
 
-      const weekSoFar = trimmed
-        .filter(h => {
+      const weekSoFarMinor = (trimmed as any[])
+        .filter((h: any) => {
           const d = new Date(`${h.date}T00:00:00`);
           return d >= last7Cutoff && d <= todayDate;
         })
-        .reduce((sum, h) => sum + (h.total || 0), 0);
+        .reduce((sum: number, h: any) => {
+          return sum + (h.totalMinor || 0);
+        }, 0);
 
-      return { todaySoFar: todayEntry.total, weekSoFar: Number(weekSoFar.toFixed(4)) };
+      const todaySoFar = this.minorToMajor(todayEntry.totalMinor, decimals);
+      const weekSoFar = this.minorToMajor(weekSoFarMinor, decimals);
+
+      return {
+        todaySoFar: Number(todaySoFar.toFixed(4)),
+        weekSoFar: Number(weekSoFar.toFixed(4))
+      };
     } catch (e) {
       this.error('Failed to add savings to history', e as Error);
       return { todaySoFar: 0, weekSoFar: 0 };
@@ -106,13 +189,24 @@ export default class HeatOptimizerApp extends App {
       const last7Cutoff = new Date(todayDate);
       last7Cutoff.setDate(todayDate.getDate() - 6);
 
-      const history: Array<{ date: string; total: number }> = this.homey.settings.get('savings_history') || [];
-      const total = history
-        .filter(h => {
+      // Get currency settings
+      const currency = this.homey.settings.get('currency_code') || this.homey.settings.get('currency') || '';
+      const decimals = this.getCurrencyDecimals(currency);
+
+      const rawHistory = this.homey.settings.get('savings_history') || [];
+
+      // Migrate legacy entries and calculate total
+      const totalMinor = (rawHistory as any[])
+        .map((h: any) => this.migrateLegacyEntry(h, currency, decimals))
+        .filter((h: any) => {
           const d = new Date(`${h.date}T00:00:00`);
           return d >= last7Cutoff && d <= todayDate;
         })
-        .reduce((sum, h) => sum + (h.total || 0), 0);
+        .reduce((sum: number, h: any) => {
+          return sum + (h.totalMinor || 0);
+        }, 0);
+
+      const total = this.minorToMajor(totalMinor, decimals);
       return Number(total.toFixed(4));
     } catch (e) {
       this.error('Failed to compute weekly savings total', e as Error);
@@ -215,6 +309,8 @@ export default class HeatOptimizerApp extends App {
    * onInit is called when the app is initialized
    */
   async onInit() {
+    // Early, unconditional app-level log (before logger init)
+    this.log('[App] onInit() starting');
     // Initialize the centralized logger
     try {
       this.initializeLogger();
@@ -232,8 +328,12 @@ export default class HeatOptimizerApp extends App {
     }
 
     // Log app initialization
-    this.logger.marker('MELCloud Optimizer App Starting');
-    this.logger.info('Heat Pump Optimizer initialized');
+    try {
+      this.logger.marker('MELCloud Optimizer App Starting');
+      this.logger.info('Heat Pump Optimizer initialized');
+    } catch (_) {
+      this.log('[App] Logger not ready for marker/info; continuing');
+    }
 
     // Log some additional information
     try {
@@ -252,10 +352,12 @@ export default class HeatOptimizerApp extends App {
     } catch (error) {
       this.logger.error('Failed to register settings change listener:', error as Error);
     }
+    this.log('[App] Settings change listener registered');
 
     // Validate settings
     try {
       this.validateSettings();
+      this.log('[App] validateSettings() completed');
     } catch (error) {
       this.error('Failed to validate settings during initialization:', error as Error);
       // Continue with initialization despite settings validation failure
@@ -288,11 +390,12 @@ export default class HeatOptimizerApp extends App {
       this.logger.error('Failed to initialize Timeline Helper', error as Error);
     }
 
-    // Initialize cron jobs
+    // Start cron jobs on init (safe re-init logic prevents duplicates)
     try {
+      this.log('[App] Initializing cron jobs on init…');
       this.initializeCronJobs();
     } catch (error) {
-      this.logger.error('Failed to initialize cron jobs', error as Error);
+      this.logger.error('Failed to initialize cron jobs on init', error as Error);
     }
 
     // Monitor memory usage in development mode
@@ -347,6 +450,13 @@ export default class HeatOptimizerApp extends App {
    */
   public initializeCronJobs() {
     this.log('===== INITIALIZING CRON JOBS =====');
+    // Avoid duplicate timers if called multiple times
+    try {
+      if (this.hourlyJob?.running || this.weeklyJob?.running) {
+        this.log('Existing cron jobs detected → cleaning up before re-init');
+        this.cleanupCronJobs();
+      }
+    } catch (_) { /* ignore */ }
     // Resolve time zone via helper
     const tzHelper = this.timeZoneHelper;
     const timeZoneString = tzHelper ? tzHelper.getTimeZoneString() : 'UTC+0';
@@ -524,9 +634,55 @@ export default class HeatOptimizerApp extends App {
       homeyEffectiveOffset: localInfo.effectiveOffset
     });
 
+    // Expose cron jobs to API helpers that check globals
+    try {
+      (global as any).hourlyJob = this.hourlyJob;
+      (global as any).weeklyJob = this.weeklyJob;
+    } catch (_) { /* ignore */ }
+
+    // Ensure cron status is persisted consistently
+    this.updateCronStatusInSettings();
+
     this.log(`Hourly cron job started - next run at: ${nextHourlyRun.toString()}`);
     this.log(`Weekly cron job started - next run at: ${nextWeeklyRun.toString()}`);
     this.log('Cron jobs started successfully');
+  }
+
+  /**
+   * Ensure cron jobs are running only when settings are valid.
+   * Produces clear startup logs so it's visible in the terminal.
+   */
+  private ensureCronRunningIfReady() {
+    const melcloudUser = this.homey.settings.get('melcloud_user');
+    const melcloudPass = this.homey.settings.get('melcloud_pass');
+    const tibberToken = this.homey.settings.get('tibber_token');
+    const deviceId = this.homey.settings.get('device_id');
+    const buildingId = this.homey.settings.get('building_id');
+
+    const hasCreds = !!(melcloudUser && melcloudPass && tibberToken);
+    const hasDevice = !!(deviceId && buildingId);
+    const alreadyRunning = !!(this.hourlyJob?.running && this.weeklyJob?.running);
+
+    this.logger.marker('Cron Auto‑Start Check');
+    this.log(`Settings present → creds=${hasCreds} device=${hasDevice}`);
+
+    if (alreadyRunning) {
+      this.log('Cron jobs already running; skipping initialization');
+      this.updateCronStatusInSettings();
+      return;
+    }
+
+    if (hasCreds && hasDevice) {
+      this.log('Starting cron jobs automatically at app start…');
+      this.initializeCronJobs();
+      try {
+        if (this.timelineHelper) {
+          this.timelineHelper.addTimelineEntry(TimelineEventType.SYSTEM_RECOVERY, { started: 'cron' }, false).catch(() => {});
+        }
+      } catch (_) { /* ignore */ }
+    } else {
+      this.warn('Skipping cron auto‑start: missing credentials or device selection');
+    }
   }
 
   /**
@@ -703,6 +859,14 @@ export default class HeatOptimizerApp extends App {
           await this.homey.settings.unset('trigger_weekly_calibration');
         }
       }
+    }
+
+    // Ensure cron jobs are running after any relevant settings change
+    try {
+      this.log('[App] Re-initializing cron after settings change…');
+      this.initializeCronJobs();
+    } catch (err) {
+      this.error('Failed to ensure cron after settings change', err as Error);
     }
   }
 

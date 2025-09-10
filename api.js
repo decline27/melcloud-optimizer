@@ -4462,19 +4462,39 @@ module.exports = {
       // Month-to-date: first day of current month
       const startOfMonth = new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
 
+      // Helper for currency decimals
+      const defaultDecimalsForCurrency = (code) => {
+        const m = { JPY: 0, KWD: 3 };
+        return m[String(code || '').toUpperCase()] ?? 2;
+      };
+      // Convert an entry to major units, supporting legacy and new formats
+      const getEntryTotalMajor = (h) => {
+        if (!h) return 0;
+        if (h.total !== undefined) {
+          const v = Number(h.total);
+          return Number.isFinite(v) ? v : 0;
+        }
+        if (h.totalMinor !== undefined) {
+          const v = Number(h.totalMinor);
+          const decimals = Number.isFinite(Number(h.decimals)) ? Number(h.decimals) : defaultDecimalsForCurrency(h.currency);
+          return Number.isFinite(v) ? v / Math.pow(10, decimals) : 0;
+        }
+        return 0;
+      };
+
       const sumInWindow = (cutoff) => normalized
         .filter(h => {
           const d = new Date(`${h.date}T00:00:00`);
           return d >= cutoff && d <= todayDate;
         })
-        .reduce((sum, h) => sum + (Number(h.total) || 0), 0);
+        .reduce((sum, h) => sum + getEntryTotalMajor(h), 0);
 
       const todayEntry = normalized.find(h => h.date === todayStr);
-      const today = Number((todayEntry?.total || 0).toFixed(4));
+      const today = Number(getEntryTotalMajor(todayEntry).toFixed(4));
       // Yesterday
       const yDate = new Date(todayDate); yDate.setDate(todayDate.getDate() - 1);
       const yStr = `${yDate.getFullYear()}-${String(yDate.getMonth() + 1).padStart(2, '0')}-${String(yDate.getDate()).padStart(2, '0')}`;
-      const yesterday = Number(((normalized.find(h => h.date === yStr)?.total) || 0).toFixed(4));
+      const yesterday = Number(getEntryTotalMajor(normalized.find(h => h.date === yStr)).toFixed(4));
       const last7Days = Number(sumInWindow(last7Cutoff).toFixed(4));
       const last30Days = Number(sumInWindow(last30Cutoff).toFixed(4));
       const weekToDate = Number(sumInWindow(startOfWeek).toFixed(4));
@@ -4489,7 +4509,7 @@ module.exports = {
         if (earliest) {
           const earliestDate = new Date(`${earliest}T00:00:00`);
           if (earliestDate < last30Cutoff) {
-            const at = normalized.reduce((sum, h) => sum + (Number(h.total) || 0), 0);
+            const at = normalized.reduce((sum, h) => sum + getEntryTotalMajor(h), 0);
             allTime = Number(at.toFixed(4));
           }
         }
@@ -4502,7 +4522,7 @@ module.exports = {
         d.setDate(last30Cutoff.getDate() + i);
         const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         const entry = normalized.find(h => h.date === ds);
-        seriesLast30.push({ date: ds, total: Number(entry?.total || 0) });
+        seriesLast30.push({ date: ds, total: Number(getEntryTotalMajor(entry) || 0) });
       }
 
       const currencyCode = homey.settings.get('currency') || homey.settings.get('currency_code') || '';
@@ -4942,16 +4962,37 @@ module.exports = {
             const hist = homey.settings.get('savings_history') || [];
             const arr = Array.isArray(hist) ? hist.slice() : [];
             let todayEntry = arr.find(h => h && h.date === todayStr);
+
+            // Determine currency/decimals for minor units
+            const currencyCode = homey.settings.get('currency_code') || homey.settings.get('currency') || '';
+            const decimalsMap = { JPY: 0, KWD: 3 };
+            const decimals = (decimalsMap[String(currencyCode).toUpperCase()] ?? 2);
+            const toMinor = (amt) => Math.round((Number(amt) || 0) * Math.pow(10, decimals));
+
             if (!todayEntry) {
-              todayEntry = { date: todayStr, total: 0 };
+              // Create entry in minor-units format
+              todayEntry = { date: todayStr, totalMinor: 0, currency: currencyCode, decimals };
               arr.push(todayEntry);
             }
-            todayEntry.total = Number((Number(todayEntry.total || 0) + computedSavings).toFixed(4));
+
+            // If entry already using minor units, keep using that; otherwise fall back to legacy 'total'
+            if (todayEntry.totalMinor !== undefined) {
+              todayEntry.currency = todayEntry.currency || currencyCode;
+              if (todayEntry.decimals === undefined) todayEntry.decimals = decimals;
+              todayEntry.totalMinor = Number(todayEntry.totalMinor || 0) + toMinor(computedSavings);
+            } else {
+              todayEntry.total = Number((Number(todayEntry.total || 0) + computedSavings).toFixed(4));
+            }
             // Keep last 30 days only
             arr.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
             const trimmed = arr.slice(Math.max(0, arr.length - 30));
             homey.settings.set('savings_history', trimmed);
-            homey.app.log(`Updated savings_history: +${computedSavings.toFixed(4)} -> today ${todayEntry.total.toFixed(4)} (${todayStr}), size=${trimmed.length}`);
+            try {
+              const todayMajor = todayEntry.totalMinor !== undefined
+                ? (todayEntry.totalMinor / Math.pow(10, todayEntry.decimals ?? decimals)).toFixed(4)
+                : Number(todayEntry.total || 0).toFixed(4);
+              homey.app.log(`Updated savings_history: +${computedSavings.toFixed(4)} -> today ${todayMajor} (${todayStr}), size=${trimmed.length}`);
+            } catch (_) {}
           } else {
             homey.app.log('No numeric savings value to persist for this optimization run.');
           }

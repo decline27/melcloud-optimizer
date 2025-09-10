@@ -8,6 +8,7 @@ describe('getSavingsSummary', () => {
 
   beforeEach(() => {
     // Load real api.js fresh in each test file context to avoid name collisions
+    jest.resetModules();
     api = require('../../api.js');
     // Reset helpers if available
     if (api.__test && typeof api.__test.resetAll === 'function') {
@@ -81,7 +82,7 @@ describe('getSavingsSummary', () => {
     expect(res.summary.last30Days).toBe(55);
 
     // allTime should be omitted when history <= 30 days
-    expect(res.summary.allTime).toBeUndefined();
+    expect((res.summary as any).allTime).toBeUndefined();
 
     // Series should include 30 days
     expect(res.series).toBeDefined();
@@ -146,3 +147,4 @@ describe('getSavingsSummary', () => {
     expect(res.summary.last30Days).toBe(0);
   });
 });
+
