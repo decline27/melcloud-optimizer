@@ -3009,8 +3009,16 @@ class Optimizer {
     const tempDiff = (Number(oldTemp) || 0) - (Number(newTemp) || 0);
     if (!isFinite(tempDiff) || !isFinite(currentPrice)) return 0;
 
-    // Base assumptions
-    const baseHourlyConsumptionKWh = 1.0; // nominal baseline per hour
+    // Include optional grid fee in price from Homey settings
+    const gridFee = Number(this.logger?.homey?.settings?.get('grid_fee_per_kwh')) || 0;
+    const effectivePrice = currentPrice + (Number.isFinite(gridFee) ? gridFee : 0);
+
+    // Baseline hourly consumption (kWh)
+    let baseHourlyConsumptionKWh = 1.0;
+    try {
+      const overrideBase = Number(this.logger?.homey?.settings?.get('baseline_hourly_consumption_kwh')) || 0;
+      if (Number.isFinite(overrideBase) && overrideBase > 0) baseHourlyConsumptionKWh = overrideBase;
+    } catch (_) {}
 
     // Per-degree percentage impact by kind (relative surface/impact)
     const perDegPct = kind === 'tank' ? 2.0 : kind === 'zone2' ? 4.0 : 5.0; // % per °C
@@ -3019,7 +3027,7 @@ class Optimizer {
     const kindMultiplier = kind === 'tank' ? 0.8 : kind === 'zone2' ? 0.9 : 1.0;
 
     const energySavingPercent = tempDiff * perDegPct * kindMultiplier;
-    const savings = (energySavingPercent / 100) * baseHourlyConsumptionKWh * currentPrice;
+    const savings = (energySavingPercent / 100) * baseHourlyConsumptionKWh * effectivePrice;
     return Number.isFinite(savings) ? savings : 0;
   }
 
@@ -3073,7 +3081,10 @@ class Optimizer {
       if (kind === 'tank') perDegFactor *= 0.5; // tank changes have smaller whole-day effect
 
       const dailyEnergyImpact = Math.abs(tempDiff) * perDegFactor * dailyConsumption; // kWh
-      const dailyCostImpact = dailyEnergyImpact * (tempDiff > 0 ? currentPrice : -currentPrice);
+      // Include grid fee for effective marginal price
+      const gridFee = Number(this.logger?.homey?.settings?.get('grid_fee_per_kwh')) || 0;
+      const effectivePrice = (Number.isFinite(currentPrice) ? currentPrice : 0) + (Number.isFinite(gridFee) ? gridFee : 0);
+      const dailyCostImpact = dailyEnergyImpact * (tempDiff > 0 ? effectivePrice : -effectivePrice);
       const hourlyCostImpact = dailyCostImpact / 24;
       return Number.isFinite(hourlyCostImpact) ? hourlyCostImpact : 0;
     } catch (_) {
@@ -3083,64 +3094,10 @@ class Optimizer {
   }
 
   /**
-   * Calculate projected daily savings based on hourly savings and historical data
-   * @param {number} hourlySavings - Savings for the current hour
-   * @returns {number} - Projected daily savings
+   * Calculate projected daily savings based on hourly savings and historical data.
+   * Uses Tibber's upcoming hourly prices (plus grid fee) to weight remaining hours.
    */
-  calculateDailySavings(hourlySavings) {
-    // Try to use enhanced savings calculation if optimizer is available
-    if (optimizer && typeof optimizer.calculateEnhancedDailySavings === 'function') {
-      try {
-        // Convert historical data to the format expected by the enhanced calculator
-        const optimizationData = [];
-
-        if (historicalData && historicalData.optimizations && historicalData.optimizations.length > 0) {
-          // Get today's date at midnight for filtering
-          const todayMidnight = new Date();
-          todayMidnight.setHours(0, 0, 0, 0);
-          const currentHour = new Date().getHours();
-
-          // Filter optimizations from today only (before current hour)
-          const todayOptimizations = historicalData.optimizations.filter(opt => {
-            const optDate = new Date(opt.timestamp);
-            return optDate >= todayMidnight && optDate.getHours() < currentHour;
-          });
-
-          // Convert to OptimizationData format
-          todayOptimizations.forEach(opt => {
-            optimizationData.push({
-              timestamp: opt.timestamp,
-              savings: opt.savings || 0,
-              targetTemp: opt.targetTemp || 20,
-              targetOriginal: opt.targetOriginal || 20,
-              priceNow: opt.priceNow || 0,
-              priceAvg: opt.priceAvg || 0,
-              indoorTemp: opt.indoorTemp,
-              outdoorTemp: opt.outdoorTemp,
-              cop: opt.cop
-            });
-          });
-        }
-
-        // Calculate enhanced daily savings
-        const result = optimizer.calculateEnhancedDailySavings(hourlySavings, optimizationData);
-
-        // Log the enhanced calculation details for debugging
-        if (homey && homey.app) {
-          homey.app.log(`Enhanced daily savings calculation: ${result.dailySavings.toFixed(4)} (method: ${result.method}, confidence: ${result.confidence.toFixed(2)})`);
-          homey.app.log(`Breakdown - Actual: ${result.breakdown.actualSavings.toFixed(4)}, Current: ${result.breakdown.currentHourSavings.toFixed(4)}, Projected: ${result.breakdown.projectedAmount.toFixed(4)}`);
-        }
-
-        return result.dailySavings;
-      } catch (error) {
-        if (homey && homey.app) {
-          homey.app.error('Error in enhanced daily savings calculation, falling back to simple method:', error);
-        }
-        // Fall through to simple calculation
-      }
-    }
-
-    // Fallback to original calculation method
+  async calculateDailySavings(hourlySavings) {
     // Get the current hour of the day (0-23)
     const currentDate = new Date();
     const currentHour = currentDate.getHours();
@@ -3178,7 +3135,25 @@ class Optimizer {
         // Project forward for remaining hours
         const remainingHours = 24 - (todayOptimizations.length + 1); // +1 for current hour
         if (remainingHours > 0) {
-          totalSavings += hourlySavings * remainingHours;
+          // Use Tibber prices to weight each future hour by its relative price vs current
+          try {
+            const gridFee = Number((homey && homey.settings && homey.settings.get('grid_fee_per_kwh')) || 0) || 0;
+          const pd = await tibber.getPrices();
+            const now = new Date();
+            const currentEffective = (Number(pd.current?.price) || 0) + gridFee;
+            if (currentEffective > 0 && Array.isArray(pd.prices)) {
+              const upcoming = pd.prices.filter(p => new Date(p.time) > now).slice(0, remainingHours);
+              const sumFactors = upcoming.reduce((s, p) => {
+                const eff = (Number(p.price) || 0) + gridFee;
+                return s + (currentEffective > 0 ? eff / currentEffective : 1);
+              }, 0);
+              totalSavings += hourlySavings * sumFactors;
+            } else {
+              totalSavings += hourlySavings * remainingHours;
+            }
+          } catch (_) {
+            totalSavings += hourlySavings * remainingHours;
+          }
         }
 
         return totalSavings;
@@ -3186,7 +3161,22 @@ class Optimizer {
     }
 
     // Fallback: If no historical data available or no optimizations from today,
-    // project current hour's savings to a full day
+    // project current hour's savings using Tibber price weighting for the next 23 hours
+    try {
+      const gridFee = Number((homey && homey.settings && homey.settings.get('grid_fee_per_kwh')) || 0) || 0;
+            const pd = await tibber.getPrices();
+      const now = new Date();
+      const currentEffective = (Number(pd.current?.price) || 0) + gridFee;
+      if (currentEffective > 0 && Array.isArray(pd.prices)) {
+        const upcoming = pd.prices.filter(p => new Date(p.time) > now).slice(0, 23);
+        const sumFactors = upcoming.reduce((s, p) => {
+          const eff = (Number(p.price) || 0) + gridFee;
+          return s + (currentEffective > 0 ? eff / currentEffective : 1);
+        }, 0);
+        // include current hour as 1x
+        return hourlySavings * (1 + sumFactors);
+      }
+    } catch (_) {}
     return hourlySavings * 24;
   }
 
@@ -4326,6 +4316,87 @@ module.exports = {
   updateOptimizerSettings,
   
   /**
+   * Dump savings-related in-memory state and settings for debugging.
+   * Logs a pretty-printed snapshot to the terminal and returns a compact JSON.
+   */
+  async getSavingsDebugState({ homey }) {
+    try {
+      const settingsSnapshot = {
+        grid_fee_per_kwh: homey.settings.get('grid_fee_per_kwh') || 0,
+        baseline_hourly_consumption_kwh: homey.settings.get('baseline_hourly_consumption_kwh') || 0,
+        currency: homey.settings.get('currency') || homey.settings.get('currency_code') || '',
+        time_zone_offset: homey.settings.get('time_zone_offset'),
+        use_dst: homey.settings.get('use_dst'),
+        log_level: homey.settings.get('log_level')
+      };
+
+      const hist = homey.settings.get('savings_history') || [];
+      const histLen = Array.isArray(hist) ? hist.length : 0;
+      const histHead = Array.isArray(hist) ? hist.slice(0, 3) : [];
+      const histTail = Array.isArray(hist) ? hist.slice(-3) : [];
+
+      // Optimization history from API memory (use module-scope variable, not global)
+      const optData = (typeof historicalData !== 'undefined' && historicalData)
+        ? historicalData
+        : { optimizations: [], lastCalibration: null };
+      const optLen = Array.isArray(optData.optimizations) ? optData.optimizations.length : 0;
+      const optHead = Array.isArray(optData.optimizations) ? optData.optimizations.slice(0, 3) : [];
+      const optTail = Array.isArray(optData.optimizations) ? optData.optimizations.slice(-3) : [];
+
+      // Current Tibber prices and effective price factors for projection
+      let priceSnapshot = null;
+      let factors = [];
+      try {
+        const gridFee = Number(settingsSnapshot.grid_fee_per_kwh) || 0;
+      const pd = await tibber.getPrices();
+        const now = new Date();
+        const currEff = (Number(pd.current?.price) || 0) + gridFee;
+        const up = Array.isArray(pd.prices) ? pd.prices.filter(p => new Date(p.time) > now).slice(0, 24) : [];
+        factors = currEff > 0 ? up.map(p => (((Number(p.price) || 0) + gridFee) / currEff)) : [];
+        priceSnapshot = {
+          current: pd.current,
+          upcomingCount: up.length,
+          currentEffective: currEff,
+          firstUpcoming: up[0] || null,
+          lastUpcoming: up[up.length - 1] || null
+        };
+      } catch (e) {
+        priceSnapshot = { error: e && e.message ? e.message : String(e) };
+      }
+
+      // Try a quick projection using the current optimizer hourlySavings=last opt.savings
+      let quickProjection = null;
+      try {
+        const lastOpt = optTail && optTail.length > 0 ? optTail[optTail.length - 1] : null;
+        const s = lastOpt && typeof lastOpt.savings === 'number' ? lastOpt.savings : 0;
+        if (s && typeof optimizer?.calculateDailySavings === 'function') {
+          quickProjection = await optimizer.calculateDailySavings(s);
+        }
+      } catch (_) {}
+
+      const dump = {
+        timestamp: new Date().toISOString(),
+        settings: settingsSnapshot,
+        savings_history: { length: histLen, head: histHead, tail: histTail },
+        optimizations_memory: { length: optLen, head: optHead, tail: optTail },
+        tibber: priceSnapshot,
+        priceFactorsCount: factors.length,
+        sampleProjectionFromLastHour: quickProjection
+      };
+
+      // Pretty print to terminal using our helper (respects log level)
+      const loggerProxy = { homey };
+      const pretty = prettyPrintJson(dump, 'SavingsDebugState', loggerProxy, 1);
+      homey.app.log(pretty);
+
+      return { success: true, dump };
+    } catch (err) {
+      homey.app.error('Error in getSavingsDebugState:', err);
+      return { success: false, error: err && err.message ? err.message : String(err) };
+    }
+  },
+  
+  /**
    * Return a savings summary using persisted savings history in Homey settings.
    * Computes today, last 7 days (incl. today), and last 30 days (rolling).
    */
@@ -4391,19 +4462,39 @@ module.exports = {
       // Month-to-date: first day of current month
       const startOfMonth = new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
 
+      // Helper for currency decimals
+      const defaultDecimalsForCurrency = (code) => {
+        const m = { JPY: 0, KWD: 3 };
+        return m[String(code || '').toUpperCase()] ?? 2;
+      };
+      // Convert an entry to major units, supporting legacy and new formats
+      const getEntryTotalMajor = (h) => {
+        if (!h) return 0;
+        if (h.total !== undefined) {
+          const v = Number(h.total);
+          return Number.isFinite(v) ? v : 0;
+        }
+        if (h.totalMinor !== undefined) {
+          const v = Number(h.totalMinor);
+          const decimals = Number.isFinite(Number(h.decimals)) ? Number(h.decimals) : defaultDecimalsForCurrency(h.currency);
+          return Number.isFinite(v) ? v / Math.pow(10, decimals) : 0;
+        }
+        return 0;
+      };
+
       const sumInWindow = (cutoff) => normalized
         .filter(h => {
           const d = new Date(`${h.date}T00:00:00`);
           return d >= cutoff && d <= todayDate;
         })
-        .reduce((sum, h) => sum + (Number(h.total) || 0), 0);
+        .reduce((sum, h) => sum + getEntryTotalMajor(h), 0);
 
       const todayEntry = normalized.find(h => h.date === todayStr);
-      const today = Number((todayEntry?.total || 0).toFixed(4));
+      const today = Number(getEntryTotalMajor(todayEntry).toFixed(4));
       // Yesterday
       const yDate = new Date(todayDate); yDate.setDate(todayDate.getDate() - 1);
       const yStr = `${yDate.getFullYear()}-${String(yDate.getMonth() + 1).padStart(2, '0')}-${String(yDate.getDate()).padStart(2, '0')}`;
-      const yesterday = Number(((normalized.find(h => h.date === yStr)?.total) || 0).toFixed(4));
+      const yesterday = Number(getEntryTotalMajor(normalized.find(h => h.date === yStr)).toFixed(4));
       const last7Days = Number(sumInWindow(last7Cutoff).toFixed(4));
       const last30Days = Number(sumInWindow(last30Cutoff).toFixed(4));
       const weekToDate = Number(sumInWindow(startOfWeek).toFixed(4));
@@ -4418,7 +4509,7 @@ module.exports = {
         if (earliest) {
           const earliestDate = new Date(`${earliest}T00:00:00`);
           if (earliestDate < last30Cutoff) {
-            const at = normalized.reduce((sum, h) => sum + (Number(h.total) || 0), 0);
+            const at = normalized.reduce((sum, h) => sum + getEntryTotalMajor(h), 0);
             allTime = Number(at.toFixed(4));
           }
         }
@@ -4431,7 +4522,7 @@ module.exports = {
         d.setDate(last30Cutoff.getDate() + i);
         const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         const entry = normalized.find(h => h.date === ds);
-        seriesLast30.push({ date: ds, total: Number(entry?.total || 0) });
+        seriesLast30.push({ date: ds, total: Number(getEntryTotalMajor(entry) || 0) });
       }
 
       const currencyCode = homey.settings.get('currency') || homey.settings.get('currency_code') || '';
@@ -4792,10 +4883,18 @@ module.exports = {
             const hourlySavings = Number(result.savings || 0);
             let projectedDailySavings = hourlySavings * 24;
             if (optimizer && typeof optimizer.calculateDailySavings === 'function') {
-              projectedDailySavings = optimizer.calculateDailySavings(hourlySavings);
+              try {
+                const val = await optimizer.calculateDailySavings(hourlySavings);
+                if (Number.isFinite(val)) projectedDailySavings = val;
+              } catch (_) {}
             }
             additionalData.dailySavings = projectedDailySavings;
-            homey.app.log(`Hourly optimization projected daily savings: ${projectedDailySavings.toFixed(2)} NOK/day`);
+            try {
+              const currencyCode = homey.settings.get('currency') || homey.settings.get('currency_code') || 'NOK';
+              homey.app.log(`Hourly optimization projected daily savings: ${projectedDailySavings.toFixed(2)} ${currencyCode}/day`);
+            } catch (_) {
+              homey.app.log(`Hourly optimization projected daily savings: ${projectedDailySavings.toFixed(2)} /day`);
+            }
           } catch (calcErr) {
             homey.app.error('Error calculating projected daily savings (timeline):', calcErr);
           }
@@ -4863,16 +4962,37 @@ module.exports = {
             const hist = homey.settings.get('savings_history') || [];
             const arr = Array.isArray(hist) ? hist.slice() : [];
             let todayEntry = arr.find(h => h && h.date === todayStr);
+
+            // Determine currency/decimals for minor units
+            const currencyCode = homey.settings.get('currency_code') || homey.settings.get('currency') || '';
+            const decimalsMap = { JPY: 0, KWD: 3 };
+            const decimals = (decimalsMap[String(currencyCode).toUpperCase()] ?? 2);
+            const toMinor = (amt) => Math.round((Number(amt) || 0) * Math.pow(10, decimals));
+
             if (!todayEntry) {
-              todayEntry = { date: todayStr, total: 0 };
+              // Create entry in minor-units format
+              todayEntry = { date: todayStr, totalMinor: 0, currency: currencyCode, decimals };
               arr.push(todayEntry);
             }
-            todayEntry.total = Number((Number(todayEntry.total || 0) + computedSavings).toFixed(4));
+
+            // If entry already using minor units, keep using that; otherwise fall back to legacy 'total'
+            if (todayEntry.totalMinor !== undefined) {
+              todayEntry.currency = todayEntry.currency || currencyCode;
+              if (todayEntry.decimals === undefined) todayEntry.decimals = decimals;
+              todayEntry.totalMinor = Number(todayEntry.totalMinor || 0) + toMinor(computedSavings);
+            } else {
+              todayEntry.total = Number((Number(todayEntry.total || 0) + computedSavings).toFixed(4));
+            }
             // Keep last 30 days only
             arr.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
             const trimmed = arr.slice(Math.max(0, arr.length - 30));
             homey.settings.set('savings_history', trimmed);
-            homey.app.log(`Updated savings_history: +${computedSavings.toFixed(4)} -> today ${todayEntry.total.toFixed(4)} (${todayStr}), size=${trimmed.length}`);
+            try {
+              const todayMajor = todayEntry.totalMinor !== undefined
+                ? (todayEntry.totalMinor / Math.pow(10, todayEntry.decimals ?? decimals)).toFixed(4)
+                : Number(todayEntry.total || 0).toFixed(4);
+              homey.app.log(`Updated savings_history: +${computedSavings.toFixed(4)} -> today ${todayMajor} (${todayStr}), size=${trimmed.length}`);
+            } catch (_) {}
           } else {
             homey.app.log('No numeric savings value to persist for this optimization run.');
           }

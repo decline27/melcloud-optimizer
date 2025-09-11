@@ -57,7 +57,8 @@ export class EnhancedSavingsCalculator {
   calculateEnhancedDailySavings(
     currentHourSavings: number,
     historicalOptimizations: OptimizationData[] = [],
-    currentHour: number = new Date().getHours()
+    currentHour: number = new Date().getHours(),
+    futurePriceFactors?: number[] // optional multipliers for each remaining hour vs current price
   ): SavingsCalculationResult {
     try {
       // Filter optimizations from today only
@@ -85,7 +86,8 @@ export class EnhancedSavingsCalculator {
         currentHourSavings,
         todayOptimizations,
         remainingHours,
-        currentHour
+        currentHour,
+        futurePriceFactors
       );
 
       // Calculate total daily savings
@@ -95,7 +97,7 @@ export class EnhancedSavingsCalculator {
       const confidence = this.calculateConfidence(todayOptimizations, currentHour);
 
       // Determine calculation method used
-      const method = this.getCalculationMethod(todayOptimizations, currentHour);
+      const method = this.getCalculationMethod(todayOptimizations, currentHour, futurePriceFactors);
 
       const result: SavingsCalculationResult = {
         dailySavings: totalDailySavings,
@@ -220,9 +222,13 @@ export class EnhancedSavingsCalculator {
     currentHourSavings: number,
     todayOptimizations: OptimizationData[],
     remainingHours: number,
-    currentHour: number
+    currentHour: number,
+    futurePriceFactors?: number[]
   ): number {
     if (remainingHours <= 0) return 0;
+
+    // If explicit price multipliers are provided, use them for a price-aware projection
+    const usePriceFactors = Array.isArray(futurePriceFactors) && futurePriceFactors.length > 0;
 
     // Use weighted average of today's optimizations if available
     if (todayOptimizations.length >= 2) {
@@ -232,15 +238,27 @@ export class EnhancedSavingsCalculator {
       // Weight recent savings more heavily than current hour
       const weightedSavings = (avgRecentSavings * 0.7) + (currentHourSavings * 0.3);
       
-      // Apply time-of-day factor (evening hours typically have higher prices)
-      const timeOfDayFactor = this.getTimeOfDayFactor(currentHour, remainingHours);
-      
-      return weightedSavings * remainingHours * timeOfDayFactor;
+      if (usePriceFactors) {
+        // Sum factors for the remaining hours (pad/truncate as needed)
+        const factors = futurePriceFactors!.slice(0, remainingHours);
+        const sumFactors = factors.reduce((s, f) => s + (Number.isFinite(f) ? f : 1), 0);
+        return weightedSavings * sumFactors;
+      } else {
+        // Apply time-of-day factor (evening hours typically have higher prices)
+        const timeOfDayFactor = this.getTimeOfDayFactor(currentHour, remainingHours);
+        return weightedSavings * remainingHours * timeOfDayFactor;
+      }
     }
 
     // Fallback to current hour savings with time-of-day adjustment
-    const timeOfDayFactor = this.getTimeOfDayFactor(currentHour, remainingHours);
-    return currentHourSavings * remainingHours * timeOfDayFactor;
+    if (usePriceFactors) {
+      const factors = futurePriceFactors!.slice(0, remainingHours);
+      const sumFactors = factors.reduce((s, f) => s + (Number.isFinite(f) ? f : 1), 0);
+      return currentHourSavings * sumFactors;
+    } else {
+      const timeOfDayFactor = this.getTimeOfDayFactor(currentHour, remainingHours);
+      return currentHourSavings * remainingHours * timeOfDayFactor;
+    }
   }
 
   /**
@@ -307,7 +325,11 @@ export class EnhancedSavingsCalculator {
   /**
    * Determine which calculation method was used
    */
-  private getCalculationMethod(todayOptimizations: OptimizationData[], currentHour: number): string {
+  private getCalculationMethod(todayOptimizations: OptimizationData[], currentHour: number, futurePriceFactors?: number[]): string {
+    const priceAware = Array.isArray(futurePriceFactors) && futurePriceFactors.length > 0;
+    if (priceAware) {
+      return 'price_aware_projection';
+    }
     if (todayOptimizations.length === 0) {
       return 'simple_projection';
     } else if (todayOptimizations.length >= 3) {

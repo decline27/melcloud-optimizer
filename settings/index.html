@@ -28,6 +28,30 @@
       .homey-button-warning:hover {
         background-color: #e09612;
       }
+
+      /* Accessible accordion styling */
+      details.homey-form-fieldset {
+        border: 1px solid #eee;
+        border-radius: 6px;
+        padding: 0;
+        margin: 10px 0 14px;
+        background: #fff;
+      }
+      details.homey-form-fieldset > summary.homey-form-legend {
+        list-style: none;
+        cursor: pointer;
+        padding: 10px 12px;
+        font-weight: 600;
+        outline: none;
+      }
+      details.homey-form-fieldset[open] > summary.homey-form-legend {
+        border-bottom: 1px solid #eee;
+      }
+      details.homey-form-fieldset .homey-form-group,
+      details.homey-form-fieldset .homey-form-row {
+        padding: 8px 12px;
+      }
+      .homey-form-error { color: #b00; margin-top: 4px; }
     </style>
   </head>
   <body>
@@ -36,20 +60,22 @@
       <p class="homey-subtitle">Configure your credentials and temperature settings</p>
     </header>
 
-    <fieldset class="homey-form-fieldset">
-      <legend class="homey-form-legend">MELCloud Credentials</legend>
+    <details class="homey-form-fieldset" open>
+      <summary class="homey-form-legend">Quick Start: MELCloud & Device</summary>
       <div class="homey-form-group">
         <label class="homey-form-label" for="melcloud_user">Email</label>
-        <input class="homey-form-input" id="melcloud_user" type="text" value="" />
+        <input class="homey-form-input" id="melcloud_user" type="email" autocomplete="username" aria-describedby="melcloud_user_help" value="" />
+        <p id="melcloud_user_help" class="homey-form-helper">Use your MELCloud account email.</p>
       </div>
       <div class="homey-form-group">
         <label class="homey-form-label" for="melcloud_pass">Password</label>
-        <input class="homey-form-input" id="melcloud_pass" type="password" value="" />
+        <input class="homey-form-input" id="melcloud_pass" type="password" autocomplete="current-password" aria-describedby="melcloud_pass_help" value="" />
+        <p id="melcloud_pass_help" class="homey-form-helper">Stored securely by Homey.</p>
       </div>
 
       <div class="homey-form-group">
         <button id="refresh_devices" class="homey-button-primary">Refresh Device List</button>
-        <span id="device_refresh_status"></span>
+        <span id="device_refresh_status" role="status" aria-live="polite"></span>
       </div>
 
       <div class="homey-form-group">
@@ -57,7 +83,7 @@
         <select class="homey-form-input" id="building_id">
           <option value="">Select a building</option>
         </select>
-        <p class="homey-form-helper">Select your building from the dropdown or enter ID manually below</p>
+        <p class="homey-form-helper">Select your building from the dropdown or use Advanced to enter IDs manually.</p>
       </div>
 
       <div class="homey-form-group">
@@ -65,15 +91,18 @@
         <select class="homey-form-input" id="device_id">
           <option value="">Select a device</option>
         </select>
-        <p class="homey-form-helper">Select your device from the dropdown or enter ID manually below</p>
+        <p class="homey-form-helper">Capabilities appear after selection; use Advanced for manual IDs.</p>
       </div>
 
       <div class="homey-form-group">
-        <label class="homey-form-checkbox">
-          <input type="checkbox" id="show_manual_entry" />
-          <span>Show manual ID entry fields</span>
-        </label>
-        <p class="homey-form-helper">Note: This option only affects this page and is not saved.</p>
+        <details>
+          <summary class="homey-form-label">Advanced: Manual ID entry</summary>
+          <label class="homey-form-checkbox">
+            <input type="checkbox" id="show_manual_entry" />
+            <span>Show manual ID entry fields</span>
+          </label>
+          <p class="homey-form-helper">This option only affects this page and is not saved.</p>
+        </details>
       </div>
 
       <div id="manual_id_entry" style="display: none;">
@@ -88,21 +117,21 @@
           <p class="homey-form-helper">The ID of the building (not stored; used only when saving)</p>
         </div>
       </div>
-    </fieldset>
+    </details>
 
-    <fieldset class="homey-form-fieldset">
-      <legend class="homey-form-legend">Tibber API</legend>
+    <details class="homey-form-fieldset">
+      <summary class="homey-form-legend">Connection: Tibber API</summary>
       <div class="homey-form-group">
         <label class="homey-form-label" for="tibber_token">API Token</label>
         <input class="homey-form-input" id="tibber_token" type="password" value="" />
         <p class="homey-form-helper">Get your token from <a href="https://developer.tibber.com/" target="_blank">https://developer.tibber.com/</a></p>
       </div>
-    </fieldset>
+    </details>
 
 
 
-    <fieldset class="homey-form-fieldset">
-      <legend class="homey-form-legend">Heating Temperature Settings</legend>
+    <details class="homey-form-fieldset">
+      <summary class="homey-form-legend">Advanced: Classic Targets (Legacy)</summary>
       <div class="homey-form-group">
         <label class="homey-form-label" for="min_temp">Minimum Temperature (°C)</label>
         <input class="homey-form-input" id="min_temp" type="number" min="16" max="22" step="0.5" value="18" />
@@ -113,10 +142,10 @@
         <input class="homey-form-input" id="max_temp" type="number" min="20" max="26" step="0.5" value="24" />
         <p class="homey-form-helper">The maximum temperature that will be set during optimization. Suggested default: 22°C - comfortable temperature during low-price periods without excessive energy use.</p>
       </div>
-    </fieldset>
+    </details>
 
-    <fieldset class="homey-form-fieldset" id="zone2_fieldset">
-      <legend class="homey-form-legend">Zone 2 Temperature Settings</legend>
+    <details class="homey-form-fieldset" id="zone2_fieldset">
+      <summary class="homey-form-legend">Device: Zone 2 Temperature</summary>
       <div class="homey-form-group">
         <label class="homey-form-label" for="enable_zone2">Enable Zone 2 Control</label>
         <label class="homey-form-checkbox">
@@ -141,11 +170,11 @@
           <p class="homey-form-helper">Controls how much the Zone 2 temperature can change in one step.</p>
         </div>
       </div>
-    </fieldset>
+    </details>
 
     <!-- Optimization Engine Settings -->
-    <fieldset class="homey-form-fieldset" id="engine_fieldset">
-      <legend class="homey-form-legend">Optimization Engine</legend>
+    <details class="homey-form-fieldset" id="engine_fieldset" open>
+      <summary class="homey-form-legend">Comfort & Engine</summary>
 
       <div class="homey-form-group">
         <div style="background:#f7fbff;border:1px solid #dbe9ff;border-radius:6px;padding:10px;">
@@ -257,10 +286,10 @@
         </div>
         <p class="homey-form-helper">Note: Some devices set to Flow/Curve modes may ignore room target changes. The Engine still optimizes within your comfort band, but the unit may apply targets via heating curve.</p>
       </div>
-    </fieldset>
+    </details>
 
-    <fieldset class="homey-form-fieldset" id="tank_fieldset">
-      <legend class="homey-form-legend">Hot Water Tank Settings</legend>
+    <details class="homey-form-fieldset" id="tank_fieldset">
+      <summary class="homey-form-legend">Hot Water Tank</summary>
       <div class="homey-form-group">
         <label class="homey-form-label" for="enable_tank_control">Enable Hot Water Tank Control</label>
         <label class="homey-form-checkbox">
@@ -286,10 +315,10 @@
         <input class="homey-form-input" id="tank_temp_step" type="number" min="0.5" max="5.0" step="0.5" value="1.0" />
         <p class="homey-form-helper">Maximum change in tank temperature per optimization cycle. Suggested default: 2°C - allows for meaningful temperature adjustments without causing excessive cycling of the heat pump.</p>
       </div>
-    </fieldset>
+    </details>
 
-    <fieldset class="homey-form-fieldset">
-      <legend class="homey-form-legend">Hot Water Usage Patterns</legend>
+    <details class="homey-form-fieldset">
+      <summary class="homey-form-legend">Hot Water Usage Patterns</summary>
       <div class="button-container">
         <button id="reset_patterns" class="homey-button" onclick="resetHotWaterPatterns()">Reset Usage Patterns</button>
         <button id="clear_keep_patterns" class="homey-button-warning" onclick="clearHotWaterData(true)">Clear Data (Keep Patterns)</button>
@@ -297,10 +326,10 @@
       </div>
       <p class="homey-form-helper">Reset Usage Patterns: Resets learned patterns to default values.<br>Clear Data (Keep Patterns): Removes detailed data points but keeps aggregated usage patterns.<br>Clear All Data: Removes all collected usage data and resets patterns.</p>
       <p id="hot_water_action_result" class="result-message"></p>
-    </fieldset>
+    </details>
 
-    <fieldset class="homey-form-fieldset">
-      <legend class="homey-form-legend">Notifications</legend>
+    <details class="homey-form-fieldset">
+      <summary class="homey-form-legend">Notifications</summary>
       <div class="homey-form-group">
         <label class="homey-form-label" for="notify_on_success">Notify On Success</label>
         <label class="homey-form-checkbox">
@@ -309,19 +338,33 @@
         </label>
         <p class="homey-form-helper">When enabled, you will receive a Homey notification for successful hourly optimization and weekly calibration.</p>
       </div>
-    </fieldset>
+    </details>
 
-    <fieldset class="homey-form-fieldset">
-      <legend class="homey-form-legend">Localization</legend>
+    <details class="homey-form-fieldset">
+      <summary class="homey-form-legend">Localization</summary>
       <div class="homey-form-group">
         <label class="homey-form-label" for="currency_code">Currency (ISO 4217)</label>
         <input class="homey-form-input" id="currency_code" type="text" placeholder="e.g., NOK, SEK, EUR" />
         <p class="homey-form-helper">Optional. Overrides automatic currency detection for timeline messages. Use a 3-letter code (e.g., NOK, SEK, EUR, DKK, USD).</p>
       </div>
-    </fieldset>
+    </details>
 
-    <fieldset class="homey-form-fieldset">
-      <legend class="homey-form-legend">Weather Integration</legend>
+    <details class="homey-form-fieldset">
+      <summary class="homey-form-legend">Costs & Consumption</summary>
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="grid_fee_per_kwh">Grid Fee (per kWh)</label>
+        <input class="homey-form-input" id="grid_fee_per_kwh" type="number" min="0" step="0.01" placeholder="e.g., 1.04" />
+        <p class="homey-form-helper">Optional. Adds your local grid fee to the electricity price when calculating savings. Example: 1.04 SEK/kWh.</p>
+      </div>
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="baseline_hourly_consumption">Baseline Hourly Consumption (kWh/h)</label>
+        <input class="homey-form-input" id="baseline_hourly_consumption" type="number" min="0" step="0.1" placeholder="e.g., 1.5" />
+        <p class="homey-form-helper">Optional. Override for average hourly electricity use of heating/hot water. If not set, the app uses measured data when available, otherwise a 1.0 kWh/h default.</p>
+      </div>
+    </details>
+
+    <details class="homey-form-fieldset">
+      <summary class="homey-form-legend">Weather & Location</summary>
       <div class="homey-form-group">
         <label class="homey-form-label" for="use_weather_data">Use Weather Data</label>
         <label class="homey-form-checkbox">
@@ -349,10 +392,10 @@
         <p class="homey-form-helper">You can find your coordinates using <a href="https://www.latlong.net/" target="_blank">LatLong.net</a> or similar services</p>
         <p id="weather_location_warning" class="homey-form-helper" style="display:none;color:#b00;">Weather is enabled but coordinates are missing. Set latitude and longitude for accurate weather optimization.</p>
       </div>
-    </fieldset>
+    </details>
 
-    <fieldset class="homey-form-fieldset">
-      <legend class="homey-form-legend">Comfort Profiles</legend>
+    <details class="homey-form-fieldset">
+      <summary class="homey-form-legend">Schedule & Time</summary>
       <div class="homey-form-group">
         <label class="homey-form-label">Day Profile (Higher Comfort)</label>
         <div class="homey-form-row">
@@ -432,10 +475,10 @@
           </div>
         </div>
       </div>
-    </fieldset>
+    </details>
 
-    <fieldset class="homey-form-fieldset">
-      <legend class="homey-form-legend">COP Optimization Settings</legend>
+    <details class="homey-form-fieldset">
+      <summary class="homey-form-legend">COP Optimization</summary>
       <div class="homey-form-group">
         <label class="homey-form-label" for="cop_weight">COP Weight Factor</label>
         <input class="homey-form-input" id="cop_weight" type="number" min="0.0" max="1.0" step="0.05" value="0.3" />
@@ -456,10 +499,10 @@
         </label>
         <p class="homey-form-helper">When enabled, prioritizes hot water heating over space heating. Only used when Auto Seasonal Mode is disabled. Suggested setting: Enabled during summer months when you primarily use the heat pump for hot water rather than heating.</p>
       </div>
-    </fieldset>
+    </details>
 
-    <fieldset class="homey-form-fieldset">
-      <legend class="homey-form-legend">Advanced Settings</legend>
+    <details class="homey-form-fieldset">
+      <summary class="homey-form-legend">Advanced</summary>
       <div class="homey-form-group">
         <label class="homey-form-label" for="log_level">Log Level</label>
         <select class="homey-form-input" id="log_level">
@@ -470,10 +513,10 @@
         </select>
         <p class="homey-form-helper">Controls the amount of information logged. Debug provides the most detailed logs.</p>
       </div>
-    </fieldset>
+    </details>
 
-    <fieldset class="homey-form-fieldset">
-      <legend class="homey-form-legend">Manual Triggers</legend>
+    <details class="homey-form-fieldset">
+      <summary class="homey-form-legend">Tools: Manual Triggers</summary>
       <div class="homey-form-group">
         <p class="homey-form-helper">Use these buttons to manually trigger operations.</p>
         <div class="button-container">
@@ -484,10 +527,10 @@
         </div>
         <p id="trigger_result" class="result-message"></p>
       </div>
-    </fieldset>
+    </details>
 
-    <fieldset class="homey-form-fieldset">
-      <legend class="homey-form-legend">Memory Management</legend>
+    <details class="homey-form-fieldset">
+      <summary class="homey-form-legend">Tools: Memory Management</summary>
       <div class="homey-form-group">
         <p class="homey-form-helper">Monitor and manage memory usage of the thermal model data collector.</p>
         <div class="button-container">
@@ -500,15 +543,16 @@
         </div>
         <p id="memory_result" class="result-message"></p>
       </div>
-    </fieldset>
+    </details>
 
-    <fieldset class="homey-form-fieldset">
-      <legend class="homey-form-legend">Savings Summary</legend>
+    <details class="homey-form-fieldset">
+      <summary class="homey-form-legend">Tools: Savings Summary</summary>
       <div class="homey-form-group">
         <p class="homey-form-helper">Get a quick view of your savings for today, last 7 days, and last 30 days.</p>
         <div class="button-container">
           <button id="view_savings_summary" class="homey-button" onclick="viewSavingsSummary()">View Savings Summary</button>
           <button id="copy_savings_summary" class="homey-button" onclick="copySavingsSummary()" disabled>Copy Summary</button>
+          <button id="dump_savings_debug" class="homey-button" onclick="dumpSavingsDebug()">Dump Savings Debug</button>
         </div>
         <div id="savings_summary_panel" style="margin-top: 15px; display: none;">
           <h3>Savings</h3>
@@ -524,9 +568,10 @@
         </div>
         <p id="savings_summary_result" class="result-message"></p>
       </div>
-    </fieldset>
+    </details>
 
     <button id="save" class="homey-button-primary-full">Save changes</button>
+    <p id="save_status" class="result-message" aria-live="polite"></p>
 
     <script type="text/javascript">
       // Global Homey object
@@ -677,11 +722,30 @@
           lines.push(`All-time total: ${fmt(summary.allTime)}`);
         }
 
+        // First render basic lines
         content.textContent = lines.join('\n');
         panel.style.display = 'block';
         resultEl.textContent = 'Savings summary ready!';
         document.getElementById('copy_savings_summary').disabled = false;
         button.disabled = false;
+
+        // Append a hint with applied cost parameters (grid fee, baseline) once loaded
+        try {
+          const load = (key) => new Promise((res) => Homey.get(key, (_e, v) => res(v)));
+          Promise.all([
+            load('grid_fee_per_kwh'),
+            load('baseline_hourly_consumption_kwh')
+          ]).then(([gridFee, baseline]) => {
+            const gf = Number(gridFee || 0);
+            const base = Number(baseline || 0);
+            const gfTxt = (() => {
+              try { return formatter.format(gf) + '/kWh'; } catch { return (gf.toFixed(2)) + '/kWh'; }
+            })();
+            const baseTxt = base > 0 ? `${base.toFixed(2)} kWh/h` : 'auto';
+            const hint = `Applied cost parameters: Grid fee ${gfTxt}, Baseline hourly ${baseTxt}`;
+            content.textContent = lines.concat(['', hint]).join('\n');
+          }).catch(() => {/* ignore */});
+        } catch (e) { /* ignore */ }
 
         // Draw charts using returned or computed series
         try {
@@ -761,6 +825,33 @@
             });
           } catch (e) {
             reject(e);
+          }
+        });
+      }
+
+      // Dump savings-related in-memory state to terminal and show a short notice
+      function dumpSavingsDebug() {
+        const btn = document.getElementById('dump_savings_debug');
+        btn.disabled = true;
+        HomeyInstance.api('GET', '/getSavingsDebugState', {}, function(err, result) {
+          btn.disabled = false;
+          if (err || !result || result.success === false) {
+            const msg = (err && err.message) || (result && result.error) || 'Failed to dump savings debug state';
+            if ((msg || '').toLowerCase().includes('not found')) {
+              return HomeyInstance.alert('Endpoint not found. Please update/restart the app so app.json includes GET /getSavingsDebugState. Also verify the app id matches your build (com.melcloud.optimize).');
+            }
+            return HomeyInstance.alert(msg);
+          }
+          try {
+            // Show a compact confirmation with key counts
+            const d = result.dump || {};
+            const msg = `Debug dump written to app log.\n` +
+              `history=${(d.savings_history && d.savings_history.length) || 0}, ` +
+              `optimizations=${(d.optimizations_memory && d.optimizations_memory.length) || 0}, ` +
+              `upcomingPrices=${d.tibber && d.tibber.upcomingCount || 0}`;
+            HomeyInstance.alert(msg);
+          } catch (_) {
+            HomeyInstance.alert('Debug dump created. Check the app logs.');
           }
         });
       }
@@ -1129,6 +1220,10 @@
         const tankFieldset = document.getElementById("tank_fieldset");
         const tankCapabilityWarning = document.getElementById("tank_capability_warning");
 
+        // Costs & consumption elements
+        const gridFeeElement = document.getElementById("grid_fee_per_kwh");
+        const baselineHourlyConsumptionElement = document.getElementById("baseline_hourly_consumption");
+
         // Engine elements
         const useEngineElement = document.getElementById("use_engine");
         const deadbandElement = document.getElementById("deadband_c");
@@ -1202,6 +1297,14 @@
         Homey.get("tibber_token", function (err, value) {
           if (err) return Homey.alert(err);
           if (value) tibberTokenElement.value = value;
+        });
+
+        // Load costs & consumption settings
+        Homey.get("grid_fee_per_kwh", function (err, value) {
+          if (!err && value !== undefined && value !== null) gridFeeElement.value = value;
+        });
+        Homey.get("baseline_hourly_consumption_kwh", function (err, value) {
+          if (!err && value !== undefined && value !== null) baselineHourlyConsumptionElement.value = value;
         });
 
 
@@ -1594,6 +1697,10 @@
 
         // Save settings
         saveElement.addEventListener("click", function (e) {
+          const saveStatus = document.getElementById('save_status');
+          if (saveStatus) saveStatus.textContent = 'Saving...';
+          // Note: Save remains enabled; we validate progressively and only block
+          // when an entered value is outside allowed bounds (handled per-field below).
           // Save all settings
           Homey.set("melcloud_user", melcloudUserElement.value, function (err) {
             if (err) return Homey.alert(err);
@@ -1627,6 +1734,26 @@
           Homey.set("tibber_token", tibberTokenElement.value, function (err) {
             if (err) return Homey.alert(err);
           });
+
+          // Save costs & consumption
+          (function() {
+            const gf = parseFloat(gridFeeElement.value);
+            if (!isNaN(gf) && gf >= 0) {
+              Homey.set("grid_fee_per_kwh", gf, function (err) { if (err) return Homey.alert(err); });
+            } else if (gridFeeElement.value === "") {
+              Homey.set("grid_fee_per_kwh", 0, function (err) { if (err) return Homey.alert(err); });
+            } else {
+              return Homey.alert('Invalid grid fee. Must be a non-negative number.');
+            }
+            const base = parseFloat(baselineHourlyConsumptionElement.value);
+            if (!isNaN(base) && base >= 0) {
+              Homey.set("baseline_hourly_consumption_kwh", base, function (err) { if (err) return Homey.alert(err); });
+            } else if (baselineHourlyConsumptionElement.value === "") {
+              Homey.set("baseline_hourly_consumption_kwh", 0, function (err) { if (err) return Homey.alert(err); });
+            } else {
+              return Homey.alert('Invalid baseline hourly consumption. Must be a non-negative number.');
+            }
+          })();
 
 
 
@@ -1879,11 +2006,120 @@
           }
 
           // Show success message
+          if (saveStatus) saveStatus.textContent = 'Saved successfully';
           Homey.alert('Settings saved successfully!');
         });
 
         // Button event handlers are now defined as global functions and attached via onclick attributes
       }
+      
+      // After Homey has likely populated inputs, run validation once more
+      setTimeout(function(){
+        try {
+          var btn = document.getElementById('save');
+          // If available, try to validate and potentially enable Save
+          if (btn && typeof window !== 'undefined') {
+            var evt = document.createEvent ? document.createEvent('Event') : null;
+            if (evt && evt.initEvent) { evt.initEvent('input', true, true); document.dispatchEvent(evt); }
+            if (typeof validateAll === 'function') validateAll();
+          }
+        } catch (_) { /* ignore */ }
+      }, 300);
+
+      // Inline validation helpers and progressive disclosure helpers
+      (function attachValidation() {
+        function setError(input, msg) {
+          if (!input) return;
+          input.setAttribute('aria-invalid', 'true');
+          let err = input.nextElementSibling;
+          if (!err || !err.classList || !err.classList.contains('homey-form-error')) {
+            err = document.createElement('p');
+            err.className = 'homey-form-error';
+            input.insertAdjacentElement('afterend', err);
+          }
+          err.textContent = msg;
+        }
+        function clearError(input) {
+          if (!input) return;
+          input.removeAttribute('aria-invalid');
+          const err = input.nextElementSibling;
+          if (err && err.classList && err.classList.contains('homey-form-error')) err.remove();
+        }
+        function validateRange(lowerEl, upperEl, name) {
+          const loStr = lowerEl ? String(lowerEl.value || '') : '';
+          const hiStr = upperEl ? String(upperEl.value || '') : '';
+          const lo = parseFloat(loStr);
+          const hi = parseFloat(hiStr);
+
+          // If both empty (or not numbers), do not show error and treat as neutral OK
+          const loMissing = loStr === '' || isNaN(lo);
+          const hiMissing = hiStr === '' || isNaN(hi);
+          if (loMissing && hiMissing) {
+            clearError(lowerEl); clearError(upperEl); return true;
+          }
+
+          // If one is missing while the user is typing or values are still loading,
+          // do not show error yet, but block Save by returning false.
+          if (loMissing || hiMissing) {
+            clearError(lowerEl); clearError(upperEl); return false;
+          }
+
+          // Both numbers present — validate ordering
+          if (lo < hi) {
+            clearError(lowerEl); clearError(upperEl); return true;
+          }
+          if (upperEl) setError(upperEl, name + ': upper must be greater than lower');
+          return false;
+        }
+        function validateWeather(useEl, latEl, lonEl) {
+          if (!useEl || !latEl || !lonEl) return true;
+          if (!useEl.checked) { clearError(latEl); clearError(lonEl); return true; }
+          const ok = latEl.value !== '' && lonEl.value !== '';
+          if (!ok) setError(lonEl, 'Latitude and longitude required when weather is enabled');
+          else { clearError(latEl); clearError(lonEl); }
+          return ok;
+        }
+        function validateTank(minEl, maxEl, stepEl) {
+          let ok = true;
+          const min = parseFloat(minEl?.value);
+          const max = parseFloat(maxEl?.value);
+          const step = parseFloat(stepEl?.value);
+          if (!(min >= 30 && min <= 45)) { setError(minEl, '30–45°C'); ok = false; } else clearError(minEl);
+          if (!(max >= 40 && max <= 60)) { setError(maxEl, '40–60°C'); ok = false; } else clearError(maxEl);
+          if (!isNaN(min) && !isNaN(max) && !(min < max)) { setError(maxEl, 'Max must be > Min'); ok = false; }
+          if (!(step >= 0.5 && step <= 5.0)) { setError(stepEl, '0.5–5.0°C'); ok = false; } else clearError(stepEl);
+          return ok;
+        }
+        function validateAll() {
+          const ok1 = validateRange(
+            document.getElementById('comfort_lower_occupied'),
+            document.getElementById('comfort_upper_occupied'),
+            'Occupied band'
+          );
+          const ok2 = validateRange(
+            document.getElementById('comfort_lower_away'),
+            document.getElementById('comfort_upper_away'),
+            'Away band'
+          );
+          const ok3 = validateWeather(
+            document.getElementById('use_weather_data'),
+            document.getElementById('latitude'),
+            document.getElementById('longitude')
+          );
+          const ok4 = validateTank(
+            document.getElementById('min_tank_temp'),
+            document.getElementById('max_tank_temp'),
+            document.getElementById('tank_temp_step')
+          );
+          return ok1 && ok2 && ok3 && ok4;
+        }
+        ['comfort_lower_occupied','comfort_upper_occupied','comfort_lower_away','comfort_upper_away','use_weather_data','latitude','longitude','min_tank_temp','max_tank_temp','tank_temp_step']
+          .forEach(id => document.getElementById(id)?.addEventListener('input', validateAll));
+        // Run once now to enable Save if defaults are valid
+        try { validateAll(); } catch (_) {}
+        // Also run after DOMContentLoaded in case script loads early
+        document.addEventListener('DOMContentLoaded', function () { try { validateAll(); } catch (_) {} });
+      })();
       
       // Hot water usage pattern functions
       function resetHotWaterPatterns() {
