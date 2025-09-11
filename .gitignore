@@ -8,8 +8,8 @@ yarn-error.log*
 dist/
 build/
 .homeybuild/
-*.js
-*.js.map
+# Do not blanket-ignore all JS; keep source JS tracked (e.g., api.js, weather.js)
+# If needed, ignore only build artifacts under build dirs above.
 !jest.config.js
 
 # Environment and configuration
@@ -43,6 +43,9 @@ Thumbs.db
 # Logs
 logs/
 *.log
+
+# Simulation results
+results/
 
 # Runtime data
 pids/

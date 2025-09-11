@@ -21,7 +21,6 @@
   "include": [
     "src/**/*",
     "index.ts",
-    "api.ts",
     "drivers/**/*"
   ],
   "exclude": [
