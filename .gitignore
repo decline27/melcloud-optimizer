@@ -8,9 +8,7 @@ yarn-error.log*
 dist/
 build/
 .homeybuild/
-*.js
 *.js.map
-!jest.config.js
 
 # Environment and configuration
 env.json
