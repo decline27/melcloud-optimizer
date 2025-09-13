@@ -13,6 +13,7 @@ import {
   OptimizationResult,
   HomeyApp
 } from './types';
+import { OrchestratorMetrics } from './metrics';
 
 /**
  * MELCloud Heat Pump Optimizer App
@@ -78,6 +79,30 @@ export default class HeatOptimizerApp extends App {
   }
 
   /**
+   * Migrate legacy savings field to new metrics structure
+   */
+  private migrateLegacySavings(): void {
+    try {
+      const legacy = this.homey.settings.get('total_savings') ?? this.homey.settings.get('savings');
+      if (typeof legacy === 'number' && !Number.isNaN(legacy) && legacy > 0) {
+        const metrics: OrchestratorMetrics = this.homey.settings.get('orchestrator_metrics') || {
+          totalSavings: 0,
+          totalCostImpact: 0,
+        };
+        metrics.totalSavings = +(metrics.totalSavings + legacy).toFixed(2);
+        if (metrics.totalCostImpact == null) metrics.totalCostImpact = 0;
+        metrics.lastUpdateIso = new Date().toISOString();
+        this.homey.settings.set('orchestrator_metrics', metrics);
+        this.homey.settings.unset('total_savings');
+        this.homey.settings.unset('savings');
+        this.logger.info(`Migrated legacy savings=${legacy}`);
+      }
+    } catch (e) {
+      this.logger.error('Failed to migrate legacy savings', e as Error);
+    }
+  }
+
+  /**
    * Migrate legacy savings entry to new format with minor units
    */
   private migrateLegacyEntry(entry: any, currency: string, decimals: number): any {
@@ -99,6 +124,68 @@ export default class HeatOptimizerApp extends App {
 
     // Unknown format, return as-is
     return entry;
+  }
+
+  /**
+   * Update cost metrics using actual/baseline energy and price
+   */
+  private accountCost(
+    priceSekPerKWh: number,
+    kWhActual: number,
+    kWhBaseline: number,
+    priceTimestamp?: string
+  ): { todaySavings: number; costImpactToday: number } {
+    const now = new Date();
+
+    if (
+      priceSekPerKWh == null || Number.isNaN(priceSekPerKWh) || priceSekPerKWh <= 0 ||
+      kWhActual == null || Number.isNaN(kWhActual) || !Number.isFinite(kWhActual) ||
+      kWhBaseline == null || Number.isNaN(kWhBaseline) || !Number.isFinite(kWhBaseline)
+    ) {
+      this.logger.log('[Accounting] Skipped - invalid inputs');
+      return { todaySavings: 0, costImpactToday: 0 };
+    }
+
+    if (priceTimestamp) {
+      const ts = new Date(priceTimestamp);
+      if (isFinite(ts.getTime()) && now.getTime() - ts.getTime() > 65 * 60 * 1000) {
+        this.logger.log('[Accounting] Skipped - stale price/energy data');
+        return { todaySavings: 0, costImpactToday: 0 };
+      }
+    }
+
+    const actualCost = kWhActual * priceSekPerKWh;
+    const baselineCost = kWhBaseline * priceSekPerKWh;
+    let costDelta = +(actualCost - baselineCost).toFixed(2);
+    if (Math.abs(costDelta) < 0.005) costDelta = 0;
+    const savingsThisInterval = Math.max(0, +(-costDelta).toFixed(2));
+
+    const metrics: OrchestratorMetrics = this.homey.settings.get('orchestrator_metrics') || {
+      totalSavings: 0,
+      totalCostImpact: 0,
+    };
+
+    metrics.totalCostImpact = +(metrics.totalCostImpact + costDelta).toFixed(2);
+    metrics.totalSavings = +(metrics.totalSavings + savingsThisInterval).toFixed(2);
+    const today = this.formatLocalDate();
+    if (metrics.dailyCostImpactDate !== today) {
+      metrics.dailyCostImpactDate = today;
+      metrics.dailyCostImpact = 0;
+    }
+    metrics.dailyCostImpact = +(Number(metrics.dailyCostImpact || 0) + costDelta).toFixed(2);
+    metrics.lastUpdateIso = now.toISOString();
+    this.homey.settings.set('orchestrator_metrics', metrics);
+
+    const { todaySoFar } = this.addSavings(savingsThisInterval);
+
+    this.logger.info(
+      `[Accounting] baseline=${baselineCost.toFixed(2)} actual=${actualCost.toFixed(2)} ` +
+      `delta=${costDelta >= 0 ? '+' : ''}${costDelta.toFixed(2)} SEK ` +
+      `saved=${savingsThisInterval.toFixed(2)} SEK totalSaved=${metrics.totalSavings.toFixed(2)} SEK ` +
+      `totalImpact=${metrics.totalCostImpact.toFixed(2)} SEK`
+    );
+
+    return { todaySavings: todaySoFar, costImpactToday: metrics.dailyCostImpact || 0 };
   }
 
   /**
@@ -362,6 +449,9 @@ export default class HeatOptimizerApp extends App {
       this.error('Failed to validate settings during initialization:', error as Error);
       // Continue with initialization despite settings validation failure
     }
+
+    // Migrate legacy savings to new metrics structure
+    this.migrateLegacySavings();
 
     // API is automatically registered by Homey
 
@@ -942,9 +1032,19 @@ export default class HeatOptimizerApp extends App {
             if (result.data && typeof result.data.savings === 'number') {
               additionalData.savings = result.data.savings;
 
-              // Update accumulated savings and include "today so far"
-              const { todaySoFar } = this.addSavings(result.data.savings);
-              additionalData.todaySoFar = todaySoFar;
+              const priceNow = Number(result.data.priceNow);
+              if (Number.isFinite(priceNow) && priceNow > 0) {
+                const gridFee: number = Number(this.homey.settings.get('grid_fee_per_kwh')) || 0;
+                const price = priceNow + (Number.isFinite(gridFee) ? gridFee : 0);
+                let baselineKWh = 1.0;
+                const overrideBase: number = Number(this.homey.settings.get('baseline_hourly_consumption_kwh')) || 0;
+                if (Number.isFinite(overrideBase) && overrideBase > 0) baselineKWh = overrideBase;
+                const energyDeltaKWh = result.data.savings / price;
+                const actualKWh = baselineKWh - energyDeltaKWh;
+                const { todaySavings, costImpactToday } = this.accountCost(price, actualKWh, baselineKWh);
+                additionalData.todaySoFar = todaySavings;
+                additionalData.costImpactToday = costImpactToday;
+              }
             }
 
             // Add any other relevant data
