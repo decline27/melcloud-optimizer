@@ -385,9 +385,7 @@ export class TimelineHelper {
               message += `. Today so far: €${Number(additionalData.todaySoFar).toFixed(2)}`;
               this.logger.error('Error formatting currency:', error);
             }
-          }
-          // Otherwise, fall back to projected daily savings (legacy behaviour)
-          else if (additionalData.dailySavings !== undefined || additionalData.savings !== undefined) {
+          } else if (additionalData.dailySavings !== undefined || additionalData.savings !== undefined) {
             try {
               // Get the user's locale or default to the system locale
               const userLocale = this.homey.i18n?.getLanguage() || 'en-US';
@@ -416,6 +414,23 @@ export class TimelineHelper {
                 (additionalData.savings * 24);
               message += `. Projected daily savings: €${savingsAmount.toFixed(2)}`;
               this.logger.error('Error formatting currency:', error);
+            }
+          }
+
+          if (additionalData.costImpactToday !== undefined) {
+            try {
+              const userLocale = this.homey.i18n?.getLanguage() || 'en-US';
+              const userCurrency = CurrencyDetector.getCurrencyWithFallback(this.homey);
+              const formattedImpact = new Intl.NumberFormat(userLocale, {
+                style: 'currency',
+                currency: userCurrency,
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+              }).format(additionalData.costImpactToday);
+              message += `. Cost impact today: ${formattedImpact}`;
+            } catch (error) {
+              message += `. Cost impact today: €${Number(additionalData.costImpactToday).toFixed(2)}`;
+              this.logger.error('Error formatting currency for cost impact:', error);
             }
           }
         } else if (eventType === TimelineEventType.WEEKLY_CALIBRATION_RESULT) {
