@@ -3453,6 +3453,17 @@ class Optimizer {
       const avgPrice = priceData.prices.reduce((sum, p) => sum + p.price, 0) / priceData.prices.length;
       const minPrice = Math.min(...priceData.prices.map(p => p.price));
       const maxPrice = Math.max(...priceData.prices.map(p => p.price));
+      // Derive next hour price (first price after current price timestamp)
+      let nextHourPrice;
+      try {
+        const currentTs = new Date(priceData.current.time);
+        const next = priceData.prices.find(p => {
+          try { return new Date(p.time) > currentTs; } catch { return false; }
+        });
+        if (next && typeof next.price === 'number' && Number.isFinite(next.price)) {
+          nextHourPrice = next.price;
+        }
+      } catch (_) { /* noop */ }
       
       // Get Tibber price level for compatibility with original optimization
       const priceLevel = priceData.current.level || 'NORMAL';
@@ -3898,7 +3909,8 @@ class Optimizer {
             min: minPrice,
             max: maxPrice,
             level: priceLevel,
-            percentile: pricePercentile
+            percentile: pricePercentile,
+            nextHour: nextHourPrice
           },
           savings: savings,
           comfort: comfort,
@@ -3987,7 +3999,8 @@ class Optimizer {
             min: minPrice,
             max: maxPrice,
             level: priceLevel,
-            percentile: pricePercentile
+            percentile: pricePercentile,
+            nextHour: nextHourPrice
           },
           savings: savingsNoChange,
           comfort: comfort,
@@ -4467,19 +4480,21 @@ module.exports = {
         const m = { JPY: 0, KWD: 3 };
         return m[String(code || '').toUpperCase()] ?? 2;
       };
-      // Convert an entry to major units, supporting legacy and new formats
+      // Convert an entry to major units, supporting legacy and new formats, clamped to >= 0
       const getEntryTotalMajor = (h) => {
         if (!h) return 0;
+        let v;
         if (h.total !== undefined) {
-          const v = Number(h.total);
-          return Number.isFinite(v) ? v : 0;
-        }
-        if (h.totalMinor !== undefined) {
-          const v = Number(h.totalMinor);
+          v = Number(h.total);
+        } else if (h.totalMinor !== undefined) {
+          const minor = Number(h.totalMinor);
           const decimals = Number.isFinite(Number(h.decimals)) ? Number(h.decimals) : defaultDecimalsForCurrency(h.currency);
-          return Number.isFinite(v) ? v / Math.pow(10, decimals) : 0;
+          v = Number.isFinite(minor) ? minor / Math.pow(10, decimals) : 0;
+        } else {
+          v = 0;
         }
-        return 0;
+        v = Number.isFinite(v) ? v : 0;
+        return v < 0 ? 0 : v; // positive-only for summaries
       };
 
       const sumInWindow = (cutoff) => normalized
@@ -4794,8 +4809,9 @@ module.exports = {
 
         // Log price data
         if (result.priceData) {
-          const nextHourVal = (result.priceData && typeof result.priceData.nextHour === 'number') ? result.priceData.nextHour : 'n/a';
-          homey.app.log(`💰 Price Data: Current: ${result.priceData.current}kr/kWh, Next Hour: ${nextHourVal}kr/kWh`);
+          const hasNext = (typeof result.priceData.nextHour === 'number' && Number.isFinite(result.priceData.nextHour));
+          const nextHourText = hasNext ? `${result.priceData.nextHour}kr/kWh` : 'n/a';
+          homey.app.log(`💰 Price Data: Current: ${result.priceData.current}kr/kWh, Next Hour: ${nextHourText}`);
         }
 
         // Send to timeline using our standardized TimelineHelperWrapper
@@ -4945,6 +4961,9 @@ module.exports = {
             } catch (_) {}
           }
           if (typeof computedSavings === 'number' && !Number.isNaN(computedSavings)) {
+            // Clamp to positive-only for history persistence
+            computedSavings = Number((computedSavings || 0).toFixed(4));
+            const toPersist = computedSavings > 0 ? computedSavings : 0;
             const tzOffset = parseInt(homey.settings.get('time_zone_offset'));
             const useDST = !!homey.settings.get('use_dst');
             const now = new Date();
@@ -4979,9 +4998,12 @@ module.exports = {
             if (todayEntry.totalMinor !== undefined) {
               todayEntry.currency = todayEntry.currency || currencyCode;
               if (todayEntry.decimals === undefined) todayEntry.decimals = decimals;
-              todayEntry.totalMinor = Number(todayEntry.totalMinor || 0) + toMinor(computedSavings);
+              const nextMinor = Number(todayEntry.totalMinor || 0) + toMinor(toPersist);
+              // Ensure we never store a negative daily total
+              todayEntry.totalMinor = Math.max(0, nextMinor);
             } else {
-              todayEntry.total = Number((Number(todayEntry.total || 0) + computedSavings).toFixed(4));
+              const nextTotal = Number(((Number(todayEntry.total || 0)) + toPersist).toFixed(4));
+              todayEntry.total = nextTotal < 0 ? 0 : nextTotal;
             }
             // Keep last 30 days only
             arr.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
@@ -4991,7 +5013,7 @@ module.exports = {
               const todayMajor = todayEntry.totalMinor !== undefined
                 ? (todayEntry.totalMinor / Math.pow(10, todayEntry.decimals ?? decimals)).toFixed(4)
                 : Number(todayEntry.total || 0).toFixed(4);
-              homey.app.log(`Updated savings_history: +${computedSavings.toFixed(4)} -> today ${todayMajor} (${todayStr}), size=${trimmed.length}`);
+              homey.app.log(`Updated savings_history: +${toPersist.toFixed(4)} -> today ${todayMajor} (${todayStr}), size=${trimmed.length}`);
             } catch (_) {}
           } else {
             homey.app.log('No numeric savings value to persist for this optimization run.');
