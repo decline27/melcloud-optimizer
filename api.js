@@ -5022,6 +5022,13 @@ module.exports = {
           homey.app.error('Failed to persist savings_history:', persistErr && persistErr.message ? persistErr.message : String(persistErr));
         }
 
+        // Prepare additional helper fields for the app layer (priceNow, savings, hourly baseline)
+        let hourlyBaselineKWh = null;
+        try {
+          const d = result && result.energyMetrics && result.energyMetrics.dailyEnergyConsumption;
+          if (Number.isFinite(d) && d > 0) hourlyBaselineKWh = d / 24;
+        } catch (_) {}
+
         return {
           success: true,
           message: 'Hourly optimization completed',
@@ -5032,6 +5039,10 @@ module.exports = {
             toTemp: result.toTemp,
             reason: result.reason,
             priceData: result.priceData,
+            // Added for compatibility with app.ts accounting logic
+            priceNow: result && result.priceData ? result.priceData.current : undefined,
+            savings: (typeof computedSavings === 'number' && !Number.isNaN(computedSavings)) ? computedSavings : (result.savings || 0),
+            hourlyBaselineKWh: hourlyBaselineKWh,
             timestamp: new Date().toISOString()
           },
           result

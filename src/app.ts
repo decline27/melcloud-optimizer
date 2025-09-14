@@ -1032,13 +1032,22 @@ export default class HeatOptimizerApp extends App {
             if (result.data && typeof result.data.savings === 'number') {
               additionalData.savings = result.data.savings;
 
-              const priceNow = Number(result.data.priceNow);
+              // Prefer priceNow provided by API; fall back to priceData.current
+              const priceNow = Number(
+                (result.data as any).priceNow ??
+                (result.data as any)?.priceData?.current ??
+                (result as any)?.result?.priceData?.current
+              );
               if (Number.isFinite(priceNow) && priceNow > 0) {
                 const gridFee: number = Number(this.homey.settings.get('grid_fee_per_kwh')) || 0;
                 const price = priceNow + (Number.isFinite(gridFee) ? gridFee : 0);
-                let baselineKWh = 1.0;
-                const overrideBase: number = Number(this.homey.settings.get('baseline_hourly_consumption_kwh')) || 0;
-                if (Number.isFinite(overrideBase) && overrideBase > 0) baselineKWh = overrideBase;
+                // Use MELCloud-derived hourly baseline when provided by API
+                let baselineKWh = Number((result.data as any).hourlyBaselineKWh);
+                if (!(Number.isFinite(baselineKWh) && baselineKWh > 0)) {
+                  baselineKWh = 1.0;
+                  const overrideBase: number = Number(this.homey.settings.get('baseline_hourly_consumption_kwh')) || 0;
+                  if (Number.isFinite(overrideBase) && overrideBase > 0) baselineKWh = overrideBase;
+                }
                 const energyDeltaKWh = result.data.savings / price;
                 const actualKWh = baselineKWh - energyDeltaKWh;
                 const { todaySavings, costImpactToday } = this.accountCost(price, actualKWh, baselineKWh);
