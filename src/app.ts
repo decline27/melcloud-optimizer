@@ -176,7 +176,27 @@ export default class HeatOptimizerApp extends App {
     metrics.lastUpdateIso = now.toISOString();
     this.homey.settings.set('orchestrator_metrics', metrics);
 
-    const { todaySoFar } = this.addSavings(savingsThisInterval);
+    // Do NOT persist savings history here to avoid double-counting.
+    // The API layer (api.js:getRunHourlyOptimizer) is the single writer for savings_history.
+    // Here we only read today's total from the already-persisted history to report "today so far".
+    let todaySoFar = 0;
+    try {
+      const currency = this.homey.settings.get('currency_code') || this.homey.settings.get('currency') || '';
+      const decimals = this.getCurrencyDecimals(currency);
+      const today = this.formatLocalDate();
+      const rawHistory = this.homey.settings.get('savings_history') || [];
+      const history = (rawHistory as any[]).map((h: any) => this.migrateLegacyEntry(h, currency, decimals));
+      const todayEntry: any = history.find((h: any) => h.date === today);
+      if (todayEntry) {
+        if (todayEntry.totalMinor !== undefined) {
+          todaySoFar = Number(this.minorToMajor(todayEntry.totalMinor, todayEntry.decimals ?? decimals).toFixed(4));
+        } else if (todayEntry.total !== undefined) {
+          todaySoFar = Number(Number(todayEntry.total).toFixed(4));
+        }
+      }
+    } catch (_) {
+      todaySoFar = 0;
+    }
 
     this.logger.info(
       `[Accounting] baseline=${baselineCost.toFixed(2)} actual=${actualCost.toFixed(2)} ` +
