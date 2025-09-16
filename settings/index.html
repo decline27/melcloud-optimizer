@@ -214,6 +214,14 @@
             <p class="homey-form-helper">Impact: Higher values reduce compressor starts and avoid fighting defrost cycles; too high can slow reactions to big price swings.</p>
           </div>
           <div class="homey-form-col">
+            <label class="homey-form-label" for="temp_step_max">Temperature Step (°C)</label>
+            <input class="homey-form-input" id="temp_step_max" type="number" min="0.5" max="1.0" step="0.5" value="0.5" />
+            <p class="homey-form-helper">Max temperature change per optimization step. Suggested default: <b>0.5°C</b>.</p>
+            <p class="homey-form-helper">Impact: 1.0°C reduces heat pump strain but slower fine-tuning. 0.5°C provides finer control.</p>
+          </div>
+        </div>
+        <div class="homey-form-row">
+          <div class="homey-form-col">
             <label class="homey-form-label" for="extreme_weather_min_temp">Extreme Cold Min (°C)</label>
             <input class="homey-form-input" id="extreme_weather_min_temp" type="number" min="16" max="23" step="0.5" value="20" />
             <p class="homey-form-helper">Minimum indoor target during deep cold. Suggested default: <b>20°C</b>.</p>
@@ -297,23 +305,23 @@
           <span>Enable optimization of hot water tank temperature</span>
         </label>
         <p class="homey-form-helper">Enable optimization of hot water tank temperature based on electricity prices. Suggested default: Enabled - allows the system to store hot water as thermal energy when electricity is cheap.</p>
-        <p class="homey-form-helper">Impact: Shifts DHW heating to cheap hours (with a small step and 0.5°C deadband for stability). Min/Max protect comfort and legionella schedules.</p>
+        <p class="homey-form-helper">Impact: Shifts DHW heating to cheap hours (with whole degree steps for stability). Min/Max protect comfort and legionella schedules.</p>
         <p id="tank_capability_warning" class="homey-form-helper" style="display:none;color:#b00;">This device may not support tank water temperature control. If unsupported, these settings have no effect.</p>
       </div>
       <div class="homey-form-group">
         <label class="homey-form-label" for="min_tank_temp">Minimum Tank Temperature (°C)</label>
-        <input class="homey-form-input" id="min_tank_temp" type="number" min="30" max="45" step="0.5" value="40" />
+        <input class="homey-form-input" id="min_tank_temp" type="number" min="30" max="45" step="1" value="40" />
         <p class="homey-form-helper">Minimum allowed temperature for the hot water tank. Suggested default: 41°C - ensures sufficient hot water is always available while allowing for price optimization.</p>
       </div>
       <div class="homey-form-group">
         <label class="homey-form-label" for="max_tank_temp">Maximum Tank Temperature (°C)</label>
-        <input class="homey-form-input" id="max_tank_temp" type="number" min="40" max="60" step="0.5" value="50" />
+        <input class="homey-form-input" id="max_tank_temp" type="number" min="40" max="60" step="1" value="50" />
         <p class="homey-form-helper">Maximum allowed temperature for the hot water tank. Suggested default: 53°C - provides good thermal storage capacity without excessive energy use. Check your heat pump's maximum recommended tank temperature.</p>
       </div>
       <div class="homey-form-group">
         <label class="homey-form-label" for="tank_temp_step">Tank Temperature Step (°C)</label>
-        <input class="homey-form-input" id="tank_temp_step" type="number" min="0.5" max="5.0" step="0.5" value="1.0" />
-        <p class="homey-form-helper">Maximum change in tank temperature per optimization cycle. Suggested default: 2°C - allows for meaningful temperature adjustments without causing excessive cycling of the heat pump.</p>
+        <input class="homey-form-input" id="tank_temp_step" type="number" min="1.0" max="5.0" step="1.0" value="1.0" />
+        <p class="homey-form-helper">Maximum change in tank temperature per optimization cycle. Must be whole degrees only (1°C, 2°C, etc.). Suggested default: 2°C - allows for meaningful temperature adjustments without causing excessive cycling of the heat pump.</p>
       </div>
     </details>
 
@@ -1183,6 +1191,7 @@
         const tibberTokenElement = document.getElementById("tibber_token");
         const minTempElement = document.getElementById("min_temp");
         const maxTempElement = document.getElementById("max_temp");
+        const tempStepMaxElement = document.getElementById("temp_step_max");
         const useWeatherDataElement = document.getElementById("use_weather_data");
         const latitudeElement = document.getElementById("latitude");
         const longitudeElement = document.getElementById("longitude");
@@ -1317,6 +1326,11 @@
         Homey.get("max_temp", function (err, value) {
           if (err) return Homey.alert(err);
           if (value !== undefined) maxTempElement.value = value;
+        });
+
+        Homey.get("temp_step_max", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined) tempStepMaxElement.value = value;
         });
 
         // Load engine settings
@@ -1765,6 +1779,16 @@
             if (err) return Homey.alert(err);
           });
 
+          const tempStepMax = parseFloat(tempStepMaxElement.value);
+          if (!isNaN(tempStepMax) && (tempStepMax === 0.5 || tempStepMax === 1.0)) {
+            Homey.set("temp_step_max", tempStepMax, function (err) {
+              if (err) return Homey.alert(err);
+            });
+          } else if (tempStepMaxElement.value) {
+            Homey.alert('Invalid temperature step value. Must be 0.5 or 1.0 degrees.');
+            return;
+          }
+
           Homey.set("log_level", parseInt(logLevelElement.value), function (err) {
             if (err) return Homey.alert(err);
           });
@@ -1927,22 +1951,22 @@
           });
 
           const minTankTemp = parseFloat(minTankTempElement.value);
-          if (!isNaN(minTankTemp) && minTankTemp >= 30 && minTankTemp <= 45) {
+          if (!isNaN(minTankTemp) && minTankTemp >= 30 && minTankTemp <= 45 && minTankTemp === Math.round(minTankTemp)) {
             Homey.set("min_tank_temp", minTankTemp, function (err) {
               if (err) return Homey.alert(err);
             });
           } else if (minTankTempElement.value) {
-            Homey.alert('Invalid minimum tank temperature value. Must be between 30 and 45.');
+            Homey.alert('Invalid minimum tank temperature value. Must be a whole number between 30 and 45.');
             return;
           }
 
           const maxTankTemp = parseFloat(maxTankTempElement.value);
-          if (!isNaN(maxTankTemp) && maxTankTemp >= 40 && maxTankTemp <= 60) {
+          if (!isNaN(maxTankTemp) && maxTankTemp >= 40 && maxTankTemp <= 60 && maxTankTemp === Math.round(maxTankTemp)) {
             Homey.set("max_tank_temp", maxTankTemp, function (err) {
               if (err) return Homey.alert(err);
             });
           } else if (maxTankTempElement.value) {
-            Homey.alert('Invalid maximum tank temperature value. Must be between 40 and 60.');
+            Homey.alert('Invalid maximum tank temperature value. Must be a whole number between 40 and 60.');
             return;
           }
 
@@ -1953,12 +1977,12 @@
           }
 
           const tankTempStep = parseFloat(tankTempStepElement.value);
-          if (!isNaN(tankTempStep) && tankTempStep >= 0.5 && tankTempStep <= 5.0) {
+          if (!isNaN(tankTempStep) && tankTempStep >= 1.0 && tankTempStep <= 5.0 && tankTempStep === Math.round(tankTempStep)) {
             Homey.set("tank_temp_step", tankTempStep, function (err) {
               if (err) return Homey.alert(err);
             });
           } else if (tankTempStepElement.value) {
-            Homey.alert('Invalid tank temperature step value. Must be between 0.5 and 5.0.');
+            Homey.alert('Invalid tank temperature step value. Must be a whole number between 1 and 5 degrees.');
             return;
           }
           

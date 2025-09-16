@@ -385,8 +385,8 @@ export class HotWaterAnalyzer {
         }
       }
 
-      // Round to nearest 0.5°C (MELCloud can accept 0.5°C increments)
-      optimalTemp = Math.round(optimalTemp * 2) / 2;
+      // Round to nearest 1°C (MELCloud hot water systems only support full degrees)
+      optimalTemp = Math.round(optimalTemp);
 
       this.homey.log(`Calculated optimal tank temperature: ${optimalTemp}°C (min: ${minTemp}°C, max: ${maxTemp}°C)`);
       this.homey.log(`Current predicted usage: ${currentPredictedUsage.toFixed(2)}, Next 6h avg: ${avgNext6HoursUsage.toFixed(2)}, Max 24h: ${maxPredictedUsage.toFixed(2)}`);

@@ -2564,9 +2564,12 @@ class Optimizer {
             newTankTarget = currentTankTarget + (newTankTarget > currentTankTarget ? maxTankChange : -maxTankChange);
           }
 
-          // Round to nearest 0.5°C (MELCloud can accept 0.5°C increments)
-          newTankTarget = Math.round(newTankTarget * 2) / 2;
-          this.logger.log(`Rounding tank temperature to nearest 0.5°C: ${newTankTarget}°C`);
+          // Store the calculated value (with possible half degrees) for timeline display
+          const calculatedTankTarget = newTankTarget;
+          
+          // Round to nearest 1°C (hot water systems only support full degrees)
+          newTankTarget = Math.round(newTankTarget);
+          this.logger.log(`Calculated tank temperature: ${calculatedTankTarget.toFixed(1)}°C, rounded to: ${newTankTarget}°C`);
 
           // Set new tank temperature if different
           if (newTankTarget !== currentTankTarget) {
@@ -2589,7 +2592,8 @@ class Optimizer {
 
           // Store tank optimization result
           tankResult = {
-            targetTemp: newTankTarget,
+            targetTemp: newTankTarget, // Rounded value sent to API
+            targetTempCalculated: calculatedTankTarget, // Original calculated value for timeline
             reason: tankReason,
             targetOriginal: currentTankTarget
           };
@@ -3841,20 +3845,24 @@ class Optimizer {
             tankReason += ` (limited to ${maxTankChange}°C step)`;
           }
           
-          // Round to nearest 0.5°C
-          newTankTarget = Math.round(newTankTarget * 2) / 2;
+          // Store the calculated value (with possible half degrees) for timeline display
+          const calculatedTankTarget = newTankTarget;
+          
+          // Round to nearest 1°C (hot water systems only support full degrees)
+          newTankTarget = Math.round(newTankTarget);
           
           const tankTempDifference = Math.abs(newTankTarget - currentTankTarget);
-          const tankDeadband = 0.5; // Minimum tank temperature change threshold
+          const tankDeadband = 1.0; // Minimum tank temperature change threshold (full degrees only)
           const isTankChangeSignificant = tankTempDifference >= tankDeadband;
           
           if (isTankChangeSignificant) {
             await this.melCloud.setDeviceTankTemperature(this.deviceId, this.buildingId, newTankTarget);
-            this.logger.log(`Enhanced tank temperature adjusted from ${currentTankTarget}°C to ${newTankTarget}°C`);
+            this.logger.log(`Enhanced tank temperature adjusted from ${currentTankTarget}°C to ${newTankTarget}°C (calculated: ${calculatedTankTarget.toFixed(1)}°C)`);
             
             tankResult = {
               fromTemp: currentTankTarget,
-              toTemp: newTankTarget,
+              toTemp: newTankTarget, // Rounded value sent to API
+              toTempCalculated: calculatedTankTarget, // Original calculated value for timeline
               reason: tankReason
             };
           } else {
@@ -3863,6 +3871,7 @@ class Optimizer {
             tankResult = {
               fromTemp: currentTankTarget,
               toTemp: currentTankTarget,
+              toTempCalculated: currentTankTarget, // No change, so calculated = actual
               reason: `Tank temperature difference ${tankTempDifference.toFixed(1)}°C below deadband ${tankDeadband}°C`
             };
           }
@@ -4830,6 +4839,7 @@ module.exports = {
 
           // Add hot water tank data if available in the optimization result
           if (result.tankData) {
+            // Use the rounded API value for timeline display (whole degrees only)
             additionalData.tankTemp = result.tankData.toTemp;
             additionalData.tankOriginal = result.tankData.fromTemp;
           }
@@ -4890,6 +4900,7 @@ module.exports = {
               typeof result.tankTemperature === 'object' &&
               result.tankTemperature.targetTemp !== undefined &&
               result.tankTemperature.targetOriginal !== undefined) {
+            // Use the rounded API value for timeline display (whole degrees only)
             additionalData.tankTemp = result.tankTemperature.targetTemp;
             additionalData.tankOriginal = result.tankTemperature.targetOriginal;
           }
