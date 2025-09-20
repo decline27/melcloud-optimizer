@@ -27,13 +27,7 @@ export default class HeatOptimizerApp extends App {
   public copHelper?: COPHelper;
   public timelineHelper?: TimelineHelper;
   public hotWaterService?: HotWaterService;
-  public logger: HomeyLogger = new HomeyLogger(this, {
-    level: LogLevel.INFO,
-    logToTimeline: false,
-    prefix: 'App',
-    includeTimestamps: true,
-    includeSourceModule: true
-  });
+  public logger!: HomeyLogger; // Will be initialized in onInit
   private memoryUsageInterval?: NodeJS.Timeout;
   private timeZoneHelper?: TimeZoneHelper;
 
@@ -49,6 +43,67 @@ export default class HeatOptimizerApp extends App {
    */
   private getCurrencyDecimals(currency: string): number {
     return HeatOptimizerApp.currencyDecimals[currency?.toUpperCase()] ?? 2;
+  }
+
+  /**
+   * Check if all required settings are present for automatic job scheduling
+   */
+  private areSettingsComplete(): boolean {
+    const melcloudUser = this.homey.settings.get('melcloud_user');
+    const melcloudPass = this.homey.settings.get('melcloud_pass');
+    const tibberToken = this.homey.settings.get('tibber_token');
+    const deviceId = this.homey.settings.get('device_id');
+    const buildingId = this.homey.settings.get('building_id');
+
+    const hasCreds = !!(melcloudUser && melcloudPass && tibberToken);
+    const hasDevice = !!(deviceId && buildingId);
+
+    this.log(`[App] Settings check - Credentials: ${hasCreds}, Device: ${hasDevice}`);
+    this.log(`[App] Settings check - MELCloud user: ${!!melcloudUser}, Pass: ${!!melcloudPass}, Tibber: ${!!tibberToken}`);
+    this.log(`[App] Settings check - Device ID: ${deviceId || 'missing'}, Building ID: ${buildingId || 'missing'}`);
+
+    return hasCreds && hasDevice;
+  }
+
+  /**
+   * Ensure cron jobs are running only when settings are valid.
+   * Produces clear startup logs so it's visible in the terminal.
+   */
+  private ensureCronRunningIfReady() {
+    const isComplete = this.areSettingsComplete();
+    const alreadyRunning = !!(this.hourlyJob?.running && this.weeklyJob?.running);
+
+    this.log('[App] ===== CRON AUTO-START CHECK =====');
+    this.log(`[App] Settings complete: ${isComplete}`);
+
+    if (alreadyRunning) {
+      this.log('[App] Cron jobs already running; skipping initialization');
+      this.updateCronStatusInSettings();
+      return;
+    }
+
+    if (isComplete) {
+      this.log('[App] Starting cron jobs automatically at app start…');
+      this.initializeCronJobs();
+      try {
+        if (this.timelineHelper) {
+          this.timelineHelper.addTimelineEntry(TimelineEventType.SYSTEM_STARTUP, {}, false);
+        }
+      } catch (err) {
+        this.log('Failed to add app start timeline entry (non-critical)');
+      }
+    } else {
+      this.log('[App] Skipping cron auto‑start: missing required settings (MELCloud credentials, Tibber token, or device selection)');
+    }
+  }
+
+  /**
+   * Stop scheduled jobs when settings are incomplete
+   */
+  private unscheduleJobs() {
+    this.log('[App] Unscheduling jobs due to incomplete settings...');
+    this.cleanupCronJobs();
+    this.log('[App] Jobs unscheduled successfully');
   }
 
   /**
@@ -434,6 +489,18 @@ export default class HeatOptimizerApp extends App {
       console.error('Failed to initialize centralized logger, using console fallback:', error);
     }
 
+    // Ensure logger is available
+    if (!this.logger) {
+      this.logger = {
+        marker: (msg: string) => console.log(`[MARKER] ${msg}`),
+        info: (msg: string) => console.log(`[INFO] ${msg}`),
+        warn: (msg: string) => console.log(`[WARN] ${msg}`),
+        error: (msg: string) => console.error(`[ERROR] ${msg}`),
+        debug: (msg: string) => console.log(`[DEBUG] ${msg}`),
+        optimization: (msg: string) => console.log(`[OPTIMIZATION] ${msg}`)
+      } as any;
+    }
+
     // Log app initialization
     try {
       this.logger.marker('MELCloud Optimizer App Starting');
@@ -444,8 +511,8 @@ export default class HeatOptimizerApp extends App {
 
     // Log some additional information
     try {
-      this.logger.info(`App ID: ${this.id}`);
-      this.logger.info(`App Version: ${this.manifest.version}`);
+      this.logger.info(`App ID: ${(this as any).id}`);
+      this.logger.info(`App Version: ${(this as any).manifest.version}`);
       this.logger.info(`Homey Version: ${this.homey.version}`);
       this.logger.info(`Homey Platform: ${this.homey.platform}`);
     } catch (error) {
@@ -494,18 +561,39 @@ export default class HeatOptimizerApp extends App {
 
     // Initialize Timeline Helper
     try {
-      this.timelineHelper = new TimelineHelper(this.homey, this.logger);
+      // Create a HomeyApp-compatible object for TimelineHelper
+      const homeyAppAdapter = {
+        id: 'com.melcloud.optimize',
+        manifest: this.manifest,
+        version: this.homey.version || this.manifest.version,
+        platform: this.homey.platform || 'unknown',
+        settings: {
+          get: (key: string) => this.homey.settings.get(key),
+          set: async (key: string, value: any) => { this.homey.settings.set(key, value); },
+          unset: (key: string) => this.homey.settings.unset(key),
+          on: (event: string, callback: (key: string) => void) => this.homey.settings.on(event, callback)
+        },
+        log: (message: string, ...args: any[]) => this.log(message, ...args),
+        error: (message: string, error?: Error | unknown) => this.error(message, error as Error),
+        timeline: this.homey.timeline,
+        notifications: this.homey.notifications,
+        flow: this.homey.flow
+      };
+      
+      this.timelineHelper = new TimelineHelper(homeyAppAdapter, this.logger);
       this.logger.info('Timeline Helper initialized');
     } catch (error) {
       this.logger.error('Failed to initialize Timeline Helper', error as Error);
     }
 
-    // Start cron jobs on init (safe re-init logic prevents duplicates)
+    // Start cron jobs only if settings are complete (auto-scheduling)
     try {
-      this.log('[App] Initializing cron jobs on init…');
-      this.initializeCronJobs();
+      this.log('[App] Checking if cron jobs should auto-start…');
+      this.ensureCronRunningIfReady();
+      this.log('[App] Auto-scheduling check completed');
     } catch (error) {
-      this.logger.error('Failed to initialize cron jobs on init', error as Error);
+      this.error('[App] Failed to check/initialize cron jobs on init:', error as Error);
+      // Continue with initialization despite auto-scheduling failure
     }
 
     // Monitor memory usage in development mode
@@ -571,7 +659,7 @@ export default class HeatOptimizerApp extends App {
     const tzHelper = this.timeZoneHelper;
     const timeZoneString = tzHelper ? tzHelper.getTimeZoneString() : 'UTC+0';
     const localInfo = tzHelper ? tzHelper.getLocalTime() : { timeZoneOffset: 0, effectiveOffset: 0, timeString: new Date().toUTCString() } as any;
-    this.log('Homey local time:', localInfo.timeString);
+    this.log(`Homey local time: ${localInfo.timeString}`);
     this.log(`Using Homey time zone: ${timeZoneString}`);
 
     // Hourly job - runs at minute 5 of every hour
@@ -720,8 +808,8 @@ export default class HeatOptimizerApp extends App {
     const nextWeeklyRun = this.weeklyJob.nextDate();
 
     // Log the cron job status
-    this.log('Hourly job running:', this.hourlyJob.running);
-    this.log('Weekly job running:', this.weeklyJob.running);
+    this.log(`Hourly job running: ${this.hourlyJob.running}`);
+    this.log(`Weekly job running: ${this.weeklyJob.running}`);
 
     // Store cron job status in settings for API access
     this.homey.settings.set('cron_status', {
@@ -759,40 +847,10 @@ export default class HeatOptimizerApp extends App {
   }
 
   /**
-   * Ensure cron jobs are running only when settings are valid.
-   * Produces clear startup logs so it's visible in the terminal.
+   * Check if a setting key is relevant for cron job auto-scheduling
    */
-  private ensureCronRunningIfReady() {
-    const melcloudUser = this.homey.settings.get('melcloud_user');
-    const melcloudPass = this.homey.settings.get('melcloud_pass');
-    const tibberToken = this.homey.settings.get('tibber_token');
-    const deviceId = this.homey.settings.get('device_id');
-    const buildingId = this.homey.settings.get('building_id');
-
-    const hasCreds = !!(melcloudUser && melcloudPass && tibberToken);
-    const hasDevice = !!(deviceId && buildingId);
-    const alreadyRunning = !!(this.hourlyJob?.running && this.weeklyJob?.running);
-
-    this.logger.marker('Cron Auto‑Start Check');
-    this.log(`Settings present → creds=${hasCreds} device=${hasDevice}`);
-
-    if (alreadyRunning) {
-      this.log('Cron jobs already running; skipping initialization');
-      this.updateCronStatusInSettings();
-      return;
-    }
-
-    if (hasCreds && hasDevice) {
-      this.log('Starting cron jobs automatically at app start…');
-      this.initializeCronJobs();
-      try {
-        if (this.timelineHelper) {
-          this.timelineHelper.addTimelineEntry(TimelineEventType.SYSTEM_RECOVERY, { started: 'cron' }, false).catch(() => {});
-        }
-      } catch (_) { /* ignore */ }
-    } else {
-      this.warn('Skipping cron auto‑start: missing credentials or device selection');
-    }
+  private isRelevantKeyForScheduling(key: string): boolean {
+    return ['melcloud_user', 'melcloud_pass', 'tibber_token', 'device_id', 'building_id'].includes(key);
   }
 
   /**
@@ -971,12 +1029,31 @@ export default class HeatOptimizerApp extends App {
       }
     }
 
-    // Ensure cron jobs are running after any relevant settings change
-    try {
-      this.log('[App] Re-initializing cron after settings change…');
-      this.initializeCronJobs();
-    } catch (err) {
-      this.error('Failed to ensure cron after settings change', err as Error);
+    // Handle auto-scheduling when relevant settings change
+    if (this.isRelevantKeyForScheduling(key)) {
+      this.log(`Setting '${key}' affects cron job scheduling, checking if jobs should be started/stopped`);
+      try {
+        if (this.areSettingsComplete()) {
+          this.log('Settings are now complete → ensuring cron jobs are running');
+          this.initializeCronJobs(); // Idempotent
+        } else {
+          this.log('Settings are incomplete → stopping cron jobs');
+          this.unscheduleJobs();
+        }
+      } catch (err) {
+        this.error('Failed to handle cron job auto-scheduling after settings change', err as Error);
+      }
+    }
+    // For other settings changes, ensure cron jobs are running if settings are complete
+    else {
+      try {
+        if (this.areSettingsComplete()) {
+          this.log('[App] Re-initializing cron after settings change…');
+          this.initializeCronJobs(); // Idempotent
+        }
+      } catch (err) {
+        this.error('Failed to ensure cron after settings change', err as Error);
+      }
     }
   }
 
@@ -1226,7 +1303,7 @@ export default class HeatOptimizerApp extends App {
     const healthStatus = await this.checkSystemHealth();
 
     if (!healthStatus.healthy) {
-      this.log(`System health check found ${healthStatus.issues.length} issues:`, healthStatus.issues);
+      this.log(`System health check found ${healthStatus.issues.length} issues: ${JSON.stringify(healthStatus.issues)}`);
 
       // Create timeline entry for health check issues
       try {
