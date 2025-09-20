@@ -209,6 +209,22 @@
     "getSavingsDebugState": {
       "method": "GET",
       "path": "/getSavingsDebugState"
+    },
+    "getAreSettingsComplete": {
+      "method": "GET",
+      "path": "/getAreSettingsComplete"
+    },
+    "getAutoStartCronJobs": {
+      "method": "GET",
+      "path": "/getAutoStartCronJobs"
+    },
+    "getInitializeAutoScheduling": {
+      "method": "GET",
+      "path": "/getInitializeAutoScheduling"
+    },
+    "getTriggerAutoScheduling": {
+      "method": "GET",
+      "path": "/getTriggerAutoScheduling"
     }
   }
 }

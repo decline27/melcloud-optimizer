@@ -241,6 +241,7 @@ describe('HeatOptimizerApp focused coverage tests', () => {
       if (key === 'melcloud_pass') return 'password';
       if (key === 'tibber_token') return 'token';
       if (key === 'device_id') return '123';
+      if (key === 'building_id') return '456';
       if (key === 'time_zone_offset') return 2;
       if (key === 'use_dst') return true;
       return undefined;

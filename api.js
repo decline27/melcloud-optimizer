@@ -4428,6 +4428,53 @@ module.exports = {
       console.log('API method getSavingsSummary called');
       homey.app.log('API method getSavingsSummary called');
 
+      // Auto-scheduling check: Try to start cron jobs if settings are complete
+      // This runs when user opens the app, providing automatic initialization
+      let autoSchedulingTriggered = false;
+      try {
+        // Only run auto-scheduling check if cron jobs aren't already running
+        let shouldCheckAutoScheduling = true;
+        
+        try {
+          const cronStatus = homey.settings.get('cron_status');
+          if (cronStatus && cronStatus.hourlyJob && cronStatus.weeklyJob) {
+            if (cronStatus.hourlyJob.running && cronStatus.weeklyJob.running) {
+              homey.app.log('[API] Cron jobs already running according to settings, skipping auto-scheduling');
+              shouldCheckAutoScheduling = false;
+            }
+          }
+          
+          // Also check global variables as backup
+          if (shouldCheckAutoScheduling && global.hourlyJob && global.weeklyJob && global.hourlyJob.running && global.weeklyJob.running) {
+            homey.app.log('[API] Cron jobs already running according to global state, skipping auto-scheduling');
+            shouldCheckAutoScheduling = false;
+          }
+        } catch (err) {
+          // If we can't check status, proceed with auto-scheduling check
+          homey.app.log('[API] Could not check cron status, proceeding with auto-scheduling check');
+        }
+
+        if (shouldCheckAutoScheduling) {
+          homey.app.log('[API] getSavingsSummary: Checking auto-scheduling for cron jobs...');
+          autoSchedulingTriggered = true;
+          
+          // Don't await this to avoid slowing down the savings summary
+          this.getInitializeAutoScheduling({ homey }).then(result => {
+            if (result.success && result.action === 'started') {
+              homey.app.log('[API] Auto-scheduling successful: Cron jobs started automatically');
+            } else if (result.success && result.action === 'skipped') {
+              homey.app.log('[API] Auto-scheduling: Cron jobs already running or settings incomplete');
+            } else {
+              homey.app.log('[API] Auto-scheduling failed:', result.error);
+            }
+          }).catch(autoErr => {
+            homey.app.log('[API] Auto-scheduling error:', autoErr.message);
+          });
+        }
+      } catch (autoSchedulingError) {
+        homey.app.log('[API] Error during auto-scheduling check:', autoSchedulingError.message);
+      }
+
       // Helper to get local date string YYYY-MM-DD using Homey time zone settings
       const getLocalDateString = () => {
         try {
@@ -5607,6 +5654,229 @@ module.exports = {
       };
     } catch (err) {
       console.error('Error in getCheckCronStatus:', err);
+      return { success: false, error: err.message };
+    }
+  },
+
+  /**
+   * Check if all required settings are present for automatic job scheduling
+   */
+  async getAreSettingsComplete({ homey }) {
+    try {
+      console.log('API method getAreSettingsComplete called');
+      homey.app.log('API method getAreSettingsComplete called');
+
+      const melcloudUser = homey.settings.get('melcloud_user');
+      const melcloudPass = homey.settings.get('melcloud_pass');
+      const tibberToken = homey.settings.get('tibber_token');
+      const deviceId = homey.settings.get('device_id');
+      const buildingId = homey.settings.get('building_id');
+
+      const hasCreds = !!(melcloudUser && melcloudPass && tibberToken);
+      const hasDevice = !!(deviceId && buildingId);
+
+      homey.app.log(`[API] Settings check - Credentials: ${hasCreds}, Device: ${hasDevice}`);
+      homey.app.log(`[API] Settings check - MELCloud user: ${!!melcloudUser}, Pass: ${!!melcloudPass}, Tibber: ${!!tibberToken}`);
+      homey.app.log(`[API] Settings check - Device ID: ${deviceId || 'missing'}, Building ID: ${buildingId || 'missing'}`);
+
+      const isComplete = hasCreds && hasDevice;
+
+      return {
+        success: true,
+        isComplete: isComplete,
+        details: {
+          credentials: hasCreds,
+          device: hasDevice,
+          melcloudUser: !!melcloudUser,
+          melcloudPass: !!melcloudPass,
+          tibberToken: !!tibberToken,
+          deviceId: deviceId || null,
+          buildingId: buildingId || null
+        }
+      };
+    } catch (err) {
+      console.error('Error in getAreSettingsComplete:', err);
+      return { success: false, error: err.message };
+    }
+  },
+
+  /**
+   * Auto-start cron jobs if settings are complete
+   */
+  async getAutoStartCronJobs({ homey }) {
+    try {
+      console.log('API method getAutoStartCronJobs called');
+      homey.app.log('API method getAutoStartCronJobs called');
+
+      // Check if settings are complete
+      const settingsResult = await this.getAreSettingsComplete({ homey });
+      if (!settingsResult.success) {
+        return {
+          success: false,
+          error: 'Failed to check settings completeness',
+          details: settingsResult.error
+        };
+      }
+
+      const isComplete = settingsResult.isComplete;
+
+      homey.app.log('[API] ===== CRON AUTO-START CHECK =====');
+      homey.app.log(`[API] Settings complete: ${isComplete}`);
+
+      // Check if cron jobs are already running
+      let alreadyRunning = false;
+      try {
+        if (global.hourlyJob && global.weeklyJob) {
+          alreadyRunning = global.hourlyJob.running && global.weeklyJob.running;
+          homey.app.log(`[API] Cron jobs already running: ${alreadyRunning}`);
+        }
+      } catch (err) {
+        homey.app.log(`[API] Could not check existing cron job status: ${err.message}`);
+      }
+
+      if (alreadyRunning) {
+        homey.app.log('[API] Cron jobs already running; skipping initialization');
+        
+        // Update status
+        const statusResult = await this.getUpdateCronStatus({ homey });
+        
+        return {
+          success: true,
+          message: 'Cron jobs already running',
+          action: 'skipped',
+          alreadyRunning: true,
+          isComplete: isComplete
+        };
+      }
+
+      if (isComplete) {
+        homey.app.log('[API] Starting cron jobs automatically at app start…');
+        
+        // Start the cron jobs
+        const startResult = await this.getStartCronJobs({ homey });
+        
+        if (startResult.success) {
+          homey.app.log('[API] Cron jobs started successfully via auto-scheduling');
+          
+          // Add timeline entry for auto-start
+          try {
+            const timelineHelper = new TimelineHelperWrapper();
+            await timelineHelper.addTimelineEntry(
+              homey,
+              TimelineEventType.CRON_JOB_INITIALIZED,
+              { 
+                triggered: 'auto-start',
+                reason: 'settings complete on app initialization'
+              },
+              false // Don't create notification for auto-start
+            );
+          } catch (timelineErr) {
+            homey.app.log('[API] Failed to add auto-start timeline entry (non-critical):', timelineErr.message);
+          }
+          
+          return {
+            success: true,
+            message: 'Cron jobs started automatically',
+            action: 'started',
+            alreadyRunning: false,
+            isComplete: isComplete,
+            cronResult: startResult
+          };
+        } else {
+          homey.app.error('[API] Failed to start cron jobs during auto-scheduling:', startResult.error);
+          return {
+            success: false,
+            error: 'Failed to start cron jobs',
+            details: startResult.error,
+            isComplete: isComplete
+          };
+        }
+      } else {
+        homey.app.log('[API] Skipping cron auto‑start: missing required settings (MELCloud credentials, Tibber token, or device selection)');
+        return {
+          success: true,
+          message: 'Settings incomplete, cron jobs not started',
+          action: 'skipped',
+          alreadyRunning: false,
+          isComplete: isComplete,
+          missingSettings: settingsResult.details
+        };
+      }
+    } catch (err) {
+      console.error('Error in getAutoStartCronJobs:', err);
+      return { success: false, error: err.message };
+    }
+  },
+
+  /**
+   * Initialize auto-scheduling functionality
+   * This should be called during app initialization
+   */
+  async getInitializeAutoScheduling({ homey }) {
+    try {
+      console.log('API method getInitializeAutoScheduling called');
+      homey.app.log('API method getInitializeAutoScheduling called');
+
+      homey.app.log('[API] ===== INITIALIZING AUTO-SCHEDULING =====');
+
+      // Call auto-start functionality
+      const autoStartResult = await this.getAutoStartCronJobs({ homey });
+
+      homey.app.log(`[API] Auto-scheduling initialization completed: ${autoStartResult.success ? 'success' : 'failed'}`);
+      
+      if (autoStartResult.success) {
+        homey.app.log(`[API] Auto-scheduling action: ${autoStartResult.action}`);
+        homey.app.log(`[API] Settings complete: ${autoStartResult.isComplete}`);
+      } else {
+        homey.app.error(`[API] Auto-scheduling error: ${autoStartResult.error}`);
+      }
+
+      return autoStartResult;
+    } catch (err) {
+      console.error('Error in getInitializeAutoScheduling:', err);
+      return { success: false, error: err.message };
+    }
+  },
+
+  /**
+   * Manual trigger for auto-scheduling - can be called from settings or manually
+   */
+  async getTriggerAutoScheduling({ homey }) {
+    try {
+      console.log('API method getTriggerAutoScheduling called');
+      homey.app.log('API method getTriggerAutoScheduling called');
+
+      homey.app.log('[API] ===== MANUAL AUTO-SCHEDULING TRIGGER =====');
+      
+      // Call the auto-scheduling logic
+      const result = await this.getInitializeAutoScheduling({ homey });
+      
+      homey.app.log(`[API] Manual auto-scheduling trigger completed: ${result.success ? 'success' : 'failed'}`);
+      
+      // Add timeline entry for manual trigger
+      try {
+        const timelineHelper = new TimelineHelperWrapper();
+        await timelineHelper.addTimelineEntry(
+          homey,
+          TimelineEventType.CRON_JOB_INITIALIZED,
+          { 
+            triggered: 'manual',
+            reason: 'manual auto-scheduling trigger',
+            result: result.success ? 'success' : 'failed'
+          },
+          true // Create notification for manual triggers
+        );
+      } catch (timelineErr) {
+        homey.app.log('[API] Failed to add manual trigger timeline entry (non-critical):', timelineErr.message);
+      }
+      
+      return {
+        success: true,
+        message: 'Manual auto-scheduling trigger executed',
+        result: result
+      };
+    } catch (err) {
+      console.error('Error in getTriggerAutoScheduling:', err);
       return { success: false, error: err.message };
     }
   },

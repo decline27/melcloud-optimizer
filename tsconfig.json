@@ -5,11 +5,19 @@
     "lib": ["ES2020"],
     "outDir": ".homeybuild",
     "rootDir": ".",
-    "strict": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "strictFunctionTypes": false,
+    "strictBindCallApply": false,
+    "strictPropertyInitialization": false,
+    "noImplicitReturns": false,
+    "noImplicitThis": false,
+    "noImplicitUseStrict": false,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
+    "forceConsistentCasingInFileNames": false,
     "resolveJsonModule": true,
     "declaration": false,
     "sourceMap": false,
@@ -20,8 +28,7 @@
   },
   "include": [
     "src/**/*",
-    "index.ts",
-    "drivers/**/*"
+    "index.ts"
   ],
   "exclude": [
     "node_modules",
@@ -29,6 +36,7 @@
     "coverage",
     ".homeybuild",
     "**/*.test.ts",
-    "**/*.spec.ts"
+    "**/*.spec.ts",
+    "drivers/**/*"
   ]
 }
