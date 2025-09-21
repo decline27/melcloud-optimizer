@@ -93,6 +93,11 @@ describe('HeatOptimizerApp focused coverage tests', () => {
 
   test('runSystemHealthCheck reports cron jobs as managed by driver', async () => {
     // Note: Cron jobs are now managed by the driver, not the main app
+    // Mock API status methods to return connected for a healthy check
+    const mockApi = require('../../api.js');
+    mockApi.getMelCloudStatus.mockResolvedValue({ connected: true });
+    mockApi.getTibberStatus.mockResolvedValue({ connected: true });
+
     const res = await app.runSystemHealthCheck();
 
     // Should not report cron job issues since they're driver-managed
@@ -237,14 +242,13 @@ describe('HeatOptimizerApp focused coverage tests', () => {
     // Mock the logger initialization
     (app as any).initializeLogger = jest.fn();
     (app as any).validateSettings = jest.fn().mockReturnValue(true);
-    (app as any).initializeCronJobs = jest.fn();
     (app as any).runInitialDataCleanup = jest.fn();
 
     await (app as any).onInit();
 
     expect((app as any).initializeLogger).toHaveBeenCalled();
     expect((app as any).validateSettings).toHaveBeenCalled();
-    expect((app as any).initializeCronJobs).toHaveBeenCalled();
+    // Note: initializeCronJobs no longer exists - cron jobs are managed by the driver
     expect((app as any).runInitialDataCleanup).toHaveBeenCalled();
   });
 

@@ -392,11 +392,16 @@ describe('HeatOptimizerApp Enhanced Coverage Tests', () => {
     // Note: Cron jobs are now managed by the driver, not the main app
     // This test now verifies that recovery doesn't attempt to manage cron jobs
 
+    // Mock API status methods to return connected for a healthy system
+    const mockApi = require('../../api.js');
+    mockApi.getMelCloudStatus.mockResolvedValue({ connected: true });
+    mockApi.getTibberStatus.mockResolvedValue({ connected: true });
+
     const result = await app.runSystemHealthCheck();
 
     // Should not attempt cron job recovery since they're driver-managed
     expect(result.healthy).toBe(true);
-    expect(result.recovered).toBe(true);
+    expect(result.recovered).toBe(false); // No recovery needed when system is healthy
   });
 
   test('runHourlyOptimizer handles missing timeline helper gracefully', async () => {
