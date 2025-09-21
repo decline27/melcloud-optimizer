@@ -66,17 +66,13 @@ describe('HeatOptimizerApp focused coverage tests', () => {
     } as any;
   });
 
-  test('getCronStatus initializes jobs when missing and returns status object', () => {
-    // Ensure jobs are not initialized
-    app.hourlyJob = undefined;
-    app.weeklyJob = undefined;
-
+  test('getCronStatus returns driver-based status', () => {
+    // Note: Cron jobs are now managed by the driver, not the main app
     const status = app.getCronStatus();
 
-    // After calling, cron jobs should be initialized by updateCronStatusInSettings
-    expect((app as any).hourlyJob).toBeDefined();
-    expect((app as any).weeklyJob).toBeDefined();
-
+    // The method should return status from the driver
+    expect(status).toHaveProperty('architecture');
+    expect(status.architecture).toContain('BoilerDriver');
     expect(status).toHaveProperty('hourlyJob');
     expect(status).toHaveProperty('weeklyJob');
     expect(status).toHaveProperty('lastHourlyRun');
@@ -95,19 +91,14 @@ describe('HeatOptimizerApp focused coverage tests', () => {
     expect((app as any).logger.setLogLevel).toHaveBeenCalled();
   });
 
-  test('runSystemHealthCheck detects issues and attempts recovery by reinitializing cron jobs', async () => {
-    // Ensure cron jobs are not running
-    app.hourlyJob = undefined;
-    app.weeklyJob = undefined;
-
-    const spyInit = jest.spyOn(app, 'initializeCronJobs');
-
+  test('runSystemHealthCheck reports cron jobs as managed by driver', async () => {
+    // Note: Cron jobs are now managed by the driver, not the main app
     const res = await app.runSystemHealthCheck();
 
-    expect(res.healthy).toBe(false);
+    // Should not report cron job issues since they're driver-managed
+    expect(res.healthy).toBe(true);
     expect(Array.isArray(res.issues)).toBe(true);
-    // Recovery should have run and initialized cron jobs
-    expect(spyInit).toHaveBeenCalled();
+    expect(res.issues.length).toBe(0);
   });
 
   test('onUninit cleans up all resources properly', async () => {
@@ -203,8 +194,7 @@ describe('HeatOptimizerApp focused coverage tests', () => {
   });
 
   test('runSystemHealthCheck returns healthy status when all systems are working', async () => {
-    // Set up working cron jobs
-    app.initializeCronJobs();
+    // Note: Cron jobs are now managed by the driver
 
     // Mock API status methods to return connected
     const mockApi = require('../../api.js');
@@ -217,13 +207,11 @@ describe('HeatOptimizerApp focused coverage tests', () => {
     expect(result.issues).toHaveLength(0);
   });
 
-  test('updateCronStatusInSettings handles missing jobs gracefully', () => {
-    // Ensure jobs are not initialized
-    app.hourlyJob = undefined;
-    app.weeklyJob = undefined;
-
-    // This should not throw and should initialize jobs
-    expect(() => (app as any).updateCronStatusInSettings()).not.toThrow();
+  test('app architecture has moved cron jobs to driver', () => {
+    // Verify that cron job properties and methods no longer exist
+    expect((app as any).hourlyJob).toBeUndefined();
+    expect((app as any).weeklyJob).toBeUndefined();
+    expect(typeof (app as any).updateCronStatusInSettings).toBe('undefined');
   });
 
   test('onInit handles various initialization scenarios', async () => {

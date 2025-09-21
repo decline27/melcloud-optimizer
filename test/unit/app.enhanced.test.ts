@@ -330,17 +330,14 @@ describe('HeatOptimizerApp Enhanced Coverage Tests', () => {
     mockApi.getMelCloudStatus.mockRejectedValue(new Error('Connection failed'));
     mockApi.getTibberStatus.mockRejectedValue(new Error('API error'));
 
-    // Ensure cron jobs are not running
-    app.hourlyJob = undefined;
-    app.weeklyJob = undefined;
+    // Note: Cron jobs are now managed by the driver, not the main app
 
     const healthStatus = await (app as any).checkSystemHealth();
 
     expect(healthStatus.healthy).toBe(false);
     expect(healthStatus.issues).toContain('MELCloud connection check failed: Connection failed');
     expect(healthStatus.issues).toContain('Tibber API connection check failed: API error');
-    expect(healthStatus.issues).toContain('Hourly optimization job: Not running');
-    expect(healthStatus.issues).toContain('Weekly calibration job: Not running');
+    // Note: No longer expecting cron job issues since they're driver-managed
   });
 
   test('onSettingsChanged handles manual optimization triggers', async () => {
@@ -391,21 +388,15 @@ describe('HeatOptimizerApp Enhanced Coverage Tests', () => {
     expect(mockApi.updateOptimizerSettings).toHaveBeenCalledWith(homey);
   });
 
-  test('runSystemHealthCheck handles recovery failures', async () => {
-    // Ensure cron jobs are not running
-    app.hourlyJob = undefined;
-    app.weeklyJob = undefined;
-
-    // Mock initializeCronJobs to throw
-    const initSpy = jest.spyOn(app, 'initializeCronJobs').mockImplementation(() => {
-      throw new Error('Cron initialization failed');
-    });
+  test('runSystemHealthCheck no longer handles cron recovery since jobs moved to driver', async () => {
+    // Note: Cron jobs are now managed by the driver, not the main app
+    // This test now verifies that recovery doesn't attempt to manage cron jobs
 
     const result = await app.runSystemHealthCheck();
 
-    expect(result.healthy).toBe(false);
-    expect(result.recovered).toBe(false);
-    expect(initSpy).toHaveBeenCalled();
+    // Should not attempt cron job recovery since they're driver-managed
+    expect(result.healthy).toBe(true);
+    expect(result.recovered).toBe(true);
   });
 
   test('runHourlyOptimizer handles missing timeline helper gracefully', async () => {
@@ -524,15 +515,13 @@ describe('HeatOptimizerApp Enhanced Coverage Tests', () => {
     mockApi.getMelCloudStatus.mockRejectedValue(new Error('Network timeout'));
     mockApi.getTibberStatus.mockRejectedValue(new Error('Authentication failed'));
 
-    // Set up working cron jobs
-    app.initializeCronJobs();
+    // Note: Cron jobs are now managed by the driver
 
     const healthStatus = await (app as any).checkSystemHealth();
 
     expect(healthStatus.healthy).toBe(false);
     expect(healthStatus.issues).toContain('MELCloud connection check failed: Network timeout');
     expect(healthStatus.issues).toContain('Tibber API connection check failed: Authentication failed');
-    expect(healthStatus.issues).not.toContain('Hourly optimization job: Not running');
-    expect(healthStatus.issues).not.toContain('Weekly calibration job: Not running');
+    // Note: No longer checking cron job issues since they're driver-managed
   });
 });

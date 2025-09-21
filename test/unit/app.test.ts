@@ -28,21 +28,8 @@ describe('HeatOptimizerApp', () => {
     // Clear all timers
     jest.clearAllTimers();
     
-    // Clean up cron jobs
-    if (app.hourlyJob) {
-      app.hourlyJob.stop();
-      (app as any).hourlyJob = undefined;
-    }
-
-    if (app.weeklyJob) {
-      app.weeklyJob.stop();
-      (app as any).weeklyJob = undefined;
-    }
-
-    // Call the cleanup method if it exists
-    if (typeof (app as any).cleanupCronJobs === 'function') {
-      (app as any).cleanupCronJobs();
-    }
+    // Note: Cron jobs are now managed by the driver, not the main app
+    // No cleanup needed for the main app
   });
 
   beforeEach(() => {
@@ -279,8 +266,7 @@ describe('HeatOptimizerApp', () => {
       // Mock the runWeeklyCalibration method
       (app as any).runWeeklyCalibration = jest.fn().mockResolvedValue(undefined);
 
-      // Mock the cleanupCronJobs method
-      (app as any).cleanupCronJobs = jest.fn();
+      // Note: cleanupCronJobs method has been removed - cron jobs are now managed by the driver
 
       await app.onInit();
 
@@ -290,8 +276,7 @@ describe('HeatOptimizerApp', () => {
     });
 
     afterEach(() => {
-      // Clean up cron jobs after each test
-      (app as any).cleanupCronJobs();
+      // Note: cron job cleanup is now handled by the driver
     });
 
     it('should notify if required settings are missing', async () => {
@@ -487,15 +472,13 @@ describe('HeatOptimizerApp', () => {
         formatValue: jest.fn(value => typeof value === 'object' ? JSON.stringify(value) : String(value))
       };
 
-      // Mock the cleanupCronJobs method
-      (app as any).cleanupCronJobs = jest.fn();
+      // Note: cleanupCronJobs method has been removed - cron jobs are now managed by the driver
 
       await app.onInit();
     });
 
     afterEach(() => {
-      // Clean up cron jobs after each test
-      (app as any).cleanupCronJobs();
+      // Note: cron job cleanup is now handled by the driver
     });
 
     it('should update log level when log_level setting changes', () => {
