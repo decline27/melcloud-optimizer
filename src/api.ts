@@ -136,7 +136,7 @@ export class Api {
         };
       }
     } catch (error: unknown) {
-      this.app.error('Error clearing hot water data:', error instanceof Error ? error : String(error));
+      this.app.error('Error clearing hot water data:', error instanceof Error ? error : new Error(String(error)));
       return {
         success: false,
         message: `Error clearing hot water data: ${error instanceof Error ? error.message : String(error)}`

@@ -1,2 +1,4 @@
 import HeatOptimizerApp from './src/app';
-export default HeatOptimizerApp;
+
+// Export the class directly as module.exports for Homey compatibility
+module.exports = HeatOptimizerApp;
