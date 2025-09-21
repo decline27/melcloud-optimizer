@@ -79,5 +79,8 @@
   },
   "12.5.18": {
     "en": "new icon"
+  },
+  "12.5.19": {
+    "en": "Updated auto start on reinstall"
   }
 }
