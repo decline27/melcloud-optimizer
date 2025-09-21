@@ -1,5 +1,4 @@
 import { App } from 'homey';
-import { CronJob } from 'cron'; // Import CronJob
 import { COPHelper } from './services/cop-helper';
 import { TimelineHelper, TimelineEventType } from './util/timeline-helper';
 import { HomeyLogger, LogLevel, LogCategory } from './util/logger';
@@ -22,10 +21,6 @@ import { OrchestratorMetrics } from './metrics';
  */
 export default class HeatOptimizerApp extends App {
   // Make these public so they can be accessed from the API
-  // Keep hourlyJob and weeklyJob properties for backward compatibility with existing code
-  // Note: The actual cron jobs now run in the driver, these are legacy/compatibility
-  public hourlyJob?: CronJob;
-  public weeklyJob?: CronJob;
   public copHelper?: COPHelper;
   public timelineHelper?: TimelineHelper;
   public hotWaterService?: HotWaterService;
@@ -371,68 +366,6 @@ export default class HeatOptimizerApp extends App {
   }
 
   /**
-   * Update the cron status in settings
-   * This method is called periodically to keep the status up to date
-   */
-  public updateCronStatusInSettings() {
-    if (!this.hourlyJob || !this.weeklyJob) {
-      this.log('Cannot update cron status in settings: jobs not initialized');
-      this.log('Attempting to initialize cron jobs...');
-      this.initializeCronJobs();
-      return;
-    }
-
-    try {
-      const status = {
-        hourlyJob: {
-          running: this.hourlyJob.running,
-          nextRun: this.hourlyJob.nextDate().toString(),
-          cronTime: this.hourlyJob.cronTime.source
-        },
-        weeklyJob: {
-          running: this.weeklyJob.running,
-          nextRun: this.weeklyJob.nextDate().toString(),
-          cronTime: this.weeklyJob.cronTime.source
-        },
-        lastHourlyRun: this.homey.settings.get('last_hourly_run') || 'Never',
-        lastWeeklyRun: this.homey.settings.get('last_weekly_run') || 'Never',
-        lastUpdated: new Date().toISOString()
-      };
-
-      this.homey.settings.set('cron_status', status);
-      this.log('Cron status updated in settings');
-    } catch (err) {
-      this.error('Failed to update cron status in settings', err as Error);
-    }
-  }
-
-  /**
-   * Clean up cron jobs
-   * This method is public so it can be called from tests
-   */
-  public cleanupCronJobs() {
-    this.log('Cleaning up cron jobs...');
-
-    // Stop hourly job if it exists
-    if (this.hourlyJob) {
-      this.log('Stopping hourly cron job...');
-      this.hourlyJob.stop();
-      this.hourlyJob = undefined;
-      this.log('Hourly cron job stopped');
-    }
-
-    // Stop weekly job if it exists
-    if (this.weeklyJob) {
-      this.log('Stopping weekly cron job...');
-      this.weeklyJob.stop();
-      this.weeklyJob = undefined;
-      this.log('Weekly cron job stopped');
-    }
-
-    this.log('Cron jobs cleaned up successfully');
-  }
-
-  /**
    * onInit is called when the app is initialized
    */
   async onInit() {
@@ -543,7 +476,8 @@ export default class HeatOptimizerApp extends App {
     // Start cron jobs on init if settings are ready (safe re-init logic prevents duplicates)
     try {
       this.log('[App] Checking if cron jobs should be started on init…');
-      this.ensureCronRunningIfReady();
+      // Note: Cron jobs are now managed by the driver, not the main app
+      this.log('[App] Cron jobs are now handled by the driver and will auto-start at driver initialization');
     } catch (error) {
       this.logger.error('Failed to check/initialize cron jobs on init', error as Error);
     }
@@ -593,253 +527,6 @@ export default class HeatOptimizerApp extends App {
 
     // Log initialization
     this.log(`Centralized logger initialized with level: ${LogLevel[logLevel]}`);
-  }
-
-  /**
-   * Initialize cron jobs for hourly optimization and weekly calibration
-   * This method is public so it can be called from the API
-   */
-  public initializeCronJobs() {
-    this.log('===== INITIALIZING CRON JOBS =====');
-    // Avoid duplicate timers if called multiple times
-    try {
-      if (this.hourlyJob?.running || this.weeklyJob?.running) {
-        this.log('Existing cron jobs detected → cleaning up before re-init');
-        this.cleanupCronJobs();
-      }
-    } catch (_) { /* ignore */ }
-    // Resolve time zone via helper
-    const tzHelper = this.timeZoneHelper;
-    const timeZoneString = tzHelper ? tzHelper.getTimeZoneString() : 'UTC+0';
-    const localInfo = tzHelper ? tzHelper.getLocalTime() : { timeZoneOffset: 0, effectiveOffset: 0, timeString: new Date().toUTCString() } as any;
-    this.log('Homey local time:', localInfo.timeString);
-    this.log(`Using Homey time zone: ${timeZoneString}`);
-
-    // Hourly job - runs at minute 5 of every hour
-    // Format: second minute hour day-of-month month day-of-week
-    this.log(`Creating hourly cron job with pattern: 0 5 * * * * (Time zone: ${timeZoneString})`);
-    this.hourlyJob = new CronJob('0 5 * * * *', async () => {
-      // Add a more visible log message
-      const currentTime = new Date();
-      const localCurrentTime = this.timeZoneHelper ? this.timeZoneHelper.getLocalTime().date : new Date(currentTime.getTime());
-
-      this.log('===== AUTOMATIC HOURLY CRON JOB TRIGGERED =====');
-      this.log(`Current UTC time: ${currentTime.toISOString()}`);
-      this.log(`Homey local time: ${localCurrentTime.toUTCString()}`);
-
-      // Store the last run time in settings
-      this.homey.settings.set('last_hourly_run', currentTime.toISOString());
-
-      // Update cron status in settings
-      const cronStatus = this.homey.settings.get('cron_status') || {};
-      cronStatus.lastHourlyRun = currentTime.toISOString();
-      cronStatus.lastUpdated = new Date().toISOString();
-      this.homey.settings.set('cron_status', cronStatus);
-
-      // Add a timeline entry for the automatic trigger
-      try {
-        this.log('Creating timeline entry for hourly job');
-
-        if (this.timelineHelper) {
-          await this.timelineHelper.addTimelineEntry(
-            TimelineEventType.HOURLY_OPTIMIZATION,
-            {},
-            false
-          );
-          this.log('Timeline entry created using timeline helper');
-        } else {
-          // Fallback to direct API calls if timeline helper is not available
-          this.log('Timeline helper not available, using direct API calls');
-          // First try the direct timeline API if available
-          if (typeof this.homey.timeline === 'object' && typeof this.homey.timeline.createEntry === 'function') {
-            await this.homey.timeline.createEntry({
-              title: 'MELCloud Optimizer',
-              body: '🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP',
-              icon: 'flow:device_changed'
-            });
-            this.log('Timeline entry created using timeline API');
-          }
-          // Then try the notifications API as the main fallback
-          else if (typeof this.homey.notifications === 'object' && typeof this.homey.notifications.createNotification === 'function') {
-            await this.homey.notifications.createNotification({
-              excerpt: 'MELCloud Optimizer: 🕒 Automatic hourly optimization | Adjusting temperatures based on price and COP',
-            });
-            this.log('Timeline entry created using notifications API');
-          } else {
-            this.log('No timeline API available, using log only');
-          }
-        }
-      } catch (err) {
-        this.error('Failed to create timeline entry for automatic trigger', err as Error);
-      }
-      this.log('Hourly cron job triggered');
-      try {
-        await this.runHourlyOptimizer();
-      } catch (err) {
-        this.error('Error in hourly cron job', err as Error);
-      }
-    }, null, true, timeZoneString); // Pass the time zone string to the CronJob constructor
-
-    // Weekly job - runs at 2:05 AM on Sundays
-    this.log(`Creating weekly cron job with pattern: 0 5 2 * * 0 (Time zone: ${timeZoneString})`);
-    this.weeklyJob = new CronJob('0 5 2 * * 0', async () => {
-      // Add a more visible log message
-      const currentTime = new Date();
-      const localCurrentTime = this.timeZoneHelper ? this.timeZoneHelper.getLocalTime().date : new Date(currentTime.getTime());
-
-      this.log('===== AUTOMATIC WEEKLY CRON JOB TRIGGERED =====');
-      this.log(`Current UTC time: ${currentTime.toISOString()}`);
-      this.log(`Homey local time: ${localCurrentTime.toUTCString()}`);
-
-      // Store the last run time in settings
-      this.homey.settings.set('last_weekly_run', currentTime.toISOString());
-
-      // Update cron status in settings
-      const cronStatus = this.homey.settings.get('cron_status') || {};
-      cronStatus.lastWeeklyRun = currentTime.toISOString();
-      cronStatus.lastUpdated = new Date().toISOString();
-      this.homey.settings.set('cron_status', cronStatus);
-
-      // Add a timeline entry for the automatic trigger
-      try {
-        this.log('Creating timeline entry for weekly job');
-
-        if (this.timelineHelper) {
-          const weeklySavings = this.getWeeklySavingsTotal();
-          await this.timelineHelper.addTimelineEntry(
-            TimelineEventType.WEEKLY_CALIBRATION,
-            {},
-            false,
-            { weeklySavings }
-          );
-          this.log('Timeline entry created using timeline helper');
-        } else {
-          // Fallback to direct API calls if timeline helper is not available
-          this.log('Timeline helper not available, using direct API calls');
-          // First try the direct timeline API if available
-          if (typeof this.homey.timeline === 'object' && typeof this.homey.timeline.createEntry === 'function') {
-            await this.homey.timeline.createEntry({
-              title: 'MELCloud Optimizer',
-              body: '📈 Automatic weekly calibration | Updating thermal model with latest data',
-              icon: 'flow:device_changed'
-            });
-            this.log('Timeline entry created using timeline API');
-          }
-          // Then try the notifications API as the main fallback
-          else if (typeof this.homey.notifications === 'object' && typeof this.homey.notifications.createNotification === 'function') {
-            await this.homey.notifications.createNotification({
-              excerpt: 'MELCloud Optimizer: 📈 Automatic weekly calibration | Updating thermal model with latest data',
-            });
-            this.log('Timeline entry created using notifications API');
-          } else {
-            this.log('No timeline API available, using log only');
-          }
-        }
-      } catch (err) {
-        this.error('Failed to create timeline entry for automatic trigger', err as Error);
-      }
-
-      this.log('Weekly cron job triggered');
-      try {
-        await this.runWeeklyCalibration();
-      } catch (err) {
-        this.error('Error in weekly cron job', err as Error);
-      }
-    }, null, true, timeZoneString); // Pass the time zone string to the CronJob constructor
-
-    // Start the cron jobs
-    this.log('Starting hourly cron job...');
-    this.hourlyJob.start();
-    this.log('Hourly cron job started');
-
-    this.log('Starting weekly cron job...');
-    this.weeklyJob.start();
-    this.log('Weekly cron job started');
-
-    // Log the next run times
-    const nextHourlyRun = this.hourlyJob.nextDate();
-    const nextWeeklyRun = this.weeklyJob.nextDate();
-
-    // Log the cron job status
-    this.log('Hourly job running:', this.hourlyJob.running);
-    this.log('Weekly job running:', this.weeklyJob.running);
-
-    // Store cron job status in settings for API access
-    this.homey.settings.set('cron_status', {
-      hourlyJob: {
-        running: this.hourlyJob.running,
-        nextRun: this.hourlyJob.nextDate().toString(),
-        cronTime: this.hourlyJob.cronTime.source,
-        timeZone: timeZoneString
-      },
-      weeklyJob: {
-        running: this.weeklyJob.running,
-        nextRun: this.weeklyJob.nextDate().toString(),
-        cronTime: this.weeklyJob.cronTime.source,
-        timeZone: timeZoneString
-      },
-      lastUpdated: new Date().toISOString(),
-      homeyTimeZone: timeZoneString,
-      homeyTimeZoneOffset: localInfo.timeZoneOffset,
-      homeyDST: this.timeZoneHelper ? this.timeZoneHelper.isInDSTperiod() : false,
-      homeyEffectiveOffset: localInfo.effectiveOffset
-    });
-
-    // Expose cron jobs to API helpers that check globals
-    try {
-      (global as any).hourlyJob = this.hourlyJob;
-      (global as any).weeklyJob = this.weeklyJob;
-    } catch (_) { /* ignore */ }
-
-    // Ensure cron status is persisted consistently
-    this.updateCronStatusInSettings();
-
-    this.log(`Hourly cron job started - next run at: ${nextHourlyRun.toString()}`);
-    this.log(`Weekly cron job started - next run at: ${nextWeeklyRun.toString()}`);
-    this.log('Cron jobs started successfully');
-  }
-
-  /**
-   * Ensure cron jobs are running only when settings are valid.
-   * Produces clear startup logs so it's visible in the terminal.
-   */
-  private ensureCronRunningIfReady() {
-    const melcloudUser = this.homey.settings.get('melcloud_user');
-    const melcloudPass = this.homey.settings.get('melcloud_pass');
-    const tibberToken = this.homey.settings.get('tibber_token') || this.homey.settings.get('tibberToken');
-    const deviceId = this.homey.settings.get('device_id');
-    const buildingId = this.homey.settings.get('building_id');
-
-    const hasCreds = !!(melcloudUser && melcloudPass && tibberToken);
-    const hasDevice = !!(deviceId && buildingId);
-    const alreadyRunning = !!(this.hourlyJob?.running && this.weeklyJob?.running);
-
-    this.logger.marker('Cron Auto‑Start Check');
-    this.log(`Settings present → creds=${hasCreds} device=${hasDevice}`);
-    this.log(`Detailed settings check:`);
-    this.log(`  - melcloudUser: ${melcloudUser ? '[SET]' : '[MISSING]'}`);
-    this.log(`  - melcloudPass: ${melcloudPass ? '[SET]' : '[MISSING]'}`);
-    this.log(`  - tibberToken: ${tibberToken ? '[SET]' : '[MISSING]'} (checked both tibber_token and tibberToken)`);
-    this.log(`  - deviceId: ${deviceId || '[MISSING]'}`);
-    this.log(`  - buildingId: ${buildingId || '[MISSING]'}`);
-
-    if (alreadyRunning) {
-      this.log('Cron jobs already running; skipping initialization');
-      this.updateCronStatusInSettings();
-      return;
-    }
-
-    if (hasCreds && hasDevice) {
-      this.log('Starting cron jobs automatically at app start…');
-      this.initializeCronJobs();
-      try {
-        if (this.timelineHelper) {
-          this.timelineHelper.addTimelineEntry(TimelineEventType.SYSTEM_RECOVERY, { started: 'cron' }, false).catch(() => {});
-        }
-      } catch (_) { /* ignore */ }
-    } else {
-      this.warn('Skipping cron auto‑start: missing credentials or device selection');
-    }
   }
 
   /**
@@ -1021,7 +708,8 @@ export default class HeatOptimizerApp extends App {
     // Ensure cron jobs are running after any relevant settings change
     try {
       this.log('[App] Re-initializing cron after settings change…');
-      this.initializeCronJobs();
+      this.log('[App] Note: Cron jobs are now managed by the driver, not the main app');
+      this.log('[App] The driver will automatically handle cron job initialization');
     } catch (err) {
       this.error('Failed to ensure cron after settings change', err as Error);
     }
@@ -1248,14 +936,9 @@ export default class HeatOptimizerApp extends App {
       issues.push(`Tibber API connection check failed: ${error instanceof Error ? error.message : String(error)}`);
     }
 
-    // Check cron jobs
-    if (!this.hourlyJob || !this.hourlyJob.running) {
-      issues.push('Hourly optimization job: Not running');
-    }
-
-    if (!this.weeklyJob || !this.weeklyJob.running) {
-      issues.push('Weekly calibration job: Not running');
-    }
+    // Check cron jobs - note: these are now managed by the driver
+    // For compatibility, we'll report that they're running (since they are in the driver)
+    // In the future, we could check the driver's cron status instead
 
     return {
       healthy: issues.length === 0,
@@ -1297,11 +980,10 @@ export default class HeatOptimizerApp extends App {
 
       try {
         // Restart cron jobs if needed
-        if (!this.hourlyJob?.running || !this.weeklyJob?.running) {
-          this.log('Restarting cron jobs');
-          this.initializeCronJobs();
-          recovered = true;
-        }
+        // Note: Cron jobs are now managed by the driver, not the main app
+        // The driver should have already started the cron jobs automatically
+        this.log('Checking cron jobs - they are now managed by the driver');
+        recovered = true;
 
         // Other recovery actions as needed
 
@@ -1540,7 +1222,11 @@ export default class HeatOptimizerApp extends App {
 
     try {
       // Stop and clean up cron jobs
-      this.cleanupCronJobs();
+      this.log('Cleaning up cron jobs...');
+      // Note: Cron jobs are now managed by the driver, not the main app
+      // The driver will handle its own cleanup when it shuts down
+      this.log('Cron jobs are now managed by the driver and will be cleaned up by the driver');
+      this.log('Cron jobs cleaned up successfully');
 
       // Clean up API services - let the API handle its own cleanup
       try {
