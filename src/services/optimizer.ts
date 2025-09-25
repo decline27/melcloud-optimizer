@@ -115,6 +115,9 @@ interface EnhancedOptimizationResult {
     average: number;
     min: number;
     max: number;
+    level?: string;
+    percentile?: number;
+    nextHour?: number;
   };
   savings?: number;
   energyMetrics?: OptimizationMetrics;
@@ -129,6 +132,41 @@ interface EnhancedOptimizationResult {
     adjustment?: { adjustment: number; reason: string };
     trend?: { trend: string; details: string };
   };
+  priceForecast?: {
+    position?: string;
+    recommendation?: string;
+    upcomingChanges?: any;
+    bestTimes?: any;
+    worstTimes?: any;
+  };
+  zone2Data?: SecondaryZoneResult;
+  tankData?: TankOptimizationResult;
+  melCloudStatus?: {
+    setpointApplied: boolean;
+    error?: string;
+  };
+  tankStatus?: {
+    setpointApplied: boolean;
+    error?: string;
+  };
+}
+
+interface SecondaryZoneResult {
+  fromTemp: number;
+  toTemp: number;
+  reason: string;
+  targetOriginal?: number;
+  targetTemp?: number;
+  indoorTemp?: number;
+  success?: boolean;
+}
+
+interface TankOptimizationResult {
+  fromTemp: number;
+  toTemp: number;
+  reason: string;
+  success?: boolean;
+  changed?: boolean;
 }
 
 /**
@@ -145,6 +183,16 @@ export class Optimizer {
   // Safety: avoid frequent setpoint changes (anti–short-cycling proxy)
   private minSetpointChangeMinutes: number = 15;
   private lastSetpointChangeMs: number | null = null;
+  // Secondary zone constraints
+  private enableZone2: boolean = false;
+  private minTempZone2: number = 18;
+  private maxTempZone2: number = 22;
+  private tempStepZone2: number = 0.5;
+  // Hot water tank constraints
+  private enableTankControl: boolean = false;
+  private minTankTemp: number = 40;
+  private maxTankTemp: number = 50;
+  private tankTempStep: number = 1.0;
   private thermalModelService: ThermalModelService | null = null;
   private useThermalLearning: boolean = false;
   private copHelper: COPHelper | null = null;
@@ -186,7 +234,7 @@ export class Optimizer {
    */
   constructor(
     private readonly melCloud: MelCloudApi,
-    private readonly tibber: TibberApi,
+    private readonly tibber: TibberApi | null,
     private readonly deviceId: string,
     private readonly buildingId: number,
     private readonly logger: HomeyLogger,
@@ -292,7 +340,7 @@ export class Optimizer {
         }
       }
       
-    } catch (error) {
+    } catch (error: unknown) {
       this.logger.error('Failed to initialize thermal mass from history:', error);
       // Keep default values on error
     }
@@ -338,6 +386,47 @@ export class Optimizer {
     this.tempStep = validateNumber(tempStep, 'tempStep', { min: 0.1, max: 1 });
 
     this.logger.log(`Temperature constraints set - Min: ${this.minTemp}°C, Max: ${this.maxTemp}°C, Step: ${this.tempStep}°C`);
+  }
+
+  /**
+   * Configure Zone2 temperature constraints and enablement
+   */
+  setZone2TemperatureConstraints(enableZone2: boolean, minTempZone2: number, maxTempZone2: number, tempStepZone2: number): void {
+    this.enableZone2 = enableZone2;
+    this.minTempZone2 = validateNumber(minTempZone2, 'minTempZone2', { min: 10, max: 30 });
+    this.maxTempZone2 = validateNumber(maxTempZone2, 'maxTempZone2', { min: 10, max: 30 });
+
+    if (this.maxTempZone2 <= this.minTempZone2) {
+      throw new Error(`Invalid Zone2 temperature range: max (${maxTempZone2}) must be greater than min (${minTempZone2})`);
+    }
+
+    this.tempStepZone2 = validateNumber(tempStepZone2 || 0.5, 'tempStepZone2', { min: 0.1, max: 2 });
+
+    this.logger.log(`Zone2 constraints updated - Enabled: ${enableZone2}, Min: ${this.minTempZone2}°C, Max: ${this.maxTempZone2}°C, Step: ${this.tempStepZone2}°C`);
+  }
+
+  /**
+   * Configure hot water tank control constraints and enablement
+   */
+  setTankTemperatureConstraints(enableTankControl: boolean, minTankTemp: number, maxTankTemp: number, tankTempStep: number): void {
+    this.enableTankControl = enableTankControl;
+    this.minTankTemp = validateNumber(minTankTemp, 'minTankTemp', { min: 30, max: 70 });
+    this.maxTankTemp = validateNumber(maxTankTemp, 'maxTankTemp', { min: 30, max: 70 });
+
+    if (this.maxTankTemp <= this.minTankTemp) {
+      throw new Error(`Invalid tank temperature range: max (${maxTankTemp}) must be greater than min (${minTankTemp})`);
+    }
+
+    this.tankTempStep = validateNumber(tankTempStep || 1, 'tankTempStep', { min: 0.5, max: 5 });
+
+    this.logger.log(`Tank constraints updated - Enabled: ${enableTankControl}, Min: ${this.minTankTemp}°C, Max: ${this.maxTankTemp}°C, Step: ${this.tankTempStep}°C`);
+  }
+
+  /**
+   * Expose current thermal model configuration
+   */
+  public getThermalModel(): ThermalModel {
+    return { ...this.thermalModel };
   }
 
   /**
@@ -494,7 +583,7 @@ export class Optimizer {
         };
       }
       
-    } catch (error) {
+    } catch (error: unknown) {
       this.logger.error('Error calculating thermal mass strategy:', error);
       return {
         action: 'maintain',
@@ -848,9 +937,22 @@ export class Optimizer {
       // Use enhanced COP data for more accurate optimization
       const enhancedCOPData = await this.melCloud.getEnhancedCOPData(this.deviceId, this.buildingId);
       
-      // Extract enhanced COP values
-      const realHeatingCOP = enhancedCOPData.current.heating || 0;
-      const realHotWaterCOP = enhancedCOPData.current.hotWater || 0;
+      // Extract enhanced COP values with sensible fallbacks when the live value is missing
+      const derivedHeatingCOP = (enhancedCOPData.daily as any)?.heatingCOP
+        ?? (enhancedCOPData.daily as any)?.averageCOP
+        ?? enhancedCOPData.historical.heating
+        ?? 0;
+      const derivedHotWaterCOP = (enhancedCOPData.daily as any)?.hotWaterCOP
+        ?? (enhancedCOPData.daily as any)?.averageCOP
+        ?? enhancedCOPData.historical.hotWater
+        ?? 0;
+
+      const realHeatingCOP = enhancedCOPData.current.heating > 0
+        ? enhancedCOPData.current.heating
+        : derivedHeatingCOP;
+      const realHotWaterCOP = enhancedCOPData.current.hotWater > 0
+        ? enhancedCOPData.current.hotWater
+        : derivedHotWaterCOP;
       
       // Update COP ranges with current values
       if (realHeatingCOP > 0) this.updateCOPRange(realHeatingCOP);
@@ -874,12 +976,12 @@ export class Optimizer {
         TotalCoolingConsumed: 0,
         TotalCoolingProduced: 0,
         CoP: energyData.CoP || [],
-  // Prefer explicit COP fields when present in the daily report
-  heatingCOP: (energyData as any).heatingCOP ?? (energyData as any).averageCOP ?? enhancedCOPData.historical.heating,
-  hotWaterCOP: (energyData as any).hotWaterCOP ?? (energyData as any).averageCOP ?? enhancedCOPData.historical.hotWater,
-  averageCOP: (energyData as any).averageCOP ?? null,
-  AverageHeatingCOP: enhancedCOPData.historical.heating,
-  AverageHotWaterCOP: enhancedCOPData.historical.hotWater
+        // Prefer explicit COP fields when present in the daily report
+        heatingCOP: derivedHeatingCOP,
+        hotWaterCOP: derivedHotWaterCOP,
+        averageCOP: (energyData as any).averageCOP ?? null,
+        AverageHeatingCOP: enhancedCOPData.historical.heating,
+        AverageHotWaterCOP: enhancedCOPData.historical.hotWater
       };
 
       this.lastEnergyData = safeEnergyData;
@@ -928,11 +1030,16 @@ export class Optimizer {
 
       this.optimizationMetrics = metrics;
 
+      const heatingCOPDisplay = realHeatingCOP > 0 ? realHeatingCOP.toFixed(2) : 'n/a';
+      const hotWaterCOPDisplay = realHotWaterCOP > 0 ? realHotWaterCOP.toFixed(2) : 'n/a';
+      const heatingEfficiencyDisplay = realHeatingCOP > 0 ? (heatingEfficiency * 100).toFixed(0) + '%' : 'n/a';
+      const hotWaterEfficiencyDisplay = realHotWaterCOP > 0 ? (hotWaterEfficiency * 100).toFixed(0) + '%' : 'n/a';
+
       this.logger.log(`Enhanced energy metrics calculated:`, {
-        heatingCOP: realHeatingCOP.toFixed(2),
-        hotWaterCOP: realHotWaterCOP.toFixed(2),
-        heatingEfficiency: (heatingEfficiency * 100).toFixed(0) + '%',
-        hotWaterEfficiency: (hotWaterEfficiency * 100).toFixed(0) + '%',
+        heatingCOP: heatingCOPDisplay,
+        hotWaterCOP: hotWaterCOPDisplay,
+        heatingEfficiency: heatingEfficiencyDisplay,
+        hotWaterEfficiency: hotWaterEfficiencyDisplay,
         dailyConsumption: dailyEnergyConsumption.toFixed(1) + ' kWh/day',
         seasonalMode,
         optimizationFocus,
@@ -1249,6 +1356,9 @@ export class Optimizer {
       }
 
       // Get electricity prices
+      if (!this.tibber) {
+        throw new Error('Tibber service not initialized');
+      }
       const priceData = await this.tibber.getPrices();
       const currentPrice = priceData.current.price;
 
@@ -1403,8 +1513,15 @@ export class Optimizer {
 
       // Set new temperature if different
       if (newTarget !== safeCurrentTarget) {
-        await this.melCloud.setDeviceTemperature(this.deviceId, this.buildingId, newTarget);
-        this.logger.log(`Changed temperature from ${safeCurrentTarget}°C to ${newTarget}°C: ${reason}`);
+        try {
+          await this.melCloud.setDeviceTemperature(this.deviceId, this.buildingId, newTarget);
+          this.logger.log(`Changed temperature from ${safeCurrentTarget}°C to ${newTarget}°C: ${reason}`);
+        } catch (error) {
+          this.logger.error('Failed to set MELCloud target temperature:', error);
+          const errMsg = (error instanceof Error) ? error.message : String(error);
+          reason = `Temperature change requested but MELCloud rejected: ${errMsg}`;
+          newTarget = safeCurrentTarget;
+        }
       } else {
         this.logger.log(`Keeping temperature at ${safeCurrentTarget}°C: ${reason}`);
       }
@@ -1451,7 +1568,9 @@ export class Optimizer {
     } catch (error) {
       this.logger.error('Error in hourly optimization', error);
       this.handleApiError(error);
+      throw error;
     }
+    throw new Error('Enhanced optimization exited without producing a result');
   }
 
   /**
@@ -1474,11 +1593,35 @@ export class Optimizer {
       }
 
       // Get Tibber price data
+      if (!this.tibber) {
+        throw new Error('Tibber service not initialized');
+      }
       const priceData = await this.tibber.getPrices();
       const currentPrice = priceData.current.price;
       const avgPrice = priceData.prices.reduce((sum, p) => sum + p.price, 0) / priceData.prices.length;
       const minPrice = Math.min(...priceData.prices.map((p: any) => p.price));
       const maxPrice = Math.max(...priceData.prices.map((p: any) => p.price));
+      const priceLevel: string = (priceData.current as any)?.level || 'NORMAL';
+      const pricePercentile = priceData.prices.length > 0
+        ? (priceData.prices.filter((p: any) => p.price <= currentPrice).length / priceData.prices.length) * 100
+        : 0;
+      let nextHourPrice: number | undefined;
+      try {
+        const currentTs = priceData.current?.time ? new Date(priceData.current.time) : new Date();
+        const next = priceData.prices.find((p: any) => {
+          try {
+            return new Date(p.time) > currentTs;
+          } catch {
+            return false;
+          }
+        });
+        if (next && typeof next.price === 'number' && Number.isFinite(next.price)) {
+          nextHourPrice = next.price;
+        }
+      } catch {
+        nextHourPrice = undefined;
+      }
+      const priceForecast = (priceData as any)?.forecast || null;
 
       // Validate price freshness (failsafe)
       try {
@@ -1612,17 +1755,19 @@ export class Optimizer {
 
       // Apply weather-based adjustment when available (uses forecast + price context)
       let weatherInfo: any = null;
+      let weatherAdjustment: { adjustment: number; reason: string } | null = null;
+      let weatherTrend: any = null;
       if (this.weatherApi && typeof (this.weatherApi as any).getForecast === 'function' && typeof (this.weatherApi as any).calculateWeatherBasedAdjustment === 'function') {
         try {
           const forecast = await (this.weatherApi as any).getForecast();
-          const weatherAdjustment = (this.weatherApi as any).calculateWeatherBasedAdjustment(
+          weatherAdjustment = (this.weatherApi as any).calculateWeatherBasedAdjustment(
             forecast,
             currentTemp,
             currentTarget,
             currentPrice,
             avgPrice
           );
-          const trend = (this.weatherApi as any).getWeatherTrend ? (this.weatherApi as any).getWeatherTrend(forecast) : null;
+          weatherTrend = (this.weatherApi as any).getWeatherTrend ? (this.weatherApi as any).getWeatherTrend(forecast) : null;
 
           if (weatherAdjustment && typeof weatherAdjustment.adjustment === 'number' && Math.abs(weatherAdjustment.adjustment) >= 0.1) {
             targetTemp += weatherAdjustment.adjustment;
@@ -1632,7 +1777,7 @@ export class Optimizer {
           weatherInfo = {
             current: forecast && forecast.current ? forecast.current : undefined,
             adjustment: weatherAdjustment,
-            trend
+            trend: weatherTrend
           };
         } catch (wErr) {
           this.logger.error('Weather-based adjustment failed', wErr as Error);
@@ -1660,8 +1805,11 @@ export class Optimizer {
       targetTemp = Math.round(targetTemp / this.tempStep) * this.tempStep;
 
       // Check if adjustment is needed
-      const tempDifference = Math.abs(targetTemp - safeCurrentTarget);
-      const isSignificantChange = tempDifference >= this.deadband;
+      let tempDifference = Math.abs(targetTemp - safeCurrentTarget);
+      let isSignificantChange = tempDifference >= this.deadband;
+      let melCloudSetpointApplied = true;
+      let melCloudSetpointError: string | undefined;
+      let setpointApplied = false;
 
       // Enhanced logging with real energy metrics
       const logData: any = {
@@ -1670,7 +1818,7 @@ export class Optimizer {
         isSignificantChange,
         adjustmentReason,
         priceNormalized: ((currentPrice - minPrice) / (maxPrice - minPrice)).toFixed(2),
-        pricePercentile: (priceData.prices.filter((p: any) => p.price <= currentPrice).length / priceData.prices.length * 100).toFixed(0) + '%'
+        pricePercentile: `${pricePercentile.toFixed(0)}%`
       };
 
       if (optimizationResult.metrics) {
@@ -1683,17 +1831,17 @@ export class Optimizer {
         };
       }
 
-      this.logger.log('Enhanced optimization result:', logData);
-
       // Perform hot water optimization if applicable
       let hotWaterAction = null;
       let thermalStrategy = null;
+      let tankStatus: { setpointApplied: boolean; error?: string } | undefined;
       
       if (optimizationResult.metrics?.optimizationFocus === 'hotwater' || 
           optimizationResult.metrics?.optimizationFocus === 'both') {
         
         // Use thermal mass strategy if available
         if (this.thermalMassModel && priceData.prices && priceData.prices.length >= 24) {
+          const targetBeforeStrategy = targetTemp;
           thermalStrategy = this.calculateThermalMassStrategy(
             currentTemp || 20,
             targetTemp,
@@ -1713,7 +1861,7 @@ export class Optimizer {
             
             this.logger.log('Thermal mass strategy applied:', {
               action: thermalStrategy.action,
-              fromTemp: targetTemp,
+              fromTemp: targetBeforeStrategy,
               toTemp: thermalStrategy.targetTemp,
               reasoning: thermalStrategy.reasoning,
               estimatedSavings: thermalStrategy.estimatedSavings,
@@ -1760,6 +1908,181 @@ export class Optimizer {
         });
       }
 
+      // Reapply constraints after any secondary adjustments (e.g., thermal strategy)
+      if (thermalStrategy && thermalStrategy.action !== 'maintain') {
+        targetTemp = Math.max(this.minTemp, Math.min(this.maxTemp, targetTemp));
+        const maxChangeAfterStrategy = this.tempStep;
+        if (Math.abs(targetTemp - safeCurrentTarget) > maxChangeAfterStrategy) {
+          targetTemp = safeCurrentTarget + (targetTemp > safeCurrentTarget ? maxChangeAfterStrategy : -maxChangeAfterStrategy);
+          adjustmentReason += ` (limited to ${maxChangeAfterStrategy}°C step after thermal strategy)`;
+        }
+        targetTemp = Math.round(targetTemp / this.tempStep) * this.tempStep;
+
+        tempDifference = Math.abs(targetTemp - safeCurrentTarget);
+        isSignificantChange = tempDifference >= this.deadband;
+        logData.targetTemp = targetTemp.toFixed(1);
+        logData.tempDifference = tempDifference.toFixed(1);
+        logData.isSignificantChange = isSignificantChange;
+      }
+
+      this.logger.log('Enhanced optimization result:', logData);
+
+      // Handle secondary zone optimization (Zone2)
+      const deviceSupportsZone2 = deviceState.SetTemperatureZone2 !== undefined;
+      if (this.enableZone2 && !deviceSupportsZone2) {
+        this.logger.log('WARNING: Zone2 temperature optimization enabled in settings, but device does not expose Zone2');
+      }
+
+      let zone2Result: SecondaryZoneResult | null = null;
+      if (this.enableZone2 && deviceSupportsZone2) {
+        try {
+          const currentTempZone2 = deviceState.RoomTemperatureZone2 ?? currentTemp ?? 21;
+          const currentTargetZone2 = deviceState.SetTemperatureZone2 ?? currentTempZone2;
+
+          let zone2Target = await this.calculateOptimalTemperature(
+            currentPrice,
+            avgPrice,
+            minPrice,
+            maxPrice,
+            currentTempZone2
+          );
+
+          if (weatherAdjustment && Math.abs(weatherAdjustment.adjustment) >= 0.1) {
+            zone2Target += weatherAdjustment.adjustment;
+          }
+
+          zone2Target = Math.max(this.minTempZone2, Math.min(this.maxTempZone2, zone2Target));
+
+          const maxZone2Change = this.tempStepZone2;
+          if (Math.abs(zone2Target - currentTargetZone2) > maxZone2Change) {
+            zone2Target = currentTargetZone2 + (zone2Target > currentTargetZone2 ? maxZone2Change : -maxZone2Change);
+          }
+
+          zone2Target = Math.round(zone2Target / this.tempStepZone2) * this.tempStepZone2;
+
+          const zone2Deadband = Math.max(0.1, this.tempStepZone2 / 2);
+          const zone2Change = Math.abs(zone2Target - currentTargetZone2);
+
+          let zone2Reason = 'No change needed';
+          if (zone2Target < currentTargetZone2) {
+            zone2Reason = weatherAdjustment && typeof weatherAdjustment.reason === 'string'
+              ? `Tibber price level ${priceLevel} and ${weatherAdjustment.reason.toLowerCase()} – reducing Zone2 temperature`
+              : `Tibber price level ${priceLevel} – reducing Zone2 temperature`;
+          } else if (zone2Target > currentTargetZone2) {
+            zone2Reason = weatherAdjustment && typeof weatherAdjustment.reason === 'string'
+              ? `Tibber price level ${priceLevel} and ${weatherAdjustment.reason.toLowerCase()} – increasing Zone2 temperature`
+              : `Tibber price level ${priceLevel} – increasing Zone2 temperature`;
+          }
+
+          if (zone2Change >= zone2Deadband) {
+            await this.melCloud.setZoneTemperature(this.deviceId, this.buildingId, zone2Target, 2);
+            this.logger.log(`Zone2 temperature adjusted from ${currentTargetZone2.toFixed(1)}°C to ${zone2Target.toFixed(1)}°C`);
+          } else {
+            this.logger.log(`Zone2 change ${zone2Change.toFixed(2)}°C below deadband ${zone2Deadband.toFixed(2)}°C – keeping ${currentTargetZone2.toFixed(1)}°C`);
+          }
+
+          zone2Result = {
+            fromTemp: currentTargetZone2,
+            toTemp: zone2Target,
+            reason: zone2Reason,
+            targetOriginal: currentTargetZone2,
+            targetTemp: zone2Target,
+            indoorTemp: currentTempZone2,
+            success: zone2Change >= zone2Deadband
+          };
+        } catch (zone2Error) {
+          this.logger.error('Zone2 optimization failed', zone2Error as Error);
+        }
+      }
+
+      // Handle hot water tank optimization
+      let tankResult: TankOptimizationResult | null = null;
+      const currentTankTarget = deviceState.SetTankWaterTemperature;
+      if (this.enableTankControl && currentTankTarget !== undefined) {
+        try {
+          let tankTarget = currentTankTarget;
+          let tankReason = 'Maintaining current tank temperature';
+
+          const hotWaterService = (this.homey as any)?.hotWaterService;
+          if (hotWaterService && typeof hotWaterService.getOptimalTankTemperature === 'function') {
+            try {
+              const priceThreshold = this.homey?.settings.get('price_threshold') ?? 0.1;
+              tankTarget = hotWaterService.getOptimalTankTemperature(
+                this.minTankTemp,
+                this.maxTankTemp,
+                currentPrice,
+                priceThreshold
+              );
+              tankReason = 'Optimized using learned hot water usage patterns';
+            } catch (hwErr) {
+              this.logger.error('Hot water service optimization failed, falling back to price heuristics', hwErr as Error);
+            }
+          }
+
+          if (tankTarget === currentTankTarget) {
+            if (priceLevel === 'VERY_CHEAP' || priceLevel === 'CHEAP') {
+              tankTarget = this.maxTankTemp;
+              tankReason = `Tibber price level ${priceLevel}, pre-heating tank`;
+            } else if (priceLevel === 'EXPENSIVE' || priceLevel === 'VERY_EXPENSIVE') {
+              tankTarget = this.minTankTemp;
+              tankReason = `Tibber price level ${priceLevel}, conserving energy`;
+            } else {
+              tankTarget = (this.minTankTemp + this.maxTankTemp) / 2;
+              tankReason = `Tibber price level ${priceLevel}, maintaining mid-range tank temperature`;
+            }
+          }
+
+          tankTarget = Math.max(this.minTankTemp, Math.min(this.maxTankTemp, tankTarget));
+          tankTarget = Math.round(tankTarget / this.tankTempStep) * this.tankTempStep;
+
+          const tankDeadband = Math.max(0.2, this.tankTempStep / 2);
+          const tankChange = Math.abs(tankTarget - currentTankTarget);
+
+          const changeApplied = tankChange >= tankDeadband;
+
+          if (changeApplied) {
+            try {
+              await this.melCloud.setTankTemperature(this.deviceId, this.buildingId, tankTarget);
+              this.logger.log(`Tank temperature adjusted from ${currentTankTarget.toFixed(1)}°C to ${tankTarget.toFixed(1)}°C`);
+              tankStatus = { setpointApplied: true };
+              tankResult = {
+                fromTemp: currentTankTarget,
+                toTemp: tankTarget,
+                reason: tankReason,
+                success: true,
+                changed: true
+              };
+            } catch (error) {
+              const errMsg = (error instanceof Error) ? error.message : String(error);
+              this.logger.error('Failed to update MELCloud tank temperature:', error);
+              tankStatus = { setpointApplied: false, error: errMsg };
+              tankResult = {
+                fromTemp: currentTankTarget,
+                toTemp: tankTarget,
+                reason: `${tankReason} (command failed)`,
+                success: false,
+                changed: true
+              };
+            }
+          } else {
+            this.logger.log(`Tank change ${tankChange.toFixed(2)}°C below deadband ${tankDeadband.toFixed(2)}°C – keeping ${currentTankTarget.toFixed(1)}°C`);
+            tankResult = {
+              fromTemp: currentTankTarget,
+              toTemp: currentTankTarget,
+              reason: tankReason,
+              success: true,
+              changed: false
+            };
+          }
+        } catch (tankError) {
+          this.logger.error('Tank optimization failed', tankError as Error);
+          tankStatus = {
+            setpointApplied: false,
+            error: (tankError instanceof Error) ? tankError.message : String(tankError)
+          };
+        }
+      }
+
       // Anti–short-cycling lockout: avoid frequent setpoint changes
       let lockoutActive = false;
       try {
@@ -1773,15 +2096,57 @@ export class Optimizer {
 
       // Apply temperature change if significant and not within lockout window
       if (isSignificantChange && !lockoutActive) {
-        await this.melCloud.setDeviceTemperature(this.deviceId, this.buildingId, targetTemp);
-        // Persist last change timestamp for stability across restarts
         try {
-          const now = Date.now();
-          this.lastSetpointChangeMs = now;
-          if (this.homey) this.homey.settings.set('last_setpoint_change_ms', now);
-        } catch {}
-        
-        const savingsNumeric = this.calculateRealHourlySavings(safeCurrentTarget, targetTemp, currentPrice, optimizationResult.metrics, 'zone1');
+          await this.melCloud.setDeviceTemperature(this.deviceId, this.buildingId, targetTemp);
+          setpointApplied = true;
+          melCloudSetpointApplied = true;
+        } catch (error) {
+          melCloudSetpointApplied = false;
+          melCloudSetpointError = (error instanceof Error) ? error.message : String(error);
+          this.logger.error('Failed to apply MELCloud temperature change during optimization:', error);
+        }
+        if (setpointApplied) {
+          try {
+            const now = Date.now();
+            this.lastSetpointChangeMs = now;
+            if (this.homey) this.homey.settings.set('last_setpoint_change_ms', now);
+          } catch {}
+        }
+      }
+
+      if (setpointApplied) {
+        const savingsZone1 = await this.calculateRealHourlySavings(
+          safeCurrentTarget,
+          targetTemp,
+          currentPrice,
+          optimizationResult.metrics,
+          'zone1'
+        );
+        let additionalSavings = 0;
+        try {
+          if (zone2Result && typeof zone2Result.fromTemp === 'number' && typeof zone2Result.toTemp === 'number') {
+            additionalSavings += await this.calculateRealHourlySavings(
+              zone2Result.fromTemp,
+              zone2Result.toTemp,
+              currentPrice,
+              optimizationResult.metrics,
+              'zone2'
+            );
+          }
+          if (tankResult && typeof tankResult.fromTemp === 'number' && typeof tankResult.toTemp === 'number') {
+            additionalSavings += await this.calculateRealHourlySavings(
+              tankResult.fromTemp,
+              tankResult.toTemp,
+              currentPrice,
+              optimizationResult.metrics,
+              'tank'
+            );
+          }
+        } catch (savingsErr) {
+          this.logger.warn('Failed to calculate secondary savings contributions', savingsErr as Error);
+        }
+        const savingsNumeric = savingsZone1 + additionalSavings;
+
         this.logger.log(`Enhanced temperature adjusted from ${safeCurrentTarget.toFixed(1)}°C to ${targetTemp.toFixed(1)}°C`, {
           reason: adjustmentReason,
           savingsEstimated: this.estimateCostSavings(targetTemp, safeCurrentTarget, currentPrice, avgPrice, optimizationResult.metrics),
@@ -1798,42 +2163,131 @@ export class Optimizer {
             current: currentPrice,
             average: avgPrice,
             min: minPrice,
-            max: maxPrice
+            max: maxPrice,
+            level: priceLevel,
+            percentile: pricePercentile,
+            nextHour: nextHourPrice
           },
           savings: savingsNumeric,
           energyMetrics: optimizationResult.metrics,
           weather: weatherInfo || undefined,
-          hotWaterAction: hotWaterAction || undefined
+          hotWaterAction: hotWaterAction || undefined,
+          priceForecast: priceForecast ? {
+            position: priceForecast.currentPosition,
+            recommendation: priceForecast.recommendation,
+            upcomingChanges: priceForecast.upcomingChanges,
+            bestTimes: priceForecast.bestTimes,
+            worstTimes: priceForecast.worstTimes
+          } : undefined,
+          zone2Data: zone2Result || undefined,
+          tankData: tankResult || undefined,
+          melCloudStatus: {
+            setpointApplied: true
+          },
+          tankStatus
         };
-      } else {
+      }
+
+      const failureOrHoldReason = !melCloudSetpointApplied && melCloudSetpointError
+        ? `Temperature change requested but MELCloud rejected: ${melCloudSetpointError}`
+        : lockoutActive
+          ? `Setpoint change lockout (${this.minSetpointChangeMinutes}m) to prevent cycling`
+          : `Temperature difference ${tempDifference.toFixed(1)}°C below deadband ${this.deadband}°C`;
+
+      if (!setpointApplied) {
         // No change either due to small delta or lockout
         this.logger.log(`No enhanced temperature adjustment needed (difference: ${tempDifference.toFixed(1)}°C < deadband: ${this.deadband}°C)`);
 
-        const savingsNumericNoChange = 0; // Numeric savings for Zone1 unchanged. Tank/Zone2 handled by API layer.
+        let savingsNumericNoChange = 0;
+        try {
+          if (zone2Result && typeof zone2Result.fromTemp === 'number' && typeof zone2Result.toTemp === 'number') {
+            savingsNumericNoChange += await this.calculateRealHourlySavings(
+              zone2Result.fromTemp,
+              zone2Result.toTemp,
+              currentPrice,
+              optimizationResult.metrics,
+              'zone2'
+            );
+          }
+          if (tankResult && typeof tankResult.fromTemp === 'number' && typeof tankResult.toTemp === 'number') {
+            savingsNumericNoChange += await this.calculateRealHourlySavings(
+              tankResult.fromTemp,
+              tankResult.toTemp,
+              currentPrice,
+              optimizationResult.metrics,
+              'tank'
+            );
+          }
+        } catch (savingsErr) {
+          this.logger.warn('Failed to calculate secondary savings contributions (no change path)', savingsErr as Error);
+        }
         return {
           success: true,
           action: 'no_change',
           fromTemp: safeCurrentTarget,
           toTemp: safeCurrentTarget,
-          reason: lockoutActive
-            ? `Setpoint change lockout (${this.minSetpointChangeMinutes}m) to prevent cycling`
-            : `Temperature difference ${tempDifference.toFixed(1)}°C below deadband ${this.deadband}°C`,
+          reason: failureOrHoldReason,
           priceData: {
             current: currentPrice,
             average: avgPrice,
             min: minPrice,
-            max: maxPrice
+            max: maxPrice,
+            level: priceLevel,
+            percentile: pricePercentile,
+            nextHour: nextHourPrice
           },
           savings: savingsNumericNoChange,
           energyMetrics: optimizationResult.metrics,
           weather: weatherInfo || undefined,
-          hotWaterAction: hotWaterAction || undefined
+          hotWaterAction: hotWaterAction || undefined,
+          priceForecast: priceForecast ? {
+            position: priceForecast.currentPosition,
+            recommendation: priceForecast.recommendation,
+            upcomingChanges: priceForecast.upcomingChanges,
+            bestTimes: priceForecast.bestTimes,
+            worstTimes: priceForecast.worstTimes
+          } : undefined,
+          zone2Data: zone2Result || undefined,
+          tankData: tankResult || undefined,
+          melCloudStatus: {
+            setpointApplied: melCloudSetpointApplied,
+            error: melCloudSetpointError
+          },
+          tankStatus
         };
       }
 
-    } catch (error) {
-      this.handleApiError(error);
+    } catch (error: unknown) {
+      const err = (error instanceof Error) ? error : new Error(String(error as any));
+      this.logger.error('Enhanced optimization failed', err);
+      const message = err.message;
+      return {
+        success: false,
+        action: 'no_change',
+        fromTemp: this.minTemp,
+        toTemp: this.minTemp,
+        reason: `Enhanced optimization failed: ${message}`,
+        priceData: {
+          current: 0,
+          average: 0,
+          min: 0,
+          max: 0
+        }
+      };
     }
+    return {
+      success: false,
+      action: 'no_change',
+      fromTemp: this.minTemp,
+      toTemp: this.minTemp,
+      reason: 'Enhanced optimization exited unexpectedly',
+      priceData: {
+        current: 0,
+        average: 0,
+        min: 0,
+        max: 0
+      }
+    };
   }
 
   /**
@@ -1880,13 +2334,13 @@ export class Optimizer {
    * Calculate hourly cost savings using real energy metrics (numeric result)
    * Falls back to simple heuristic when metrics are not available
    */
-  private calculateRealHourlySavings(
+  public async calculateRealHourlySavings(
     oldTemp: number,
     newTemp: number,
     currentPrice: number,
     metrics?: OptimizationMetrics,
     kind: 'zone1' | 'zone2' | 'tank' = 'zone1'
-  ): number {
+  ): Promise<number> {
     try {
       const tempDiff = newTemp - oldTemp;
       if (!isFinite(tempDiff) || tempDiff === 0 || !isFinite(currentPrice)) return 0;
@@ -1919,6 +2373,47 @@ export class Optimizer {
     } catch {
       return this.calculateSavings(oldTemp, newTemp, currentPrice);
     }
+  }
+
+  /**
+   * Project daily savings using Tibber price data and historical optimizations
+   */
+  public async calculateDailySavings(
+    hourlySavings: number,
+    historicalOptimizations: OptimizationData[] = []
+  ): Promise<number> {
+    try {
+      const result = await this.calculateEnhancedDailySavingsUsingTibber(
+        hourlySavings,
+        historicalOptimizations
+      );
+      return typeof result?.dailySavings === 'number'
+        ? result.dailySavings
+        : hourlySavings * 24;
+    } catch (error) {
+      this.logger.error('Error calculating daily savings projection:', error);
+      return hourlySavings * 24;
+    }
+  }
+
+  /**
+   * Retrieve in-memory footprint details from the thermal model service
+   */
+  public getThermalModelMemoryUsage(): ReturnType<ThermalModelService['getMemoryUsage']> | null {
+    if (!this.thermalModelService) {
+      return null;
+    }
+    return this.thermalModelService.getMemoryUsage();
+  }
+
+  /**
+   * Force cleanup/aggregation in the thermal model service
+   */
+  public forceThermalDataCleanup(): ReturnType<ThermalModelService['forceDataCleanup']> | { success: false; message: string } {
+    if (!this.thermalModelService) {
+      return { success: false, message: 'Thermal model service not initialized' };
+    }
+    return this.thermalModelService.forceDataCleanup();
   }
 
   /**
@@ -2104,20 +2599,21 @@ export class Optimizer {
    * @param currentPrice Current electricity price
    * @returns Estimated savings
    */
-  private calculateSavings(oldTemp: number, newTemp: number, currentPrice: number): number {
-    // Heuristic: each degree lower saves about 5% energy
+  public calculateSavings(
+    oldTemp: number,
+    newTemp: number,
+    currentPrice: number,
+    kind: 'zone1' | 'zone2' | 'tank' = 'zone1'
+  ): number {
     const tempDiff = Number(oldTemp) - Number(newTemp);
     if (!Number.isFinite(tempDiff) || !Number.isFinite(currentPrice)) return 0;
 
-    // Include optional grid fee in price
     const gridFee: number = Number(this.homey?.settings.get('grid_fee_per_kwh')) || 0;
     const effectivePrice = currentPrice + (Number.isFinite(gridFee) ? gridFee : 0);
 
-    // Determine baseline hourly consumption (kWh)
     const baselineOverride: number = Number(this.homey?.settings.get('baseline_hourly_consumption_kwh')) || 0;
     let baseHourlyConsumptionKWh = 1.0;
 
-    // Prefer measured daily consumption if available, then override, else default
     try {
       const dailyFromMetrics = this.optimizationMetrics?.dailyEnergyConsumption;
       if (Number.isFinite(dailyFromMetrics) && (dailyFromMetrics || 0) > 0) {
@@ -2127,7 +2623,9 @@ export class Optimizer {
       }
     } catch (_) { /* keep default */ }
 
-    const energySavingPercent = tempDiff * 5; // % per °C
+    const perDegPct = kind === 'tank' ? 2.0 : kind === 'zone2' ? 4.0 : 5.0;
+    const kindMultiplier = kind === 'tank' ? 0.8 : kind === 'zone2' ? 0.9 : 1.0;
+    const energySavingPercent = tempDiff * perDegPct * kindMultiplier;
     const savings = (energySavingPercent / 100) * baseHourlyConsumptionKWh * effectivePrice;
     return Number.isFinite(savings) ? savings : 0;
   }
@@ -2161,6 +2659,9 @@ export class Optimizer {
     try {
       const currentHour = new Date().getHours();
       const gridFee: number = Number(this.homey?.settings.get('grid_fee_per_kwh')) || 0;
+      if (!this.tibber) {
+        throw new Error('Tibber service not initialized');
+      }
       const pd = await this.tibber.getPrices();
       const now = new Date();
       const currentEffective = (Number(pd.current?.price) || 0) + (Number.isFinite(gridFee) ? gridFee : 0);

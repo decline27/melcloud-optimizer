@@ -11,6 +11,8 @@ import { createMockLogger } from '../mocks/logger.mock';
 jest.mock('node-fetch');
 const mockedFetch = fetch as jest.MockedFunction<typeof fetch>;
 
+const originalFetch = global.fetch;
+
 describe('TibberApi', () => {
   let tibberApi: TibberApi;
   const mockToken = 'test-token';
@@ -19,12 +21,17 @@ describe('TibberApi', () => {
   beforeEach(() => {
     // Reset all mocks
     jest.clearAllMocks();
+    (global as any).fetch = mockedFetch as any;
 
     // Create a mock logger
     mockLogger = createMockLogger();
 
     // Create a new instance of TibberApi with the mock logger
     tibberApi = new TibberApi(mockToken, mockLogger);
+  });
+
+  afterAll(() => {
+    (global as any).fetch = originalFetch;
   });
 
   describe('getPrices', () => {
@@ -210,6 +217,27 @@ describe('TibberApi', () => {
         expect(error).toBeDefined();
       }
     }, 10000); // Increase timeout to 10 seconds
+
+    it('applies retry-after when Tibber responds with 429', async () => {
+      const retryAfterSeconds = '30';
+      const headers = { get: jest.fn().mockReturnValue(retryAfterSeconds) };
+
+      mockedFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        statusText: 'Too Many Requests',
+        headers,
+        json: jest.fn()
+      } as any);
+
+      (tibberApi as any).retryableRequest = jest.fn().mockImplementation((fn: any) => fn());
+
+      await expect(tibberApi.getPrices()).rejects.toThrow('API rate limit: 429 Too Many Requests');
+
+      expect(headers.get).toHaveBeenCalledWith('retry-after');
+      expect((tibberApi as any).rateLimitResetTime).toBeGreaterThan(Date.now());
+      expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('Rate limit encountered on Tibber'));
+    });
   });
 
   describe('formatPriceData', () => {

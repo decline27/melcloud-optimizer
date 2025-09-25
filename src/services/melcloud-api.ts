@@ -955,6 +955,12 @@ export class MelCloudApi extends BaseApiService {
         // First get current state
         const currentState = await this.getDeviceState(deviceId, buildingId);
 
+        // If device exposes zone-based temperatures, delegate to zone handler
+        if (currentState && (currentState as any).SetTemperatureZone1 !== undefined) {
+          this.logger.debug('Device exposes SetTemperatureZone1; delegating to setZoneTemperature API');
+          return this.setZoneTemperature(deviceId, buildingId, temperature, 1, currentState);
+        }
+
         // Diagnostic: log active operation mode to help users understand which target applies
         const activeMode = (currentState as any).OperationModeZone1;
         if (activeMode === 1) {
@@ -967,8 +973,18 @@ export class MelCloudApi extends BaseApiService {
         const payload: any = { ...currentState };
         payload.DeviceID = parseInt(deviceId, 10);
         payload.HasPendingCommand = true;
-        // Update temperature
+        payload.Power = true; // ensure unit is considered on when issuing command
+
+        // Update temperature fields for zone 1 explicitly
         payload.SetTemperature = temperature;
+        payload.SetTemperatureZone1 = temperature;
+        if ('IdleZone1' in payload) {
+          payload.IdleZone1 = false;
+        }
+
+        // Ensure EffectiveFlags include the zone-1 temperature bit mask used by working SetAtw path
+        const existingFlags = typeof payload.EffectiveFlags === 'number' ? payload.EffectiveFlags : 0;
+        payload.EffectiveFlags = existingFlags | 0x200000080;
 
         this.logApiCall('POST', 'Device/SetAta', { deviceId, temperature });
 
@@ -1470,7 +1486,13 @@ export class MelCloudApi extends BaseApiService {
    * @param zone Zone number (1 or 2)
    * @returns Promise resolving to success
    */
-  async setZoneTemperature(deviceId: string, buildingId: number, temperature: number, zone: number = 1): Promise<boolean> {
+  async setZoneTemperature(
+    deviceId: string,
+    buildingId: number,
+    temperature: number,
+    zone: number = 1,
+    preloadedState?: MelCloudDevice
+  ): Promise<boolean> {
     try {
       if (!this.contextKey) {
         const connected = await this.ensureConnected();

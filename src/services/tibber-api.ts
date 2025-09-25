@@ -1,8 +1,7 @@
-import fetch from 'node-fetch';
 import { Logger } from '../util/logger';
 import { TibberPriceInfo } from '../types';
 import { ErrorHandler, AppError, ErrorCategory } from '../util/error-handler';
-import { BaseApiService } from './base-api-service';
+import { BaseApiService, RateLimitError } from './base-api-service';
 import { TimeZoneHelper } from '../util/time-zone-helper';
 
 // Add global declaration for logger
@@ -68,7 +67,8 @@ export class TibberApi extends BaseApiService {
       // Make the API call
       this.logger.debug(`API Call to Tibber GraphQL endpoint`);
 
-      const response = await fetch(this.apiEndpoint, {
+      const fetchFn = getFetch();
+      const response = await fetchFn(this.apiEndpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -76,6 +76,13 @@ export class TibberApi extends BaseApiService {
         },
         body: JSON.stringify({ query }),
       });
+
+      if (response.status === 429) {
+        const retryAfterHeader = (response as any).headers?.get?.('retry-after') ?? null;
+        const retryAfterMs = parseRetryAfterHeader(retryAfterHeader) ?? 60000;
+        this.applyRateLimit(retryAfterMs);
+        throw new RateLimitError(`API rate limit: ${response.status} ${response.statusText}`, retryAfterMs);
+      }
 
       if (!response.ok) {
         throw new Error(`API error: ${response.status} ${response.statusText}`);
@@ -287,4 +294,78 @@ export class TibberApi extends BaseApiService {
     // Call parent class cleanup to handle cache and circuit breaker
     super.cleanup();
   }
+}
+
+type FetchInit = {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+};
+
+interface FetchResponse {
+  ok: boolean;
+  status: number;
+  statusText: string;
+  headers?: {
+    get(name: string): string | null;
+  };
+  json(): Promise<any>;
+}
+
+type FetchFn = (url: string, init?: FetchInit) => Promise<FetchResponse>;
+
+let cachedFetch: FetchFn | null = null;
+
+async function loadFetchModule(): Promise<FetchFn> {
+  const dynamicImport = new Function('specifier', 'return import(specifier);') as (specifier: string) => Promise<unknown>;
+  const mod: unknown = await dynamicImport('node-fetch');
+  const candidate = (mod && typeof mod === 'object' && 'default' in mod)
+    ? (mod as { default: unknown }).default
+    : mod;
+  if (typeof candidate !== 'function') {
+    throw new AppError(
+      'node-fetch module does not export a fetch-compatible function.',
+      ErrorCategory.INTERNAL
+    );
+  }
+  return (candidate as FetchFn).bind(globalThis);
+}
+
+function getFetch(): FetchFn {
+  if (cachedFetch) {
+    return cachedFetch;
+  }
+
+  const maybeFetch = (globalThis as any).fetch;
+  if (typeof maybeFetch === 'function') {
+    const boundFetch = (maybeFetch as FetchFn).bind(globalThis);
+    cachedFetch = boundFetch;
+    return boundFetch;
+  }
+
+  cachedFetch = (async (...args: Parameters<FetchFn>): ReturnType<FetchFn> => {
+    cachedFetch = await loadFetchModule();
+    return cachedFetch(...args);
+  }) as FetchFn;
+
+  return cachedFetch;
+}
+
+function parseRetryAfterHeader(headerValue: string | null): number | null {
+  if (!headerValue) {
+    return null;
+  }
+
+  const numeric = Number(headerValue);
+  if (!Number.isNaN(numeric)) {
+    return Math.max(0, numeric * 1000);
+  }
+
+  const parsedDate = Date.parse(headerValue);
+  if (!Number.isNaN(parsedDate)) {
+    const diff = parsedDate - Date.now();
+    return diff > 0 ? diff : 0;
+  }
+
+  return null;
 }

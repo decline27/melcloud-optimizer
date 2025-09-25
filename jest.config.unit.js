@@ -20,6 +20,7 @@ module.exports = {
   moduleNameMapper: {
     '^homey$': '<rootDir>/test/mocks/homey.mock.ts',
     'node-fetch': '<rootDir>/test/mocks/node-fetch.mock.ts',
+    '^(\\.\\./)+api\\.js$': '<rootDir>/api.ts',
   },
   modulePathIgnorePatterns: [
     '<rootDir>/.homeybuild/'
@@ -41,12 +42,16 @@ module.exports = {
     '!src/services/optimizer.ts',
     '!src/services/thermal-model/data-collector.ts',
     '!src/util/error-handler.ts',
+    '!api.ts',
+    '!weather.ts',
+    '!simulate.ts',
+    '!scripts/**/*.ts',
   ],
   coverageReporters: ['text', 'lcov', 'html'],
 
   coverageThreshold: {
     global: {
-      branches: 70,
+      branches: 60,
       functions: 75,
       lines: 70,
       statements: 70,

@@ -585,6 +585,36 @@
       // Global Homey object
       let HomeyInstance;
 
+      function normalizeDeviceListResponse(result) {
+        const payload = (result && typeof result === 'object') ?
+          (('devices' in result || 'buildings' in result || 'deviceList' in result)
+            ? result
+            : (result.result && typeof result.result === 'object'
+              ? result.result
+              : result))
+          : {};
+
+        const devices = Array.isArray(payload.devices)
+          ? payload.devices
+          : Array.isArray(payload.deviceList)
+            ? payload.deviceList
+            : [];
+        const buildings = Array.isArray(payload.buildings)
+          ? payload.buildings
+          : Array.isArray(payload.buildingList)
+            ? payload.buildingList
+            : [];
+
+        const success = payload.success !== false;
+        const message = typeof payload.message === 'string'
+          ? payload.message
+          : typeof payload.error === 'string'
+            ? payload.error
+            : '';
+
+        return { success, message, devices, buildings };
+      }
+
       // Function to run hourly optimization
       function runHourlyOptimization() {
         console.log('Hourly optimization button clicked');
@@ -595,18 +625,31 @@
 
         // Call the API
         HomeyInstance.api('GET', '/runHourlyOptimizer', {}, function(err, result) {
+          const runHourlyButton = document.getElementById('run_hourly');
+          const triggerResult = document.getElementById('trigger_result');
+
+          runHourlyButton.disabled = false;
+
           if (err) {
             console.error('Error calling /runHourlyOptimizer:', err);
-            document.getElementById('run_hourly').disabled = false;
-            document.getElementById('trigger_result').textContent = "Error: " + err.message;
-            return HomeyInstance.alert(err.message);
+            triggerResult.textContent = "Error: " + err.message;
+            HomeyInstance.alert(err.message);
+            return;
           }
 
           console.log('/runHourlyOptimizer called successfully:', result);
 
+          if (!result || result.success === false) {
+            const message = (result && (result.message || result.error)) || 'Optimizer reported failure.';
+            triggerResult.textContent = "Error: " + message;
+            if (message) {
+              HomeyInstance.alert(message);
+            }
+            return;
+          }
+
           // Show success message
-          document.getElementById('run_hourly').disabled = false;
-          document.getElementById('trigger_result').textContent = "Hourly optimization completed successfully! Check the timeline for details.";
+          triggerResult.textContent = "Hourly optimization completed successfully! Check the timeline for details.";
         });
       }
 
@@ -620,18 +663,30 @@
 
         // Call the API
         HomeyInstance.api('GET', '/runWeeklyCalibration', {}, function(err, result) {
+          const weeklyButton = document.getElementById('run_weekly');
+          const triggerResult = document.getElementById('trigger_result');
+
+          weeklyButton.disabled = false;
+
           if (err) {
             console.error('Error calling /runWeeklyCalibration:', err);
-            document.getElementById('run_weekly').disabled = false;
-            document.getElementById('trigger_result').textContent = "Error: " + err.message;
-            return HomeyInstance.alert(err.message);
+            triggerResult.textContent = "Error: " + err.message;
+            HomeyInstance.alert(err.message);
+            return;
           }
 
           console.log('/runWeeklyCalibration called successfully:', result);
 
-          // Show success message
-          document.getElementById('run_weekly').disabled = false;
-          document.getElementById('trigger_result').textContent = "Weekly calibration completed successfully! Check the timeline for details.";
+          if (!result || result.success === false) {
+            const message = (result && (result.message || result.error)) || 'Weekly calibration reported failure.';
+            triggerResult.textContent = "Error: " + message;
+            if (message) {
+              HomeyInstance.alert(message);
+            }
+            return;
+          }
+
+          triggerResult.textContent = result.message || "Weekly calibration completed successfully!";
         });
       }
 
@@ -1280,27 +1335,36 @@
         let savedDeviceId = null;
         let savedBuildingId = null;
 
-        // Get the saved device ID
-        Homey.get("device_id", function (err, value) {
-          if (err) return Homey.alert(err);
-          if (value) {
-            savedDeviceId = value;
-            // Also set it in the manual entry field
-            manualDeviceIdElement.value = value;
-          }
+        const loadDeviceIdPromise = new Promise((resolve) => {
+          Homey.get("device_id", function (err, value) {
+            if (err) {
+              Homey.alert(err);
+              return resolve();
+            }
+            if (value) {
+              savedDeviceId = value;
+              manualDeviceIdElement.value = value;
+            }
+            resolve();
+          });
         });
 
-        // Get the saved building ID
-        Homey.get("building_id", function (err, value) {
-          if (err) return Homey.alert(err);
-          if (value) {
-            savedBuildingId = value;
-            // Also set it in the manual entry field
-            manualBuildingIdElement.value = value;
+        const loadBuildingIdPromise = new Promise((resolve) => {
+          Homey.get("building_id", function (err, value) {
+            if (err) {
+              Homey.alert(err);
+              return resolve();
+            }
+            if (value) {
+              savedBuildingId = value;
+              manualBuildingIdElement.value = value;
+            }
+            resolve();
+          });
+        });
 
-            // After getting both saved IDs, try to load the device list
-            loadDeviceList(savedDeviceId, savedBuildingId);
-          }
+        Promise.all([loadDeviceIdPromise, loadBuildingIdPromise]).then(() => {
+          loadDeviceList(savedDeviceId, savedBuildingId);
         });
 
         Homey.get("tibber_token", function (err, value) {
@@ -1493,6 +1557,8 @@
 
           // Call the API to get the device list
           HomeyInstance.api('GET', '/getDeviceList', {}, function(err, result) {
+            refreshDevicesButton.disabled = false;
+
             if (err) {
               console.error('Error getting device list:', err);
               deviceRefreshStatus.textContent = "Error: " + err.message;
@@ -1506,7 +1572,16 @@
               return;
             }
 
-            console.log('Device list retrieved successfully:', result);
+            const normalized = normalizeDeviceListResponse(result);
+            console.log('Device list retrieved successfully:', {
+              success: normalized.success,
+              devices: normalized.devices.length,
+              buildings: normalized.buildings.length
+            });
+
+            if (!normalized.success && normalized.message) {
+              deviceRefreshStatus.textContent = "Error: " + normalized.message;
+            }
 
             // Clear existing options
             while (buildingIdElement.options.length > 1) {
@@ -1517,82 +1592,118 @@
               deviceIdElement.remove(1);
             }
 
+            const savedBuildingIdStr = savedBuildingId != null ? String(savedBuildingId) : null;
+            const savedDeviceIdStr = savedDeviceId != null ? String(savedDeviceId) : null;
+
             // Add buildings to the dropdown
             let foundSavedBuilding = false;
-            if (result.buildings && result.buildings.length > 0) {
-              result.buildings.forEach(building => {
-                const option = document.createElement('option');
-                option.value = building.id;
-                option.text = building.name || `Building ${building.id}`;
-                buildingIdElement.add(option);
+            normalized.buildings.forEach(building => {
+              if (!building) return;
+              const buildingIdStr = building.id !== undefined && building.id !== null
+                ? String(building.id)
+                : '';
+              if (!buildingIdStr) return;
 
-                // Check if this is the saved building ID
-                if (savedBuildingId && building.id == savedBuildingId) {
-                  foundSavedBuilding = true;
-                }
-              });
+              const option = document.createElement('option');
+              option.value = buildingIdStr;
+              option.text = building.name || `Building ${buildingIdStr}`;
+              buildingIdElement.add(option);
+
+              if (savedBuildingIdStr && buildingIdStr === savedBuildingIdStr) {
+                foundSavedBuilding = true;
+                savedBuildingId = buildingIdStr;
+              }
+            });
+
+            const zone2Label = document.querySelector('label[for="enable_zone2"]');
+            enableZone2Element.disabled = true;
+            if (zone2Label) zone2Label.style.opacity = 0.5;
+            zone2Fieldset.style.display = 'none';
+            if (!enableZone2Element.checked) {
+              zone2SettingsDiv.style.display = 'none';
             }
+            tankFieldset.style.display = 'none';
+            tankCapabilityWarning.style.display = 'none';
 
             // Add devices to the dropdown
             let foundSavedDevice = false;
-            if (result.devices && result.devices.length > 0) {
-              result.devices.forEach(device => {
-                const option = document.createElement('option');
-                option.value = device.id;
-                option.text = device.name || `Device ${device.id}`;
-                option.dataset.buildingId = device.buildingId;
-                option.dataset.hasZone1 = device.hasZone1;
-                option.dataset.hasZone2 = device.hasZone2;
-                option.dataset.hasTank = device.hasTank;
-                if (device.type) option.dataset.type = device.type;
-                if (device.SetTankWaterTemperature !== undefined) option.dataset.settankwatertemperature = device.SetTankWaterTemperature;
-                if (device.TankWaterTemperature !== undefined) option.dataset.tankwatertemperature = device.TankWaterTemperature;
-                deviceIdElement.add(option);
+            normalized.devices.forEach(device => {
+              if (!device) return;
+              const deviceIdStr = device.id !== undefined && device.id !== null
+                ? String(device.id)
+                : '';
+              if (!deviceIdStr) return;
 
-                // Check if this is the saved device ID
-                if (savedDeviceId && device.id == savedDeviceId) {
-                  foundSavedDevice = true;
-                  deviceIdElement.value = device.id;
+              const option = document.createElement('option');
+              option.value = deviceIdStr;
+              option.text = device.name || `Device ${deviceIdStr}`;
+              const buildingIdStr = device.buildingId !== undefined && device.buildingId !== null
+                ? String(device.buildingId)
+                : '';
+              if (buildingIdStr) option.dataset.buildingId = buildingIdStr;
+              option.dataset.hasZone1 = device.hasZone1 ? 'true' : 'false';
+              option.dataset.hasZone2 = device.hasZone2 ? 'true' : 'false';
+              option.dataset.hasTank = device.hasTank ? 'true' : 'false';
+              if (device.type) option.dataset.type = device.type;
+              if (device.SetTankWaterTemperature !== undefined) option.dataset.settankwatertemperature = String(device.SetTankWaterTemperature);
+              if (device.TankWaterTemperature !== undefined) option.dataset.tankwatertemperature = String(device.TankWaterTemperature);
+              deviceIdElement.add(option);
 
-                  // Also select the building ID
-                  buildingIdElement.value = device.buildingId;
-
-                  // Check if the device has Zone2 and enable/disable the Zone2 settings accordingly
-                  if (device.hasZone2) {
-                    enableZone2Element.disabled = false;
-                    document.querySelector('label[for="enable_zone2"]').style.opacity = 1;
-                    zone2Fieldset.style.display = '';
-                  } else {
-                    enableZone2Element.disabled = true;
-                    document.querySelector('label[for="enable_zone2"]').style.opacity = 0.5;
-                    zone2Fieldset.style.display = 'none';
-                  }
-
-                  // Tank capability (check by device type and actual tank temperature support)
-                  const t = (device.type || '').toString().toLowerCase();
-                  const typeHasTank = t.includes('atw') || t.includes('boiler') || t.includes('tank') || t.includes('heat_pump');
-                  const deviceHasTankData = device.SetTankWaterTemperature !== undefined || device.TankWaterTemperature !== undefined || device.hasTank;
-                  const likelyHasTank = typeHasTank || deviceHasTankData;
-                  
-                  if (likelyHasTank) {
-                    tankFieldset.style.display = '';
-                    tankCapabilityWarning.style.display = 'none';
-                  } else {
-                    tankFieldset.style.display = 'none';
-                    enableTankControlElement.checked = false;
-                  }
+              if (savedDeviceIdStr && deviceIdStr === savedDeviceIdStr) {
+                foundSavedDevice = true;
+                deviceIdElement.value = deviceIdStr;
+                savedDeviceId = deviceIdStr;
+                if (buildingIdStr) {
+                  buildingIdElement.value = buildingIdStr;
+                  savedBuildingId = buildingIdStr;
                 }
-              });
 
-              deviceRefreshStatus.textContent = `Found ${result.devices.length} devices`;
-            } else {
+                const hasZone2 = option.dataset.hasZone2 === 'true';
+                if (hasZone2) {
+                  enableZone2Element.disabled = false;
+                  if (zone2Label) zone2Label.style.opacity = 1;
+                  zone2Fieldset.style.display = '';
+                } else {
+                  enableZone2Element.disabled = true;
+                  enableZone2Element.checked = false;
+                  zone2SettingsDiv.style.display = 'none';
+                  if (zone2Label) zone2Label.style.opacity = 0.5;
+                  zone2Fieldset.style.display = 'none';
+                }
+
+                const typeString = (option.dataset.type || '').toString().toLowerCase();
+                const typeHasTank = typeString.includes('atw') || typeString.includes('boiler') || typeString.includes('tank') || typeString.includes('heat_pump');
+                const deviceHasTankData = option.dataset.settankwatertemperature !== undefined
+                  || option.dataset.tankwatertemperature !== undefined
+                  || option.dataset.hastank === 'true';
+                const likelyHasTank = typeHasTank || deviceHasTankData;
+
+                if (likelyHasTank) {
+                  tankFieldset.style.display = '';
+                  tankCapabilityWarning.style.display = 'none';
+                } else {
+                  tankFieldset.style.display = 'none';
+                  enableTankControlElement.checked = false;
+                }
+              }
+            });
+
+            if (normalized.devices.length > 0) {
+              deviceRefreshStatus.textContent = `Found ${normalized.devices.length} device${normalized.devices.length === 1 ? '' : 's'}`;
+            } else if (normalized.success) {
               deviceRefreshStatus.textContent = "No devices found";
+            } else if (!normalized.message) {
+              deviceRefreshStatus.textContent = "Failed to load devices";
             }
 
-            // If we couldn't find the saved device or building ID in the list, show the manual entry fields
-            if ((savedDeviceId && !foundSavedDevice) || (savedBuildingId && !foundSavedBuilding)) {
+            if (!normalized.success && normalized.message) {
               showManualEntryElement.checked = true;
               manualIdEntryDiv.style.display = 'block';
+            } else if ((savedDeviceIdStr && !foundSavedDevice) || (savedBuildingIdStr && !foundSavedBuilding)) {
+              showManualEntryElement.checked = true;
+              manualIdEntryDiv.style.display = 'block';
+            } else if (!showManualEntryElement.checked) {
+              manualIdEntryDiv.style.display = 'none';
             }
           });
         }
@@ -1611,8 +1722,6 @@
 
           // Call the loadDeviceList function
           loadDeviceList(currentDeviceId, currentBuildingId);
-
-          refreshDevicesButton.disabled = false;
         });
 
         // Add event listener for the device selection to update building selection

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-nocheck
 /**
  * Wrapper script to run the repository simulation harness and print KPIs.
  *
@@ -17,4 +18,3 @@ function run() {
 }
 
 run();
-

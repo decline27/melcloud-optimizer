@@ -3,6 +3,19 @@ import { ErrorHandler, AppError, ErrorCategory } from '../util/error-handler';
 import { CircuitBreaker, CircuitBreakerOptions } from '../util/circuit-breaker';
 
 /**
+ * Error thrown when an API responds with a rate-limit signal.
+ */
+export class RateLimitError extends Error {
+  constructor(
+    message: string,
+    public readonly retryAfterMs: number | null
+  ) {
+    super(message);
+    this.name = 'RateLimitError';
+  }
+}
+
+/**
  * Base API Service
  * Provides common functionality for API services
  */
@@ -12,6 +25,7 @@ export abstract class BaseApiService {
   protected circuitBreaker: CircuitBreaker;
   protected lastApiCallTime: number = 0;
   protected minApiCallInterval: number = 2000; // 2 seconds minimum between calls
+  protected rateLimitResetTime: number = 0;
   protected cache: Map<string, { data: any; timestamp: number }> = new Map();
   protected cacheTTL: number = 5 * 60 * 1000; // 5 minutes default TTL
 
@@ -111,14 +125,31 @@ export abstract class BaseApiService {
     const now = Date.now();
     const timeSinceLastCall = now - this.lastApiCallTime;
     const minInterval = waitTime || this.minApiCallInterval;
+    const enforcedDelay = this.rateLimitResetTime > now
+      ? this.rateLimitResetTime - now
+      : 0;
 
-    if (timeSinceLastCall < minInterval) {
-      const delay = minInterval - timeSinceLastCall;
-      this.logger.debug(`Throttling API call to ${this.serviceName}, waiting ${delay}ms`);
-      await new Promise(resolve => setTimeout(resolve, delay));
+    if (timeSinceLastCall < minInterval || enforcedDelay > 0) {
+      const delay = Math.max(minInterval - timeSinceLastCall, enforcedDelay);
+      if (delay > 0) {
+        this.logger.debug(`Throttling API call to ${this.serviceName}, waiting ${delay}ms`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
     }
 
     this.lastApiCallTime = Date.now();
+  }
+
+  /**
+   * Update throttling state after a rate limit response.
+   * @param waitMs Milliseconds suggested by the remote API before retrying
+   */
+  protected applyRateLimit(waitMs: number): void {
+    const now = Date.now();
+    const safeWait = Math.max(waitMs, this.minApiCallInterval);
+    this.rateLimitResetTime = Math.max(this.rateLimitResetTime, now + safeWait);
+    this.minApiCallInterval = Math.max(this.minApiCallInterval, Math.min(safeWait, 60000));
+    this.logger.warn(`Rate limit encountered on ${this.serviceName}, deferring requests for ${safeWait}ms`);
   }
 
   /**
@@ -142,13 +173,18 @@ export abstract class BaseApiService {
         lastError = error instanceof Error ? error : new Error(String(error));
         
         if (attempt <= maxRetries) {
-          const delay = initialDelay * Math.pow(2, attempt - 1);
-          this.logger.warn(`API call failed, retrying in ${delay}ms (attempt ${attempt}/${maxRetries})`, {
+          const rateLimitedError = lastError instanceof RateLimitError ? lastError : null;
+          const retryDelay = rateLimitedError
+            ? (rateLimitedError.retryAfterMs ?? initialDelay * Math.pow(2, attempt - 1))
+            : initialDelay * Math.pow(2, attempt - 1);
+
+          this.logger.warn(`API call failed, retrying in ${retryDelay}ms (attempt ${attempt}/${maxRetries})`, {
             error: lastError.message,
-            service: this.serviceName
+            service: this.serviceName,
+            rateLimited: Boolean(rateLimitedError)
           });
-          
-          await new Promise(resolve => setTimeout(resolve, delay));
+
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
         }
       }
     }

@@ -9,15 +9,12 @@
  */
 
 import { DateTime } from 'luxon';
-import * as fs from 'fs';
 import * as path from 'path';
 
 // Settings key for thermal data storage
 const THERMAL_DATA_SETTINGS_KEY = 'thermal_model_data';
 // Settings key for aggregated historical data
 const AGGREGATED_DATA_SETTINGS_KEY = 'thermal_model_aggregated_data';
-// Backup file path (as fallback)
-const BACKUP_FILE_NAME = 'thermal-data-backup.json';
 // Maximum number of data points to keep in memory
 const DEFAULT_MAX_DATA_POINTS = 2016; // ~2 weeks of data at 10-minute intervals
 // Maximum age of data points in days
@@ -55,14 +52,22 @@ export interface AggregatedDataPoint {
 export class ThermalDataCollector {
   private dataPoints: ThermalDataPoint[] = [];
   private aggregatedData: AggregatedDataPoint[] = [];
-  private backupFilePath: string;
   private maxDataPoints: number = DEFAULT_MAX_DATA_POINTS;
   private initialized: boolean = false;
   private lastMemoryCheck: number = 0;
   private memoryWarningIssued: boolean = false;
 
   constructor(private homey: any) {
-    this.backupFilePath = path.join(homey.env.userDataPath, BACKUP_FILE_NAME);
+    const userDataPath = (homey?.env && typeof homey.env.userDataPath === 'string' && homey.env.userDataPath.trim().length > 0)
+      ? homey.env.userDataPath
+      : path.join(process.cwd(), '.homey-data');
+
+    if (!homey?.env) {
+      homey.env = {};
+    }
+    if (!homey.env.userDataPath) {
+      homey.env.userDataPath = userDataPath;
+    }
     this.loadStoredData();
   }
 
@@ -81,36 +86,30 @@ export class ThermalDataCollector {
 
       if (settingsData) {
         try {
-          this.dataPoints = JSON.parse(settingsData);
+          this.dataPoints = typeof settingsData === 'string'
+            ? JSON.parse(settingsData)
+            : Array.isArray(settingsData)
+              ? settingsData
+              : [];
           this.homey.log(`Loaded ${this.dataPoints.length} thermal data points from settings storage`);
           dataLoaded = true;
         } catch (parseError) {
           this.homey.error(`Error parsing thermal data from settings: ${parseError}`);
+          this.dataPoints = [];
         }
       }
 
       if (aggregatedData) {
         try {
-          this.aggregatedData = JSON.parse(aggregatedData);
+          this.aggregatedData = typeof aggregatedData === 'string'
+            ? JSON.parse(aggregatedData)
+            : Array.isArray(aggregatedData)
+              ? aggregatedData
+              : [];
           this.homey.log(`Loaded ${this.aggregatedData.length} aggregated data points from settings storage`);
         } catch (parseError) {
           this.homey.error(`Error parsing aggregated data from settings: ${parseError}`);
           this.aggregatedData = [];
-        }
-      }
-
-      // If no data in settings or parsing failed, try to load from backup file
-      if (!dataLoaded && fs.existsSync(this.backupFilePath)) {
-        try {
-          const fileData = fs.readFileSync(this.backupFilePath, 'utf8');
-          this.dataPoints = JSON.parse(fileData);
-          this.homey.log(`Loaded ${this.dataPoints.length} thermal data points from backup file`);
-
-          // Save to settings for future persistence
-          this.saveToSettings();
-          dataLoaded = true;
-        } catch (fileError) {
-          this.homey.error(`Error loading thermal data from backup file: ${fileError}`);
         }
       }
 
@@ -229,51 +228,6 @@ export class ThermalDataCollector {
   }
 
   /**
-   * Save thermal data to backup file (fallback storage)
-   */
-  private saveToFile(): void {
-    try {
-      // Create a new Set for tracking circular references
-      const seen = new WeakSet();
-
-      // Stringify with a replacer function to handle circular references
-      const dataString = JSON.stringify(this.dataPoints, (key, value) => {
-        // Handle circular references
-        if (typeof value === 'object' && value !== null) {
-          if (seen.has(value)) {
-            return '[Circular]';
-          }
-          seen.add(value);
-        }
-        return value;
-      });
-
-      fs.writeFileSync(this.backupFilePath, dataString, 'utf8');
-      this.homey.log(`Saved ${this.dataPoints.length} thermal data points to backup file (${dataString.length} bytes)`);
-
-      // Also save aggregated data to a separate backup file if we have any
-      if (this.aggregatedData.length > 0) {
-        const aggregatedFilePath = path.join(path.dirname(this.backupFilePath), 'thermal-data-aggregated-backup.json');
-        fs.writeFileSync(aggregatedFilePath, JSON.stringify(this.aggregatedData), 'utf8');
-        this.homey.log(`Saved ${this.aggregatedData.length} aggregated data points to backup file`);
-      }
-    } catch (error) {
-      this.homey.error(`Error saving thermal data to backup file`, error);
-
-      // Try to save a smaller subset if the full dataset is too large
-      if (this.dataPoints.length > 500) {
-        try {
-          const reducedDataPoints = this.dataPoints.slice(-500); // Keep only the most recent 500 points
-          fs.writeFileSync(this.backupFilePath, JSON.stringify(reducedDataPoints), 'utf8');
-          this.homey.log(`Saved reduced set of ${reducedDataPoints.length} thermal data points to backup file`);
-        } catch (fallbackError) {
-          this.homey.error(`Failed to save even reduced thermal data to backup file`, fallbackError);
-        }
-      }
-    }
-  }
-
-  /**
    * Check memory usage and log warnings if memory usage is high
    */
   private checkMemoryUsage(): void {
@@ -319,9 +273,6 @@ export class ThermalDataCollector {
 
     // Save to settings (primary storage that persists across reinstalls)
     this.saveToSettings();
-
-    // Also save to file as backup
-    this.saveToFile();
   }
 
   /**

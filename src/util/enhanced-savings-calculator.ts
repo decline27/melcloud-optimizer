@@ -47,6 +47,28 @@ export class EnhancedSavingsCalculator {
     this.logger = logger;
   }
 
+  private safeDebug(message: string, context?: Record<string, any>): void {
+    const loggerAny = this.logger as any;
+    if (loggerAny && typeof loggerAny.debug === 'function') {
+      loggerAny.debug(message, context);
+    } else if (loggerAny && typeof loggerAny.log === 'function') {
+      loggerAny.log(message, context);
+    } else {
+      console.debug(message, context);
+    }
+  }
+
+  private safeError(message: string, error: unknown): void {
+    const loggerAny = this.logger as any;
+    if (loggerAny && typeof loggerAny.error === 'function') {
+      loggerAny.error(message, error);
+    } else if (loggerAny && typeof loggerAny.log === 'function') {
+      loggerAny.log(`${message} ${error instanceof Error ? error.message : String(error)}`);
+    } else {
+      console.error(message, error);
+    }
+  }
+
   /**
    * Calculate enhanced daily savings with compounding effects
    * @param currentHourSavings Current hour's savings
@@ -113,7 +135,7 @@ export class EnhancedSavingsCalculator {
         }
       };
 
-      this.logger.debug('Enhanced daily savings calculation:', {
+      this.safeDebug('Enhanced daily savings calculation:', {
         currentHour,
         actualSavings: actualSavings.toFixed(4),
         currentHourSavings: currentHourSavings.toFixed(4),
@@ -125,7 +147,7 @@ export class EnhancedSavingsCalculator {
 
       return result;
     } catch (error) {
-      this.logger.error('Error in enhanced daily savings calculation:', error);
+      this.safeError('Error in enhanced daily savings calculation:', error);
       
       // Fallback to simple calculation
       return {

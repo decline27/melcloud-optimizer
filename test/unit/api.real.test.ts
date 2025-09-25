@@ -3,9 +3,11 @@ const apiModule: any = require('../../api.js');
 
 describe('api.js — real module tests using __test helpers', () => {
   let homey: any;
+  let settingsStore: Record<string, any>;
 
   beforeEach(() => {
     // Minimal mock Homey object used by the API endpoints
+    settingsStore = {};
     homey = {
       app: {
         log: jest.fn(),
@@ -13,8 +15,8 @@ describe('api.js — real module tests using __test helpers', () => {
         flow: { runFlowCardAction: jest.fn() }
       },
       settings: {
-        get: jest.fn().mockReturnValue(null),
-        set: jest.fn()
+        get: jest.fn((key: string) => settingsStore[key]),
+        set: jest.fn((key: string, value: any) => { settingsStore[key] = value; })
       },
       notifications: { createNotification: jest.fn() },
       timeline: { createEntry: jest.fn() }
@@ -24,12 +26,17 @@ describe('api.js — real module tests using __test helpers', () => {
     if (apiModule.__test && typeof apiModule.__test.resetAll === 'function') {
       apiModule.__test.resetAll();
     }
+
+    global.hourlyJob = undefined;
+    global.weeklyJob = undefined;
   });
 
   afterEach(() => {
     if (apiModule.__test && typeof apiModule.__test.resetAll === 'function') {
       apiModule.__test.resetAll();
     }
+    global.hourlyJob = undefined;
+    global.weeklyJob = undefined;
   });
 
   test('getDeviceList returns formatted devices from injected melCloud', async () => {

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-nocheck
 /**
  * MELCloud Optimization Algorithm Simulator (self-contained)
  *

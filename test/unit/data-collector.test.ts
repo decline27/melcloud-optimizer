@@ -10,20 +10,6 @@ jest.mock('../../src/services/melcloud-api', () => ({
 
 import { ThermalDataCollector, ThermalDataPoint } from '../../src/services/thermal-model';
 import { DateTime } from 'luxon';
-import * as fs from 'fs';
-import * as path from 'path';
-
-// Mock fs module
-jest.mock('fs', () => ({
-  existsSync: jest.fn(),
-  writeFileSync: jest.fn(),
-  readFileSync: jest.fn()
-}));
-
-// Mock path module
-jest.mock('path', () => ({
-  join: jest.fn().mockReturnValue('/mock/path/thermal-data-backup.json')
-}));
 
 describe('ThermalDataCollector', () => {
   let dataCollector: ThermalDataCollector;
@@ -45,9 +31,6 @@ describe('ThermalDataCollector', () => {
         set: jest.fn()
       }
     };
-
-    // Mock fs.existsSync to return false by default
-    (fs.existsSync as jest.Mock).mockReturnValue(false);
 
     // Create data collector instance
     dataCollector = new ThermalDataCollector(mockHomey);
@@ -94,44 +77,6 @@ describe('ThermalDataCollector', () => {
       expect(mockHomey.log).toHaveBeenCalledWith('Loaded 1 thermal data points from settings storage');
     });
 
-    it('should load data from backup file when settings data is not available', () => {
-      // Mock fs.existsSync to return true for backup file
-      (fs.existsSync as jest.Mock).mockReturnValueOnce(true);
-
-      // Mock fs.readFileSync to return backup data
-      const backupData = [
-        {
-          timestamp: '2023-01-01T12:00:00.000Z',
-          indoorTemperature: 21.5,
-          outdoorTemperature: 5.0,
-          targetTemperature: 22.0,
-          heatingActive: true,
-          weatherConditions: {
-            windSpeed: 3.0,
-            humidity: 70,
-            cloudCover: 80,
-            precipitation: 0
-          }
-        }
-      ];
-      (fs.readFileSync as jest.Mock).mockReturnValueOnce(JSON.stringify(backupData));
-
-      // Mock settings.get to return null for thermal_model_data
-      mockHomey.settings.get.mockImplementation((key: string) => {
-        return null;
-      });
-
-      // Create new instance with mocked file system
-      const collector = new ThermalDataCollector(mockHomey);
-
-      // Set the dataPoints directly for testing
-      (collector as any).dataPoints = backupData;
-
-      expect((collector as any).dataPoints).toEqual(backupData);
-      expect(mockHomey.log).toHaveBeenCalledWith('Loaded 1 thermal data points from backup file');
-      expect(mockHomey.settings.set).toHaveBeenCalled(); // Should save to settings
-    });
-
     it('should handle errors when loading data', () => {
       // Mock settings.get to throw an error
       mockHomey.settings.get.mockImplementationOnce(() => {
@@ -166,7 +111,6 @@ describe('ThermalDataCollector', () => {
 
       expect((dataCollector as any).dataPoints).toContain(dataPoint);
       expect(mockHomey.settings.set).toHaveBeenCalled();
-      expect(fs.writeFileSync).toHaveBeenCalled();
       expect(mockHomey.log).toHaveBeenCalledWith(expect.stringContaining('Added new thermal data point'));
     });
 
@@ -253,31 +197,6 @@ describe('ThermalDataCollector', () => {
       expect(mockHomey.error).toHaveBeenCalledWith('Error saving thermal data to settings', expect.any(Error));
     });
 
-    it('should handle errors when saving to file', () => {
-      // Mock fs.writeFileSync to throw an error
-      (fs.writeFileSync as jest.Mock).mockImplementationOnce(() => {
-        throw new Error('Test error');
-      });
-
-      const dataPoint: ThermalDataPoint = {
-        timestamp: DateTime.now().toISO(),
-        indoorTemperature: 21.5,
-        outdoorTemperature: 5.0,
-        targetTemperature: 22.0,
-        heatingActive: true,
-        weatherConditions: {
-          windSpeed: 3.0,
-          humidity: 70,
-          cloudCover: 80,
-          precipitation: 0
-        }
-      };
-
-      dataCollector.addDataPoint(dataPoint);
-
-      expect((dataCollector as any).dataPoints).toContain(dataPoint);
-      expect(mockHomey.error).toHaveBeenCalledWith('Error saving thermal data to backup file', expect.any(Error));
-    });
   });
 
   describe('getAllDataPoints', () => {

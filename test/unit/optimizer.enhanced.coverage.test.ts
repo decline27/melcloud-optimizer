@@ -5,7 +5,9 @@ const mockMel: any = {
   getEnhancedCOPData: jest.fn(),
   getDailyEnergyTotals: jest.fn(),
   getDeviceState: jest.fn(),
-  setDeviceTemperature: jest.fn()
+  setDeviceTemperature: jest.fn(),
+  setZoneTemperature: jest.fn(),
+  setTankTemperature: jest.fn()
 };
 
 const mockTibber: any = {
@@ -31,10 +33,13 @@ describe('Optimizer hotwater & enhanced edge cases', () => {
       SetTemperature: 20,
       OutdoorTemperature: 5
     });
+    mockMel.setZoneTemperature.mockResolvedValue(true);
+    mockMel.setTankTemperature.mockResolvedValue(true);
 
+    const nowIso = new Date().toISOString();
     mockTibber.getPrices.mockResolvedValue({
-      current: { price: 0.5 },
-      prices: new Array(24).fill(0).map((_, i) => ({ price: 0.5, time: `${i}:00` }))
+      current: { price: 0.5, time: nowIso },
+      prices: new Array(24).fill(0).map((_, i) => ({ price: 0.5, time: new Date(Date.now() + i * 3600000).toISOString() }))
     });
 
     optimizer = new Optimizer(mockMel, mockTibber, 'device-1', 1, logger as any);
@@ -52,5 +57,47 @@ describe('Optimizer hotwater & enhanced edge cases', () => {
     const result = await optimizer.runEnhancedOptimization();
     expect(result).toBeDefined();
     expect(result.action).toMatch(/no_change|temperature_adjusted/);
+  });
+
+  test('runEnhancedOptimization includes zone2 data when zone2 enabled', async () => {
+    optimizer.setZone2TemperatureConstraints(true, 18, 22, 0.5);
+    mockMel.getDeviceState.mockResolvedValue({
+      RoomTemperature: 20,
+      RoomTemperatureZone1: 20,
+      SetTemperature: 20,
+      SetTemperatureZone1: 20,
+      OutdoorTemperature: 5,
+      RoomTemperatureZone2: 19,
+      SetTemperatureZone2: 21
+    });
+
+    const result = await optimizer.runEnhancedOptimization();
+    expect(result.zone2Data).toBeDefined();
+  });
+
+  test('runEnhancedOptimization includes tank data when tank control enabled', async () => {
+    optimizer.setTankTemperatureConstraints(true, 40, 50, 1);
+    mockMel.getDeviceState.mockResolvedValue({
+      RoomTemperature: 20,
+      RoomTemperatureZone1: 20,
+      SetTemperature: 20,
+      SetTemperatureZone1: 20,
+      OutdoorTemperature: 5,
+      SetTankWaterTemperature: 48
+    });
+
+    const result = await optimizer.runEnhancedOptimization();
+    expect(result.tankData).toBeDefined();
+  });
+
+  test('calculateDailySavings falls back to simple projection on Tibber error', async () => {
+    mockTibber.getPrices.mockRejectedValueOnce(new Error('boom'));
+    const projection = await optimizer.calculateDailySavings(1);
+    expect(projection).toBeGreaterThan(23);
+  });
+
+  test('thermal model helpers return safe defaults when service unavailable', () => {
+    expect(optimizer.getThermalModelMemoryUsage()).toBeNull();
+    expect(optimizer.forceThermalDataCleanup()).toEqual({ success: false, message: 'Thermal model service not initialized' });
   });
 });
