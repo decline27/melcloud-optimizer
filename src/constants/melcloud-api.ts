@@ -23,15 +23,14 @@ export const MELCLOUD_FLAGS = {
   /**
    * Tank temperature control flags
    * Combined flags for hot water tank temperature control
-   * 0x1000000000000 = tank setpoint bit
-   * 0x20 = additional tank control bit
+   * Uses BigInt for large hex values then converts to number for compatibility
    */
-  TANK_TEMPERATURE: 0x1000000000000 | 0x20,
+  TANK_TEMPERATURE: Number(BigInt('0x1000000000000') | BigInt('0x20')),
 
   /**
    * Individual tank control flags (for reference)
    */
-  TANK_SETPOINT_BIT: 0x1000000000000,
+  TANK_SETPOINT_BIT: Number(BigInt('0x1000000000000')),
   TANK_CONTROL_BIT: 0x20,
 } as const;
 
