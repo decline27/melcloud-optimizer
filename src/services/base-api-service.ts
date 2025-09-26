@@ -1,6 +1,7 @@
 import { Logger } from '../util/logger';
 import { ErrorHandler, AppError, ErrorCategory } from '../util/error-handler';
 import { CircuitBreaker, CircuitBreakerOptions } from '../util/circuit-breaker';
+import { API_TIMING, CIRCUIT_BREAKER, RETRY_CONFIG } from '../constants/melcloud-api';
 
 /**
  * Error thrown when an API responds with a rate-limit signal.
@@ -24,11 +25,11 @@ export abstract class BaseApiService {
   protected errorHandler: ErrorHandler;
   protected circuitBreaker: CircuitBreaker;
   protected lastApiCallTime: number = 0;
-  protected minApiCallInterval: number = 5000; // 5 seconds minimum between calls (increased from 2s)
+  protected minApiCallInterval: number = API_TIMING.MIN_API_CALL_INTERVAL;
   protected rateLimitResetTime: number = 0;
   protected cache: Map<string, { data: any; timestamp: number }> = new Map();
-  protected cacheTTL: number = 3 * 60 * 1000; // 3 minutes default TTL
-  protected deviceStateTTL: number = 3 * 60 * 1000; // 3 minutes for device state
+  protected cacheTTL: number = API_TIMING.DEFAULT_CACHE_TTL;
+  protected deviceStateTTL: number = API_TIMING.DEVICE_STATE_CACHE_TTL;
 
   /**
    * Constructor
@@ -47,13 +48,13 @@ export abstract class BaseApiService {
     // Initialize circuit breaker with improved default options
     this.circuitBreaker = new CircuitBreaker(serviceName, this.logger, {
       failureThreshold: 5,        // More tolerant than before
-      resetTimeout: 120000,       // 2 minutes base timeout
+      resetTimeout: CIRCUIT_BREAKER.RESET_TIMEOUT,
       halfOpenSuccessThreshold: 3, // Require 3 successes to close
-      timeout: 30000,             // 30 second request timeout
-      maxResetTimeout: 1800000,   // Max 30 minutes for exponential backoff
+      timeout: CIRCUIT_BREAKER.REQUEST_TIMEOUT,
+      maxResetTimeout: CIRCUIT_BREAKER.MAX_RESET_TIMEOUT,
       backoffMultiplier: 2,       // Double timeout on each failure
       adaptiveThresholds: true,   // Enable adaptive behavior
-      successRateWindow: 3600000, // 1 hour success rate window
+      successRateWindow: CIRCUIT_BREAKER.SUCCESS_RATE_WINDOW,
       ...circuitBreakerOptions
     });
   }
@@ -151,7 +152,7 @@ export abstract class BaseApiService {
     const now = Date.now();
     const safeWait = Math.max(waitMs, this.minApiCallInterval);
     this.rateLimitResetTime = Math.max(this.rateLimitResetTime, now + safeWait);
-    this.minApiCallInterval = Math.max(this.minApiCallInterval, Math.min(safeWait, 60000));
+    this.minApiCallInterval = Math.max(this.minApiCallInterval, Math.min(safeWait, API_TIMING.MAX_THROTTLE_WAIT));
     this.logger.warn(`Rate limit encountered on ${this.serviceName}, deferring requests for ${safeWait}ms`);
   }
 
@@ -165,7 +166,7 @@ export abstract class BaseApiService {
   protected async retryableRequest<T>(
     fn: () => Promise<T>,
     maxRetries: number = 3,
-    initialDelay: number = 1000
+    initialDelay: number = RETRY_CONFIG.DEFAULT_INITIAL_DELAY
   ): Promise<T> {
     let lastError: Error | null = null;
     

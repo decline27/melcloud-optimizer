@@ -11,6 +11,7 @@
 import { DateTime } from 'luxon';
 import * as fs from 'fs';
 import * as path from 'path';
+import { HOT_WATER_SERVICE } from '../../constants/melcloud-api';
 
 // Settings key for hot water usage data storage
 const HOT_WATER_DATA_SETTINGS_KEY = 'hot_water_usage_data';
@@ -19,11 +20,11 @@ const HOT_WATER_AGGREGATED_DATA_SETTINGS_KEY = 'hot_water_usage_aggregated_data'
 // Backup file path (as fallback)
 const BACKUP_FILE_NAME = 'hot-water-data-backup.json';
 // Maximum number of data points to keep in memory
-const DEFAULT_MAX_DATA_POINTS = 1008; // ~2 weeks of data at 20-minute intervals
+const DEFAULT_MAX_DATA_POINTS = HOT_WATER_SERVICE.MAX_DATA_POINTS;
 // Maximum age of data points in days
 const MAX_DATA_AGE_DAYS = 30;
 // Maximum size of data to store in settings (bytes)
-const MAX_SETTINGS_DATA_SIZE = 500000; // ~500KB
+const MAX_SETTINGS_DATA_SIZE = HOT_WATER_SERVICE.MAX_SETTINGS_DATA_SIZE;
 
 export interface HotWaterUsageDataPoint {
   timestamp: string;
@@ -201,7 +202,7 @@ export class HotWaterDataCollector {
     try {
       // Only check memory usage every 20 minutes to avoid excessive logging
       const now = Date.now();
-      if (now - this.lastMemoryCheck < 20 * 60 * 1000) {
+      if (now - this.lastMemoryCheck < HOT_WATER_SERVICE.MEMORY_CHECK_INTERVAL) {
         return;
       }
 
@@ -679,7 +680,7 @@ export class HotWaterDataCollector {
       const aggregatedDataJson = JSON.stringify(this.aggregatedData);
 
       const usageBytes = dataJson.length + aggregatedDataJson.length;
-      const usageKB = usageBytes / 1024;
+      const usageKB = usageBytes / HOT_WATER_SERVICE.BYTES_TO_KB;
       const usagePercent = (usageBytes / MAX_SETTINGS_DATA_SIZE) * 100;
 
       // Calculate bytes per data point

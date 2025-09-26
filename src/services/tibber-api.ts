@@ -3,6 +3,7 @@ import { TibberPriceInfo } from '../types';
 import { ErrorHandler, AppError, ErrorCategory } from '../util/error-handler';
 import { BaseApiService, RateLimitError } from './base-api-service';
 import { TimeZoneHelper } from '../util/time-zone-helper';
+import { TIBBER_API } from '../constants/melcloud-api';
 
 // Add global declaration for logger
 declare global {
@@ -27,9 +28,9 @@ export class TibberApi extends BaseApiService {
     // Call the parent constructor with service name and logger
     super('Tibber', logger || (global.logger as Logger), {
       failureThreshold: 3,
-      resetTimeout: 60000, // 1 minute
+      resetTimeout: TIBBER_API.RESET_TIMEOUT,
       halfOpenSuccessThreshold: 1,
-      timeout: 15000 // 15 seconds
+      timeout: TIBBER_API.REQUEST_TIMEOUT
     });
 
     this.token = token;
@@ -79,7 +80,7 @@ export class TibberApi extends BaseApiService {
 
       if (response.status === 429) {
         const retryAfterHeader = (response as any).headers?.get?.('retry-after') ?? null;
-        const retryAfterMs = parseRetryAfterHeader(retryAfterHeader) ?? 60000;
+        const retryAfterMs = parseRetryAfterHeader(retryAfterHeader) ?? TIBBER_API.DEFAULT_RETRY_DELAY;
         this.applyRateLimit(retryAfterMs);
         throw new RateLimitError(`API rate limit: ${response.status} ${response.statusText}`, retryAfterMs);
       }
@@ -263,16 +264,16 @@ export class TibberApi extends BaseApiService {
       
       // Current price should be within the last hour (Tibber updates hourly)
       // Allow for 5 minutes grace period for API delays
-      const maxStaleTime = 65 * 60 * 1000; // 65 minutes in milliseconds
+      const maxStaleTime = TIBBER_API.MAX_PRICE_DATA_AGE;
       const timeDiff = now.getTime() - currentPriceTime.getTime();
 
       if (timeDiff > maxStaleTime) {
-        this.logger.warn(`Price data is stale: current price from ${currentPriceTime.toISOString()}, age: ${Math.round(timeDiff / 60000)} minutes`);
+        this.logger.warn(`Price data is stale: current price from ${currentPriceTime.toISOString()}, age: ${Math.round(timeDiff / TIBBER_API.MS_TO_MINUTES)} minutes`);
         return false;
       }
 
       // Additional check: current price time should not be in the future (beyond next hour)
-      if (timeDiff < -65 * 60 * 1000) {
+      if (timeDiff < -TIBBER_API.MAX_PRICE_DATA_AGE) {
         this.logger.warn(`Price data has future timestamp: ${currentPriceTime.toISOString()}, system time: ${now.toISOString()}`);
         return false;
       }

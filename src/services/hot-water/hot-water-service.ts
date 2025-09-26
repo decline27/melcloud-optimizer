@@ -8,14 +8,15 @@
 import { DateTime } from 'luxon';
 import { HotWaterDataCollector, HotWaterUsageDataPoint } from './hot-water-data-collector';
 import { HotWaterAnalyzer } from './hot-water-analyzer';
+import { HOT_WATER_SERVICE } from '../../constants/melcloud-api';
 
 export class HotWaterService {
   private dataCollector: HotWaterDataCollector;
   private analyzer: HotWaterAnalyzer;
   private lastDataCollectionTime: number = 0;
-  private dataCollectionInterval: number = 20 * 60 * 1000; // 20 minutes in milliseconds
+  private dataCollectionInterval: number = HOT_WATER_SERVICE.DATA_COLLECTION_INTERVAL;
   private lastAnalysisTime: number = 0;
-  private analysisInterval: number = 6 * 60 * 60 * 1000; // 6 hours in milliseconds
+  private analysisInterval: number = HOT_WATER_SERVICE.ANALYSIS_INTERVAL;
 
   constructor(private homey: any) {
     this.dataCollector = new HotWaterDataCollector(homey);

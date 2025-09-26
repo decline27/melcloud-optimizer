@@ -12,6 +12,8 @@ declare global {
   var logger: Logger;
 }
 
+import { MELCLOUD_FLAGS, API_TIMING, CIRCUIT_BREAKER, RETRY_CONFIG } from '../constants/melcloud-api';
+
 /**
  * MELCloud API Service
  * Handles communication with the MELCloud API
@@ -73,6 +75,27 @@ export class MelCloudApi extends BaseApiService {
        error.message.includes('login') ||
        error.message.includes('Authentication') ||
        error.message.includes('X-MitsContextKey'));
+  }
+
+  /**
+   * Sanitize data for logging by removing sensitive information
+   * @param data Data to sanitize
+   * @returns Sanitized data safe for logging
+   */
+  private sanitizeForLogging(data: any): any {
+    if (!data || typeof data !== 'object') {
+      return data;
+    }
+
+    const sanitized = { ...data };
+    // Remove sensitive fields
+    const sensitiveFields = ['password', 'email', 'token', 'contextKey', 'Email', 'Password'];
+    sensitiveFields.forEach(field => {
+      if (field in sanitized) {
+        sanitized[field] = '[REDACTED]';
+      }
+    });
+    return sanitized;
   }
 
   /**
@@ -320,10 +343,9 @@ export class MelCloudApi extends BaseApiService {
 
       return true;
     } catch (error) {
-      // Create a standardized error with context
+      // Create a standardized error with context (no sensitive data)
       const appError = this.createApiError(error, {
         operation: 'login',
-        email: email ? `${email.substring(0, 3)}...` : 'not provided', // Only include first 3 chars for privacy
       });
 
       // Log the error with appropriate level based on category
@@ -985,7 +1007,7 @@ export class MelCloudApi extends BaseApiService {
 
         // Ensure EffectiveFlags include the zone-1 temperature bit mask used by working SetAtw path
         const existingFlags = typeof payload.EffectiveFlags === 'number' ? payload.EffectiveFlags : 0;
-        payload.EffectiveFlags = existingFlags | 0x200000080;
+        payload.EffectiveFlags = existingFlags | MELCLOUD_FLAGS.ZONE1_TEMPERATURE;
 
         this.logApiCall('POST', 'Device/SetAta', { deviceId, temperature });
 
@@ -1544,18 +1566,18 @@ export class MelCloudApi extends BaseApiService {
         if (changes.zone1Temperature !== undefined) {
           (currentState as any).SetTemperatureZone1 = changes.zone1Temperature;
           (currentState as any).IdleZone1 = false;
-          effectiveFlags |= 0x200000080; // Zone1 temperature flags
+          effectiveFlags |= MELCLOUD_FLAGS.ZONE1_TEMPERATURE;
         }
 
         if (changes.zone2Temperature !== undefined) {
           (currentState as any).SetTemperatureZone2 = changes.zone2Temperature;
           (currentState as any).IdleZone2 = false;
-          effectiveFlags |= 0x800000200; // Zone2 temperature flags
+          effectiveFlags |= MELCLOUD_FLAGS.ZONE2_TEMPERATURE;
         }
 
         if (changes.tankTemperature !== undefined) {
           (currentState as any).TankWaterTemperature = changes.tankTemperature;
-          effectiveFlags |= 0x1000000000000 | 0x20; // Tank temperature flags
+          effectiveFlags |= MELCLOUD_FLAGS.TANK_TEMPERATURE;
         }
 
         (currentState as any).EffectiveFlags = effectiveFlags;
@@ -1660,12 +1682,12 @@ export class MelCloudApi extends BaseApiService {
         if (zone === 1) {
           (currentState as any).SetTemperatureZone1 = temperature;
           // EffectiveFlags for Zone1 temperature change (from working path)
-          (currentState as any).EffectiveFlags = 0x200000080;
+          (currentState as any).EffectiveFlags = MELCLOUD_FLAGS.ZONE1_TEMPERATURE;
           (currentState as any).IdleZone1 = false;
         } else if (zone === 2) {
           (currentState as any).SetTemperatureZone2 = temperature;
           // EffectiveFlags for Zone2 temperature change (from working path)
-          (currentState as any).EffectiveFlags = 0x800000200;
+          (currentState as any).EffectiveFlags = MELCLOUD_FLAGS.ZONE2_TEMPERATURE;
           (currentState as any).IdleZone2 = false;
         } else {
           throw new Error(`Invalid zone: ${zone}. Must be 1 or 2.`);
@@ -1783,9 +1805,9 @@ export class MelCloudApi extends BaseApiService {
         (currentState as any).HasPendingCommand = true;
         (currentState as any).Power = true;
         (currentState as any).SetTankWaterTemperature = temperature;
-        // Ensure EffectiveFlags include tank setpoint bit (observed 0x0001_0000_0000_0000) and low 0x20
+        // Ensure EffectiveFlags include tank setpoint bit and control bit
         const flags = (currentState as any).EffectiveFlags ?? 0;
-        (currentState as any).EffectiveFlags = (flags | 0x1000000000000 | 0x20);
+        (currentState as any).EffectiveFlags = (flags | MELCLOUD_FLAGS.TANK_TEMPERATURE);
 
         this.logApiCall('POST', 'Device/SetAtw', { deviceId, tankTemperature: temperature });
         try {

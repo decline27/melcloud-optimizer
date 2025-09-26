@@ -6,6 +6,8 @@ import { createMockLogger } from '../mocks/logger.mock';
 jest.mock('node-fetch');
 const mockedFetch = fetch as jest.MockedFunction<typeof fetch>;
 
+const originalFetch = global.fetch;
+
 describe('TibberApi Direct Tests', () => {
   let tibberApi: TibberApi;
   const mockToken = 'test-token';
@@ -14,12 +16,17 @@ describe('TibberApi Direct Tests', () => {
   beforeEach(() => {
     // Reset all mocks
     jest.clearAllMocks();
+    (global as any).fetch = mockedFetch as any;
 
     // Create a mock logger
     mockLogger = createMockLogger();
 
     // Create a new instance of TibberApi with the mock logger
     tibberApi = new TibberApi(mockToken, mockLogger);
+  });
+
+  afterAll(() => {
+    (global as any).fetch = originalFetch;
   });
 
   describe('getPrices', () => {
