@@ -840,10 +840,11 @@ export class MelCloudApi extends BaseApiService {
       }
 
       const cacheKey = `device_state_${deviceId}_${buildingId}`;
-      const cachedData = this.getCachedData<any>(cacheKey);
+      const cachedData = this.getCachedData<any>(cacheKey, (this as any).deviceStateTTL || 120000);
 
       if (cachedData) {
-        this.logger.debug(`Using cached device state for device ${deviceId}`);
+        const cacheAge = Math.round((Date.now() - (this.cache.get(cacheKey)?.timestamp || 0)) / 1000);
+        this.logger.debug(`Using cached device state for device ${deviceId} (cached ${cacheAge}s ago)`);
         return cachedData;
       }
 
@@ -1072,6 +1073,16 @@ export class MelCloudApi extends BaseApiService {
       FromDate: from || '1970-01-01',
       ToDate: to || new Date().toISOString().split('T')[0]
     };
+
+    // Cache energy data for 3 minutes to avoid duplicate calls
+    const cacheKey = `energy_data_${deviceId}_${postData.FromDate}_${postData.ToDate}`;
+    const cachedData = this.getCachedData<any>(cacheKey, 3 * 60 * 1000); // 3 minutes cache
+    
+    if (cachedData) {
+      const cacheAge = Math.round((Date.now() - (this.cache.get(cacheKey)?.timestamp || 0)) / 1000);
+      this.logger.debug(`Using cached energy data for device ${deviceId} (cached ${cacheAge}s ago)`);
+      return cachedData;
+    }
     
     this.logApiCall('POST', url, postData);
     
@@ -1086,6 +1097,9 @@ export class MelCloudApi extends BaseApiService {
 
     // Log the actual API response for debugging
     this.logger?.info('Raw energy API response:', JSON.stringify(data, null, 2));
+
+    // Cache the result
+    this.setCachedData(cacheKey, data);
 
     return data;
   }
@@ -1471,6 +1485,131 @@ export class MelCloudApi extends BaseApiService {
         deviceId,
         buildingId,
         power
+      });
+
+      this.errorHandler.logError(appError);
+      throw appError;
+    }
+  }
+
+  /**
+   * Set multiple temperature values in a single API call (OPTIMIZATION)
+   * This reduces API calls from 2-3 separate calls to 1 batched call
+   * @param deviceId Device ID
+   * @param buildingId Building ID
+   * @param changes Object containing temperature changes
+   * @returns Promise resolving to success
+   */
+  async setBatchedTemperatures(
+    deviceId: string,
+    buildingId: number,
+    changes: {
+      zone1Temperature?: number;
+      zone2Temperature?: number;
+      tankTemperature?: number;
+    }
+  ): Promise<boolean> {
+    try {
+      if (!this.contextKey) {
+        const connected = await this.ensureConnected();
+        if (!connected) {
+          throw new Error('Not logged in to MELCloud');
+        }
+      }
+
+      // Only proceed if we have at least one change
+      const hasChanges = Object.values(changes).some(val => val !== undefined);
+      if (!hasChanges) {
+        this.logger.debug('No temperature changes specified, skipping API call');
+        return true;
+      }
+
+      const changeDesc = Object.entries(changes)
+        .filter(([_, val]) => val !== undefined)
+        .map(([key, val]) => `${key}=${val}°C`)
+        .join(', ');
+      
+      this.logger.log(`Setting batched temperatures for device ${deviceId}: ${changeDesc}`);
+
+      try {
+        // Get current state once
+        const currentState = await this.getDeviceState(deviceId, buildingId);
+        
+        // Apply all changes to the state object
+        (currentState as any).HasPendingCommand = true;
+        (currentState as any).Power = true;
+        
+        let effectiveFlags = (currentState as any).EffectiveFlags ?? 0;
+
+        if (changes.zone1Temperature !== undefined) {
+          (currentState as any).SetTemperatureZone1 = changes.zone1Temperature;
+          (currentState as any).IdleZone1 = false;
+          effectiveFlags |= 0x200000080; // Zone1 temperature flags
+        }
+
+        if (changes.zone2Temperature !== undefined) {
+          (currentState as any).SetTemperatureZone2 = changes.zone2Temperature;
+          (currentState as any).IdleZone2 = false;
+          effectiveFlags |= 0x800000200; // Zone2 temperature flags
+        }
+
+        if (changes.tankTemperature !== undefined) {
+          (currentState as any).TankWaterTemperature = changes.tankTemperature;
+          effectiveFlags |= 0x1000000000000 | 0x20; // Tank temperature flags
+        }
+
+        (currentState as any).EffectiveFlags = effectiveFlags;
+
+        this.logApiCall('POST', 'Device/SetAtw', { deviceId, batchedChanges: changes });
+
+        // Single API call for all changes with conservative retry policy
+        const data = await this.retryableRequest(
+          () => this.throttledApiCall<any>('POST', 'Device/SetAtw', {
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(currentState),
+          }),
+          2,    // Reduced retries from 3 to 2 to minimize API calls
+          3000  // Increased delay to 3 seconds between retries
+        );
+
+        const success = data !== null;
+
+        if (success) {
+          this.logger.log(`Successfully applied batched temperature changes for device ${deviceId}`);
+          this.invalidateDeviceStateCache(deviceId, buildingId);
+        } else {
+          this.logger.error(`Failed to apply batched temperature changes for device ${deviceId}`);
+        }
+
+        return success;
+      } catch (error) {
+        const appError = this.createApiError(error, {
+          operation: 'setBatchedTemperatures',
+          deviceId,
+          buildingId,
+          changes
+        });
+
+        if (appError.category === ErrorCategory.AUTHENTICATION) {
+          await this.ensureConnected();
+        }
+
+        this.errorHandler.logError(appError);
+        throw appError;
+      }
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      const appError = this.createApiError(error, {
+        operation: 'setBatchedTemperatures',
+        deviceId,
+        buildingId,
+        changes,
+        outerCatch: true
       });
 
       this.errorHandler.logError(appError);

@@ -24,10 +24,11 @@ export abstract class BaseApiService {
   protected errorHandler: ErrorHandler;
   protected circuitBreaker: CircuitBreaker;
   protected lastApiCallTime: number = 0;
-  protected minApiCallInterval: number = 2000; // 2 seconds minimum between calls
+  protected minApiCallInterval: number = 5000; // 5 seconds minimum between calls (increased from 2s)
   protected rateLimitResetTime: number = 0;
   protected cache: Map<string, { data: any; timestamp: number }> = new Map();
-  protected cacheTTL: number = 5 * 60 * 1000; // 5 minutes default TTL
+  protected cacheTTL: number = 3 * 60 * 1000; // 3 minutes default TTL
+  protected deviceStateTTL: number = 3 * 60 * 1000; // 3 minutes for device state
 
   /**
    * Constructor
@@ -89,14 +90,16 @@ export abstract class BaseApiService {
   /**
    * Get cached data
    * @param key Cache key
+   * @param customTTL Optional custom TTL for this cache entry
    * @returns Cached data or null if not found or expired
    */
-  protected getCachedData<T>(key: string): T | null {
+  protected getCachedData<T>(key: string, customTTL?: number): T | null {
     const cached = this.cache.get(key);
     if (!cached) return null;
 
     const now = Date.now();
-    if (now - cached.timestamp > this.cacheTTL) {
+    const ttl = customTTL || this.cacheTTL;
+    if (now - cached.timestamp > ttl) {
       this.cache.delete(key);
       return null;
     }

@@ -181,8 +181,9 @@ export class Optimizer {
   private tempStep: number = 0.5;
   private deadband: number = 0.3; // Minimum temperature change to trigger adjustment
   // Safety: avoid frequent setpoint changes (anti–short-cycling proxy)
-  private minSetpointChangeMinutes: number = 15;
+  private minSetpointChangeMinutes: number = 5;
   private lastSetpointChangeMs: number | null = null;
+  private lastOptimizerTarget: number | null = null;
   // Secondary zone constraints
   private enableZone2: boolean = false;
   private minTempZone2: number = 18;
@@ -2041,29 +2042,16 @@ export class Optimizer {
           const changeApplied = tankChange >= tankDeadband;
 
           if (changeApplied) {
-            try {
-              await this.melCloud.setTankTemperature(this.deviceId, this.buildingId, tankTarget);
-              this.logger.log(`Tank temperature adjusted from ${currentTankTarget.toFixed(1)}°C to ${tankTarget.toFixed(1)}°C`);
-              tankStatus = { setpointApplied: true };
-              tankResult = {
-                fromTemp: currentTankTarget,
-                toTemp: tankTarget,
-                reason: tankReason,
-                success: true,
-                changed: true
-              };
-            } catch (error) {
-              const errMsg = (error instanceof Error) ? error.message : String(error);
-              this.logger.error('Failed to update MELCloud tank temperature:', error);
-              tankStatus = { setpointApplied: false, error: errMsg };
-              tankResult = {
-                fromTemp: currentTankTarget,
-                toTemp: tankTarget,
-                reason: `${tankReason} (command failed)`,
-                success: false,
-                changed: true
-              };
-            }
+            // Prepare tank change for batched API call (don't call API here)
+            this.logger.log(`Tank temperature will be adjusted from ${currentTankTarget.toFixed(1)}°C to ${tankTarget.toFixed(1)}°C (batched)`);
+            tankStatus = { setpointApplied: false }; // Will be updated in batched call
+            tankResult = {
+              fromTemp: currentTankTarget,
+              toTemp: tankTarget,
+              reason: tankReason,
+              success: false, // Will be updated in batched call
+              changed: true
+            };
           } else {
             this.logger.log(`Tank change ${tankChange.toFixed(2)}°C below deadband ${tankDeadband.toFixed(2)}°C – keeping ${currentTankTarget.toFixed(1)}°C`);
             tankResult = {
@@ -2083,33 +2071,112 @@ export class Optimizer {
         }
       }
 
-      // Anti–short-cycling lockout: avoid frequent setpoint changes
+      // Smart anti-cycling lockout: avoid frequent setpoint changes, but detect manual overrides
       let lockoutActive = false;
+      let manualChangeDetected = false;
+      
       try {
         const last = (this.homey && Number(this.homey.settings.get('last_setpoint_change_ms'))) || this.lastSetpointChangeMs || 0;
+        const lastTarget = (this.homey && Number(this.homey.settings.get('last_optimizer_target'))) || this.lastOptimizerTarget || null;
         const sinceMin = last > 0 ? (Date.now() - last) / 60000 : Infinity;
-        lockoutActive = sinceMin < this.minSetpointChangeMinutes;
+        
+        // Check if user manually changed the temperature (override detection)
+        if (lastTarget !== null && Math.abs(safeCurrentTarget - lastTarget) > 0.1) {
+          manualChangeDetected = true;
+          this.logger.log(`Manual temperature change detected: expected ${lastTarget}°C, found ${safeCurrentTarget}°C - resetting lockout`);
+          
+          // Reset lockout timer when manual change detected
+          this.lastSetpointChangeMs = 0;
+          if (this.homey) this.homey.settings.set('last_setpoint_change_ms', 0);
+        } else if (lastTarget === null && last > 0 && sinceMin < this.minSetpointChangeMinutes) {
+          // If no previous optimizer target but recent change detected, assume it was manual
+          manualChangeDetected = true;
+          this.logger.log(`Manual temperature change detected before first optimization (${sinceMin.toFixed(1)}m ago) - resetting lockout`);
+          
+          // Reset lockout timer when manual change detected
+          this.lastSetpointChangeMs = 0;
+          if (this.homey) this.homey.settings.set('last_setpoint_change_ms', 0);
+        }
+        
+        // Apply lockout only if no manual changes detected
+        lockoutActive = !manualChangeDetected && sinceMin < this.minSetpointChangeMinutes;
+        
         if (lockoutActive) {
           this.logger.log(`Setpoint change lockout active (${sinceMin.toFixed(1)}m since last < ${this.minSetpointChangeMinutes}m)`);
+        } else if (manualChangeDetected) {
+          this.logger.log(`Lockout bypassed due to manual temperature change detection`);
         }
       } catch {}
 
-      // Apply temperature change if significant and not within lockout window
-      if (isSignificantChange && !lockoutActive) {
+      // Apply temperature changes using batched API call to reduce API requests
+      const hasZone2Change = zone2Result && Math.abs(zone2Result.toTemp - zone2Result.fromTemp) > 0.1;
+      const hasTankChange = tankResult && tankResult.changed;
+      
+      if ((isSignificantChange || hasTankChange || hasZone2Change) && !lockoutActive) {
         try {
-          await this.melCloud.setDeviceTemperature(this.deviceId, this.buildingId, targetTemp);
-          setpointApplied = true;
-          melCloudSetpointApplied = true;
+          // Prepare batched temperature changes
+          const temperatureChanges: {
+            zone1Temperature?: number;
+            zone2Temperature?: number;
+            tankTemperature?: number;
+          } = {};
+
+          // Add zone 1 change if significant
+          if (isSignificantChange) {
+            temperatureChanges.zone1Temperature = targetTemp;
+          }
+
+          // Add zone 2 change if available and different
+          if (hasZone2Change && typeof zone2Result!.toTemp === 'number') {
+            temperatureChanges.zone2Temperature = zone2Result!.toTemp;
+          }
+
+          // Add tank change if available and changed
+          if (hasTankChange && typeof tankResult!.toTemp === 'number') {
+            temperatureChanges.tankTemperature = tankResult!.toTemp;
+          }
+
+          // Use batched API call if we have any changes
+          if (Object.keys(temperatureChanges).length > 0) {
+            const changeDesc = Object.entries(temperatureChanges)
+              .map(([key, val]) => `${key}=${val}°C`)
+              .join(', ');
+            this.logger.log(`Applying batched temperature changes: ${changeDesc}`);
+
+            await this.melCloud.setBatchedTemperatures(this.deviceId, this.buildingId, temperatureChanges);
+            setpointApplied = true;
+            melCloudSetpointApplied = true;
+
+            // Update individual status flags based on what was applied
+            if (temperatureChanges.tankTemperature !== undefined) {
+              tankStatus = { setpointApplied: true };
+              if (tankResult) tankResult.success = true;
+            }
+          }
         } catch (error) {
           melCloudSetpointApplied = false;
           melCloudSetpointError = (error instanceof Error) ? error.message : String(error);
-          this.logger.error('Failed to apply MELCloud temperature change during optimization:', error);
+          this.logger.error('Failed to apply batched MELCloud temperature changes during optimization:', error);
+          
+          // Update error status for tank if it was part of the batch
+          if (hasTankChange) {
+            tankStatus = { 
+              setpointApplied: false, 
+              error: (error instanceof Error) ? error.message : String(error) 
+            };
+            if (tankResult) tankResult.success = false;
+          }
         }
+        
         if (setpointApplied) {
           try {
             const now = Date.now();
             this.lastSetpointChangeMs = now;
-            if (this.homey) this.homey.settings.set('last_setpoint_change_ms', now);
+            this.lastOptimizerTarget = targetTemp; // Store the target we set for manual change detection
+            if (this.homey) {
+              this.homey.settings.set('last_setpoint_change_ms', now);
+              this.homey.settings.set('last_optimizer_target', targetTemp);
+            }
           } catch {}
         }
       }

@@ -1174,16 +1174,21 @@ const apiHandlers: ApiHandlers = {
           const enableTank = homey.settings.get('enable_tank_control') === true;
           if (enableTank && result && result.hotWaterAction && result.hotWaterAction.action) {
             const action = result.hotWaterAction.action;
-            const deviceId = homey.settings.get('device_id') || 'Boiler';
+            const deviceId = homey.settings.get('device_id');
             const buildingIdSetting = homey.settings.get('building_id');
             const parsedBuildingId = Number.parseInt(String(buildingIdSetting ?? ''), 10);
             const buildingId = Number.isFinite(parsedBuildingId) ? parsedBuildingId : 0;
-            if (action === 'heat_now') {
-              await melCloudService.setHotWaterMode(deviceId, buildingId, true);
-              homey.app.log('DHW action: Forced hot water mode (cheap price window)');
-            } else if (action === 'delay') {
-              await melCloudService.setHotWaterMode(deviceId, buildingId, false);
-              homey.app.log('DHW action: Auto mode (delaying in expensive window)');
+            
+            if (deviceId && buildingId) {
+              if (action === 'heat_now') {
+                await melCloudService.setHotWaterMode(deviceId, buildingId, true);
+                homey.app.log('DHW action: Forced hot water mode (cheap price window)');
+              } else if (action === 'delay') {
+                await melCloudService.setHotWaterMode(deviceId, buildingId, false);
+                homey.app.log('DHW action: Auto mode (delaying in expensive window)');
+              }
+            } else {
+              homey.app.log('DHW action skipped: Device ID or Building ID not configured');
             }
           }
         } catch (dhwErr: any) {

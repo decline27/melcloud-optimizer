@@ -166,22 +166,19 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
   const melcloudUser = homey.settings.get('melcloud_user') || homey.settings.get('melcloudUser');
   const melcloudPass = homey.settings.get('melcloud_pass') || homey.settings.get('melcloudPass');
   const tibberToken = homey.settings.get('tibber_token') || homey.settings.get('tibberToken');
-  const deviceId = homey.settings.get('device_id') || homey.settings.get('deviceId') || 'Boiler';
-  let buildingIdRaw = homey.settings.get('building_id') || homey.settings.get('buildingId') || '456';
+  const deviceId = homey.settings.get('device_id') || homey.settings.get('deviceId') || null;
+  let buildingIdRaw = homey.settings.get('building_id') || homey.settings.get('buildingId') || null;
   const useWeatherData = homey.settings.get('use_weather_data') !== false;
 
   if (!melcloudUser || !melcloudPass) {
     throw new Error('MELCloud credentials are required. Please configure them in the settings.');
   }
 
-  const parsedBuildingId = Number.parseInt(String(buildingIdRaw), 10);
-  if (!Number.isFinite(parsedBuildingId)) {
-    buildingIdRaw = '456';
-  }
-  const buildingId = Number.isFinite(parsedBuildingId) ? parsedBuildingId : 456;
+  const parsedBuildingId = buildingIdRaw ? Number.parseInt(String(buildingIdRaw), 10) : null;
+  const buildingId = Number.isFinite(parsedBuildingId) ? parsedBuildingId : null;
 
-  homey.app.log(`Using device ID: ${deviceId}`);
-  homey.app.log(`Using building ID: ${buildingId}`);
+  homey.app.log(`Initial device ID: ${deviceId || 'not configured'}`);
+  homey.app.log(`Initial building ID: ${buildingId || 'not configured'}`);
 
   homey.app.log('Initializing services with settings:');
   homey.app.log('- MELCloud User:', melcloudUser ? '✓ Set' : '✗ Not set');
@@ -200,23 +197,52 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
 
   const devices = await melCloud.getDevices();
   homey.app.log(`Found ${devices.length} devices in MELCloud account`);
-  if (devices.length > 0) {
-    homey.app.log('===== AVAILABLE DEVICES =====');
-    devices.forEach((device: any) => {
-      homey.app.log(`Device: ${device.name} (ID: ${device.id}, Building ID: ${device.buildingId})`);
-    });
-    homey.app.log('=============================');
+  
+  if (devices.length === 0) {
+    homey.app.log('WARNING: No devices found in your MELCloud account.');
+    throw new Error('No MELCloud devices found. Please ensure your account has at least one compatible heat pump.');
+  }
+
+  homey.app.log('===== AVAILABLE DEVICES =====');
+  devices.forEach((device: any) => {
+    homey.app.log(`Device: ${device.name} (ID: ${device.id}, Building ID: ${device.buildingId})`);
+  });
+  homey.app.log('=============================');
+
+  // Auto-discover device and building IDs if not configured
+  const firstDevice = devices[0];
+  let finalDeviceId: any = deviceId;
+  let finalBuildingId: number = buildingId || firstDevice.buildingId;
+
+  if (!deviceId || !buildingId) {
+    if (!finalDeviceId) {
+      finalDeviceId = firstDevice.id;
+      homey.settings.set('device_id', finalDeviceId);
+      homey.app.log(`Auto-discovered device ID: ${finalDeviceId} (${firstDevice.name})`);
+    }
+    if (!buildingId) {
+      finalBuildingId = firstDevice.buildingId;
+      homey.settings.set('building_id', finalBuildingId);
+      homey.app.log(`Auto-discovered building ID: ${finalBuildingId}`);
+    }
+  } else {
+    // Validate configured device exists
     const exists = devices.some((device: any) => (
       device.id?.toString() === deviceId.toString() ||
       String(device.name || '').toLowerCase() === deviceId.toLowerCase()
     ));
-    if (!exists && devices[0]) {
+    if (!exists) {
       const fallback = devices[0];
       homey.app.log(`WARNING: Configured device ID "${deviceId}" not found. Using ${fallback.name} (ID: ${fallback.id}).`);
+      finalDeviceId = fallback.id;
+      finalBuildingId = fallback.buildingId;
+      homey.settings.set('device_id', finalDeviceId);
+      homey.settings.set('building_id', finalBuildingId);
     }
-  } else {
-    homey.app.log('WARNING: No devices found in your MELCloud account.');
   }
+
+  homey.app.log(`Final device ID: ${finalDeviceId}`);
+  homey.app.log(`Final building ID: ${finalBuildingId}`);
 
   if (tibberToken) {
     const tibberLogger = (appLogger && typeof appLogger.api === 'function') ? appLogger : undefined;
@@ -249,8 +275,8 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
   const optimizer = new Optimizer(
     melCloud,
     tibber,
-    deviceId,
-    buildingId,
+    finalDeviceId,
+    finalBuildingId,
     homey.app as any,
     serviceState.weather as any,
     homey as any

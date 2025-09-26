@@ -1,6 +1,6 @@
 {
   "id": "com.melcloud.optimize",
-  "version": "12.5.19",
+  "version": "13.0.0",
   "compatibility": ">=12.2.0",
   "sdk": 3,
   "platforms": [

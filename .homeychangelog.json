@@ -82,5 +82,11 @@
   },
   "12.5.19": {
     "en": "Updated auto start on reinstall"
+  },
+  "12.5.20": {
+    "en": "Fix login problem"
+  },
+  "13.0.0": {
+    "en": "login fix"
   }
 }
