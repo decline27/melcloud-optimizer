@@ -95,17 +95,18 @@ export class CircuitBreaker {
    */
   async execute<T>(fn: () => Promise<T>): Promise<T> {
     // Check if circuit is open
-    if (this.state === CircuitState.OPEN) {
+      if (this.state === CircuitState.OPEN) {
       // Check if it's time to try again
       if (Date.now() - this.lastFailureTime >= this.currentResetTimeout) {
         this.halfOpen();
       } else {
-        this.logger.warn(`Circuit ${this.name} is OPEN - failing fast`);
+        // Defensive logging - handle undefined logger gracefully
+        if (this.logger && typeof this.logger.warn === 'function') {
+          this.logger.warn(`Circuit ${this.name} is OPEN - failing fast`);
+        }
         throw new Error(`Service unavailable (circuit ${this.name} is open)`);
       }
-    }
-
-    try {
+    }    try {
       // Execute the function
       const result = await this.executeWithTimeout(fn);
 
@@ -145,7 +146,11 @@ export class CircuitBreaker {
   private onSuccess(): void {
     if (this.state === CircuitState.HALF_OPEN) {
       this.successes++;
-      this.logger.debug(`Circuit ${this.name} success in HALF_OPEN state (${this.successes}/${this.options.halfOpenSuccessThreshold})`);
+      
+      // Defensive logging - handle undefined logger gracefully
+      if (this.logger && typeof this.logger.debug === 'function') {
+        this.logger.debug(`Circuit ${this.name} success in HALF_OPEN state (${this.successes}/${this.options.halfOpenSuccessThreshold})`);
+      }
 
       if (this.successes >= (this.options.halfOpenSuccessThreshold || 3)) {
         this.close();
@@ -170,7 +175,14 @@ export class CircuitBreaker {
     this.lastFailureTime = Date.now();
 
     const errorMessage = error instanceof Error ? error.message : String(error);
-    this.logger.warn(`Circuit ${this.name} failure: ${errorMessage} (${this.failures}/${this.adaptiveFailureThreshold})`);
+    
+    // Defensive logging - handle undefined logger gracefully
+    if (this.logger && typeof this.logger.warn === 'function') {
+      this.logger.warn(`Circuit ${this.name} failure: ${errorMessage} (${this.failures}/${this.adaptiveFailureThreshold})`);
+    } else {
+      // Fallback to console if logger is unavailable during first-time setup
+      console.warn(`[CircuitBreaker] ${this.name} failure: ${errorMessage} (${this.failures}/${this.adaptiveFailureThreshold})`);
+    }
 
     // Track failure for adaptive behavior
     this.updateSuccessHistory(false);
@@ -198,7 +210,12 @@ export class CircuitBreaker {
       this.options.maxResetTimeout || 1800000
     );
     
-    this.logger.warn(`Circuit ${this.name} OPENED (attempt ${this.consecutiveFailures}, reset in ${this.currentResetTimeout}ms)`);
+    // Defensive logging - handle undefined logger gracefully
+    if (this.logger && typeof this.logger.warn === 'function') {
+      this.logger.warn(`Circuit ${this.name} OPENED (attempt ${this.consecutiveFailures}, reset in ${this.currentResetTimeout}ms)`);
+    } else {
+      console.warn(`[CircuitBreaker] ${this.name} OPENED (attempt ${this.consecutiveFailures}, reset in ${this.currentResetTimeout}ms)`);
+    }
     
     // Schedule reset
     if (this.resetTimer) {
@@ -218,7 +235,10 @@ export class CircuitBreaker {
     this.failures = 0;
     this.successes = 0;
     
-    this.logger.info(`Circuit ${this.name} HALF-OPEN - testing service availability`);
+    // Defensive logging - handle undefined logger gracefully
+    if (this.logger && typeof this.logger.info === 'function') {
+      this.logger.info(`Circuit ${this.name} HALF-OPEN - testing service availability`);
+    }
   }
 
   /**
@@ -230,7 +250,10 @@ export class CircuitBreaker {
     this.successes = 0;
     this.currentResetTimeout = this.options.resetTimeout; // Reset to base timeout
     
-    this.logger.info(`Circuit ${this.name} CLOSED - service is operational`);
+    // Defensive logging - handle undefined logger gracefully
+    if (this.logger && typeof this.logger.info === 'function') {
+      this.logger.info(`Circuit ${this.name} CLOSED - service is operational`);
+    }
   }
 
   /**
@@ -238,7 +261,10 @@ export class CircuitBreaker {
    */
   private startMonitoring(): void {
     this.monitorTimer = setInterval(() => {
-      this.logger.debug(`Circuit ${this.name} state: ${this.state}`);
+      // Defensive logging - handle undefined logger gracefully
+      if (this.logger && typeof this.logger.debug === 'function') {
+        this.logger.debug(`Circuit ${this.name} state: ${this.state}`);
+      }
     }, this.options.monitorInterval);
   }
 
@@ -300,7 +326,10 @@ export class CircuitBreaker {
           this.adaptiveFailureThreshold = Math.max(2, Math.floor(this.options.failureThreshold / 2));
         }
         
-        this.logger.debug(`Circuit ${this.name} adaptive threshold: ${this.adaptiveFailureThreshold} (success rate: ${(successRate * 100).toFixed(1)}%)`);
+        // Defensive logging - handle undefined logger gracefully
+        if (this.logger && typeof this.logger.debug === 'function') {
+          this.logger.debug(`Circuit ${this.name} adaptive threshold: ${this.adaptiveFailureThreshold} (success rate: ${(successRate * 100).toFixed(1)}%)`);
+        }
       }
     }
   }

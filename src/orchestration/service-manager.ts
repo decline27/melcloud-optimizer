@@ -170,8 +170,18 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
   let buildingIdRaw = homey.settings.get('building_id') || homey.settings.get('buildingId') || null;
   const useWeatherData = homey.settings.get('use_weather_data') !== false;
 
-  if (!melcloudUser || !melcloudPass) {
-    throw new Error('MELCloud credentials are required. Please configure them in the settings.');
+  // Enhanced configuration validation with detailed error messages
+  const missingSettings = [];
+  if (!melcloudUser) missingSettings.push('MELCloud username/email');
+  if (!melcloudPass) missingSettings.push('MELCloud password');
+  
+  if (missingSettings.length > 0) {
+    const errorMessage = `Missing required settings: ${missingSettings.join(', ')}. Please configure these in the app settings page before starting optimization.`;
+    homey.app.log(`❌ Configuration Error: ${errorMessage}`);
+    
+    const configError = new Error(errorMessage);
+    (configError as any).needsConfiguration = true;
+    throw configError;
   }
 
   const parsedBuildingId = buildingIdRaw ? Number.parseInt(String(buildingIdRaw), 10) : null;
@@ -243,6 +253,16 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
 
   homey.app.log(`Final device ID: ${finalDeviceId}`);
   homey.app.log(`Final building ID: ${finalBuildingId}`);
+
+  // Final validation - ensure we have valid IDs
+  if (!finalDeviceId || !finalBuildingId) {
+    const errorMessage = 'Could not determine device ID or building ID after initialization. Please check your MELCloud configuration.';
+    homey.app.log(`❌ Configuration Error: ${errorMessage}`);
+    
+    const configError = new Error(errorMessage);
+    (configError as any).needsConfiguration = true;
+    throw configError;
+  }
 
   if (tibberToken) {
     const tibberLogger = (appLogger && typeof appLogger.api === 'function') ? appLogger : undefined;

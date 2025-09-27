@@ -2077,25 +2077,30 @@ export class Optimizer {
       
       try {
         const last = (this.homey && Number(this.homey.settings.get('last_setpoint_change_ms'))) || this.lastSetpointChangeMs || 0;
-        const lastTarget = (this.homey && Number(this.homey.settings.get('last_optimizer_target'))) || this.lastOptimizerTarget || null;
         const sinceMin = last > 0 ? (Date.now() - last) / 60000 : Infinity;
         
-        // Check if user manually changed the temperature (override detection)
-        if (lastTarget !== null && Math.abs(safeCurrentTarget - lastTarget) > 0.1) {
-          manualChangeDetected = true;
-          this.logger.log(`Manual temperature change detected: expected ${lastTarget}°C, found ${safeCurrentTarget}°C - resetting lockout`);
+        // Manual change detection: compare current device temp with what THIS optimization would set
+        // Only check if we have a significant temperature difference and it's not just the same value
+        if (isSignificantChange) {
+          const lastTarget = (this.homey && Number(this.homey.settings.get('last_optimizer_target'))) || this.lastOptimizerTarget || null;
           
-          // Reset lockout timer when manual change detected
-          this.lastSetpointChangeMs = 0;
-          if (this.homey) this.homey.settings.set('last_setpoint_change_ms', 0);
-        } else if (lastTarget === null && last > 0 && sinceMin < this.minSetpointChangeMinutes) {
-          // If no previous optimizer target but recent change detected, assume it was manual
-          manualChangeDetected = true;
-          this.logger.log(`Manual temperature change detected before first optimization (${sinceMin.toFixed(1)}m ago) - resetting lockout`);
-          
-          // Reset lockout timer when manual change detected
-          this.lastSetpointChangeMs = 0;
-          if (this.homey) this.homey.settings.set('last_setpoint_change_ms', 0);
+          // Check if user manually changed AWAY from what the optimizer would naturally set
+          // This prevents false positives when user sets the same temp as optimizer
+          if (lastTarget !== null) {
+            // If the current temp doesn't match what we would naturally calculate (targetTemp)
+            // AND it matches what we previously set, then it was likely kept by user preference
+            const wouldNaturallySet = Math.abs(safeCurrentTarget - targetTemp) < 0.1;
+            const matchesLastOptimizerChoice = Math.abs(safeCurrentTarget - lastTarget) < 0.1;
+            
+            if (!wouldNaturallySet && !matchesLastOptimizerChoice) {
+              manualChangeDetected = true;
+              this.logger.log(`Manual temperature change detected: optimizer would set ${targetTemp}°C, but found ${safeCurrentTarget}°C (last set: ${lastTarget}°C) - resetting lockout`);
+              
+              // Reset lockout timer when manual change detected
+              this.lastSetpointChangeMs = 0;
+              if (this.homey) this.homey.settings.set('last_setpoint_change_ms', 0);
+            }
+          }
         }
         
         // Apply lockout only if no manual changes detected

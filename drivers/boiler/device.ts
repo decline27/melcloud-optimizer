@@ -1350,10 +1350,15 @@ module.exports = class BoilerDevice extends Homey.Device {
    */
   private initializeCircuitBreakers() {
     try {
+      // Ensure logger is available before creating circuit breakers
+      if (!this.logger) {
+        console.warn('Logger not available during circuit breaker initialization - circuit breakers will have defensive logging');
+      }
+
       // Main API calls circuit breaker - more resilient configuration
       this.apiCircuitBreaker = new CircuitBreaker(
         `API-${this.deviceId}`,
-        this.logger,
+        this.logger, // CircuitBreaker now has defensive logging for undefined logger
         {
           failureThreshold: 5,        // Increased from 3 to 5
           resetTimeout: 120000,       // Increased from 60000 to 120000 (2 minutes)
@@ -1370,7 +1375,7 @@ module.exports = class BoilerDevice extends Homey.Device {
       // Energy reporting circuit breaker - even more tolerant for non-critical operations
       this.energyCircuitBreaker = new CircuitBreaker(
         `Energy-${this.deviceId}`,
-        this.logger,
+        this.logger, // CircuitBreaker now has defensive logging for undefined logger
         {
           failureThreshold: 8,        // More tolerant for energy calls
           resetTimeout: 300000,       // 5 minute base timeout
@@ -1384,10 +1389,18 @@ module.exports = class BoilerDevice extends Homey.Device {
         }
       );
 
-      this.logger.log('Circuit breakers initialized for API protection');
+      if (this.logger) {
+        this.logger.log('Circuit breakers initialized for API protection');
+      } else {
+        console.log('[BoilerDevice] Circuit breakers initialized for API protection');
+      }
       
     } catch (error) {
-      this.logger.error('Error initializing circuit breakers:', error);
+      if (this.logger) {
+        this.logger.error('Error initializing circuit breakers:', error);
+      } else {
+        console.error('[BoilerDevice] Error initializing circuit breakers:', error);
+      }
       // Continue without circuit breakers if initialization fails
     }
   }

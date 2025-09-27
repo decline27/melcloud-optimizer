@@ -33,6 +33,18 @@ module.exports = class BoilerDriver extends Homey.Driver {
 
     // Initialize optimization cron jobs
     this.initializeCronJobs();
+
+    // Listen for settings changes to restart cron jobs when fully configured
+    this.homey.settings.on('set', (key: string) => {
+      // Check if any critical setting was changed that might complete the configuration
+      const criticalSettings = ['melcloud_user', 'melcloud_pass', 'device_id', 'building_id', 'tibber_token'];
+      if (criticalSettings.includes(key)) {
+        this.logger.log(`🔧 Critical setting '${key}' changed, checking if cron jobs should start`);
+        setTimeout(() => {
+          this.ensureCronRunningIfReady();
+        }, 1000); // Small delay to ensure all related settings are saved
+      }
+    });
   }
 
   /**
@@ -80,28 +92,59 @@ module.exports = class BoilerDriver extends Homey.Driver {
    */
   private ensureCronRunningIfReady() {
     try {
-      // Check if we have the minimum required settings
-      const melcloudUser = this.homey.settings.get('melcloud_user');
-      const deviceId = this.homey.settings.get('device_id');
-
-      if (melcloudUser && deviceId) {
-        if (this.hourlyJob && !this.hourlyJob.running) {
-          this.hourlyJob.start();
-          this.logger.log('✅ Hourly optimization cron job started');
-        }
-
-        if (this.weeklyJob && !this.weeklyJob.running) {
-          this.weeklyJob.start();
-          this.logger.log('✅ Weekly calibration cron job started');
-        }
-
-        this.logger.log('🎯 All cron jobs are now running and ready for optimization');
-      } else {
-        this.logger.log('⚠️ Cron jobs not started - missing required settings (melcloud_user or device_id)');
+      // Check if we have the minimum required settings for the app to function
+      if (!this.isAppFullyConfigured()) {
+        this.logger.log('⚠️ Cron jobs not started - app not fully configured yet');
+        return;
       }
+
+      if (this.hourlyJob && !this.hourlyJob.running) {
+        this.hourlyJob.start();
+        this.logger.log('✅ Hourly optimization cron job started');
+      }
+
+      if (this.weeklyJob && !this.weeklyJob.running) {
+        this.weeklyJob.start();
+        this.logger.log('✅ Weekly calibration cron job started');
+      }
+
+      this.logger.log('🎯 All cron jobs are now running and ready for optimization');
     } catch (error) {
       this.logger.error('Failed to start cron jobs:', error);
     }
+  }
+
+  /**
+   * Check if the app is fully configured and ready for optimization
+   */
+  private isAppFullyConfigured(): boolean {
+    const melcloudUser = this.homey.settings.get('melcloud_user');
+    const melcloudPass = this.homey.settings.get('melcloud_pass');
+    const deviceId = this.homey.settings.get('device_id');
+    const buildingId = this.homey.settings.get('building_id');
+
+    // Check basic MELCloud configuration
+    if (!melcloudUser || !melcloudPass || !deviceId || !buildingId) {
+      this.logger.log('❌ Missing required MELCloud settings:', {
+        hasUser: !!melcloudUser,
+        hasPassword: !!melcloudPass,
+        hasDeviceId: !!deviceId,
+        hasBuildingId: !!buildingId
+      });
+      return false;
+    }
+
+    // Additional safety: Check if Tibber token is set if user wants price optimization
+    const tibberToken = this.homey.settings.get('tibber_token');
+    const enablePriceOptimization = this.homey.settings.get('enable_price_optimization');
+    
+    if (enablePriceOptimization && !tibberToken) {
+      this.logger.log('❌ Price optimization enabled but Tibber token missing');
+      return false;
+    }
+
+    this.logger.log('✅ App is fully configured and ready for optimization');
+    return true;
   }
 
   /**
@@ -110,6 +153,12 @@ module.exports = class BoilerDriver extends Homey.Driver {
   private async runHourlyOptimization() {
     try {
       this.logger.log('🔄 Starting hourly optimization process...');
+      
+      // Check if app is fully configured before proceeding
+      if (!this.isAppFullyConfigured()) {
+        this.logger.log('⚠️ Skipping hourly optimization - app not fully configured');
+        return;
+      }
       
       // Call the API implementation
       const api = require('../../api.js');
@@ -122,18 +171,35 @@ module.exports = class BoilerDriver extends Homey.Driver {
         }
       } else {
         this.logger.error('❌ Hourly optimization failed:', result.message);
+        
+        // If the failure indicates missing configuration, stop the cron jobs
+        if (result.needsConfiguration) {
+          this.logger.log('🛑 Stopping cron jobs due to configuration issues');
+          if (this.hourlyJob) {
+            this.hourlyJob.stop();
+          }
+          if (this.weeklyJob) {
+            this.weeklyJob.stop();
+          }
+        }
       }
     } catch (error) {
       this.logger.error('❌ Error during hourly optimization:', error);
     }
   }
 
-  /**
+    /**
    * Run weekly calibration
    */
   private async runWeeklyCalibration() {
     try {
       this.logger.log('🔄 Starting weekly calibration process...');
+      
+      // Check if app is fully configured before proceeding
+      if (!this.isAppFullyConfigured()) {
+        this.logger.log('⚠️ Skipping weekly calibration - app not fully configured');
+        return;
+      }
       
       // Call the API implementation
       const api = require('../../api.js');
@@ -141,11 +207,19 @@ module.exports = class BoilerDriver extends Homey.Driver {
 
       if (result.success) {
         this.logger.log('✅ Weekly calibration completed successfully');
-        if (result.data && result.data.method) {
-          this.logger.log(`Calibration method: ${result.data.method}`);
-        }
       } else {
         this.logger.error('❌ Weekly calibration failed:', result.message);
+        
+        // If the failure indicates missing configuration, stop the cron jobs
+        if (result.needsConfiguration) {
+          this.logger.log('🛑 Stopping cron jobs due to configuration issues');
+          if (this.hourlyJob) {
+            this.hourlyJob.stop();
+          }
+          if (this.weeklyJob) {
+            this.weeklyJob.stop();
+          }
+        }
       }
     } catch (error) {
       this.logger.error('❌ Error during weekly calibration:', error);

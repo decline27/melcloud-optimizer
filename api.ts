@@ -1152,10 +1152,19 @@ const apiHandlers: ApiHandlers = {
         // Update optimizer with the latest settings
         await refreshOptimizerSettings(homey);
       } catch (initErr: any) {
+        // Check if this is a configuration error
+        const needsConfig = initErr.needsConfiguration || 
+                           initErr.message.includes('required') ||
+                           initErr.message.includes('configure') ||
+                           initErr.message.includes('settings') ||
+                           initErr.message.includes('credentials');
+        
+        homey.app.log(`⚠️ Service initialization failed: ${initErr.message}`);
+        
         return {
           success: false,
           error: `Failed to initialize services: ${initErr.message}`,
-          needsConfiguration: true
+          needsConfiguration: needsConfig
         };
       }
 
