@@ -92,8 +92,8 @@ describe('Optimizer + Engine integration and safety', () => {
   });
 
   test('Lockout prevents frequent setpoint changes (no change)', async () => {
-    // Last change just 5 minutes ago, lockout 15 min
-    const homey = makeHomey({ use_engine: true, last_setpoint_change_ms: Date.now() - 5*60000 });
+    // Last change just 2 minutes ago, lockout 5 min
+    const homey = makeHomey({ use_engine: true, last_setpoint_change_ms: Date.now() - 2*60000 });
     optimizer = new Optimizer(mel, tib, '123', 456, logger, undefined, homey);
 
     const res = await optimizer.runEnhancedOptimization();

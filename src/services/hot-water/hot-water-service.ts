@@ -13,7 +13,7 @@ export class HotWaterService {
   private dataCollector: HotWaterDataCollector;
   private analyzer: HotWaterAnalyzer;
   private lastDataCollectionTime: number = 0;
-  private dataCollectionInterval: number = 20 * 60 * 1000; // 20 minutes in milliseconds
+  private dataCollectionInterval: number = 60 * 60 * 1000; // 60 minutes in milliseconds (matches optimizer schedule)
   private lastAnalysisTime: number = 0;
   private analysisInterval: number = 6 * 60 * 60 * 1000; // 6 hours in milliseconds
 
@@ -30,7 +30,7 @@ export class HotWaterService {
    */
   public async collectData(deviceState: any): Promise<boolean> {
     try {
-      // Check if it's time to collect data (every 20 minutes)
+      // Check if it's time to collect data (every hour, matching optimizer schedule)
       const now = Date.now();
       if (now - this.lastDataCollectionTime < this.dataCollectionInterval) {
         return false;
@@ -130,15 +130,15 @@ export class HotWaterService {
    * @param minTemp Minimum allowed tank temperature
    * @param maxTemp Maximum allowed tank temperature
    * @param currentPrice Current electricity price
-   * @param priceThreshold Price threshold for optimization
+   * @param priceLevel Tibber price level (VERY_CHEAP, CHEAP, NORMAL, EXPENSIVE, VERY_EXPENSIVE)
    * @returns Optimal tank temperature
    */
-  public getOptimalTankTemperature(minTemp: number, maxTemp: number, currentPrice: number, priceThreshold: number): number {
+  public getOptimalTankTemperature(minTemp: number, maxTemp: number, currentPrice: number, priceLevel: string): number {
     try {
       const memoryBefore = this.dataCollector.getMemoryUsage();
-      this.homey.log(`Calculating optimal tank temperature (min: ${minTemp}°C, max: ${maxTemp}°C, price: ${currentPrice}, threshold: ${priceThreshold})`);
+      this.homey.log(`Calculating optimal tank temperature (min: ${minTemp}°C, max: ${maxTemp}°C, price: ${currentPrice}, level: ${priceLevel})`);
       
-      const optimalTemp = this.analyzer.getOptimalTankTemperature(minTemp, maxTemp, currentPrice, priceThreshold);
+      const optimalTemp = this.analyzer.getOptimalTankTemperature(minTemp, maxTemp, currentPrice, priceLevel);
       
       const memoryAfter = this.dataCollector.getMemoryUsage();
       this.homey.log(`Optimal tank temperature calculation complete: ${optimalTemp}°C (memory usage: ${memoryBefore} → ${memoryAfter})`);

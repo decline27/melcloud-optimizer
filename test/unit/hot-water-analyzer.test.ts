@@ -76,10 +76,10 @@ describe('HotWaterAnalyzer', () => {
     const next24 = analyzer.predictNext24Hours();
     expect(next24.length).toBe(24);
 
-    const optimalCheap = analyzer.getOptimalTankTemperature(40, 60, 0.05, 0.1);
+    const optimalCheap = analyzer.getOptimalTankTemperature(40, 60, 0.05, 'CHEAP');
     expect(typeof optimalCheap).toBe('number');
 
-    const optimalExpensive = analyzer.getOptimalTankTemperature(40, 60, 0.2, 0.1);
+    const optimalExpensive = analyzer.getOptimalTankTemperature(40, 60, 0.2, 'EXPENSIVE');
     expect(typeof optimalExpensive).toBe('number');
   }, 10000);
 });

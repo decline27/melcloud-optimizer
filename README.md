@@ -190,7 +190,7 @@ Baseline creation:
 - Disable DHW toggle and set lockout to high (e.g., 60 min). Collect 3–7 days of KPIs.
 
 A/B procedure (7 days):
-- Enable P1 changes (lockout=15 min, stale-price hold, DHW toggle). Track daily KPIs and savings_history.
+- Enable P1 changes (lockout=5 min, stale-price hold, DHW toggle). Track daily KPIs and savings_history.
 - Use the offline simulator (`simulate.js` or `scripts/simulate.js`) with the same price/temperature traces to compare algorithm variants.
 
 Sample datasets:
@@ -220,7 +220,7 @@ Sample datasets:
 - Suggested defaults (good starting point):
   - Occupied band: 20.0–21.0°C
   - Away band: 19.0–20.5°C
-  - Deadband: 0.3°C; Min setpoint change interval: 15 min
+  - Deadband: 0.3°C; Min setpoint change interval: 5 min
   - Extreme-cold minimum: 20°C
   - Preheat: enabled, horizon 12h, cheap percentile 0.25
 

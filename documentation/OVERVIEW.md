@@ -272,7 +272,7 @@ const maxChange = this.tempStep; // 0.5°C - frequent changes possible
 - **Comfort Band Handling:** ±1°C comfort zone with price-adaptive boundaries
 - **Preheating Logic:** 4-6 hour lookahead for cheap electricity detection
 - **Transparency:** Clear explanations ("Preheating due to price spike at 18:00")
-- **Anti-Cycling:** Minimum 15-minute compressor cycles
+- **Anti-Cycling:** Minimum 5-minute compressor cycles
 - **Safety Fallbacks:** Always maintain comfort during extreme weather
 
 **Implementation Gap:** MELCloud uses fixed temperature targets vs. Tibber's dynamic comfort bands.

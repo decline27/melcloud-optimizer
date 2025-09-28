@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test validateAndStartCron API</title>
+    <script type="text/javascript" src="/homey.js" data-origin="settings"></script>
+</head>
+<body>
+    <h1>Test validateAndStartCron API Endpoint</h1>
+    <button id="testBtn">Test API Endpoint</button>
+    <div id="result"></div>
+
+    <script>
+        document.getElementById('testBtn').addEventListener('click', function() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = 'Testing...';
+            
+            console.log('Calling validateAndStartCron API...');
+            
+            Homey.api('GET', '/validateAndStartCron', {}, function(err, result) {
+                if (err) {
+                    console.error('API Error:', err);
+                    resultDiv.innerHTML = `<p style="color: red;">Error: ${err}</p>`;
+                } else {
+                    console.log('API Result:', result);
+                    resultDiv.innerHTML = `
+                        <p style="color: green;">Success!</p>
+                        <pre>${JSON.stringify(result, null, 2)}</pre>
+                    `;
+                }
+            });
+        });
+    </script>
+</body>
+</html>

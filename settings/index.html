@@ -209,8 +209,8 @@
           </div>
           <div class="homey-form-col">
             <label class="homey-form-label" for="min_setpoint_change_minutes">Min Setpoint Interval (min)</label>
-            <input class="homey-form-input" id="min_setpoint_change_minutes" type="number" min="5" max="180" step="5" value="15" />
-            <p class="homey-form-helper">Anti–short‑cycling lockout between changes. Suggested default: <b>15 minutes</b>.</p>
+            <input class="homey-form-input" id="min_setpoint_change_minutes" type="number" min="5" max="180" step="5" value="5" />
+            <p class="homey-form-helper">Anti–short‑cycling lockout between changes. Suggested default: <b>5 minutes</b>.</p>
             <p class="homey-form-helper">Impact: Higher values reduce compressor starts and avoid fighting defrost cycles; too high can slow reactions to big price swings.</p>
           </div>
           <div class="homey-form-col">
@@ -328,11 +328,12 @@
     <details class="homey-form-fieldset">
       <summary class="homey-form-legend">Hot Water Usage Patterns</summary>
       <div class="button-container">
+        <button id="view_patterns" class="homey-button" onclick="viewHotWaterPatterns()">View Usage Patterns</button>
         <button id="reset_patterns" class="homey-button" onclick="resetHotWaterPatterns()">Reset Usage Patterns</button>
         <button id="clear_keep_patterns" class="homey-button-warning" onclick="clearHotWaterData(true)">Clear Data (Keep Patterns)</button>
         <button id="clear_all_data" class="homey-button-danger" onclick="clearHotWaterData(false)">Clear All Data</button>
       </div>
-      <p class="homey-form-helper">Reset Usage Patterns: Resets learned patterns to default values.<br>Clear Data (Keep Patterns): Removes detailed data points but keeps aggregated usage patterns.<br>Clear All Data: Removes all collected usage data and resets patterns.</p>
+      <p class="homey-form-helper">View Usage Patterns: Dumps current learned patterns to the terminal/logs.<br>Reset Usage Patterns: Resets learned patterns to default values.<br>Clear Data (Keep Patterns): Removes detailed data points but keeps aggregated usage patterns.<br>Clear All Data: Removes all collected usage data and resets patterns.</p>
       <p id="hot_water_action_result" class="result-message"></p>
     </details>
 
@@ -2140,7 +2141,26 @@
 
           // Show success message
           if (saveStatus) saveStatus.textContent = 'Saved successfully';
-          Homey.alert('Settings saved successfully!');
+          
+          // Validate settings and start cron jobs if everything is ready
+          Homey.api('GET', '/validateAndStartCron', {}, function(err, result) {
+            if (err) {
+              console.error('Error validating settings:', err);
+              if (saveStatus) saveStatus.textContent = 'Settings saved, but validation failed';
+              Homey.alert('Settings saved successfully!');
+            } else if (result && result.success) {
+              if (result.cronRunning) {
+                if (saveStatus) saveStatus.textContent = 'Settings saved, optimization running ✅';
+                Homey.alert('Settings saved successfully! Optimization is now running.');
+              } else {
+                if (saveStatus) saveStatus.textContent = 'Settings saved ⚠️ ' + (result.message || 'Please complete required settings');
+                Homey.alert('Settings saved! ' + (result.message || 'Please complete all required settings to start optimization.'));
+              }
+            } else {
+              if (saveStatus) saveStatus.textContent = 'Settings saved, validation failed';
+              Homey.alert('Settings saved successfully!');
+            }
+          });
         });
 
         // Button event handlers are now defined as global functions and attached via onclick attributes
@@ -2255,6 +2275,19 @@
       })();
       
       // Hot water usage pattern functions
+      function viewHotWaterPatterns() {
+        const resultElement = document.getElementById('hot_water_action_result');
+        resultElement.textContent = 'Retrieving hot water usage patterns...';
+        
+        Homey.api('GET', '/hot-water/patterns', {}, function(err, result) {
+          if (err) {
+            resultElement.textContent = 'Error: ' + (err.message || 'Failed to retrieve patterns');
+            return;
+          }
+          resultElement.textContent = result.message || 'Hot water usage patterns retrieved - check the terminal/logs!';
+        });
+      }
+      
       function resetHotWaterPatterns() {
         const resultElement = document.getElementById('hot_water_action_result');
         resultElement.textContent = 'Resetting hot water usage patterns...';

@@ -52,6 +52,9 @@ interface HomeyLoggerLike {
 interface HomeyLike {
   app: HomeyLoggerLike;
   settings: HomeySettingsLike;
+  drivers?: {
+    getDriver(driverName: string): any;
+  };
   timeline?: {
     createEntry(options: { title: string; body: string; icon?: string; type?: string }): Promise<void> | void;
   };
@@ -318,6 +321,7 @@ type GetCheckCronStatusResponse = ApiResult<{
   lastHourlyRun: string;
   lastWeeklyRun: string;
 }>;
+type ValidateAndStartCronResponse = ApiResult<{ cronRunning: boolean; message: string }>;
 
 type GetCopDataResponse = ApiResult<{
   melcloud: unknown;
@@ -377,6 +381,9 @@ interface ApiHandlers {
   getSavingsDebugState(context: ApiHandlerContext): Promise<GetSavingsDebugStateResponse>;
   getSavingsSummary(context: ApiHandlerContext): Promise<GetSavingsSummaryResponse>;
   getLogSavingsSummaryClicked(context: ApiHandlerContext): Promise<GetLogSavingsSummaryClickedResponse>;
+  postHotWaterResetPatterns(context: ApiHandlerContext): Promise<HotWaterResponse>;
+  postHotWaterClearData(context: ApiHandlerContext): Promise<HotWaterResponse>;
+  getHotWaterPatterns(context: ApiHandlerContext): Promise<HotWaterResponse>;
   getDeviceList(context: ApiHandlerContext): Promise<GetDeviceListResponse>;
   getRunHourlyOptimizer(context: ApiHandlerContext): Promise<GetRunHourlyOptimizerResponse>;
   getThermalModelData(context: ApiHandlerContext): Promise<GetThermalModelDataResponse>;
@@ -392,6 +399,7 @@ interface ApiHandlers {
   getMemoryUsage(context: ApiHandlerContext): Promise<GetMemoryUsageResponse>;
   runThermalDataCleanup(context: ApiHandlerContext): Promise<RunThermalDataCleanupResponse>;
   internalCleanup(context: ApiHandlerContext): Promise<InternalCleanupResponse>;
+  validateAndStartCron(context: ApiHandlerContext): Promise<ValidateAndStartCronResponse>;
   'hot-water': HotWaterHandlers;
 }
 
@@ -1031,6 +1039,161 @@ const apiHandlers: ApiHandlers = {
     } catch (err: any) {
       homey.app.error('Error in getLogSavingsSummaryClicked:', err);
       return { success: false };
+    }
+  },
+
+  // API endpoints for hot water functionality
+  postHotWaterResetPatterns: async ({ homey }: ApiHandlerContext): Promise<HotWaterResponse> => {
+    homey.app.log('API method postHotWaterResetPatterns called');
+    const service = getHotWaterService(homey);
+    if (!service) {
+      return {
+        success: false,
+        message: 'Hot water service not available'
+      };
+    }
+
+    try {
+      service.resetPatterns();
+      return {
+        success: true,
+        message: 'Hot water usage patterns have been reset to defaults.'
+      };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      homey.app.error('Error resetting hot water patterns:', error);
+      return {
+        success: false,
+        message: `Error resetting hot water usage patterns: ${message}`
+      };
+    }
+  },
+
+  postHotWaterClearData: async ({ homey, body }: ApiHandlerContext): Promise<HotWaterResponse> => {
+    homey.app.log('API method postHotWaterClearData called');
+    const service = getHotWaterService(homey);
+    if (!service) {
+      return {
+        success: false,
+        message: 'Hot water service not available'
+      };
+    }
+
+    const payload = (body ?? {}) as HotWaterClearRequest;
+    const clearAggregated = payload.clearAggregated === undefined
+      ? true
+      : Boolean(payload.clearAggregated);
+
+    try {
+      await service.clearData(clearAggregated);
+      const suffix = clearAggregated
+        ? ' including aggregated data.'
+        : ' while keeping aggregated data.';
+      return {
+        success: true,
+        message: `Hot water usage data has been cleared${suffix}`
+      };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      homey.app.error('Error clearing hot water data:', error);
+      return {
+        success: false,
+        message: `Error clearing hot water usage data: ${message}`
+      };
+    }
+  },
+
+  getHotWaterPatterns: async ({ homey }: ApiHandlerContext): Promise<HotWaterResponse> => {
+    homey.app.log('API method getHotWaterPatterns called');
+    
+    try {
+      // Get patterns from Homey settings
+      const patternsData = homey.settings.get('hot_water_usage_patterns');
+      
+      if (!patternsData) {
+        homey.app.log('===== HOT WATER USAGE PATTERNS =====');
+        homey.app.log('No usage patterns found - using defaults');
+        homey.app.log('=====================================');
+        return {
+          success: true,
+          message: 'No usage patterns found - check terminal for details'
+        };
+      }
+
+      const patterns = JSON.parse(patternsData);
+      
+      // Pretty print to terminal
+      homey.app.log('===== HOT WATER USAGE PATTERNS =====');
+      homey.app.log(`Last Updated: ${patterns.lastUpdated || 'Unknown'}`);
+      homey.app.log(`Confidence: ${patterns.confidence || 0}%`);
+      homey.app.log('');
+      
+      // Hourly patterns (0-23 hours)
+      homey.app.log('📅 HOURLY USAGE PATTERN (24 hours):');
+      if (patterns.hourlyUsagePattern && Array.isArray(patterns.hourlyUsagePattern)) {
+        patterns.hourlyUsagePattern.forEach((usage: number, hour: number) => {
+          const bar = '█'.repeat(Math.round(usage * 10));
+          homey.app.log(`  ${String(hour).padStart(2, '0')}:00 ${usage.toFixed(2)} ${bar}`);
+        });
+      } else {
+        homey.app.log('  No hourly pattern data available');
+      }
+      homey.app.log('');
+      
+      // Daily patterns (0-6 days, 0=Sunday)
+      homey.app.log('📊 DAILY USAGE PATTERN (7 days):');
+      if (patterns.dailyUsagePattern && Array.isArray(patterns.dailyUsagePattern)) {
+        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        patterns.dailyUsagePattern.forEach((usage: number, day: number) => {
+          const bar = '█'.repeat(Math.round(usage * 10));
+          homey.app.log(`  ${dayNames[day].padEnd(9)} ${usage.toFixed(2)} ${bar}`);
+        });
+      } else {
+        homey.app.log('  No daily pattern data available');
+      }
+      homey.app.log('');
+      
+      // Get service stats if available
+      const service = getHotWaterService(homey);
+      if (service && typeof (service as any).getUsageStatistics === 'function') {
+        try {
+          const stats = (service as any).getUsageStatistics(7);
+          if (stats) {
+            homey.app.log('📈 RECENT STATISTICS (Last 7 days):');
+            homey.app.log(`  Data Points: ${stats.statistics?.totalDataPoints || 'Unknown'}`);
+            homey.app.log(`  Avg Tank Temp: ${stats.statistics?.avgTankTemp?.toFixed(1) || 'Unknown'}°C`);
+            homey.app.log(`  Avg Energy: ${stats.statistics?.avgEnergyProduced?.toFixed(2) || 'Unknown'} kWh`);
+            homey.app.log('');
+            
+            if (stats.predictions && Array.isArray(stats.predictions)) {
+              homey.app.log('🔮 NEXT 24H PREDICTIONS:');
+              const now = new Date();
+              stats.predictions.slice(0, 12).forEach((prediction: number, i: number) => {
+                const hour = (now.getHours() + i) % 24;
+                const bar = '█'.repeat(Math.round(prediction * 10));
+                homey.app.log(`  ${String(hour).padStart(2, '0')}:00 ${prediction.toFixed(2)} ${bar}`);
+              });
+            }
+          }
+        } catch (statsError) {
+          homey.app.log('📈 STATISTICS: Error retrieving stats');
+        }
+      }
+      
+      homey.app.log('=====================================');
+      
+      return {
+        success: true,
+        message: 'Hot water usage patterns dumped to terminal - check the logs!'
+      };
+      
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      homey.app.error('Error getting hot water patterns:', error);
+      return {
+        success: false,
+        message: `Error retrieving hot water patterns: ${message}`
+      };
     }
   },
 
@@ -2564,6 +2727,70 @@ const apiHandlers: ApiHandlers = {
           message: `Error clearing hot water usage data: ${message}`
         };
       }
+    }
+  },
+
+  validateAndStartCron: async ({ homey }: ApiHandlerContext) => {
+    try {
+      console.log('API method validateAndStartCron called');
+      homey.app.log('API method validateAndStartCron called');
+
+      try {
+        // Validate required settings using the same logic as other API endpoints
+        const melcloudUser = homey.settings.get('melcloud_user');
+        const melcloudPass = homey.settings.get('melcloud_pass');
+        const tibberToken = homey.settings.get('tibber_token');
+        const deviceId = homey.settings.get('device_id');
+        
+        // Check for missing required settings
+        const missingSettings = [];
+        if (!melcloudUser) missingSettings.push('MELCloud email');
+        if (!melcloudPass) missingSettings.push('MELCloud password');
+        if (!tibberToken) missingSettings.push('Tibber API token');
+        if (!deviceId) missingSettings.push('Device ID');
+        
+        const isValid = missingSettings.length === 0;
+        
+        if (isValid) {
+          // Try to get the driver instances and restart cron jobs
+          try {
+            const driverManager = (homey.drivers && typeof homey.drivers.getDriver === 'function')
+              ? homey.drivers.getDriver('boiler')
+              : null;
+              
+            if (driverManager && typeof driverManager.restartCronJobs === 'function') {
+              await driverManager.restartCronJobs();
+              homey.app.log('✅ Settings valid, cron jobs restarted');
+            } else {
+              homey.app.log('✅ Settings valid, but driver restart not available');
+            }
+          } catch (driverError: any) {
+            homey.app.log('Settings valid, but could not restart cron jobs:', driverError.message);
+          }
+          
+          return {
+            success: true,
+            cronRunning: true,
+            message: 'Settings validated successfully, optimization started'
+          };
+        } else {
+          homey.app.log('⚠️ Settings validation failed, missing:', missingSettings.join(', '));
+          return {
+            success: true,
+            cronRunning: false,
+            message: `Please complete required settings: ${missingSettings.join(', ')}`
+          };
+        }
+      } catch (error: any) {
+        homey.app.error('Error validating settings and managing cron jobs:', error);
+        return {
+          success: false,
+          error: `Validation error: ${error.message}`
+        };
+      }
+    } catch (err: any) {
+      console.error('Error in validateAndStartCron:', err);
+      return { success: false, error: err.message };
     }
   }
 };

@@ -100,10 +100,10 @@ describe('HotWaterService branch coverage', () => {
   });
 
   test('getOptimalTankTemperature returns analyzer value and error fallback', () => {
-    const val = service.getOptimalTankTemperature(45, 55, 0.5, 0.6);
+    const val = service.getOptimalTankTemperature(45, 55, 0.5, 'NORMAL');
     expect(val).toBe(50);
     (service as any).analyzer.getOptimalTankTemperature.mockImplementation(() => { throw new Error('boom'); });
-    const fallback = service.getOptimalTankTemperature(40, 60, 0.5, 0.6);
+    const fallback = service.getOptimalTankTemperature(40, 60, 0.5, 'NORMAL');
     expect(fallback).toBe(50); // mid-point fallback
   });
 

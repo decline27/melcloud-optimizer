@@ -441,6 +441,8 @@ export default class HeatOptimizerApp extends App {
     // Initialize Hot Water Service
     try {
       this.hotWaterService = new HotWaterService(this.homey);
+      // Attach to homey instance so optimizer can access it
+      (this.homey as any).hotWaterService = this.hotWaterService;
       this.logger.info('Hot Water Service initialized');
     } catch (error) {
       this.logger.error('Failed to initialize Hot Water Service', error as Error);

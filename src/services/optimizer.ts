@@ -181,7 +181,7 @@ export class Optimizer {
   private tempStep: number = 0.5;
   private deadband: number = 0.3; // Minimum temperature change to trigger adjustment
   // Safety: avoid frequent setpoint changes (anti–short-cycling proxy)
-  private minSetpointChangeMinutes: number = 15;
+  private minSetpointChangeMinutes: number = 5;
   private lastSetpointChangeMs: number | null = null;
   // Secondary zone constraints
   private enableZone2: boolean = false;
@@ -1346,6 +1346,16 @@ export class Optimizer {
       const currentTarget = deviceState.SetTemperature || deviceState.SetTemperatureZone1;
       const outdoorTemp = deviceState.OutdoorTemperature || 0;
 
+      // Collect hot water usage data if hot water service is available
+      const hotWaterService = (this.homey as any)?.hotWaterService;
+      if (hotWaterService && typeof hotWaterService.collectData === 'function') {
+        try {
+          await hotWaterService.collectData(deviceState);
+        } catch (hwDataErr) {
+          this.logger.error('Failed to collect hot water usage data', hwDataErr as Error);
+        }
+      }
+
       // Check if temperature data is missing and log an error
       if (currentTemp === undefined && deviceState.RoomTemperature === undefined && deviceState.RoomTemperatureZone1 === undefined) {
         this.logger.error('Missing indoor temperature data in device state', deviceState);
@@ -1586,6 +1596,16 @@ export class Optimizer {
       const currentTemp = deviceState.RoomTemperature || deviceState.RoomTemperatureZone1;
       const currentTarget = deviceState.SetTemperature || deviceState.SetTemperatureZone1;
       const outdoorTemp = deviceState.OutdoorTemperature || 0;
+
+      // Collect hot water usage data if hot water service is available
+      const hotWaterService = (this.homey as any)?.hotWaterService;
+      if (hotWaterService && typeof hotWaterService.collectData === 'function') {
+        try {
+          await hotWaterService.collectData(deviceState);
+        } catch (hwDataErr) {
+          this.logger.error('Failed to collect hot water usage data', hwDataErr as Error);
+        }
+      }
 
       // Validate temperature data
       if (currentTemp === undefined && deviceState.RoomTemperature === undefined && deviceState.RoomTemperatureZone1 === undefined) {
@@ -2006,14 +2026,13 @@ export class Optimizer {
           const hotWaterService = (this.homey as any)?.hotWaterService;
           if (hotWaterService && typeof hotWaterService.getOptimalTankTemperature === 'function') {
             try {
-              const priceThreshold = this.homey?.settings.get('price_threshold') ?? 0.1;
               tankTarget = hotWaterService.getOptimalTankTemperature(
                 this.minTankTemp,
                 this.maxTankTemp,
                 currentPrice,
-                priceThreshold
+                priceLevel
               );
-              tankReason = 'Optimized using learned hot water usage patterns';
+              tankReason = `Optimized using learned hot water usage patterns with Tibber price level ${priceLevel}`;
             } catch (hwErr) {
               this.logger.error('Hot water service optimization failed, falling back to price heuristics', hwErr as Error);
             }

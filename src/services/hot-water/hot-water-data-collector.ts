@@ -9,17 +9,13 @@
  */
 
 import { DateTime } from 'luxon';
-import * as fs from 'fs';
-import * as path from 'path';
 
 // Settings key for hot water usage data storage
 const HOT_WATER_DATA_SETTINGS_KEY = 'hot_water_usage_data';
 // Settings key for aggregated historical data
 const HOT_WATER_AGGREGATED_DATA_SETTINGS_KEY = 'hot_water_usage_aggregated_data';
-// Backup file path (as fallback)
-const BACKUP_FILE_NAME = 'hot-water-data-backup.json';
 // Maximum number of data points to keep in memory
-const DEFAULT_MAX_DATA_POINTS = 1008; // ~2 weeks of data at 20-minute intervals
+const DEFAULT_MAX_DATA_POINTS = 336; // ~2 weeks of data at hourly intervals
 // Maximum age of data points in days
 const MAX_DATA_AGE_DAYS = 30;
 // Maximum size of data to store in settings (bytes)
@@ -52,14 +48,12 @@ export interface AggregatedHotWaterDataPoint {
 export class HotWaterDataCollector {
   private dataPoints: HotWaterUsageDataPoint[] = [];
   private aggregatedData: AggregatedHotWaterDataPoint[] = [];
-  private backupFilePath: string;
   private maxDataPoints: number = DEFAULT_MAX_DATA_POINTS;
   private initialized: boolean = false;
   private lastMemoryCheck: number = 0;
   private memoryWarningIssued: boolean = false;
 
   constructor(private homey: any) {
-    this.backupFilePath = path.join(homey.env.userDataPath, BACKUP_FILE_NAME);
     this.loadStoredData();
   }
 
@@ -96,20 +90,10 @@ export class HotWaterDataCollector {
         }
       }
 
-      // If we couldn't load from settings, try the backup file
+      // If no data was loaded from settings, start with empty dataset
       if (!dataLoaded) {
-        try {
-          if (fs.existsSync(this.backupFilePath)) {
-            const fileData = fs.readFileSync(this.backupFilePath, 'utf8');
-            this.dataPoints = JSON.parse(fileData);
-            this.homey.log(`Loaded ${this.dataPoints.length} hot water usage data points from backup file`);
-          } else {
-            this.homey.log('No hot water usage data backup file found, starting with empty dataset');
-          }
-        } catch (fileError) {
-          this.homey.error(`Error loading hot water usage data from backup file: ${fileError}`);
-          this.dataPoints = [];
-        }
+        this.homey.log('No hot water usage data found, starting with empty dataset');
+        this.dataPoints = [];
       }
 
       // Clean up data on load (remove old data points, trim to max size)
@@ -174,25 +158,13 @@ export class HotWaterDataCollector {
       this.homey.settings.set(HOT_WATER_DATA_SETTINGS_KEY, dataJson);
       this.homey.settings.set(HOT_WATER_AGGREGATED_DATA_SETTINGS_KEY, aggregatedDataJson);
 
-      // Also save to backup file
-      await this.saveToBackupFile();
+
     } catch (error) {
       this.homey.error(`Error saving hot water usage data: ${error}`);
     }
   }
 
-  /**
-   * Save data to backup file
-   */
-  private async saveToBackupFile(): Promise<void> {
-    try {
-      // Create a safe copy of the data to avoid circular references
-      const safeCopy = JSON.parse(JSON.stringify(this.dataPoints));
-      await fs.promises.writeFile(this.backupFilePath, JSON.stringify(safeCopy, null, 2));
-    } catch (error) {
-      this.homey.error(`Error saving hot water usage data to backup file: ${error}`);
-    }
-  }
+
 
   /**
    * Check memory usage and trigger cleanup if necessary
@@ -649,10 +621,7 @@ export class HotWaterDataCollector {
         this.homey.settings.unset(HOT_WATER_DATA_SETTINGS_KEY);
         this.homey.settings.unset(HOT_WATER_AGGREGATED_DATA_SETTINGS_KEY);
         
-        // Clear backup file
-        if (fs.existsSync(this.backupFilePath)) {
-          await fs.promises.unlink(this.backupFilePath);
-        }
+
         
         this.homey.log('Cleared all hot water usage data');
       } else {

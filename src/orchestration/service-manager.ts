@@ -258,6 +258,18 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
   serviceState.optimizer = optimizer;
   (global as any).optimizer = optimizer;
 
+  // Initialize Hot Water Service and attach to homey
+  if (!homey.hotWaterService) {
+    try {
+      const { HotWaterService } = await import('../services/hot-water/hot-water-service');
+      const hotWaterService = new HotWaterService(homey as any);
+      homey.hotWaterService = hotWaterService;
+      homey.app.log('Hot Water Service initialized');
+    } catch (error) {
+      homey.app.error('Failed to initialize Hot Water Service:', error);
+    }
+  }
+
   await updateOptimizerSettings(homey);
 
   if (!(global as any).copHelper) {

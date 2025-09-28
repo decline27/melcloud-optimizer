@@ -80,11 +80,20 @@ module.exports = class BoilerDriver extends Homey.Driver {
    */
   private ensureCronRunningIfReady() {
     try {
-      // Check if we have the minimum required settings
+      // Check if we have all required settings for optimization
       const melcloudUser = this.homey.settings.get('melcloud_user');
+      const melcloudPass = this.homey.settings.get('melcloud_pass');
+      const tibberToken = this.homey.settings.get('tibber_token');
       const deviceId = this.homey.settings.get('device_id');
 
-      if (melcloudUser && deviceId) {
+      // Check for missing required settings
+      const missingSettings = [];
+      if (!melcloudUser) missingSettings.push('MELCloud email');
+      if (!melcloudPass) missingSettings.push('MELCloud password');
+      if (!tibberToken) missingSettings.push('Tibber API token');
+      if (!deviceId) missingSettings.push('Device ID');
+
+      if (missingSettings.length === 0) {
         if (this.hourlyJob && !this.hourlyJob.running) {
           this.hourlyJob.start();
           this.logger.log('✅ Hourly optimization cron job started');
@@ -97,10 +106,46 @@ module.exports = class BoilerDriver extends Homey.Driver {
 
         this.logger.log('🎯 All cron jobs are now running and ready for optimization');
       } else {
-        this.logger.log('⚠️ Cron jobs not started - missing required settings (melcloud_user or device_id)');
+        this.logger.log(`⚠️ Cron jobs not started - missing required settings: ${missingSettings.join(', ')}`);
+        
+        // Stop any running cron jobs if settings are incomplete
+        if (this.hourlyJob && this.hourlyJob.running) {
+          this.hourlyJob.stop();
+          this.logger.log('⏹️ Stopped hourly cron job due to incomplete settings');
+        }
+        
+        if (this.weeklyJob && this.weeklyJob.running) {
+          this.weeklyJob.stop();
+          this.logger.log('⏹️ Stopped weekly cron job due to incomplete settings');
+        }
       }
     } catch (error) {
-      this.logger.error('Failed to start cron jobs:', error);
+      this.logger.error('Failed to manage cron jobs:', error);
+    }
+  }
+
+  /**
+   * Restart cron jobs (called from API after settings validation)
+   */
+  public async restartCronJobs() {
+    try {
+      this.logger.log('🔄 Restarting cron jobs...');
+      
+      // Stop existing jobs
+      if (this.hourlyJob) {
+        this.hourlyJob.stop();
+      }
+      if (this.weeklyJob) {
+        this.weeklyJob.stop();
+      }
+
+      // Re-evaluate and start if ready
+      this.ensureCronRunningIfReady();
+      
+      this.logger.log('✅ Cron jobs restart completed');
+    } catch (error) {
+      this.logger.error('Failed to restart cron jobs:', error);
+      throw error;
     }
   }
 

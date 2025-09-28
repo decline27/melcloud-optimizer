@@ -82,5 +82,11 @@
   },
   "12.5.19": {
     "en": "Updated auto start on reinstall"
+  },
+  "13.0.0": {
+    "en": "bug fixes"
+  },
+  "13.3.1": {
+    "en": "Bug fixes"
   }
 }

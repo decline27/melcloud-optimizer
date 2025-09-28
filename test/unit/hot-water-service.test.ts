@@ -76,12 +76,12 @@ describe('HotWaterService (unit)', () => {
     (svc as any).dataCollector = { getMemoryUsage: jest.fn().mockReturnValue(10) };
     (svc as any).analyzer = { getOptimalTankTemperature: jest.fn().mockReturnValue(38) };
 
-    const opt = svc.getOptimalTankTemperature(30, 50, 0.5, 0.6);
+    const opt = svc.getOptimalTankTemperature(30, 50, 0.5, 'NORMAL');
     expect(opt).toBe(38);
 
     // Simulate analyzer throwing
     (svc as any).analyzer.getOptimalTankTemperature = jest.fn().mockImplementation(() => { throw new Error('boom'); });
-    const fallback = svc.getOptimalTankTemperature(30, 50, 0.5, 0.6);
+    const fallback = svc.getOptimalTankTemperature(30, 50, 0.5, 'NORMAL');
     expect(fallback).toBeCloseTo(40); // middle value
   });
 

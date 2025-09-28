@@ -13,10 +13,10 @@ import { HotWaterDataCollector, HotWaterUsageDataPoint, AggregatedHotWaterDataPo
 const HOT_WATER_PATTERNS_SETTINGS_KEY = 'hot_water_usage_patterns';
 
 // Minimum number of data points required for pattern analysis
-const MIN_DATA_POINTS_FOR_ANALYSIS = 72; // 24 hours at 20-minute intervals
+const MIN_DATA_POINTS_FOR_ANALYSIS = 24; // 24 hours at hourly intervals
 
 // Number of data points for full confidence
-const FULL_CONFIDENCE_DATA_POINTS = 504; // 7 days at 20-minute intervals
+const FULL_CONFIDENCE_DATA_POINTS = 168; // 7 days at hourly intervals
 
 export interface HotWaterUsagePatterns {
   // Usage patterns by hour of day (0-23)
@@ -320,11 +320,11 @@ export class HotWaterAnalyzer {
    * Get the optimal tank temperature based on predicted usage
    * @param minTemp Minimum allowed tank temperature
    * @param maxTemp Maximum allowed tank temperature
-   * @param currentPrice Current electricity price
-   * @param priceThreshold Price threshold for optimization
+   * @param currentPrice Current electricity price (for logging)
+   * @param priceLevel Tibber price level (VERY_CHEAP, CHEAP, NORMAL, EXPENSIVE, VERY_EXPENSIVE)
    * @returns Optimal tank temperature
    */
-  public getOptimalTankTemperature(minTemp: number, maxTemp: number, currentPrice: number, priceThreshold: number): number {
+  public getOptimalTankTemperature(minTemp: number, maxTemp: number, currentPrice: number, priceLevel: string): number {
     try {
       // Get usage predictions for the next 24 hours
       const predictions = this.predictNext24Hours();
@@ -351,37 +351,44 @@ export class HotWaterAnalyzer {
       }
       const avgNext6HoursUsage = next6HoursUsage.reduce((sum, val) => sum + val, 0) / next6HoursUsage.length;
 
-      // Decision logic for optimal temperature
+      // Decision logic for optimal temperature using Tibber price levels
       let optimalTemp;
 
-      // If current price is below threshold (cheap electricity)
-      if (currentPrice < priceThreshold) {
-        // If high usage is predicted soon, heat to maximum
+      // Use Tibber's sophisticated price level analysis
+      if (priceLevel === 'VERY_CHEAP' || priceLevel === 'CHEAP') {
+        // Cheap electricity: Heat more based on predicted usage
         if (avgNext6HoursUsage > 1.5) {
-          optimalTemp = maxTemp;
+          optimalTemp = maxTemp; // Maximum temperature for high usage
         }
-        // If moderate usage is predicted, heat to high temperature
         else if (avgNext6HoursUsage > 1.0) {
-          optimalTemp = minTemp + ((maxTemp - minTemp) * 0.75);
+          optimalTemp = minTemp + ((maxTemp - minTemp) * 0.8); // 80% of range for moderate usage
         }
-        // If low usage is predicted, heat to medium temperature
         else {
-          optimalTemp = minTemp + ((maxTemp - minTemp) * 0.5);
+          optimalTemp = minTemp + ((maxTemp - minTemp) * 0.6); // 60% of range for low usage
         }
       }
-      // If current price is above threshold (expensive electricity)
-      else {
-        // If high usage is predicted in the current hour, maintain medium-high temperature
+      else if (priceLevel === 'EXPENSIVE' || priceLevel === 'VERY_EXPENSIVE') {
+        // Expensive electricity: Conservative approach based on immediate usage
         if (currentPredictedUsage > 1.5) {
-          optimalTemp = minTemp + ((maxTemp - minTemp) * 0.6);
+          optimalTemp = minTemp + ((maxTemp - minTemp) * 0.5); // 50% of range for high current usage
         }
-        // If moderate usage is predicted, maintain medium temperature
         else if (currentPredictedUsage > 1.0) {
-          optimalTemp = minTemp + ((maxTemp - minTemp) * 0.4);
+          optimalTemp = minTemp + ((maxTemp - minTemp) * 0.3); // 30% of range for moderate usage
         }
-        // If low usage is predicted, maintain minimum temperature
         else {
-          optimalTemp = minTemp;
+          optimalTemp = minTemp; // Minimum temperature for low usage
+        }
+      }
+      else {
+        // NORMAL price level: Balanced approach
+        if (avgNext6HoursUsage > 1.5) {
+          optimalTemp = minTemp + ((maxTemp - minTemp) * 0.7); // 70% of range
+        }
+        else if (avgNext6HoursUsage > 1.0) {
+          optimalTemp = minTemp + ((maxTemp - minTemp) * 0.5); // 50% of range
+        }
+        else {
+          optimalTemp = minTemp + ((maxTemp - minTemp) * 0.3); // 30% of range
         }
       }
 
@@ -389,6 +396,7 @@ export class HotWaterAnalyzer {
       optimalTemp = Math.round(optimalTemp);
 
       this.homey.log(`Calculated optimal tank temperature: ${optimalTemp}°C (min: ${minTemp}°C, max: ${maxTemp}°C)`);
+      this.homey.log(`Tibber price level: ${priceLevel}, Current price: ${currentPrice}`);
       this.homey.log(`Current predicted usage: ${currentPredictedUsage.toFixed(2)}, Next 6h avg: ${avgNext6HoursUsage.toFixed(2)}, Max 24h: ${maxPredictedUsage.toFixed(2)}`);
 
       return optimalTemp;
