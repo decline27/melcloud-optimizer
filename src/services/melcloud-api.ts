@@ -48,6 +48,16 @@ export class MelCloudApi extends BaseApiService {
   }
 
   /**
+   * Update timezone settings for this service
+   * @param timeZoneOffset Timezone offset in hours
+   * @param useDST Whether to use daylight saving time
+   */
+  public updateTimeZoneSettings(timeZoneOffset: number, useDST: boolean): void {
+    this.timeZoneHelper.updateSettings(timeZoneOffset, useDST);
+    this.logger.info(`MELCloud API timezone settings updated: offset=${timeZoneOffset}, DST=${useDST}`);
+  }
+
+  /**
    * Invalidate cached device state after a successful write
    */
   private invalidateDeviceStateCache(deviceId: string, buildingId: number): void {

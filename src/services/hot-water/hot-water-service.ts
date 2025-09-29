@@ -8,10 +8,13 @@
 import { DateTime } from 'luxon';
 import { HotWaterDataCollector, HotWaterUsageDataPoint } from './hot-water-data-collector';
 import { HotWaterAnalyzer } from './hot-water-analyzer';
+import { TimeZoneHelper } from '../../util/time-zone-helper';
+import { HomeyLogger } from '../../util/logger';
 
 export class HotWaterService {
   private dataCollector: HotWaterDataCollector;
   private analyzer: HotWaterAnalyzer;
+  private timeZoneHelper: TimeZoneHelper;
   private lastDataCollectionTime: number = 0;
   private dataCollectionInterval: number = 60 * 60 * 1000; // 60 minutes in milliseconds (matches optimizer schedule)
   private lastAnalysisTime: number = 0;
@@ -20,7 +23,26 @@ export class HotWaterService {
   constructor(private homey: any) {
     this.dataCollector = new HotWaterDataCollector(homey);
     this.analyzer = new HotWaterAnalyzer(homey, this.dataCollector);
-    this.homey.log('Hot Water Service initialized');
+    
+    // Initialize TimeZoneHelper with user settings
+    const timeZoneOffset = homey.settings?.get('time_zone_offset') || 2;
+    const useDST = homey.settings?.get('use_dst') || false;
+    
+    // Create a minimal logger for TimeZoneHelper
+    const logger = new HomeyLogger(homey, { level: 1, logToTimeline: false, prefix: 'HotWater' });
+    this.timeZoneHelper = new TimeZoneHelper(logger, timeZoneOffset, useDST);
+    
+    this.homey.log('Hot Water Service initialized with timezone settings');
+  }
+
+  /**
+   * Update timezone settings for this service
+   * @param timeZoneOffset Timezone offset in hours
+   * @param useDST Whether to use daylight saving time
+   */
+  public updateTimeZoneSettings(timeZoneOffset: number, useDST: boolean): void {
+    this.timeZoneHelper.updateSettings(timeZoneOffset, useDST);
+    this.homey.log(`Hot Water Service timezone settings updated: offset=${timeZoneOffset}, DST=${useDST}`);
   }
 
   /**
@@ -44,23 +66,76 @@ export class HotWaterService {
         return false;
       }
 
-      // Create data point
+      // Calculate incremental energy usage (better for hourly pattern analysis)
+      // Use user's local time instead of system time
+      const localTime = this.timeZoneHelper.getLocalTime();
+      const currentHour = localTime.hour;
+      const localDate = localTime.date;
+      
+      const previousDataPoints = this.dataCollector.getAllDataPoints();
+      const recentPoint = previousDataPoints.length > 0 ? previousDataPoints[previousDataPoints.length - 1] : null;
+      
+      // Use incremental energy calculation or fallback to daily totals
+      let hotWaterEnergyProduced = deviceState.DailyHotWaterEnergyProduced || 0;
+      let hotWaterEnergyConsumed = deviceState.DailyHotWaterEnergyConsumed || 0;
+      
+      // If we have recent data and it's the same day, calculate incremental usage
+      if (recentPoint) {
+        const recentTime = new Date(recentPoint.timestamp);
+        const isSameDay = recentTime.toDateString() === localDate.toDateString();
+        
+        if (isSameDay && deviceState.DailyHotWaterEnergyProduced) {
+          const incremental = deviceState.DailyHotWaterEnergyProduced - (recentPoint.hotWaterEnergyProduced || 0);
+          if (incremental > 0) {
+            hotWaterEnergyProduced = incremental;
+          }
+        }
+        
+        if (isSameDay && deviceState.DailyHotWaterEnergyConsumed) {
+          const incremental = deviceState.DailyHotWaterEnergyConsumed - (recentPoint.hotWaterEnergyConsumed || 0);
+          if (incremental > 0) {
+            hotWaterEnergyConsumed = incremental;
+          }
+        }
+      }
+      
+      // If no incremental data and no daily data, use pattern estimation
+      if (hotWaterEnergyProduced === 0 && deviceState.TankWaterTemperature && deviceState.SetTankWaterTemperature) {
+        // Estimate energy based on temperature difference and heating activity
+        const tempDiff = Math.max(0, deviceState.SetTankWaterTemperature - deviceState.TankWaterTemperature);
+        if (tempDiff > 1 || this.isHeatingHotWater(deviceState)) {
+          // Rough estimation: 0.1-0.5 kWh per hour for active heating
+          hotWaterEnergyProduced = Math.min(0.5, tempDiff * 0.05 + (this.isHeatingHotWater(deviceState) ? 0.1 : 0));
+          hotWaterEnergyConsumed = hotWaterEnergyProduced / Math.max(2.0, this.calculateCOP(deviceState) || 2.5);
+        }
+      }
+
+      // Create data point using user's local time
       const dataPoint: HotWaterUsageDataPoint = {
-        timestamp: new Date().toISOString(),
+        timestamp: localDate.toISOString(),
         tankTemperature: deviceState.TankWaterTemperature || deviceState.SetTankWaterTemperature,
         targetTankTemperature: deviceState.SetTankWaterTemperature,
-        hotWaterEnergyProduced: deviceState.DailyHotWaterEnergyProduced || 0,
-        hotWaterEnergyConsumed: deviceState.DailyHotWaterEnergyConsumed || 0,
+        hotWaterEnergyProduced,
+        hotWaterEnergyConsumed,
         hotWaterCOP: this.calculateCOP(deviceState),
         isHeating: this.isHeatingHotWater(deviceState),
-        hourOfDay: DateTime.now().hour,
-        dayOfWeek: DateTime.now().weekday % 7 // Convert to 0-6 (0 = Sunday)
+        hourOfDay: currentHour,
+        dayOfWeek: (localDate.getDay() + 6) % 7 // Convert Sunday=0 to 0-6 format (Monday=0)
       };
 
       // Add data point to collector
       await this.dataCollector.addDataPoint(dataPoint);
 
-      this.homey.log(`Collected hot water usage data: Tank temp ${dataPoint.tankTemperature}°C, Target ${dataPoint.targetTankTemperature}°C, Energy produced ${dataPoint.hotWaterEnergyProduced} kWh`);
+      // Enhanced logging with more details
+      const totalDataPoints = this.dataCollector.getAllDataPoints().length;
+      this.homey.log(`[HotWater] Collected data point #${totalDataPoints}: Tank ${dataPoint.tankTemperature}°C→${dataPoint.targetTankTemperature}°C, Energy ${dataPoint.hotWaterEnergyProduced.toFixed(3)}kWh, COP ${dataPoint.hotWaterCOP.toFixed(2)}, Heating: ${dataPoint.isHeating ? 'YES' : 'NO'}, Hour: ${dataPoint.hourOfDay}`);
+      
+      // Log progress towards pattern analysis
+      if (totalDataPoints < 12) {
+        this.homey.log(`[HotWater] Need ${12 - totalDataPoints} more data points for pattern analysis`);
+      } else if (totalDataPoints === 12) {
+        this.homey.log(`[HotWater] Minimum data points reached! Pattern analysis will start next collection cycle.`);
+      }
 
       // Check if it's time to analyze data
       if (now - this.lastAnalysisTime >= this.analysisInterval) {

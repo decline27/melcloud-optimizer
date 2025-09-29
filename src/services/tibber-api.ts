@@ -41,6 +41,16 @@ export class TibberApi extends BaseApiService {
   }
 
   /**
+   * Update timezone settings for this service
+   * @param timeZoneOffset Timezone offset in hours
+   * @param useDST Whether to use daylight saving time
+   */
+  public updateTimeZoneSettings(timeZoneOffset: number, useDST: boolean): void {
+    this.timeZoneHelper.updateSettings(timeZoneOffset, useDST);
+    this.logger.info(`Tibber API timezone settings updated: offset=${timeZoneOffset}, DST=${useDST}`);
+  }
+
+  /**
    * Check if an error is an authentication error
    * @param error Error to check
    * @returns True if it's an authentication error

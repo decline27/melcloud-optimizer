@@ -374,21 +374,23 @@ export class HotWaterDataCollector {
         return false;
       }
 
-      // Check temperature ranges
+      // Check temperature ranges (more lenient validation)
       if (typeof dataPoint.tankTemperature !== 'number' || dataPoint.tankTemperature < 0 || dataPoint.tankTemperature > 100) {
-        this.homey.error(`Invalid hot water usage data point: tank temperature out of range or not a number (${dataPoint.tankTemperature})`);
+        this.homey.warn(`Invalid hot water usage data point: tank temperature out of range or not a number (${dataPoint.tankTemperature}) - skipping this data point`);
         return false;
       }
 
       if (typeof dataPoint.targetTankTemperature !== 'number' || dataPoint.targetTankTemperature < 0 || dataPoint.targetTankTemperature > 100) {
-        this.homey.error(`Invalid hot water usage data point: target tank temperature out of range or not a number (${dataPoint.targetTankTemperature})`);
+        this.homey.warn(`Invalid hot water usage data point: target tank temperature out of range or not a number (${dataPoint.targetTankTemperature}) - skipping this data point`);
         return false;
       }
 
       // Check timestamp is not in the future
+      // Allow some tolerance for timezone differences and processing delays
       const timestamp = new Date(dataPoint.timestamp).getTime();
       const now = Date.now();
-      if (timestamp > now) {
+      const tolerance = 4 * 60 * 60 * 1000; // 4 hours tolerance for timezone differences
+      if (timestamp > now + tolerance) {
         this.homey.error(`Invalid hot water usage data point: timestamp is in the future (${dataPoint.timestamp})`);
         return false;
       }

@@ -532,6 +532,43 @@ export default class HeatOptimizerApp extends App {
   }
 
   /**
+   * Update timezone settings for all services
+   */
+  private async updateTimezoneSettings(): Promise<void> {
+    const tzOffset = this.homey.settings.get('time_zone_offset') || 2;
+    const useDST = this.homey.settings.get('use_dst') || false;
+    
+    // Update our own TimeZoneHelper
+    if (this.timeZoneHelper) {
+      this.timeZoneHelper.updateSettings(Number(tzOffset), Boolean(useDST));
+    }
+    
+    // Update services through API if available
+    try {
+      const api = require('../api.js');
+      if (api.updateAllServiceTimezones) {
+        await api.updateAllServiceTimezones(this.homey, Number(tzOffset), Boolean(useDST));
+      }
+    } catch (error) {
+      this.error('Failed to update service timezones via API:', error as Error);
+    }
+    
+    // Update cron jobs in drivers
+    try {
+      // Update the boiler driver specifically
+      const boilerDriver = this.homey.drivers.getDriver('boiler');
+      if (boilerDriver && typeof (boilerDriver as any).updateTimezone === 'function') {
+        (boilerDriver as any).updateTimezone();
+        this.log('Updated timezone for boiler driver');
+      }
+    } catch (error) {
+      this.error('Failed to update driver timezones:', error as Error);
+    }
+    
+    this.log(`Updated timezone settings: offset=${tzOffset}, DST=${useDST}`);
+  }
+
+  /**
    * Handle settings changes
    */
   private async onSettingsChanged(key: string) {
@@ -575,6 +612,17 @@ export default class HeatOptimizerApp extends App {
         this.log('Optimizer settings updated with new COP settings');
       } catch (error) {
         this.error('Failed to update optimizer settings with new COP settings:', error as Error);
+      }
+    }
+    // If timezone settings changed, update all services
+    else if (['time_zone_offset', 'use_dst'].includes(key)) {
+      this.log(`Timezone setting '${key}' changed, updating all services`);
+      
+      try {
+        await this.updateTimezoneSettings();
+        this.log('All services updated with new timezone settings');
+      } catch (error) {
+        this.error('Failed to update services with new timezone settings:', error as Error);
       }
     }
     // Handle manual hourly optimization trigger

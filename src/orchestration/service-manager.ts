@@ -169,6 +169,10 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
   const deviceId = homey.settings.get('device_id') || homey.settings.get('deviceId') || 'Boiler';
   let buildingIdRaw = homey.settings.get('building_id') || homey.settings.get('buildingId') || '456';
   const useWeatherData = homey.settings.get('use_weather_data') !== false;
+  
+  // Get timezone settings for all services
+  const timeZoneOffset = homey.settings.get('time_zone_offset') || 2;
+  const useDST = homey.settings.get('use_dst') || false;
 
   if (!melcloudUser || !melcloudPass) {
     throw new Error('MELCloud credentials are required. Please configure them in the settings.');
@@ -190,9 +194,13 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
   homey.app.log('- Device ID:', deviceId, '(Will be resolved after login)');
   homey.app.log('- Building ID:', buildingId, '(Will be resolved after login)');
   homey.app.log('- Weather Data:', useWeatherData ? '✓ Enabled' : '✗ Disabled');
+  homey.app.log('- Timezone Offset:', timeZoneOffset, 'hours');
+  homey.app.log('- DST Enabled:', useDST ? '✓ Yes' : '✗ No');
 
   const melCloudLogger = (appLogger && typeof appLogger.api === 'function') ? appLogger : undefined;
   const melCloud = new MelCloudApi(melCloudLogger);
+  // Set timezone settings after construction
+  melCloud.updateTimeZoneSettings(timeZoneOffset, useDST);
   await melCloud.login(melcloudUser, melcloudPass);
   serviceState.melCloud = melCloud;
   (global as any).melCloud = melCloud;
@@ -221,6 +229,8 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
   if (tibberToken) {
     const tibberLogger = (appLogger && typeof appLogger.api === 'function') ? appLogger : undefined;
     const tibber = new TibberApi(tibberToken, tibberLogger);
+    // Set timezone settings after construction
+    tibber.updateTimeZoneSettings(timeZoneOffset, useDST);
     serviceState.tibber = tibber;
     (global as any).tibber = tibber;
   } else {

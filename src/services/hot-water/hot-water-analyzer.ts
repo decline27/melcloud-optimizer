@@ -13,7 +13,7 @@ import { HotWaterDataCollector, HotWaterUsageDataPoint, AggregatedHotWaterDataPo
 const HOT_WATER_PATTERNS_SETTINGS_KEY = 'hot_water_usage_patterns';
 
 // Minimum number of data points required for pattern analysis
-const MIN_DATA_POINTS_FOR_ANALYSIS = 24; // 24 hours at hourly intervals
+const MIN_DATA_POINTS_FOR_ANALYSIS = 12; // 12 hours at hourly intervals (reduced for quicker learning)
 
 // Number of data points for full confidence
 const FULL_CONFIDENCE_DATA_POINTS = 168; // 7 days at hourly intervals
@@ -222,7 +222,16 @@ export class HotWaterAnalyzer {
       // Save updated patterns
       this.savePatterns();
 
-      this.homey.log(`Updated hot water usage patterns with confidence ${confidence.toFixed(2)}%`);
+      // Enhanced logging with pattern details
+      const peakHours = this.patterns.hourlyUsagePattern
+        .map((usage, hour) => ({ hour, usage }))
+        .filter(h => h.usage > 1.2) // Above average usage
+        .map(h => h.hour)
+        .slice(0, 5); // Top 5 peak hours
+        
+      this.homey.log(`[HotWater] Updated usage patterns with ${confidence.toFixed(1)}% confidence`);
+      this.homey.log(`[HotWater] Peak usage hours: ${peakHours.length > 0 ? peakHours.join(', ') : 'No clear peaks yet'}`);
+      this.homey.log(`[HotWater] Weekend usage factor: ${(this.patterns.dailyUsagePattern[0] + this.patterns.dailyUsagePattern[6]) / 2 || 1.0}`);
       return true;
     } catch (error) {
       this.homey.error(`Error updating hot water usage patterns: ${error}`);

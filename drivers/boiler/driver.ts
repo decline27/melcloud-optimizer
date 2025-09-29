@@ -36,12 +36,64 @@ module.exports = class BoilerDriver extends Homey.Driver {
   }
 
   /**
+   * Get user timezone string for cron jobs
+   * @returns Timezone string (e.g., "Europe/Berlin", "America/New_York")
+   */
+  private getUserTimezone(): string {
+    try {
+      // Get timezone offset from settings
+      const timeZoneOffset = this.homey.settings.get('time_zone_offset') || 2;
+      const useDST = this.homey.settings.get('use_dst') || false;
+      
+      // Map timezone offset to timezone string
+      // This is a simplified mapping - could be enhanced with more timezones
+      const timezoneMap: Record<number, string> = {
+        '-12': 'Pacific/Auckland', // UTC-12 (example)
+        '-11': 'Pacific/Midway',
+        '-10': 'Pacific/Honolulu',
+        '-9': 'America/Anchorage',
+        '-8': 'America/Los_Angeles',
+        '-7': 'America/Denver',
+        '-6': 'America/Chicago',
+        '-5': 'America/New_York',
+        '-4': 'America/Halifax',
+        '-3': 'America/Sao_Paulo',
+        '-2': 'Atlantic/South_Georgia',
+        '-1': 'Atlantic/Azores',
+        '0': 'UTC',
+        '1': 'Europe/London',
+        '2': 'Europe/Berlin',
+        '3': 'Europe/Moscow',
+        '4': 'Asia/Dubai',
+        '5': 'Asia/Karachi',
+        '6': 'Asia/Dhaka',
+        '7': 'Asia/Bangkok',
+        '8': 'Asia/Shanghai',
+        '9': 'Asia/Tokyo',
+        '10': 'Australia/Sydney',
+        '11': 'Pacific/Norfolk',
+        '12': 'Pacific/Auckland',
+        '13': 'Pacific/Tongatapu'
+      };
+      
+      const timezone = timezoneMap[timeZoneOffset] || 'Europe/Oslo';
+      this.logger.log(`Using timezone: ${timezone} (offset: ${timeZoneOffset}, DST: ${useDST})`);
+      return timezone;
+    } catch (error) {
+      this.logger.error('Error getting user timezone, falling back to Europe/Oslo:', error);
+      return 'Europe/Oslo';
+    }
+  }
+
+  /**
    * Initialize cron jobs for optimization scheduling
    */
   private initializeCronJobs() {
     this.logger.log('🚀 Initializing optimization cron jobs in driver...');
 
     try {
+      const userTimezone = this.getUserTimezone();
+      
       // Hourly optimization (every hour at minute 0)
       this.hourlyJob = new CronJob(
         '0 * * * *', // Every hour at minute 0
@@ -51,7 +103,7 @@ module.exports = class BoilerDriver extends Homey.Driver {
         },
         null,
         false, // Don't start immediately
-        'Europe/Oslo' // Use Norwegian timezone
+        userTimezone // Use user's timezone from settings
       );
 
       // Weekly calibration (every Sunday at 2 AM)
@@ -63,7 +115,7 @@ module.exports = class BoilerDriver extends Homey.Driver {
         },
         null,
         false, // Don't start immediately
-        'Europe/Oslo' // Use Norwegian timezone
+        userTimezone // Use user's timezone from settings
       );
 
       // Start the cron jobs
@@ -72,6 +124,31 @@ module.exports = class BoilerDriver extends Homey.Driver {
       this.logger.log('✅ Cron jobs initialized successfully');
     } catch (error) {
       this.logger.error('❌ Failed to initialize cron jobs:', error);
+    }
+  }
+
+  /**
+   * Update cron jobs with new timezone settings
+   * Called when timezone settings change
+   */
+  public updateTimezone(): void {
+    this.logger.log('🔄 Updating cron jobs with new timezone settings...');
+    
+    try {
+      // Stop existing cron jobs if running
+      if (this.hourlyJob) {
+        this.hourlyJob.stop();
+      }
+      if (this.weeklyJob) {
+        this.weeklyJob.stop();
+      }
+      
+      // Reinitialize with new timezone
+      this.initializeCronJobs();
+      
+      this.logger.log('✅ Cron jobs updated with new timezone');
+    } catch (error) {
+      this.logger.error('❌ Failed to update cron jobs timezone:', error);
     }
   }
 

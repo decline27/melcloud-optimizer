@@ -724,6 +724,37 @@ async function refreshOptimizerSettings(homey: HomeyLike): Promise<void> {
   historicalData = state.historicalData;
 }
 
+/**
+ * Update timezone settings for all services
+ * @param homey Homey instance
+ * @param timeZoneOffset Timezone offset in hours
+ * @param useDST Whether to use daylight saving time
+ */
+async function updateAllServiceTimezones(homey: HomeyLike, timeZoneOffset: number, useDST: boolean): Promise<void> {
+  const state = getServiceState();
+  
+  // Update MelCloud API service timezone
+  if (state.melCloud && typeof state.melCloud.updateTimeZoneSettings === 'function') {
+    state.melCloud.updateTimeZoneSettings(timeZoneOffset, useDST);
+    homey.app.log('Updated MelCloud API timezone settings');
+  }
+  
+  // Update Tibber API service timezone
+  if (state.tibber && typeof state.tibber.updateTimeZoneSettings === 'function') {
+    state.tibber.updateTimeZoneSettings(timeZoneOffset, useDST);
+    homey.app.log('Updated Tibber API timezone settings');
+  }
+  
+  // Update Hot Water Service timezone if available
+  const hotWaterService = getHotWaterService(homey);
+  if (hotWaterService && typeof (hotWaterService as any).updateTimeZoneSettings === 'function') {
+    (hotWaterService as any).updateTimeZoneSettings(timeZoneOffset, useDST);
+    homey.app.log('Updated Hot Water Service timezone settings');
+  }
+  
+  homey.app.log(`All services updated with timezone: offset=${timeZoneOffset}, DST=${useDST}`);
+}
+
 const apiHandlers: ApiHandlers = {
   /**
    * Dump savings-related in-memory state and settings for debugging.
@@ -2795,7 +2826,13 @@ const apiHandlers: ApiHandlers = {
   }
 };
 
-const exportedApi = apiHandlers as typeof apiHandlers & { __test?: Record<string, unknown> };
+const exportedApi = apiHandlers as typeof apiHandlers & { 
+  __test?: Record<string, unknown>;
+  updateAllServiceTimezones?: typeof updateAllServiceTimezones;
+};
+
+// Add the timezone update function to exports
+exportedApi.updateAllServiceTimezones = updateAllServiceTimezones;
 
 module.exports = exportedApi;
 

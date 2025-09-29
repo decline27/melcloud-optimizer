@@ -282,6 +282,59 @@ export class Optimizer {
           this.deadband = db;
         }
 
+        // Load temperature constraint settings
+        const minTemp = Number(homey.settings.get('min_temp'));
+        if (!Number.isNaN(minTemp) && minTemp >= 16 && minTemp <= 22) {
+          this.minTemp = minTemp;
+        }
+        
+        const maxTemp = Number(homey.settings.get('max_temp'));
+        if (!Number.isNaN(maxTemp) && maxTemp >= 20 && maxTemp <= 26) {
+          this.maxTemp = maxTemp;
+        }
+        
+        const tempStep = Number(homey.settings.get('temp_step_max'));
+        if (!Number.isNaN(tempStep) && tempStep >= 0.5 && tempStep <= 1.0) {
+          this.tempStep = tempStep;
+        }
+        
+        const minTempZone2 = Number(homey.settings.get('min_temp_zone2'));
+        if (!Number.isNaN(minTempZone2) && minTempZone2 >= 16 && minTempZone2 <= 22) {
+          this.minTempZone2 = minTempZone2;
+        }
+        
+        const maxTempZone2 = Number(homey.settings.get('max_temp_zone2'));
+        if (!Number.isNaN(maxTempZone2) && maxTempZone2 >= 20 && maxTempZone2 <= 26) {
+          this.maxTempZone2 = maxTempZone2;
+        }
+        
+        const tempStepZone2 = Number(homey.settings.get('temp_step_zone2'));
+        if (!Number.isNaN(tempStepZone2) && tempStepZone2 >= 0.1 && tempStepZone2 <= 2.0) {
+          this.tempStepZone2 = tempStepZone2;
+        }
+
+        this.logger.log(`Temperature constraint settings loaded - Main: ${this.minTemp}°C-${this.maxTemp}°C (${this.tempStep}°C), Zone2: ${this.minTempZone2}°C-${this.maxTempZone2}°C (${this.tempStepZone2}°C)`);
+
+        // Load hot water tank settings
+        this.enableTankControl = homey.settings.get('enable_tank_control') !== false;
+        
+        const minTankTemp = Number(homey.settings.get('min_tank_temp'));
+        if (!Number.isNaN(minTankTemp) && minTankTemp >= 30 && minTankTemp <= 45) {
+          this.minTankTemp = minTankTemp;
+        }
+        
+        const maxTankTemp = Number(homey.settings.get('max_tank_temp'));
+        if (!Number.isNaN(maxTankTemp) && maxTankTemp >= 40 && maxTankTemp <= 60) {
+          this.maxTankTemp = maxTankTemp;
+        }
+        
+        const tankTempStep = Number(homey.settings.get('tank_temp_step'));
+        if (!Number.isNaN(tankTempStep) && tankTempStep >= 1.0 && tankTempStep <= 5.0) {
+          this.tankTempStep = tankTempStep;
+        }
+
+        this.logger.log(`Hot water tank settings loaded - Enabled: ${this.enableTankControl}, Min: ${this.minTankTemp}°C, Max: ${this.maxTankTemp}°C, Step: ${this.tankTempStep}°C`);
+
         // Initialize thermal mass model from historical data
         this.initializeThermalMassFromHistory();
         
