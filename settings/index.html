@@ -365,11 +365,6 @@
         <input class="homey-form-input" id="grid_fee_per_kwh" type="number" min="0" step="0.01" placeholder="e.g., 1.04" />
         <p class="homey-form-helper">Optional. Adds your local grid fee to the electricity price when calculating savings. Example: 1.04 SEK/kWh.</p>
       </div>
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="baseline_hourly_consumption">Baseline Hourly Consumption (kWh/h)</label>
-        <input class="homey-form-input" id="baseline_hourly_consumption" type="number" min="0" step="0.1" placeholder="e.g., 1.5" />
-        <p class="homey-form-helper">Optional. Override for average hourly electricity use of heating/hot water. If not set, the app uses measured data when available, otherwise a 1.0 kWh/h default.</p>
-      </div>
     </details>
 
     <details class="homey-form-fieldset">
@@ -797,16 +792,13 @@
         try {
           const load = (key) => new Promise((res) => Homey.get(key, (_e, v) => res(v)));
           Promise.all([
-            load('grid_fee_per_kwh'),
-            load('baseline_hourly_consumption_kwh')
-          ]).then(([gridFee, baseline]) => {
+            load('grid_fee_per_kwh')
+          ]).then(([gridFee]) => {
             const gf = Number(gridFee || 0);
-            const base = Number(baseline || 0);
             const gfTxt = (() => {
               try { return formatter.format(gf) + '/kWh'; } catch { return (gf.toFixed(2)) + '/kWh'; }
             })();
-            const baseTxt = base > 0 ? `${base.toFixed(2)} kWh/h` : 'auto';
-            const hint = `Applied cost parameters: Grid fee ${gfTxt}, Baseline hourly ${baseTxt}`;
+            const hint = `Applied cost parameters: Grid fee ${gfTxt}, Baseline consumption: live data`;
             content.textContent = lines.concat(['', hint]).join('\n');
           }).catch(() => {/* ignore */});
         } catch (e) { /* ignore */ }
@@ -1287,7 +1279,6 @@
 
         // Costs & consumption elements
         const gridFeeElement = document.getElementById("grid_fee_per_kwh");
-        const baselineHourlyConsumptionElement = document.getElementById("baseline_hourly_consumption");
 
         // Engine elements
         const useEngineElement = document.getElementById("use_engine");
@@ -1377,11 +1368,6 @@
         Homey.get("grid_fee_per_kwh", function (err, value) {
           if (!err && value !== undefined && value !== null) gridFeeElement.value = value;
         });
-        Homey.get("baseline_hourly_consumption_kwh", function (err, value) {
-          if (!err && value !== undefined && value !== null) baselineHourlyConsumptionElement.value = value;
-        });
-
-
 
         Homey.get("min_temp", function (err, value) {
           if (err) return Homey.alert(err);
@@ -1868,14 +1854,6 @@
               Homey.set("grid_fee_per_kwh", 0, function (err) { if (err) return Homey.alert(err); });
             } else {
               return Homey.alert('Invalid grid fee. Must be a non-negative number.');
-            }
-            const base = parseFloat(baselineHourlyConsumptionElement.value);
-            if (!isNaN(base) && base >= 0) {
-              Homey.set("baseline_hourly_consumption_kwh", base, function (err) { if (err) return Homey.alert(err); });
-            } else if (baselineHourlyConsumptionElement.value === "") {
-              Homey.set("baseline_hourly_consumption_kwh", 0, function (err) { if (err) return Homey.alert(err); });
-            } else {
-              return Homey.alert('Invalid baseline hourly consumption. Must be a non-negative number.');
             }
           })();
 

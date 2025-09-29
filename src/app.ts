@@ -849,9 +849,7 @@ export default class HeatOptimizerApp extends App {
                 // Use MELCloud-derived hourly baseline when provided by API
                 let baselineKWh = Number((result.data as any).hourlyBaselineKWh);
                 if (!(Number.isFinite(baselineKWh) && baselineKWh > 0)) {
-                  baselineKWh = 1.0;
-                  const overrideBase: number = Number(this.homey.settings.get('baseline_hourly_consumption_kwh')) || 0;
-                  if (Number.isFinite(overrideBase) && overrideBase > 0) baselineKWh = overrideBase;
+                  baselineKWh = 1.0;  // Use default fallback when real data isn't available
                 }
                 const energyDeltaKWh = result.data.savings / price;
                 const actualKWh = baselineKWh - energyDeltaKWh;

@@ -104,7 +104,6 @@ interface SavingsDebugDump {
   timestamp: string;
   settings: {
     grid_fee_per_kwh: number;
-    baseline_hourly_consumption_kwh: number;
     currency: string;
     time_zone_offset: unknown;
     use_dst: unknown;
@@ -764,7 +763,6 @@ const apiHandlers: ApiHandlers = {
     try {
       const settingsSnapshot = {
         grid_fee_per_kwh: homey.settings.get('grid_fee_per_kwh') || 0,
-        baseline_hourly_consumption_kwh: homey.settings.get('baseline_hourly_consumption_kwh') || 0,
         currency: homey.settings.get('currency') || homey.settings.get('currency_code') || '',
         time_zone_offset: homey.settings.get('time_zone_offset'),
         use_dst: homey.settings.get('use_dst'),

@@ -2683,17 +2683,15 @@ export class Optimizer {
     const gridFee: number = Number(this.homey?.settings.get('grid_fee_per_kwh')) || 0;
     const effectivePrice = currentPrice + (Number.isFinite(gridFee) ? gridFee : 0);
 
-    const baselineOverride: number = Number(this.homey?.settings.get('baseline_hourly_consumption_kwh')) || 0;
+    // Use real daily consumption data from MELCloud when available, fallback to 1.0 kWh/h
     let baseHourlyConsumptionKWh = 1.0;
 
     try {
       const dailyFromMetrics = this.optimizationMetrics?.dailyEnergyConsumption;
       if (Number.isFinite(dailyFromMetrics) && (dailyFromMetrics || 0) > 0) {
         baseHourlyConsumptionKWh = Math.max(0, (dailyFromMetrics as number) / 24);
-      } else if (Number.isFinite(baselineOverride) && baselineOverride > 0) {
-        baseHourlyConsumptionKWh = baselineOverride;
       }
-    } catch (_) { /* keep default */ }
+    } catch (_) { /* keep default fallback */ }
 
     const perDegPct = kind === 'tank' ? 2.0 : kind === 'zone2' ? 4.0 : 5.0;
     const kindMultiplier = kind === 'tank' ? 0.8 : kind === 'zone2' ? 0.9 : 1.0;
