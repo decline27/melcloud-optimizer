@@ -348,12 +348,15 @@ export class Optimizer {
     this.enhancedSavingsCalculator = new EnhancedSavingsCalculator(
       this.logger,
       this.thermalModelService || undefined,
-      hotWaterService
+      hotWaterService,
+      this.copHelper || undefined
     );
 
     this.logger.log('Enhanced savings calculator initialized with services:', {
       thermalService: !!this.thermalModelService,
-      hotWaterService: !!hotWaterService
+      hotWaterService: !!hotWaterService,
+      copHelper: !!this.copHelper,
+      baselineCapability: this.enhancedSavingsCalculator.hasBaselineCapability()
     });
   }
 
@@ -492,6 +495,13 @@ export class Optimizer {
    */
   public getThermalModel(): ThermalModel {
     return { ...this.thermalModel };
+  }
+
+  /**
+   * Get the enhanced savings calculator instance
+   */
+  public getEnhancedSavingsCalculator(): EnhancedSavingsCalculator {
+    return this.enhancedSavingsCalculator;
   }
 
   /**
@@ -2763,6 +2773,83 @@ export class Optimizer {
       );
     } catch (_) {
       // Fallback to non-price-aware calculation
+      return this.calculateEnhancedDailySavings(currentHourSavings, historicalOptimizations);
+    }
+  }
+
+  /**
+   * Calculate enhanced daily savings with fixed baseline comparison
+   * @param currentHourSavings Current hour's savings
+   * @param historicalOptimizations Historical optimization data
+   * @param actualConsumptionKWh Actual energy consumption for baseline comparison
+   * @param actualCost Actual cost for baseline comparison
+   * @param enableBaseline Whether to enable baseline comparison
+   * @returns Enhanced savings calculation result with baseline comparison
+   */
+  async calculateEnhancedDailySavingsWithBaseline(
+    currentHourSavings: number,
+    historicalOptimizations: OptimizationData[] = [],
+    actualConsumptionKWh: number = 1.0,
+    actualCost: number = currentHourSavings,
+    enableBaseline: boolean = true
+  ): Promise<SavingsCalculationResult> {
+    try {
+      // Get current price
+      const gridFee: number = Number(this.homey?.settings.get('grid_fee_per_kwh')) || 0;
+      let pricePerKWh = 1.0; // Default fallback
+      let priceFactors: number[] | undefined = undefined;
+      
+      if (this.tibber) {
+        const pd = await this.tibber.getPrices();
+        const now = new Date();
+        const currentEffective = (Number(pd.current?.price) || 0) + (Number.isFinite(gridFee) ? gridFee : 0);
+        if (currentEffective > 0) {
+          pricePerKWh = currentEffective;
+          
+          // Also get price factors for future projections
+          if (Array.isArray(pd.prices)) {
+            const upcoming = pd.prices.filter(p => new Date(p.time) > now);
+            priceFactors = upcoming.map(p => {
+              const eff = (Number(p.price) || 0) + (Number.isFinite(gridFee) ? gridFee : 0);
+              return currentEffective > 0 ? eff / currentEffective : 1;
+            });
+          }
+        }
+      }
+
+      // Get outdoor temperature data for baseline calculation
+      const outdoorTemps: number[] = [];
+      if (this.weatherApi && enableBaseline) {
+        try {
+          const weather = await this.weatherApi.getCurrentWeather();
+          if (weather && weather.temperature) {
+            outdoorTemps.push(weather.temperature);
+          }
+        } catch (error) {
+          this.logger.error('Error getting weather for baseline calculation:', error);
+        }
+      }
+
+      // Get intelligent baseline configuration (automatically determined)
+      const baselineConfig = this.enhancedSavingsCalculator.getDefaultBaselineConfig();
+
+      return this.enhancedSavingsCalculator.calculateEnhancedDailySavingsWithBaseline(
+        currentHourSavings,
+        historicalOptimizations,
+        new Date().getHours(),
+        priceFactors,
+        {
+          actualConsumptionKWh,
+          actualCost,
+          pricePerKWh,
+          outdoorTemps,
+          baselineConfig,
+          enableBaseline: enableBaseline && this.enhancedSavingsCalculator.hasBaselineCapability()
+        }
+      );
+    } catch (error) {
+      this.logger.error('Error in enhanced daily savings with baseline:', error);
+      // Fallback to standard calculation
       return this.calculateEnhancedDailySavings(currentHourSavings, historicalOptimizations);
     }
   }

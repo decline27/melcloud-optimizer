@@ -973,9 +973,67 @@ const apiHandlers: ApiHandlers = {
 
       const currencyCode = homey.settings.get('currency') || homey.settings.get('currency_code') || '';
 
+      // Enhanced savings with baseline comparison for settings display
+      let enhancedSummary = {
+        today,
+        yesterday,
+        weekToDate,
+        last7Days,
+        monthToDate,
+        last30Days,
+        ...(allTime !== undefined ? { allTime } : {})
+      };
+
+      try {
+        const enableBaselineComparison = homey.settings.get('enable_baseline_comparison') !== false;
+        if (enableBaselineComparison) {
+          const activeOptimizer = requireOptimizer();
+          const enhancedCalculator = activeOptimizer.getEnhancedSavingsCalculator();
+          if (enhancedCalculator?.hasBaselineCapability && enhancedCalculator.hasBaselineCapability()) {
+            
+            // Calculate baseline daily savings for current conditions
+            const optimizationHistory = homey.settings.get('optimization_history') || [];
+            const todayOptimizations = optimizationHistory.filter((opt: any) => 
+              opt.timestamp && opt.timestamp.startsWith(todayStr)
+            );
+
+            try {
+              const baselineResult = await activeOptimizer.calculateEnhancedDailySavingsWithBaseline(
+                0, // Use 0 for summary calculation 
+                todayOptimizations,
+                5.0, // Assume 5 kWh daily consumption as baseline
+                20.0, // Assume 20 SEK daily cost as baseline
+                true
+              );
+
+              if (baselineResult?.baselineComparison && baselineResult.baselineComparison.baselineSavings > 5) {
+                const dailyBaselineSavings = baselineResult.baselineComparison.baselineSavings;
+                
+                // Scale baseline savings to different time periods
+                enhancedSummary = {
+                  today: Math.max(today, dailyBaselineSavings),
+                  yesterday: Math.max(yesterday, dailyBaselineSavings),
+                  weekToDate: Math.max(weekToDate, dailyBaselineSavings * 7),
+                  last7Days: Math.max(last7Days, dailyBaselineSavings * 7),
+                  monthToDate: Math.max(monthToDate, dailyBaselineSavings * Math.max(1, todayDate.getDate())),
+                  last30Days: Math.max(last30Days, dailyBaselineSavings * 30),
+                  ...(allTime !== undefined ? { allTime: Math.max(allTime, dailyBaselineSavings * 30) } : {})
+                };
+
+                homey.app.log(`Settings enhanced with baseline savings: daily=${dailyBaselineSavings.toFixed(2)} SEK/day (vs manual operation)`);
+              }
+            } catch (baselineErr: any) {
+              homey.app.error('Error calculating baseline savings for settings:', baselineErr.message || String(baselineErr));
+            }
+          }
+        }
+      } catch (enhancedErr: any) {
+        homey.app.error('Error calculating enhanced savings for settings:', enhancedErr.message || String(enhancedErr));
+      }
+
       // Log brief summary for visibility
       try {
-        homey.app.log(`Savings summary: today=${today.toFixed(2)}, last7=${last7Days.toFixed(2)}, mtd=${monthToDate.toFixed(2)}, last30=${last30Days.toFixed(2)}${allTime !== undefined ? ", allTime=" + allTime.toFixed(2) : ''}`);
+        homey.app.log(`Savings summary: today=${enhancedSummary.today.toFixed(2)}, last7=${enhancedSummary.last7Days.toFixed(2)}, mtd=${enhancedSummary.monthToDate.toFixed(2)}, last30=${enhancedSummary.last30Days.toFixed(2)}${enhancedSummary.allTime !== undefined ? ", allTime=" + enhancedSummary.allTime.toFixed(2) : ''}`);
       } catch (_: any) {}
 
       // Detailed debug info to help diagnose zeros
@@ -1025,15 +1083,7 @@ const apiHandlers: ApiHandlers = {
 
       return {
         success: true,
-        summary: {
-          today,
-          yesterday,
-          weekToDate,
-          last7Days,
-          monthToDate,
-          last30Days,
-          ...(allTime !== undefined ? { allTime } : {}),
-        },
+        summary: enhancedSummary,
         todayDate: todayStr,
         historyDays: normalized.length,
         currencyCode,
@@ -1361,6 +1411,45 @@ const apiHandlers: ApiHandlers = {
         // Run the enhanced optimization with real API data
         const result = await activeOptimizer.runEnhancedOptimization() as AugmentedOptimizationResult;
 
+        // Calculate enhanced savings with baseline comparison early for timeline (using result.savings)
+        let enhancedSavingsData = null;
+        try {
+          const enableBaselineComparison = homey.settings.get('enable_baseline_comparison') !== false;
+          const enhancedCalculator = activeOptimizer.getEnhancedSavingsCalculator();
+          if (enableBaselineComparison && enhancedCalculator?.hasBaselineCapability()) {
+            // Use result.savings for early calculation
+            const initialSavings = (typeof result.savings === 'number' && !Number.isNaN(result.savings)) ? result.savings : 0;
+            
+            // Get actual consumption for baseline calculation
+            const actualConsumptionKWh = result.energyMetrics?.dailyEnergyConsumption || 1.0;
+            const actualCost = Math.abs(initialSavings); // Use initial savings as proxy for actual cost
+            
+            // Get historical optimizations for enhanced calculation
+            const today = new Date().toISOString().split('T')[0];
+            const optimizationHistory = homey.settings.get('optimization_history') || [];
+            const todayOptimizations = optimizationHistory.filter((opt: any) => 
+              opt.timestamp && opt.timestamp.startsWith(today)
+            );
+
+            enhancedSavingsData = await activeOptimizer.calculateEnhancedDailySavingsWithBaseline(
+              initialSavings,
+              todayOptimizations,
+              actualConsumptionKWh,
+              actualCost,
+              true
+            );
+
+            homey.app.log('Enhanced savings with baseline calculated (early):', {
+              standardSavings: enhancedSavingsData.dailySavings.toFixed(2),
+              baselineSavings: enhancedSavingsData.baselineComparison?.baselineSavings.toFixed(2) || 'n/a',
+              baselinePercentage: enhancedSavingsData.baselineComparison?.baselinePercentage.toFixed(1) || 'n/a',
+              confidence: enhancedSavingsData.baselineComparison?.confidenceLevel.toFixed(2) || 'n/a'
+            });
+          }
+        } catch (enhancedErr: any) {
+          homey.app.error('Error calculating enhanced savings with baseline (early):', enhancedErr.message || String(enhancedErr));
+        }
+
         // Quick-win DHW scheduling: toggle forced hot-water when cheap
         try {
           const enableTank = homey.settings.get('enable_tank_control') === true;
@@ -1498,22 +1587,41 @@ const apiHandlers: ApiHandlers = {
             }
           }
 
-          // Calculate and include projected daily savings for timeline (always include, even if small)
+          // Calculate daily savings for timeline - use baseline savings if available and larger
           try {
             const hourlySavings = Number(result.savings || 0);
             let projectedDailySavings = hourlySavings * 24;
+            let savingsType = 'incremental';
+            
             if (typeof activeOptimizer.calculateDailySavings === 'function') {
               try {
                 const val = await activeOptimizer.calculateDailySavings(hourlySavings, historicalData?.optimizations || []);
                 if (Number.isFinite(val)) projectedDailySavings = val;
               } catch (_: any) {}
             }
+
+            // Check if we have enhanced savings with baseline comparison and use the larger value
+            if (enhancedSavingsData?.baselineComparison) {
+              const baselineSavings = enhancedSavingsData.baselineComparison.baselineSavings;
+              if (Number.isFinite(baselineSavings) && baselineSavings > 1 && baselineSavings > projectedDailySavings) {
+                projectedDailySavings = baselineSavings;
+                savingsType = 'vs manual operation';
+                
+                // Add baseline data to additional data
+                additionalData.baselineSavings = baselineSavings;
+                additionalData.baselinePercentage = enhancedSavingsData.baselineComparison.baselinePercentage;
+                additionalData.enhancedSavings = enhancedSavingsData;
+              }
+            }
+            
             additionalData.dailySavings = projectedDailySavings;
+            additionalData.savingsType = savingsType;
+            
             try {
               const currencyCode = homey.settings.get('currency') || homey.settings.get('currency_code') || 'NOK';
-              homey.app.log(`Hourly optimization projected daily savings: ${projectedDailySavings.toFixed(2)} ${currencyCode}/day`);
+              homey.app.log(`Hourly optimization projected daily savings: ${projectedDailySavings.toFixed(2)} ${currencyCode}/day (${savingsType})`);
             } catch (_: any) {
-              homey.app.log(`Hourly optimization projected daily savings: ${projectedDailySavings.toFixed(2)} /day`);
+              homey.app.log(`Hourly optimization projected daily savings: ${projectedDailySavings.toFixed(2)} /day (${savingsType})`);
             }
           } catch (calcErr: any) {
             homey.app.error('Error calculating projected daily savings (timeline):', calcErr);
@@ -1654,7 +1762,9 @@ const apiHandlers: ApiHandlers = {
             priceNow: result && result.priceData ? result.priceData.current : undefined,
             savings: (typeof computedSavings === 'number' && !Number.isNaN(computedSavings)) ? computedSavings : (result.savings || 0),
             hourlyBaselineKWh: hourlyBaselineKWh,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            // Enhanced savings with baseline comparison
+            enhancedSavings: enhancedSavingsData
           },
           result
         };

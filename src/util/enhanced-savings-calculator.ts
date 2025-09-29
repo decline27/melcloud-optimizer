@@ -10,6 +10,8 @@
 import { Logger } from './logger';
 import { ThermalModelService } from '../services/thermal-model';
 import { HotWaterService } from '../services/hot-water';
+import { FixedBaselineCalculator, BaselineConfig, BaselineComparison } from './fixed-baseline-calculator';
+import { COPHelper } from '../services/cop-helper';
 
 export interface OptimizationData {
   timestamp: string;
@@ -40,21 +42,37 @@ export interface SavingsCalculationResult {
     projectedHours: number;
     projectedAmount: number;
   };
+  // New baseline comparison fields
+  baselineComparison?: BaselineComparison;
 }
 
 export class EnhancedSavingsCalculator {
   private logger: Logger;
   private thermalModelService?: ThermalModelService;
   private hotWaterService?: HotWaterService;
+  private copHelper?: COPHelper;
+  private fixedBaselineCalculator?: FixedBaselineCalculator;
 
   constructor(
     logger: Logger, 
     thermalModelService?: ThermalModelService,
-    hotWaterService?: HotWaterService
+    hotWaterService?: HotWaterService,
+    copHelper?: COPHelper
   ) {
     this.logger = logger;
     this.thermalModelService = thermalModelService;
     this.hotWaterService = hotWaterService;
+    this.copHelper = copHelper;
+    
+    // Initialize fixed baseline calculator if we have the required services
+    if (logger) {
+      this.fixedBaselineCalculator = new FixedBaselineCalculator(
+        logger,
+        thermalModelService,
+        copHelper,
+        hotWaterService
+      );
+    }
   }
 
   private safeDebug(message: string, context?: Record<string, any>): void {
@@ -101,6 +119,76 @@ export class EnhancedSavingsCalculator {
       return 'usage_aware';
     }
     return 'basic_enhanced';
+  }
+
+  /**
+   * Calculate enhanced daily savings with compounding effects and baseline comparison
+   * @param currentHourSavings Current hour's savings
+   * @param historicalOptimizations Historical optimization data from today
+   * @param currentHour Current hour (0-23)
+   * @param futurePriceFactors Optional multipliers for each remaining hour vs current price
+   * @param baselineOptions Optional baseline calculation parameters
+   * @returns Enhanced savings calculation result with baseline comparison
+   */
+  calculateEnhancedDailySavingsWithBaseline(
+    currentHourSavings: number,
+    historicalOptimizations: OptimizationData[] = [],
+    currentHour: number = new Date().getHours(),
+    futurePriceFactors?: number[],
+    baselineOptions?: {
+      actualConsumptionKWh?: number;
+      actualCost?: number;
+      pricePerKWh?: number;
+      outdoorTemps?: number[];
+      baselineConfig?: Partial<BaselineConfig>;
+      enableBaseline?: boolean;
+    }
+  ): SavingsCalculationResult {
+    // First calculate standard enhanced savings
+    const standardResult = this.calculateEnhancedDailySavings(
+      currentHourSavings,
+      historicalOptimizations,
+      currentHour,
+      futurePriceFactors
+    );
+
+    // Add baseline comparison if requested and calculator is available
+    if (baselineOptions?.enableBaseline && this.fixedBaselineCalculator && baselineOptions) {
+      try {
+        const {
+          actualConsumptionKWh = 1.0,
+          actualCost = currentHourSavings,
+          pricePerKWh = 1.0,
+          outdoorTemps = [],
+          baselineConfig = {}
+        } = baselineOptions;
+
+        const baselineComparison = this.fixedBaselineCalculator.compareToBaseline(
+          actualConsumptionKWh,
+          actualCost,
+          standardResult.dailySavings,
+          'day',
+          outdoorTemps,
+          pricePerKWh,
+          baselineConfig
+        );
+
+        standardResult.baselineComparison = baselineComparison;
+
+        this.safeDebug('Enhanced savings with baseline comparison:', {
+          standardSavings: standardResult.dailySavings.toFixed(2),
+          baselineSavings: baselineComparison.baselineSavings.toFixed(2),
+          baselinePercentage: baselineComparison.baselinePercentage.toFixed(1),
+          confidence: baselineComparison.confidenceLevel.toFixed(2)
+        });
+
+      } catch (error) {
+        this.safeError('Error calculating baseline comparison:', error);
+        // Continue without baseline comparison
+      }
+    }
+
+    return standardResult;
   }
 
   /**
@@ -565,5 +653,81 @@ export class EnhancedSavingsCalculator {
     } else {
       return 'current_hour_only';
     }
+  }
+
+  /**
+   * Get intelligent baseline configuration based on system analysis
+   * Uses smart defaults that represent typical non-optimized heat pump operation
+   */
+  public getDefaultBaselineConfig(): BaselineConfig {
+    // Determine intelligent defaults based on available services
+    let operatingProfile: 'always_on' | '24_7' | 'schedule' = 'schedule';
+    let assumedHeatingCOP = 2.2;
+    let assumedHotWaterCOP = 1.8;
+    
+    // If we have learned COP data, use more conservative versions
+    if (this.copHelper) {
+      try {
+        // Use 80% of current seasonal COP as baseline (representing less efficient operation)
+        const seasonalCOP = this.copHelper.getSeasonalCOP();
+        if (typeof seasonalCOP === 'number' && seasonalCOP > 1.5) {
+          assumedHeatingCOP = Math.max(1.8, seasonalCOP * 0.8);
+        }
+      } catch (error) {
+        // Use defaults if COP data unavailable
+      }
+    }
+    
+    // If we have hot water patterns, determine if user likely uses scheduling
+    if (this.hotWaterService) {
+      try {
+        const patterns = (this.hotWaterService as any).getUsagePatterns?.();
+        if (patterns && patterns.hourlyUsagePattern) {
+          // Analyze if usage shows clear day/night patterns
+          const nightHours = [0, 1, 2, 3, 4, 5, 22, 23];
+          const dayHours = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21];
+          
+          const nightUsage = nightHours.reduce((sum, h) => sum + (patterns.hourlyUsagePattern[h] || 0), 0) / nightHours.length;
+          const dayUsage = dayHours.reduce((sum, h) => sum + (patterns.hourlyUsagePattern[h] || 0), 0) / dayHours.length;
+          
+          // If day usage is significantly higher than night, assume scheduling is used
+          if (dayUsage > nightUsage * 1.5) {
+            operatingProfile = 'schedule';
+          } else if (nightUsage > dayUsage * 0.8) {
+            // If night usage is substantial, assume always-on operation
+            operatingProfile = 'always_on';
+          }
+        }
+      } catch (error) {
+        // Use default if analysis fails
+      }
+    }
+    
+    return {
+      heatingSetpoint: 21.0,      // EU standard comfort temperature
+      hotWaterSetpoint: 60.0,     // Legionella prevention requirement
+      operatingProfile: operatingProfile,
+      assumedHeatingCOP: assumedHeatingCOP,
+      assumedHotWaterCOP: assumedHotWaterCOP,
+      scheduleConfig: {
+        dayStart: 6,              // Typical European wake time
+        dayEnd: 23,              // Typical European bedtime  
+        nightTempReduction: 3.0   // Standard night setback
+      }
+    };
+  }
+
+  /**
+   * Check if baseline calculations are available
+   */
+  public hasBaselineCapability(): boolean {
+    return !!this.fixedBaselineCalculator;
+  }
+
+  /**
+   * Get the fixed baseline calculator instance
+   */
+  public getBaselineCalculator(): FixedBaselineCalculator | undefined {
+    return this.fixedBaselineCalculator;
   }
 }
