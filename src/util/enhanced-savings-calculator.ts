@@ -8,6 +8,8 @@
  */
 
 import { Logger } from './logger';
+import { ThermalModelService } from '../services/thermal-model';
+import { HotWaterService } from '../services/hot-water';
 
 export interface OptimizationData {
   timestamp: string;
@@ -42,9 +44,17 @@ export interface SavingsCalculationResult {
 
 export class EnhancedSavingsCalculator {
   private logger: Logger;
+  private thermalModelService?: ThermalModelService;
+  private hotWaterService?: HotWaterService;
 
-  constructor(logger: Logger) {
+  constructor(
+    logger: Logger, 
+    thermalModelService?: ThermalModelService,
+    hotWaterService?: HotWaterService
+  ) {
     this.logger = logger;
+    this.thermalModelService = thermalModelService;
+    this.hotWaterService = hotWaterService;
   }
 
   private safeDebug(message: string, context?: Record<string, any>): void {
@@ -67,6 +77,30 @@ export class EnhancedSavingsCalculator {
     } else {
       console.error(message, error);
     }
+  }
+
+  /**
+   * Check if advanced services are available for enhanced calculations
+   */
+  private hasAdvancedServices(): boolean {
+    return !!(this.thermalModelService && this.hotWaterService);
+  }
+
+  /**
+   * Get enhanced calculation method description
+   */
+  private getEnhancedMethod(): string {
+    const hasThermal = !!this.thermalModelService;
+    const hasHotWater = !!this.hotWaterService;
+    
+    if (hasThermal && hasHotWater) {
+      return 'thermal_and_usage_aware';
+    } else if (hasThermal) {
+      return 'thermal_aware';
+    } else if (hasHotWater) {
+      return 'usage_aware';
+    }
+    return 'basic_enhanced';
   }
 
   /**
@@ -120,13 +154,14 @@ export class EnhancedSavingsCalculator {
 
       // Determine calculation method used
       const method = this.getCalculationMethod(todayOptimizations, currentHour, futurePriceFactors);
+      const enhancedMethod = this.getEnhancedMethod();
 
       const result: SavingsCalculationResult = {
         dailySavings: totalDailySavings,
         compoundedSavings: compoundedSavings,
         projectedSavings: projectedSavings,
         confidence: confidence,
-        method: method,
+        method: enhancedMethod !== 'basic_enhanced' ? `${method}_${enhancedMethod}` : method,
         breakdown: {
           actualSavings: actualSavings,
           currentHourSavings: currentHourSavings,
@@ -142,7 +177,10 @@ export class EnhancedSavingsCalculator {
         projectedSavings: projectedSavings.toFixed(4),
         totalDailySavings: totalDailySavings.toFixed(4),
         confidence: confidence.toFixed(2),
-        method
+        method: result.method,
+        hasAdvancedServices: this.hasAdvancedServices(),
+        thermalService: !!this.thermalModelService,
+        hotWaterService: !!this.hotWaterService
       });
 
       return result;
@@ -200,6 +238,7 @@ export class EnhancedSavingsCalculator {
 
   /**
    * Calculate thermal inertia factor based on temperature changes
+   * Uses real thermal characteristics when available, falls back to hardcoded values
    */
   private calculateThermalInertiaFactor(optimizations: OptimizationData[]): number {
     if (optimizations.length === 0) return 0;
@@ -209,6 +248,32 @@ export class EnhancedSavingsCalculator {
       return sum + Math.abs(opt.targetTemp - opt.targetOriginal);
     }, 0) / optimizations.length;
 
+    // Use real thermal characteristics if available
+    if (this.thermalModelService) {
+      try {
+        const characteristics = this.thermalModelService.getThermalCharacteristics();
+        
+        // Use real thermal mass and model confidence
+        if (characteristics.modelConfidence > 0.3) {
+          // Thermal mass ranges from 0-1, scale it to provide reasonable bonus
+          const thermalMassMultiplier = characteristics.thermalMass * 0.15; // Max 15% instead of hardcoded 10%
+          const confidenceAdjusted = thermalMassMultiplier * characteristics.modelConfidence;
+          
+          this.safeDebug('Using real thermal characteristics for inertia calculation:', {
+            avgTempChange: avgTempChange.toFixed(2),
+            thermalMass: characteristics.thermalMass.toFixed(3),
+            modelConfidence: characteristics.modelConfidence.toFixed(3),
+            calculatedBonus: (avgTempChange * confidenceAdjusted).toFixed(4)
+          });
+          
+          return Math.min(avgTempChange * confidenceAdjusted, thermalMassMultiplier);
+        }
+      } catch (error) {
+        this.safeError('Error getting thermal characteristics, using fallback:', error);
+      }
+    }
+
+    // Fallback to original hardcoded calculation
     // Thermal inertia provides additional savings when temperature changes are larger
     // because the building retains the temperature longer
     return Math.min(avgTempChange * 0.02, 0.1); // Max 10% bonus
@@ -239,6 +304,7 @@ export class EnhancedSavingsCalculator {
 
   /**
    * Calculate projected savings for remaining hours with intelligent weighting
+   * Includes weather-aware adjustments when thermal model is available
    */
   private calculateProjectedSavings(
     currentHourSavings: number,
@@ -272,21 +338,116 @@ export class EnhancedSavingsCalculator {
       }
     }
 
-    // Fallback to current hour savings with time-of-day adjustment
+    // Calculate base projected savings
+    let baseSavings: number;
     if (usePriceFactors) {
       const factors = futurePriceFactors!.slice(0, remainingHours);
       const sumFactors = factors.reduce((s, f) => s + (Number.isFinite(f) ? f : 1), 0);
-      return currentHourSavings * sumFactors;
+      baseSavings = currentHourSavings * sumFactors;
     } else {
       const timeOfDayFactor = this.getTimeOfDayFactor(currentHour, remainingHours);
-      return currentHourSavings * remainingHours * timeOfDayFactor;
+      baseSavings = currentHourSavings * remainingHours * timeOfDayFactor;
+    }
+
+    // Apply weather-aware adjustments if thermal model is available
+    const weatherAdjustedSavings = this.applyWeatherAdjustments(baseSavings, todayOptimizations);
+    
+    return weatherAdjustedSavings;
+  }
+
+  /**
+   * Apply weather-aware adjustments to projected savings
+   */
+  private applyWeatherAdjustments(baseSavings: number, todayOptimizations: OptimizationData[]): number {
+    if (!this.thermalModelService || todayOptimizations.length === 0) {
+      return baseSavings;
+    }
+
+    try {
+      const characteristics = this.thermalModelService.getThermalCharacteristics();
+      
+      if (characteristics.modelConfidence < 0.3) {
+        return baseSavings; // Not enough confidence in weather impact data
+      }
+
+      // Calculate average outdoor temperature trends from today's data
+      const outdoorTemps = todayOptimizations
+        .filter(opt => opt.outdoorTemp !== undefined)
+        .map(opt => opt.outdoorTemp!);
+
+      if (outdoorTemps.length < 2) {
+        return baseSavings; // Not enough weather data
+      }
+
+      // Calculate temperature trend (getting warmer or colder)
+      const tempTrend = outdoorTemps[outdoorTemps.length - 1] - outdoorTemps[0];
+      
+      // Apply weather adjustment based on thermal characteristics
+      let weatherMultiplier = 1.0;
+      
+      // If it's getting colder, heating will be more important = higher savings potential
+      // If it's getting warmer, heating will be less important = lower savings potential
+      const tempImpact = tempTrend * characteristics.outdoorTempImpact;
+      weatherMultiplier += tempImpact * 0.1; // Scale the impact
+      
+      // Ensure reasonable bounds
+      weatherMultiplier = Math.max(0.8, Math.min(1.3, weatherMultiplier));
+      
+      this.safeDebug('Applied weather adjustments to projected savings:', {
+        baseSavings: baseSavings.toFixed(4),
+        tempTrend: tempTrend.toFixed(2),
+        outdoorTempImpact: characteristics.outdoorTempImpact.toFixed(3),
+        weatherMultiplier: weatherMultiplier.toFixed(3),
+        adjustedSavings: (baseSavings * weatherMultiplier).toFixed(4)
+      });
+
+      return baseSavings * weatherMultiplier;
+      
+    } catch (error) {
+      this.safeError('Error applying weather adjustments:', error);
+      return baseSavings;
     }
   }
 
   /**
    * Get time-of-day factor for savings projection
+   * Uses learned usage patterns when available, falls back to hardcoded hours
    */
   private getTimeOfDayFactor(currentHour: number, remainingHours: number): number {
+    // Try to use learned hot water usage patterns first
+    if (this.hotWaterService) {
+      try {
+        const patterns = (this.hotWaterService as any).getUsagePatterns?.();
+        
+        if (patterns && patterns.hourlyUsagePattern && patterns.confidence > 30) {
+          let totalFactor = 0;
+          
+          for (let i = 0; i < remainingHours; i++) {
+            const hour = (currentHour + 1 + i) % 24;
+            const usageLevel = patterns.hourlyUsagePattern[hour] || 1;
+            
+            // Convert usage pattern to savings multiplier
+            // Higher usage typically correlates with higher savings potential
+            // Scale usage (typically 0.5-3.0) to factor range (0.6-1.4)
+            const usageFactor = 0.6 + (Math.min(usageLevel, 3) * 0.27);
+            totalFactor += usageFactor;
+          }
+          
+          this.safeDebug('Using learned usage patterns for time-of-day factors:', {
+            currentHour,
+            remainingHours,
+            patternsConfidence: patterns.confidence,
+            avgFactor: (totalFactor / remainingHours).toFixed(3)
+          });
+          
+          return totalFactor / remainingHours;
+        }
+      } catch (error) {
+        this.safeError('Error getting usage patterns, using fallback:', error);
+      }
+    }
+
+    // Fallback to original hardcoded time-of-day calculation
     // Peak hours (17-21) typically have higher electricity prices
     // Off-peak hours (23-06) typically have lower prices
     
@@ -308,6 +469,7 @@ export class EnhancedSavingsCalculator {
 
   /**
    * Calculate confidence level based on data quality and amount
+   * Integrates real model confidence from thermal and hot water services
    */
   private calculateConfidence(todayOptimizations: OptimizationData[], currentHour: number): number {
     let confidence = 0.5; // Base confidence
@@ -325,6 +487,48 @@ export class EnhancedSavingsCalculator {
       const savingsVariance = this.calculateSavingsVariance(todayOptimizations);
       const variancePenalty = Math.min(savingsVariance * 0.1, 0.2); // Max 20% penalty
       confidence -= variancePenalty;
+    }
+
+    // Enhance with real model confidence from services
+    const serviceConfidences: number[] = [];
+    
+    // Add thermal model confidence
+    if (this.thermalModelService) {
+      try {
+        const characteristics = this.thermalModelService.getThermalCharacteristics();
+        if (characteristics.modelConfidence > 0) {
+          serviceConfidences.push(characteristics.modelConfidence);
+        }
+      } catch (error) {
+        this.safeError('Error getting thermal model confidence:', error);
+      }
+    }
+
+    // Add hot water usage pattern confidence  
+    if (this.hotWaterService) {
+      try {
+        const patterns = (this.hotWaterService as any).getUsagePatterns?.();
+        if (patterns && patterns.confidence > 0) {
+          serviceConfidences.push(patterns.confidence / 100); // Convert percentage to decimal
+        }
+      } catch (error) {
+        this.safeError('Error getting hot water pattern confidence:', error);
+      }
+    }
+
+    // Blend service confidences with basic confidence
+    if (serviceConfidences.length > 0) {
+      const avgServiceConfidence = serviceConfidences.reduce((sum, conf) => sum + conf, 0) / serviceConfidences.length;
+      
+      // Weight: 60% basic calculation, 40% service models
+      confidence = (confidence * 0.6) + (avgServiceConfidence * 0.4);
+      
+      this.safeDebug('Enhanced confidence calculation:', {
+        basicConfidence: (confidence / (0.6 + 0.4 * avgServiceConfidence) * 0.6).toFixed(3),
+        serviceConfidences: serviceConfidences.map(c => c.toFixed(3)),
+        avgServiceConfidence: avgServiceConfidence.toFixed(3),
+        finalConfidence: confidence.toFixed(3)
+      });
     }
 
     return Math.max(0.1, Math.min(1.0, confidence));

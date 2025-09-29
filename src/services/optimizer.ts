@@ -241,11 +241,7 @@ export class Optimizer {
     private readonly weatherApi?: { getCurrentWeather(): Promise<WeatherData> },
     private readonly homey?: HomeyApp
   ) {
-    // Initialize enhanced savings calculator with proper Logger instance
-    // Use the existing logger since it already implements the Logger interface
-    this.enhancedSavingsCalculator = new EnhancedSavingsCalculator(this.logger);
-
-    // Initialize thermal learning model if homey instance is provided
+    // Initialize thermal learning model first if homey instance is provided
     if (homey) {
       try {
         this.thermalModelService = new ThermalModelService(homey);
@@ -343,6 +339,22 @@ export class Optimizer {
         this.copHelper = null;
       }
     }
+
+    // Initialize enhanced savings calculator after all services are set up
+    // Get references to hot water service if available
+    const hotWaterService = (this.homey as any)?.hotWaterService;
+    
+    // Initialize enhanced savings calculator with available services
+    this.enhancedSavingsCalculator = new EnhancedSavingsCalculator(
+      this.logger,
+      this.thermalModelService || undefined,
+      hotWaterService
+    );
+
+    this.logger.log('Enhanced savings calculator initialized with services:', {
+      thermalService: !!this.thermalModelService,
+      hotWaterService: !!hotWaterService
+    });
   }
 
   /**
