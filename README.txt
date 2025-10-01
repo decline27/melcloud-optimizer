@@ -1,53 +1,15 @@
-# MELCloud Heat Pump Optimizer
+MELCloud Heat Pump Optimizer
 
-This app makes your Mitsubishi Electric heat pump smarter by automatically adjusting its operation to save you money on electricity bills.
+This app makes your Mitsubishi Electric heat pump smarter by automatically adjusting its operation to save money on electricity. It runs on Homey Pro and uses both MELCloud data and Tibber prices to decide how and when the heat pump should run.
 
-## What it does
-- **Smart heating**: Heats your home more when electricity is cheap, less when it's expensive
-- **Hot water optimization**: Efficiently manages your hot water tank heating schedule
-- **Weather awareness**: Adjusts operation based on outdoor temperature and weather forecasts
-- **Self-learning**: Gets better over time by learning how your home heats and cools
-- **Background operation**: Runs automatically once set up - no daily interaction needed
+Key capabilities include smart heating that increases output when electricity is cheap and scales back when prices are high, hot water optimization that aligns tank heating with favorable price windows, weather awareness that reacts to outdoor temperature forecasts, and a self-learning model that improves as it gathers more data. Once configured, the app operates in the background without daily attention.
 
-## How it works
-The app connects to your heat pump through MELCloud and monitors real-time electricity prices. It then intelligently adjusts your heat pump's target temperature to take advantage of cheaper electricity while maintaining your comfort.
+To use the app you need a Homey Pro device, a Mitsubishi Electric heat pump connected through MELCloud, a MELCloud account, and a Tibber account with API access.
 
-## What you need
-- Homey Pro device
-- Mitsubishi Electric heat pump with MELCloud connection
-- MELCloud account (free from Mitsubishi Electric)
-- Tibber electricity account with API access
+Install the app on your Homey, open the settings, and enter your MELCloud and Tibber credentials. The same MELCloud email address and password that you use in the official MELCloud app are required. The Tibber API token is created from the Tibber website by opening Settings, then Developer, and generating a new token.
 
-## Installation
-Simply install this app on your Homey, enter your MELCloud and Tibber credentials, and let it optimize your heating automatically.
+Provide your home location so the app can match heating decisions with the expected weather. For the best savings you can allow a small temperature flexibility window, enable smart hot water heating, keep learning mode enabled, and let the app prepare for incoming cold weather.
 
-## Setup Guide
+Start with conservative comfort settings and relax them once you see the savings. Monitor the first week to understand how the app adapts to your home. Most households report noticeably lower heating costs in winter, typically between fifteen and thirty percent depending on price spreads and comfort targets.
 
-### Required Settings:
-1. **MELCloud Credentials**
-   - Username: Your MELCloud email address
-   - Password: Your MELCloud password
-   - (These are the same credentials you use for the MELCloud app)
-
-2. **Tibber API Token**
-   - Log into your Tibber account at tibber.com
-   - Go to Settings → Developer → Create API token
-   - Copy the token into the app settings
-
-3. **Location Settings**
-   - Set your home's location for accurate weather data
-   - This helps the app predict heating needs based on outdoor temperature
-
-### Optional Settings for Maximum Savings:
-- **Temperature flexibility**: Allow 1-2°C variation from your normal temperature
-- **Hot water scheduling**: Enable smart hot water heating during cheap price hours
-- **Weather integration**: Let the app pre-heat before cold weather arrives
-- **Learning mode**: Keep enabled so the app learns your home's heating patterns
-
-### Tips to Maximize Savings:
-- Start with conservative settings and gradually increase flexibility
-- Monitor your first week to see how the app adapts to your home
-- The app saves more money during winter months when heating costs are higher
-- Savings typically range from 15-30% on heating costs
-
-For support and detailed information: https://github.com/decline27/melcloud-optimizer
+If you need help or want to report an issue, visit https://github.com/decline27/melcloud-optimizer.
