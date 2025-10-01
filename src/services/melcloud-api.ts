@@ -262,7 +262,62 @@ export class MelCloudApi extends BaseApiService {
                 reject(new Error(`Failed to parse API response: ${error instanceof Error ? error.message : String(error)}`));
               }
             } else {
-              reject(new Error(`API error: ${res.statusCode} ${res.statusMessage}`));
+              const statusCode = res.statusCode ?? 0;
+              const statusMessage = res.statusMessage ?? 'Unknown';
+              const trimmedBody = data?.toString().trim() ?? '';
+
+              let parsedBody: any = null;
+              if (trimmedBody.length > 0) {
+                try {
+                  parsedBody = JSON.parse(trimmedBody);
+                } catch (parseError) {
+                  const parseMessage = parseError instanceof Error ? parseError.message : String(parseError);
+                  this.logger.debug(`Failed to parse MELCloud error response as JSON for ${method} ${endpoint}: ${parseMessage}`);
+                }
+              }
+
+              const bodyMessage = parsedBody?.ErrorMessage ||
+                parsedBody?.message ||
+                parsedBody?.Message ||
+                parsedBody?.error ||
+                parsedBody?.detail ||
+                (typeof parsedBody === 'string' ? parsedBody : null) ||
+                trimmedBody;
+
+              const composedDetails = bodyMessage ? `${statusCode} ${statusMessage} - ${bodyMessage}`.trim() : `${statusCode} ${statusMessage}`;
+
+              const lowerBody = (bodyMessage || '').toString().toLowerCase();
+              const isAuthFailure =
+                statusCode === 401 ||
+                statusCode === 403 ||
+                lowerBody.includes('contextkey') ||
+                lowerBody.includes('context key') ||
+                lowerBody.includes('unauthorized') ||
+                lowerBody.includes('auth') ||
+                lowerBody.includes('login') ||
+                lowerBody.includes('credential');
+
+              const baseMessage = isAuthFailure
+                ? `Authentication error: ${composedDetails}`
+                : `API error: ${composedDetails}`;
+
+              const responsePayload = parsedBody ?? (trimmedBody.length > 0 ? trimmedBody : null);
+
+              const baseError = new Error(baseMessage);
+              const appError = this.createApiError(baseError, {
+                operation: 'throttledApiCall',
+                method,
+                endpoint,
+                statusCode,
+                response: responsePayload
+              });
+
+              if (appError.category === ErrorCategory.AUTHENTICATION) {
+                this.logger.warn(`Authentication failure detected for ${method} ${endpoint}, clearing context key`);
+                this.contextKey = null;
+              }
+
+              reject(appError);
             }
           });
         });
@@ -859,39 +914,59 @@ export class MelCloudApi extends BaseApiService {
 
       this.logApiCall('GET', `Device/Get?id=${deviceId}&buildingID=${buildingId}`);
 
-      try {
-        const data = await this.retryableRequest(
-          () => this.throttledApiCall<any>('GET', `Device/Get?id=${deviceId}&buildingID=${buildingId}`)
-        );
+      const maxAuthRetries = 1;
 
-        this.logger.log(`MELCloud device state retrieved for device ${deviceId}`);
+      for (let attempt = 0; attempt <= maxAuthRetries; attempt++) {
+        try {
+          const data = await this.retryableRequest(
+            () => this.throttledApiCall<any>('GET', `Device/Get?id=${deviceId}&buildingID=${buildingId}`)
+          );
 
-        // Cache the result
-        this.setCachedData(cacheKey, data);
+          this.logger.log(`MELCloud device state retrieved for device ${deviceId}`);
 
-        return data;
-      } catch (error) {
-        // Create a standardized error with context
-        const appError = this.createApiError(error, {
-          operation: 'getDeviceState',
-          deviceId,
-          buildingId
-        });
+          // Cache the result
+          this.setCachedData(cacheKey, data);
 
-        // For authentication errors, try to reconnect
-        if (appError.category === ErrorCategory.AUTHENTICATION) {
-          this.logger.warn(`Authentication error in MELCloud getDeviceState for device ${deviceId}, attempting to reconnect`);
+          return data;
+        } catch (error) {
+          // Create a standardized error with context
+          const appError = this.createApiError(error, {
+            operation: 'getDeviceState',
+            deviceId,
+            buildingId,
+            attempt
+          });
 
-          // Try to reconnect on auth error
-          await this.ensureConnected();
+          // For authentication errors, try to reconnect and retry once
+          if (appError.category === ErrorCategory.AUTHENTICATION && attempt < maxAuthRetries) {
+            this.logger.warn(`Authentication error in MELCloud getDeviceState for device ${deviceId}, refreshing session and retrying`);
+
+            const reconnected = await this.ensureConnected();
+            if (reconnected) {
+              this.logger.info(`Session refreshed successfully for device ${deviceId}, retrying device state request`);
+              continue; // Retry the API call with a fresh session
+            }
+
+            this.logger.error(`Failed to refresh session after authentication error for device ${deviceId}`);
+          }
+
+          // Log the error with appropriate level based on category
+          this.errorHandler.logError(appError);
+
+          // Throw the standardized error
+          throw appError;
         }
-
-        // Log the error with appropriate level based on category
-        this.errorHandler.logError(appError);
-
-        // Throw the standardized error
-        throw appError;
       }
+
+      const exhaustedError = this.createApiError(new Error('Failed to retrieve device state after retries'), {
+        operation: 'getDeviceState',
+        deviceId,
+        buildingId,
+        exhaustedRetries: true
+      });
+
+      this.errorHandler.logError(exhaustedError);
+      throw exhaustedError;
     } catch (error) {
       // If this is already an AppError, just rethrow it
       if (error instanceof AppError) {
