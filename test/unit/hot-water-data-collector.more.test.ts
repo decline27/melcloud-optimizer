@@ -1,5 +1,4 @@
 import os from 'os';
-import fs from 'fs';
 import { HotWaterDataCollector, HotWaterUsageDataPoint } from '../../src/services/hot-water/hot-water-data-collector';
 
 describe('HotWaterDataCollector - additional coverage', () => {
@@ -95,9 +94,9 @@ describe('HotWaterDataCollector - additional coverage', () => {
     expect(homey.settings.unset).not.toHaveBeenCalledWith('hot_water_usage_aggregated_data');
   });
 
-  test('saveToBackupFile error is handled gracefully', async () => {
-    // Spy on writeFile to throw once
-    const writeSpy = jest.spyOn(fs.promises, 'writeFile').mockRejectedValueOnce(new Error('disk full'));
+  test('saveData error is handled gracefully', async () => {
+    const settingsSet = homey.settings.set as jest.Mock;
+    settingsSet.mockImplementationOnce(() => { throw new Error('settings error'); });
 
     const point: HotWaterUsageDataPoint = {
       timestamp: new Date().toISOString(),
@@ -115,8 +114,6 @@ describe('HotWaterDataCollector - additional coverage', () => {
 
     // Error should be logged but not throw
     const calls = (homey.error as jest.Mock).mock.calls.map(c => c[0]);
-    expect(calls.some((msg: string) => msg.includes('Error saving hot water usage data to backup file:'))).toBe(true);
-
-    writeSpy.mockRestore();
+    expect(calls.some((msg: string) => msg.includes('Error saving hot water usage data:'))).toBe(true);
   });
 });

@@ -1,5 +1,5 @@
 import { Logger } from '../util/logger';
-import { TibberPriceInfo } from '../types';
+import { TibberPriceInfo, PricePoint } from '../types';
 import { ErrorHandler, AppError, ErrorCategory } from '../util/error-handler';
 import { BaseApiService, RateLimitError } from './base-api-service';
 import { TimeZoneHelper } from '../util/time-zone-helper';
@@ -127,7 +127,7 @@ export class TibberApi extends BaseApiService {
       viewer {
         homes {
           currentSubscription {
-            priceInfo {
+            priceInfo(resolution: QUARTER_HOURLY) {
               current {
                 total
                 energy
@@ -166,7 +166,13 @@ export class TibberApi extends BaseApiService {
       }
 
       const formattedData = this.formatPriceData(data);
-      this.logger.log(`Tibber prices retrieved: ${formattedData.prices.length} price points`);
+      const summaryCounts = {
+        hourly: formattedData.prices?.length || 0,
+        quarterHourly: formattedData.quarterHourly?.length || 0
+      };
+      this.logger.log(
+        `Tibber prices retrieved: hourly=${summaryCounts.hourly}, quarterHourly=${summaryCounts.quarterHourly}`
+      );
 
       // Validate freshness of the fetched data
       if (!this.isPriceDataFresh(formattedData)) {
@@ -220,13 +226,16 @@ export class TibberApi extends BaseApiService {
       }
 
       // Combine today and tomorrow prices
-      const prices = [
+      const quarterHourlyPrices: PricePoint[] = [
         ...(priceInfo.today || []),
         ...(priceInfo.tomorrow || []),
       ].map(price => ({
         time: price.startsAt,
         price: price.total,
       }));
+
+      const intervalMinutes = this.detectIntervalMinutes(quarterHourlyPrices) ?? undefined;
+      const hourlyPrices = this.aggregateToHourly(quarterHourlyPrices);
 
       const result: TibberPriceInfo = {
         current: priceInfo.current ? {
@@ -236,10 +245,14 @@ export class TibberApi extends BaseApiService {
           time: new Date().toISOString(),
           price: 0
         },
-        prices,
+        prices: hourlyPrices.length > 0 ? hourlyPrices : quarterHourlyPrices,
+        quarterHourly: quarterHourlyPrices,
+        intervalMinutes,
       };
 
-      this.logger.log(`Formatted price data: current price ${result.current?.price || 'N/A'}, ${prices.length} price points`);
+      this.logger.log(
+        `Formatted price data: current price ${result.current?.price || 'N/A'}, hourly=${result.prices.length}, quarterHourly=${quarterHourlyPrices.length}`
+      );
       return result;
     } catch (error) {
       // Create a standardized error with context
@@ -268,12 +281,12 @@ export class TibberApi extends BaseApiService {
         return false;
       }
 
-      const currentPriceTime = new Date(priceData.current.time);
-      const now = new Date();
-      
-      // Current price should be within the last hour (Tibber updates hourly)
-      // Allow for 5 minutes grace period for API delays
-      const maxStaleTime = 65 * 60 * 1000; // 65 minutes in milliseconds
+  const currentPriceTime = new Date(priceData.current.time);
+  const now = new Date();
+
+  const intervalMinutes = priceData.intervalMinutes ?? 60;
+  const maxStaleMinutes = intervalMinutes === 15 ? 20 : 65;
+  const maxStaleTime = maxStaleMinutes * 60 * 1000;
       const timeDiff = now.getTime() - currentPriceTime.getTime();
 
       if (timeDiff > maxStaleTime) {
@@ -281,8 +294,8 @@ export class TibberApi extends BaseApiService {
         return false;
       }
 
-      // Additional check: current price time should not be in the future (beyond next hour)
-      if (timeDiff < -65 * 60 * 1000) {
+  const futureThresholdMinutes = intervalMinutes === 15 ? 20 : 65;
+  if (timeDiff < -futureThresholdMinutes * 60 * 1000) {
         this.logger.warn(`Price data has future timestamp: ${currentPriceTime.toISOString()}, system time: ${now.toISOString()}`);
         return false;
       }
@@ -303,6 +316,54 @@ export class TibberApi extends BaseApiService {
   cleanup(): void {
     // Call parent class cleanup to handle cache and circuit breaker
     super.cleanup();
+  }
+
+  private detectIntervalMinutes(prices: PricePoint[]): number | null {
+    if (!Array.isArray(prices) || prices.length < 2) {
+      return null;
+    }
+
+    for (let i = 1; i < prices.length; i += 1) {
+      const prev = new Date(prices[i - 1].time).getTime();
+      const current = new Date(prices[i].time).getTime();
+      if (Number.isFinite(prev) && Number.isFinite(current)) {
+        const diffMinutes = Math.round((current - prev) / 60000);
+        if (diffMinutes > 0) {
+          return diffMinutes;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private aggregateToHourly(prices: PricePoint[]): PricePoint[] {
+    if (!Array.isArray(prices) || prices.length === 0) {
+      return [];
+    }
+
+    const buckets = new Map<string, { sum: number; count: number }>();
+
+    prices.forEach(({ time, price }) => {
+      const date = new Date(time);
+      if (!Number.isFinite(date.getTime())) {
+        return;
+      }
+
+      date.setMinutes(0, 0, 0);
+      const bucketKey = date.toISOString();
+      const bucket = buckets.get(bucketKey) || { sum: 0, count: 0 };
+      bucket.sum += price;
+      bucket.count += 1;
+      buckets.set(bucketKey, bucket);
+    });
+
+    return Array.from(buckets.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([timeKey, { sum, count }]) => ({
+        time: timeKey,
+        price: count > 0 ? sum / count : 0,
+      }));
   }
 }
 

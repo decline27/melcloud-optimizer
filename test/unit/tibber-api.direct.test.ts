@@ -14,6 +14,7 @@ describe('TibberApi Direct Tests', () => {
   beforeEach(() => {
     // Reset all mocks
     jest.clearAllMocks();
+    (global as any).fetch = mockedFetch as any;
 
     // Create a mock logger
     mockLogger = createMockLogger();
@@ -40,30 +41,54 @@ describe('TibberApi Direct Tests', () => {
                     },
                     today: [
                       {
-                        total: 0.15,
-                        energy: 0.10,
+                        total: 0.10,
+                        energy: 0.05,
                         tax: 0.05,
                         startsAt: '2023-01-01T00:00:00Z'
+                      },
+                      {
+                        total: 0.12,
+                        energy: 0.07,
+                        tax: 0.05,
+                        startsAt: '2023-01-01T00:15:00Z'
+                      },
+                      {
+                        total: 0.14,
+                        energy: 0.09,
+                        tax: 0.05,
+                        startsAt: '2023-01-01T00:30:00Z'
                       },
                       {
                         total: 0.16,
                         energy: 0.11,
                         tax: 0.05,
-                        startsAt: '2023-01-01T01:00:00Z'
+                        startsAt: '2023-01-01T00:45:00Z'
                       }
                     ],
                     tomorrow: [
                       {
-                        total: 0.14,
-                        energy: 0.09,
+                        total: 0.20,
+                        energy: 0.15,
                         tax: 0.05,
                         startsAt: '2023-01-02T00:00:00Z'
                       },
                       {
-                        total: 0.13,
-                        energy: 0.08,
+                        total: 0.22,
+                        energy: 0.17,
                         tax: 0.05,
-                        startsAt: '2023-01-02T01:00:00Z'
+                        startsAt: '2023-01-02T00:15:00Z'
+                      },
+                      {
+                        total: 0.24,
+                        energy: 0.19,
+                        tax: 0.05,
+                        startsAt: '2023-01-02T00:30:00Z'
+                      },
+                      {
+                        total: 0.26,
+                        energy: 0.21,
+                        tax: 0.05,
+                        startsAt: '2023-01-02T00:45:00Z'
                       }
                     ]
                   }
@@ -87,12 +112,18 @@ describe('TibberApi Direct Tests', () => {
       expect(prices.current.price).toBe(0.15);
       expect(prices.current.time).toBe('2023-01-01T00:00:00Z');
       expect(prices.prices).toBeDefined();
-      expect(prices.prices.length).toBe(4);
+      expect(prices.prices.length).toBe(2);
+      expect(prices.quarterHourly?.length).toBe(8);
+      expect(prices.intervalMinutes).toBe(15);
 
       // Check that prices are correctly formatted
       expect(prices.prices[0]).toEqual({
-        time: '2023-01-01T00:00:00Z',
-        price: 0.15
+        time: '2023-01-01T00:00:00.000Z',
+        price: 0.13
+      });
+      expect(prices.prices[1]).toEqual({
+        time: '2023-01-02T00:00:00.000Z',
+        price: 0.23
       });
 
       // Verify fetch was called with correct parameters
@@ -113,6 +144,7 @@ describe('TibberApi Direct Tests', () => {
       expect(requestBody.query).toContain('current');
       expect(requestBody.query).toContain('today');
       expect(requestBody.query).toContain('tomorrow');
+  expect(requestBody.query).toContain('resolution: QUARTER_HOURLY');
     });
 
     it('should throw error when API returns errors', async () => {
@@ -130,7 +162,7 @@ describe('TibberApi Direct Tests', () => {
 
       // Expect getPrices to throw an error
       await expect(tibberApi.getPrices())
-        .rejects.toThrow('Tibber API error: Invalid token');
+        .rejects.toThrow(/Tibber API error: invalid token/i);
 
       // Verify fetch was called
       expect(mockedFetch).toHaveBeenCalledTimes(1);

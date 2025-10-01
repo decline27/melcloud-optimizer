@@ -81,6 +81,8 @@ export interface TibberPriceInfo {
     time: string;
   };
   prices: PricePoint[];
+  quarterHourly?: PricePoint[];
+  intervalMinutes?: number;
 }
 
 // Weather API types

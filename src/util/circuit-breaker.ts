@@ -5,7 +5,7 @@
  * and better resilience against intermittent failures.
  */
 
-import { Logger } from './logger';
+import { Logger, LogLevel, LogCategory } from './logger';
 
 /**
  * Circuit breaker states
@@ -47,6 +47,32 @@ const DEFAULT_OPTIONS: CircuitBreakerOptions = {
 };
 
 /**
+ * No-op fallback logger used when no logger instance is provided.
+ * This prevents background timers from throwing when logging is attempted.
+ */
+const NOOP_LOGGER: Logger = {
+  log: () => {},
+  info: () => {},
+  error: () => {},
+  debug: () => {},
+  warn: () => {},
+  api: () => {},
+  optimization: () => {},
+  notify: async () => {},
+  marker: () => {},
+  sendToTimeline: async () => {},
+  setLogLevel: () => {},
+  setTimelineLogging: () => {},
+  getLogLevel: () => LogLevel.NONE,
+  enableCategory: () => {},
+  disableCategory: () => {},
+  isCategoryEnabled: () => false,
+  formatValue: (v: any) => {
+    try { return typeof v === 'string' ? v : JSON.stringify(v); } catch (_) { return String(v); }
+  }
+};
+
+/**
  * Circuit breaker implementation with adaptive features
  */
 export class CircuitBreaker {
@@ -76,8 +102,10 @@ export class CircuitBreaker {
     logger: Logger,
     options: Partial<CircuitBreakerOptions> = {}
   ) {
-    this.options = { ...DEFAULT_OPTIONS, ...options };
-    this.logger = logger;
+  this.options = { ...DEFAULT_OPTIONS, ...options };
+  // Use provided logger or fall back to a no-op logger to avoid runtime
+  // errors from timer callbacks when a logger isn't available.
+  this.logger = logger ?? NOOP_LOGGER;
     this.currentResetTimeout = this.options.resetTimeout;
     this.adaptiveFailureThreshold = this.options.failureThreshold;
 

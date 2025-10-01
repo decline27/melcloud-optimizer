@@ -61,7 +61,19 @@ describe('TibberApi', () => {
                         total: 0.16,
                         energy: 0.11,
                         tax: 0.05,
-                        startsAt: '2023-01-01T01:00:00Z'
+                        startsAt: '2023-01-01T00:15:00Z'
+                      },
+                      {
+                        total: 0.17,
+                        energy: 0.12,
+                        tax: 0.05,
+                        startsAt: '2023-01-01T00:30:00Z'
+                      },
+                      {
+                        total: 0.18,
+                        energy: 0.13,
+                        tax: 0.05,
+                        startsAt: '2023-01-01T00:45:00Z'
                       }
                     ],
                     tomorrow: [
@@ -75,7 +87,19 @@ describe('TibberApi', () => {
                         total: 0.13,
                         energy: 0.08,
                         tax: 0.05,
-                        startsAt: '2023-01-02T01:00:00Z'
+                        startsAt: '2023-01-02T00:15:00Z'
+                      },
+                      {
+                        total: 0.12,
+                        energy: 0.07,
+                        tax: 0.05,
+                        startsAt: '2023-01-02T00:30:00Z'
+                      },
+                      {
+                        total: 0.11,
+                        energy: 0.06,
+                        tax: 0.05,
+                        startsAt: '2023-01-02T00:45:00Z'
                       }
                     ]
                   }
@@ -98,6 +122,9 @@ describe('TibberApi', () => {
       expect(prices.current).toBeDefined();
       expect(prices.prices).toBeDefined();
       expect(prices.prices.length).toBeGreaterThan(0);
+      expect(prices.quarterHourly).toBeDefined();
+      expect(prices.quarterHourly?.length).toBe(8);
+      expect(prices.intervalMinutes).toBe(15);
 
       // Verify fetch was called with correct parameters
       expect(mockedFetch).toHaveBeenCalledWith(
@@ -118,6 +145,7 @@ describe('TibberApi', () => {
         expect(requestBody.query).toContain('current');
         expect(requestBody.query).toContain('today');
         expect(requestBody.query).toContain('tomorrow');
+        expect(requestBody.query).toContain('resolution: QUARTER_HOURLY');
       }
     });
 
@@ -258,18 +286,54 @@ describe('TibberApi', () => {
                     },
                     today: [
                       {
-                        total: 0.15,
-                        energy: 0.10,
+                        total: 0.12,
+                        energy: 0.07,
                         tax: 0.05,
                         startsAt: '2023-01-01T00:00:00Z'
+                      },
+                      {
+                        total: 0.16,
+                        energy: 0.11,
+                        tax: 0.05,
+                        startsAt: '2023-01-01T00:15:00Z'
+                      },
+                      {
+                        total: 0.20,
+                        energy: 0.15,
+                        tax: 0.05,
+                        startsAt: '2023-01-01T00:30:00Z'
+                      },
+                      {
+                        total: 0.24,
+                        energy: 0.19,
+                        tax: 0.05,
+                        startsAt: '2023-01-01T00:45:00Z'
                       }
                     ],
                     tomorrow: [
                       {
-                        total: 0.14,
-                        energy: 0.09,
+                        total: 0.10,
+                        energy: 0.05,
                         tax: 0.05,
                         startsAt: '2023-01-02T00:00:00Z'
+                      },
+                      {
+                        total: 0.11,
+                        energy: 0.06,
+                        tax: 0.05,
+                        startsAt: '2023-01-02T00:15:00Z'
+                      },
+                      {
+                        total: 0.12,
+                        energy: 0.07,
+                        tax: 0.05,
+                        startsAt: '2023-01-02T00:30:00Z'
+                      },
+                      {
+                        total: 0.13,
+                        energy: 0.08,
+                        tax: 0.05,
+                        startsAt: '2023-01-02T00:45:00Z'
                       }
                     ]
                   }
@@ -293,7 +357,10 @@ describe('TibberApi', () => {
       expect(result).toHaveProperty('current');
       expect(result).toHaveProperty('prices');
       expect(result.current.price).toBe(0.15);
-      expect(result.prices.length).toBeGreaterThan(0);
+  expect(result.prices.length).toBeGreaterThan(0);
+  expect(result.intervalMinutes).toBe(15);
+  expect(result.quarterHourly?.length).toBe(8);
+  expect(result.prices[0].price).toBeCloseTo(0.18, 5);
     });
 
     it('should detect and handle stale price data from cache', async () => {

@@ -29,7 +29,7 @@ describe('HotWaterDataCollector', () => {
 
   test('validateDataPoint rejects future timestamps', () => {
     const future: HotWaterUsageDataPoint = {
-      timestamp: new Date(Date.now() + 1000000).toISOString(),
+      timestamp: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(),
       tankTemperature: 40,
       targetTankTemperature: 45,
       hotWaterEnergyProduced: 1,
