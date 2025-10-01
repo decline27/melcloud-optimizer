@@ -281,12 +281,12 @@ export class TibberApi extends BaseApiService {
         return false;
       }
 
-  const currentPriceTime = new Date(priceData.current.time);
-  const now = new Date();
+      const currentPriceTime = new Date(priceData.current.time);
+      const now = new Date();
 
-  const intervalMinutes = priceData.intervalMinutes ?? 60;
-  const maxStaleMinutes = intervalMinutes === 15 ? 20 : 65;
-  const maxStaleTime = maxStaleMinutes * 60 * 1000;
+      const intervalMinutes = priceData.intervalMinutes ?? 60;
+      const maxStaleMinutes = intervalMinutes === 15 ? 20 : 65;
+      const maxStaleTime = maxStaleMinutes * 60 * 1000;
       const timeDiff = now.getTime() - currentPriceTime.getTime();
 
       if (timeDiff > maxStaleTime) {
@@ -294,8 +294,8 @@ export class TibberApi extends BaseApiService {
         return false;
       }
 
-  const futureThresholdMinutes = intervalMinutes === 15 ? 20 : 65;
-  if (timeDiff < -futureThresholdMinutes * 60 * 1000) {
+      const futureThresholdMinutes = intervalMinutes === 15 ? 20 : 65;
+      if (timeDiff < -futureThresholdMinutes * 60 * 1000) {
         this.logger.warn(`Price data has future timestamp: ${currentPriceTime.toISOString()}, system time: ${now.toISOString()}`);
         return false;
       }

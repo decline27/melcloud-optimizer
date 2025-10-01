@@ -5,7 +5,7 @@
  * and better resilience against intermittent failures.
  */
 
-import { Logger, LogLevel, LogCategory } from './logger';
+import { Logger, LogLevel } from './logger';
 
 /**
  * Circuit breaker states

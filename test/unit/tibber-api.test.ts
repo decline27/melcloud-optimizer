@@ -357,10 +357,10 @@ describe('TibberApi', () => {
       expect(result).toHaveProperty('current');
       expect(result).toHaveProperty('prices');
       expect(result.current.price).toBe(0.15);
-  expect(result.prices.length).toBeGreaterThan(0);
-  expect(result.intervalMinutes).toBe(15);
-  expect(result.quarterHourly?.length).toBe(8);
-  expect(result.prices[0].price).toBeCloseTo(0.18, 5);
+      expect(result.prices.length).toBeGreaterThan(0);
+      expect(result.intervalMinutes).toBe(15);
+      expect(result.quarterHourly?.length).toBe(8);
+      expect(result.prices[0].price).toBeCloseTo(0.18, 5);
     });
 
     it('should detect and handle stale price data from cache', async () => {

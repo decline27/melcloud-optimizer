@@ -144,7 +144,7 @@ describe('TibberApi Direct Tests', () => {
       expect(requestBody.query).toContain('current');
       expect(requestBody.query).toContain('today');
       expect(requestBody.query).toContain('tomorrow');
-  expect(requestBody.query).toContain('resolution: QUARTER_HOURLY');
+      expect(requestBody.query).toContain('resolution: QUARTER_HOURLY');
     });
 
     it('should throw error when API returns errors', async () => {
