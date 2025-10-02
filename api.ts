@@ -6,6 +6,8 @@ import { TibberApi as TibberService } from './src/services/tibber-api';
 import type { Optimizer } from './src/services/optimizer';
 import { DeviceInfo, TibberPriceInfo } from './src/types';
 import type { ServiceState, HistoricalData } from './src/orchestration/service-manager';
+import { captureProcessMemory } from './src/util/memory';
+import type { ProcessMemoryStats, ProcessMemorySource } from './src/util/memory';
 import {
   applyServiceOverrides,
   getServiceState,
@@ -350,7 +352,9 @@ interface ConnectionStatusResponse {
 }
 
 type GetMemoryUsageResponse = ApiResult<{
-  processMemory: Record<string, number | string>;
+  processMemory: ProcessMemoryStats;
+  processMemorySource: ProcessMemorySource;
+  processMemoryFallbackReason?: string;
   thermalModelMemory: unknown;
   timestamp: string;
 }>;
@@ -2652,26 +2656,11 @@ const apiHandlers: ApiHandlers = {
         // Initialize services if needed
         await initializeServices(homey);
 
-        // Get memory usage from process safely
-        let processMemory: Record<string, number | string> = {};
-        try {
-          const memUsage = process.memoryUsage();
-          processMemory = {
-            rss: Math.round(memUsage.rss / 1024 / 1024 * 100) / 100,
-            heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024 * 100) / 100,
-            heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024 * 100) / 100,
-            external: Math.round(memUsage.external / 1024 / 1024 * 100) / 100,
-          };
-        } catch (memError: any) {
-          homey.app.log('Could not get detailed memory usage, using estimated values');
-          // Provide estimated values if actual memory usage is not available
-          processMemory = {
-            rss: 'N/A',
-            heapTotal: 'N/A',
-            heapUsed: 'N/A',
-            external: 'N/A'
-          };
-        }
+        const {
+          stats: processMemory,
+          source: processMemorySource,
+          fallbackReason: processMemoryFallbackReason
+        } = captureProcessMemory(homey?.app);
 
         // Get thermal model memory usage if available
         let thermalModelMemory: unknown = null;
@@ -2682,6 +2671,8 @@ const apiHandlers: ApiHandlers = {
         return {
           success: true,
           processMemory,
+          processMemorySource,
+          processMemoryFallbackReason,
           thermalModelMemory,
           timestamp: new Date().toISOString()
         };

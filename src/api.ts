@@ -1,4 +1,5 @@
 import HeatOptimizerApp from './app';
+import { captureProcessMemory } from './util/memory';
 
 /**
  * API class for the MELCloud Optimizer app
@@ -39,8 +40,11 @@ export class Api {
       // Get the optimizer instance from the API
       const api = require('../api.js');
 
-      // Get memory usage from process
-      const processMemory = process.memoryUsage();
+      const {
+        stats: processMemory,
+        source: processMemorySource,
+        fallbackReason: processMemoryFallbackReason
+      } = captureProcessMemory(this.app);
 
       // Get thermal model memory usage if available
       let thermalModelMemory = null;
@@ -50,12 +54,9 @@ export class Api {
 
       return {
         success: true,
-        processMemory: {
-          rss: Math.round(processMemory.rss / 1024 / 1024 * 100) / 100,
-          heapTotal: Math.round(processMemory.heapTotal / 1024 / 1024 * 100) / 100,
-          heapUsed: Math.round(processMemory.heapUsed / 1024 / 1024 * 100) / 100,
-          external: Math.round(processMemory.external / 1024 / 1024 * 100) / 100,
-        },
+        processMemory,
+        processMemorySource,
+        processMemoryFallbackReason,
         thermalModelMemory,
         timestamp: new Date().toISOString()
       };

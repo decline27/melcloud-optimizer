@@ -1113,13 +1113,31 @@
           // Format and display the memory usage statistics
           let statsHtml = '';
 
+          const formatMbValue = (value) => {
+            if (value === null || value === undefined) {
+              return 'N/A';
+            }
+            if (typeof value === 'number' && !Number.isNaN(value)) {
+              return `${value} MB`;
+            }
+            return String(value);
+          };
+
           if (result.success) {
             // Process memory
             statsHtml += `Process Memory:\n`;
-            statsHtml += `- RSS: ${result.processMemory.rss} MB\n`;
-            statsHtml += `- Heap Total: ${result.processMemory.heapTotal} MB\n`;
-            statsHtml += `- Heap Used: ${result.processMemory.heapUsed} MB\n`;
-            statsHtml += `- External: ${result.processMemory.external} MB\n\n`;
+            statsHtml += `- RSS: ${formatMbValue(result.processMemory.rss)}\n`;
+            statsHtml += `- Heap Total: ${formatMbValue(result.processMemory.heapTotal)}\n`;
+            statsHtml += `- Heap Used: ${formatMbValue(result.processMemory.heapUsed)}\n`;
+            statsHtml += `- External: ${formatMbValue(result.processMemory.external)}\n`;
+            if (result.processMemorySource) {
+              const fallbackInfo = result.processMemoryFallbackReason
+                ? ` (fallback: ${result.processMemoryFallbackReason})`
+                : '';
+              statsHtml += `- Source: ${result.processMemorySource}${fallbackInfo}\n\n`;
+            } else {
+              statsHtml += `\n`;
+            }
 
             // Thermal model memory
             if (result.thermalModelMemory) {
