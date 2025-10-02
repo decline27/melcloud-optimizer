@@ -1,4 +1,5 @@
 import { App } from 'homey';
+import { fetchPrices } from './entsoe';
 import { COPHelper } from './services/cop-helper';
 import { TimelineHelper, TimelineEventType } from './util/timeline-helper';
 import { HomeyLogger, LogLevel, LogCategory } from './util/logger';
@@ -475,6 +476,9 @@ export default class HeatOptimizerApp extends App {
       this.logger.error('Failed to initialize Timeline Helper', error as Error);
     }
 
+    // Register ENTSO-E price fetch flow action
+    this.registerEntsoeFlowAction();
+
     // Start cron jobs on init if settings are ready (safe re-init logic prevents duplicates)
     try {
       this.log('[App] Checking if cron jobs should be started on init…');
@@ -492,14 +496,57 @@ export default class HeatOptimizerApp extends App {
       } catch (error) {
         this.logger.error('Failed to start memory usage monitoring', error as Error);
       }
+  }
+
+  // Run initial data cleanup to optimize memory usage on startup
+  this.runInitialDataCleanup();
+
+  // Log app initialization complete
+  this.logger.info('MELCloud Optimizer App initialized successfully');
+  console.log('🚀 HeatOptimizerApp onInit() completed successfully');
+  }
+
+  private registerEntsoeFlowAction(): void {
+    try {
+      const flowManager = this.homey.flow;
+      if (!flowManager || typeof flowManager.getActionCard !== 'function') {
+        this.logger.warn('Homey flow manager is not available; ENTSO-E flow action not registered');
+        return;
+      }
+      const actionCard = flowManager.getActionCard('get_entsoe_prices');
+      actionCard.registerRunListener(async (args: { zone?: string }) => {
+        const zoneInput = typeof args?.zone === 'string' ? args.zone : undefined;
+        const now = new Date();
+        const startUtc = new Date(Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth(),
+          now.getUTCDate(),
+          now.getUTCHours(),
+          0,
+          0,
+          0
+        ));
+        const endUtc = new Date(startUtc.getTime() + 24 * 60 * 60 * 1000);
+
+        try {
+          const prices = await fetchPrices(
+            this.homey,
+            zoneInput,
+            startUtc.toISOString(),
+            endUtc.toISOString()
+          );
+          return {
+            prices_json: JSON.stringify(prices),
+          };
+        } catch (error) {
+          this.logger.error('Failed to fetch ENTSO-E prices via flow action', error as Error);
+          throw error;
+        }
+      });
+      this.logger.info('ENTSO-E flow action registered');
+    } catch (error) {
+      this.logger.error('Failed to register ENTSO-E flow action', error as Error);
     }
-
-    // Run initial data cleanup to optimize memory usage on startup
-    this.runInitialDataCleanup();
-
-    // Log app initialization complete
-    this.logger.info('MELCloud Optimizer App initialized successfully');
-    console.log('🚀 HeatOptimizerApp onInit() completed successfully');
   }
 
   /**
@@ -591,10 +638,30 @@ export default class HeatOptimizerApp extends App {
       }
     }
     // If credentials changed, re-validate
+    else if (key === 'price_data_source') {
+      this.log('Price data source changed, refreshing price provider');
+      try {
+        const api = require('../api.js');
+        await api.updatePriceProvider(this.homey);
+        this.log('Price provider refreshed successfully');
+      } catch (error) {
+        this.error('Failed to refresh price provider after settings change:', error as Error);
+      }
+      this.validateSettings();
+    }
     else if (['melcloud_user', 'melcloud_pass', 'tibber_token', 'tibberToken'].includes(key)) {
       this.log(`Credential setting '${key}' changed, re-validating settings`);
       // Re-run validation on credential change
       this.validateSettings();
+      if (key === 'tibber_token') {
+        try {
+          const api = require('../api.js');
+          await api.updatePriceProvider(this.homey);
+          this.log('Price provider refreshed after tibber token change');
+        } catch (error) {
+          this.error('Failed to refresh price provider after Tibber token change:', error as Error);
+        }
+      }
     }
     // If temperature settings changed, re-validate
     else if (['min_temp', 'max_temp', 'min_temp_zone2', 'max_temp_zone2', 'enable_zone2'].includes(key)) {

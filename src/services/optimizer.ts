@@ -1,11 +1,11 @@
 import { MelCloudApi } from './melcloud-api';
-import { TibberApi } from './tibber-api';
 import { ThermalModelService } from './thermal-model';
 import { COPHelper } from './cop-helper';
 import { validateNumber, validateBoolean } from '../util/validation';
 import {
   MelCloudDevice,
   TibberPriceInfo,
+  PriceProvider,
   WeatherData,
   ThermalModel,
   OptimizationResult,
@@ -234,7 +234,7 @@ export class Optimizer {
    */
   constructor(
     private readonly melCloud: MelCloudApi,
-    private readonly tibber: TibberApi | null,
+    private priceProvider: PriceProvider | null,
     private readonly deviceId: string,
     private readonly buildingId: number,
     private readonly logger: HomeyLogger,
@@ -412,6 +412,11 @@ export class Optimizer {
       this.logger.error('Failed to initialize thermal mass from history:', error);
       // Keep default values on error
     }
+  }
+
+  public setPriceProvider(provider: PriceProvider | null): void {
+    this.priceProvider = provider;
+    this.logger.info(`Price provider updated: ${provider ? provider.constructor.name : 'none'}`);
   }
 
   /**
@@ -1441,10 +1446,10 @@ export class Optimizer {
       }
 
       // Get electricity prices
-      if (!this.tibber) {
-        throw new Error('Tibber service not initialized');
+      if (!this.priceProvider) {
+        throw new Error('Price provider not initialized');
       }
-      const priceData = await this.tibber.getPrices();
+      const priceData = await this.priceProvider.getPrices();
       const currentPrice = priceData.current.price;
 
       // Calculate price statistics
@@ -1688,10 +1693,10 @@ export class Optimizer {
       }
 
       // Get Tibber price data
-      if (!this.tibber) {
-        throw new Error('Tibber service not initialized');
+      if (!this.priceProvider) {
+        throw new Error('Price provider not initialized');
       }
-      const priceData = await this.tibber.getPrices();
+      const priceData = await this.priceProvider.getPrices();
       const currentPrice = priceData.current.price;
       const avgPrice = priceData.prices.reduce((sum, p) => sum + p.price, 0) / priceData.prices.length;
       const minPrice = Math.min(...priceData.prices.map((p: any) => p.price));
@@ -2742,7 +2747,7 @@ export class Optimizer {
   }
 
   /**
-   * Calculate enhanced daily savings using Tibber prices (price-aware projection)
+   * Calculate enhanced daily savings using the configured price provider (price-aware projection)
    */
   async calculateEnhancedDailySavingsUsingTibber(
     currentHourSavings: number,
@@ -2751,10 +2756,10 @@ export class Optimizer {
     try {
       const currentHour = new Date().getHours();
       const gridFee: number = Number(this.homey?.settings.get('grid_fee_per_kwh')) || 0;
-      if (!this.tibber) {
-        throw new Error('Tibber service not initialized');
+      if (!this.priceProvider) {
+        throw new Error('Price provider not initialized');
       }
-      const pd = await this.tibber.getPrices();
+      const pd = await this.priceProvider.getPrices();
       const now = new Date();
       const currentEffective = (Number(pd.current?.price) || 0) + (Number.isFinite(gridFee) ? gridFee : 0);
       let priceFactors: number[] | undefined = undefined;
@@ -2799,8 +2804,8 @@ export class Optimizer {
       let pricePerKWh = 1.0; // Default fallback
       let priceFactors: number[] | undefined = undefined;
       
-      if (this.tibber) {
-        const pd = await this.tibber.getPrices();
+      if (this.priceProvider) {
+        const pd = await this.priceProvider.getPrices();
         const now = new Date();
         const currentEffective = (Number(pd.current?.price) || 0) + (Number.isFinite(gridFee) ? gridFee : 0);
         if (currentEffective > 0) {

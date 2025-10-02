@@ -15,6 +15,7 @@ declare module 'homey' {
       };
       flow?: {
         runFlowCardAction(action: any): Promise<void>;
+        getActionCard(id: string): FlowCardAction;
       };
       drivers: {
         getDriver(id: string): any;
@@ -72,6 +73,10 @@ declare module 'homey' {
     };
     log(message: string, ...args: any[]): void;
     error(message: string, error?: Error): void;
+  }
+
+  export interface FlowCardAction {
+    registerRunListener(listener: (args: any, state?: any) => Promise<any> | any): FlowCardAction;
   }
 }
 

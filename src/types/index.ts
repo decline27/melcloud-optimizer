@@ -85,6 +85,12 @@ export interface TibberPriceInfo {
   intervalMinutes?: number;
 }
 
+export interface PriceProvider {
+  getPrices(): Promise<TibberPriceInfo>;
+  updateTimeZoneSettings?(offsetHours: number, useDst: boolean): void;
+  cleanup?(): void;
+}
+
 // Weather API types
 export interface WeatherData {
   temperature: number;

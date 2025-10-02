@@ -2,7 +2,7 @@ import * as https from 'https';
 import type { CronJob } from 'cron';
 import { TimelineEventType, TimelineHelperWrapper } from './timeline-helper-wrapper';
 import { MelCloudApi as MelCloudService } from './src/services/melcloud-api';
-import { TibberApi as TibberService } from './src/services/tibber-api';
+import type { PriceProvider } from './src/types';
 import type { Optimizer } from './src/services/optimizer';
 import { DeviceInfo, TibberPriceInfo } from './src/types';
 import type { ServiceState, HistoricalData } from './src/orchestration/service-manager';
@@ -13,6 +13,7 @@ import {
   getServiceState,
   getServiceStateSnapshot,
   initializeServices as ensureServicesInitialized,
+  refreshPriceProvider,
   resetServiceState,
   setHistoricalData as setOrchestratorHistoricalData,
   updateOptimizerSettings as orchestratorUpdateSettings,
@@ -681,7 +682,7 @@ function requireMelCloud(): MelCloudService {
   return melCloud;
 }
 
-function requireTibber(): TibberService {
+function requireTibber(): PriceProvider {
   if (!tibber) {
     throw new Error('Tibber service not initialized');
   }
@@ -716,6 +717,12 @@ async function initializeServices(homey: HomeyLike): Promise<void> {
   optimizer = state.optimizer;
   weather = state.weather;
   historicalData = state.historicalData;
+}
+
+async function updatePriceProvider(homey: HomeyLike): Promise<void> {
+  await ensureServicesInitialized(homey);
+  const provider = refreshPriceProvider(homey);
+  tibber = provider;
 }
 
 // Function to update optimizer settings from Homey settings
@@ -2756,13 +2763,13 @@ const apiHandlers: ApiHandlers = {
         }
       }
 
-      // Clean up Tibber API  
+      // Clean up price provider
       if (global.tibber && typeof global.tibber.cleanup === 'function') {
         try {
           global.tibber.cleanup();
-          homey.app.log('Tibber API resources cleaned up');
+          homey.app.log('Price provider resources cleaned up');
         } catch (tibberError: any) {
-          homey.app.error('Error cleaning up Tibber API:', tibberError);
+          homey.app.error('Error cleaning up price provider:', tibberError);
         }
       }
 
@@ -2928,10 +2935,12 @@ const apiHandlers: ApiHandlers = {
 const exportedApi = apiHandlers as typeof apiHandlers & { 
   __test?: Record<string, unknown>;
   updateAllServiceTimezones?: typeof updateAllServiceTimezones;
+  updatePriceProvider?: typeof updatePriceProvider;
 };
 
 // Add the timezone update function to exports
 exportedApi.updateAllServiceTimezones = updateAllServiceTimezones;
+exportedApi.updatePriceProvider = updatePriceProvider;
 
 module.exports = exportedApi;
 

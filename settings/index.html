@@ -52,6 +52,10 @@
         padding: 8px 12px;
       }
       .homey-form-error { color: #b00; margin-top: 4px; }
+      .homey-form-group.disabled {
+        opacity: 0.6;
+        pointer-events: none;
+      }
     </style>
   </head>
   <body>
@@ -116,6 +120,51 @@
           <input class="homey-form-input" id="manual_building_id" type="text" value="" />
           <p class="homey-form-helper">The ID of the building (not stored; used only when saving)</p>
         </div>
+      </div>
+    </details>
+
+    <details class="homey-form-fieldset">
+      <summary class="homey-form-legend">Electricity Price Source</summary>
+      <div class="homey-form-group">
+        <p class="homey-form-helper">Choose which provider supplies hourly electricity prices. Tibber requires your own API token, while ENTSO-E uses the bundled token and zone settings.</p>
+      </div>
+      <div class="homey-form-group">
+        <label class="homey-form-checkbox">
+          <input type="radio" name="price_source" id="price_source_tibber" value="tibber" />
+          <span>Use Tibber API (personal token required)</span>
+        </label>
+      </div>
+      <div class="homey-form-group">
+        <label class="homey-form-checkbox">
+          <input type="radio" name="price_source" id="price_source_entsoe" value="entsoe" />
+          <span>Use ENTSO-E day-ahead prices (bundled token)</span>
+        </label>
+      </div>
+      <div class="homey-form-group">
+        <span class="homey-form-helper" id="price_source_status"></span>
+      </div>
+    </details>
+
+    <details class="homey-form-fieldset" id="entsoe_quick_settings">
+      <summary class="homey-form-legend">ENTSO-E Zone (Quick)</summary>
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="entsoe_zone_input">ISO or EIC</label>
+        <input class="homey-form-input" id="entsoe_zone_input" type="text" placeholder="SE3 or 10YSE-3--------J" autocomplete="off" />
+        <p class="homey-form-helper">This value is stored as <code>entsoe_area_eic</code>. Use ISO (country/area) or a full EIC. For the full selector and map editor open the ENTSO-E Pricing section below.</p>
+      </div>
+      <div class="homey-form-group">
+        <button type="button" class="homey-button-secondary" id="entsoe_auto_detect">Auto-detect from locale</button>
+        <button type="button" class="homey-button-secondary" id="entsoe_open_full" aria-expanded="false">Open full ENTSO-E settings</button>
+      </div>
+      <div class="homey-form-group" id="entsoe_full_container" hidden>
+        <iframe
+          id="entsoe_full_frame"
+          title="ENTSO-E detailed settings"
+          style="width: 100%; min-height: 600px; border: 1px solid var(--homey-border-color, #d0d7e2); border-radius: 8px;"
+        ></iframe>
+      </div>
+      <div class="homey-form-group">
+        <span class="homey-form-helper" id="entsoe_zone_status" aria-live="polite"></span>
       </div>
     </details>
 
@@ -1255,6 +1304,17 @@
         const manualDeviceIdElement = document.getElementById("manual_device_id");
         const manualBuildingIdElement = document.getElementById("manual_building_id");
         const tibberTokenElement = document.getElementById("tibber_token");
+        const priceSourceTibberElement = document.getElementById("price_source_tibber");
+        const priceSourceEntsoeElement = document.getElementById("price_source_entsoe");
+        const priceSourceStatusElement = document.getElementById("price_source_status");
+        const tibberTokenGroup = tibberTokenElement ? tibberTokenElement.closest('.homey-form-group') : null;
+        const entsoeQuickDetails = document.getElementById("entsoe_quick_settings");
+        const entsoeZoneInput = document.getElementById("entsoe_zone_input");
+        const entsoeAutoButton = document.getElementById("entsoe_auto_detect");
+        const entsoeOpenFullButton = document.getElementById("entsoe_open_full");
+        const entsoeFullContainer = document.getElementById("entsoe_full_container");
+        const entsoeFullFrame = document.getElementById("entsoe_full_frame");
+        const entsoeZoneStatus = document.getElementById("entsoe_zone_status");
         const minTempElement = document.getElementById("min_temp");
         const maxTempElement = document.getElementById("max_temp");
         const tempStepMaxElement = document.getElementById("temp_step_max");
@@ -1286,6 +1346,213 @@
         const autoSeasonalModeElement = document.getElementById("auto_seasonal_mode");
         const summerModeElement = document.getElementById("summer_mode");
         const summerModeContainer = document.getElementById("summer_mode_container");
+
+        let entsoeAreaMap = null;
+        let entsoeAutoSelectionDone = false;
+
+        function updateEntsoeZoneInput(value, message) {
+          if (entsoeZoneInput && typeof value === 'string') {
+            entsoeZoneInput.value = value;
+          }
+          if (message && entsoeZoneStatus) {
+            entsoeZoneStatus.textContent = message;
+          } else if (entsoeZoneStatus && !message) {
+            entsoeZoneStatus.textContent = '';
+          }
+        }
+
+        function saveEntsoeZone(value, opts = {}) {
+          const trimmed = (value || '').toString().trim();
+          Homey.set('entsoe_area_eic', trimmed, function(err) {
+            if (err) {
+              console.error('Failed to store entsoe_area_eic', err);
+              if (entsoeZoneStatus) {
+                entsoeZoneStatus.textContent = 'Failed to save zone; please try again.';
+              }
+              return;
+            }
+            if (!opts.silent && entsoeZoneStatus) {
+              entsoeZoneStatus.textContent = trimmed
+                ? `Saved ENTSO-E zone: ${trimmed}`
+                : 'Cleared ENTSO-E zone. Enter an ISO code (SE3) or EIC.';
+            }
+          });
+        }
+
+        async function loadEntsoeMap() {
+          if (entsoeAreaMap) {
+            return entsoeAreaMap;
+          }
+          try {
+            const response = await fetch('../assets/entsoe_area_map.json', { cache: 'no-cache' });
+            if (!response.ok) {
+              throw new Error('Failed to load entsoe_area_map.json');
+            }
+            entsoeAreaMap = await response.json();
+            return entsoeAreaMap;
+          } catch (error) {
+            console.error('Failed to load entsoe_area_map.json', error);
+            if (priceSourceStatusElement && !priceSourceStatusElement.textContent) {
+              priceSourceStatusElement.textContent = 'Could not auto-detect ENTSO-E zone. Please set it manually in the ENTSO-E section.';
+            }
+            return null;
+          }
+        }
+
+        async function ensureEntsoeDefaultZone(force = false) {
+          if (entsoeAutoSelectionDone && !force) {
+            return null;
+          }
+          if (!force && entsoeAutoSelectionDone) {
+            return null;
+          }
+          entsoeAutoSelectionDone = true;
+          try {
+            const stored = await new Promise((resolve) => {
+              Homey.get('entsoe_area_eic', function(err, value) {
+                if (err) {
+                  console.warn('Failed to read entsoe_area_eic', err);
+                  resolve(null);
+                  return;
+                }
+                resolve(value);
+              });
+            });
+            if (typeof stored === 'string' && stored.trim().length > 0) {
+              updateEntsoeZoneInput(stored.trim(), 'Using stored ENTSO-E zone.');
+              return stored.trim();
+            }
+
+            const map = await loadEntsoeMap();
+            if (!map) {
+              return null;
+            }
+
+            const language = navigator.language || navigator.userLanguage || '';
+            const parts = language.split('-');
+            const iso = parts.length > 1 ? parts[1].toUpperCase() : parts[0]?.toUpperCase() || '';
+            const list = iso && map[iso] ? map[iso] : null;
+            if (!list || list.length === 0) {
+              if (priceSourceStatusElement && !priceSourceStatusElement.textContent) {
+                priceSourceStatusElement.textContent = 'Select your ENTSO-E zone in the ENTSO-E pricing section.';
+              }
+              return null;
+            }
+
+            const eic = list[0];
+            saveEntsoeZone(eic, { silent: true });
+            updateEntsoeZoneInput(eic, `ENTSO-E zone set to ${iso} (${eic}). Adjust if needed.`);
+            return eic;
+          } catch (error) {
+            console.error('Failed to auto-select ENTSO-E zone', error);
+            if (entsoeZoneStatus && !entsoeZoneStatus.textContent) {
+              entsoeZoneStatus.textContent = 'Unable to auto-detect zone; please enter it manually.';
+            }
+            return null;
+          }
+        }
+
+        function renderPriceSource(value) {
+          const selection = value === 'entsoe' ? 'entsoe' : 'tibber';
+          if (priceSourceTibberElement) {
+            priceSourceTibberElement.checked = selection === 'tibber';
+          }
+          if (priceSourceEntsoeElement) {
+            priceSourceEntsoeElement.checked = selection === 'entsoe';
+          }
+          if (entsoeQuickDetails) {
+            entsoeQuickDetails.open = selection === 'entsoe';
+          }
+          const enableTibberInputs = selection === 'tibber';
+          if (tibberTokenElement) {
+            tibberTokenElement.disabled = !enableTibberInputs;
+          }
+          if (tibberTokenGroup) {
+            if (enableTibberInputs) {
+              tibberTokenGroup.classList.remove('disabled');
+            } else {
+              tibberTokenGroup.classList.add('disabled');
+            }
+          }
+          if (priceSourceStatusElement) {
+            priceSourceStatusElement.textContent = selection === 'tibber'
+              ? 'Using Tibber data. Remember to keep your token up to date.'
+              : 'Using ENTSO-E day-ahead prices provided by the app.';
+          }
+
+          if (selection === 'entsoe') {
+            ensureEntsoeDefaultZone();
+          }
+        }
+
+        function savePriceSource(value) {
+          const selection = value === 'entsoe' ? 'entsoe' : 'tibber';
+          Homey.set('price_data_source', selection, function (err) {
+            if (err) {
+              console.error('Failed to save price_data_source', err);
+              if (priceSourceStatusElement) {
+                priceSourceStatusElement.textContent = 'Failed to save price source preference.';
+              }
+              return;
+            }
+            renderPriceSource(selection);
+            if (priceSourceStatusElement) {
+              priceSourceStatusElement.textContent = selection === 'tibber'
+                ? 'Saved: Tibber API selected for pricing.'
+                : 'Saved: ENTSO-E pricing selected.';
+            }
+          });
+        }
+
+        if (priceSourceTibberElement) {
+          priceSourceTibberElement.addEventListener('change', function () {
+            if (priceSourceTibberElement.checked) {
+              savePriceSource('tibber');
+            }
+          });
+        }
+        if (priceSourceEntsoeElement) {
+          priceSourceEntsoeElement.addEventListener('change', function () {
+            if (priceSourceEntsoeElement.checked) {
+              savePriceSource('entsoe');
+            }
+          });
+        }
+
+        if (entsoeZoneInput) {
+          entsoeZoneInput.addEventListener('change', function () {
+            saveEntsoeZone(entsoeZoneInput.value);
+          });
+        }
+
+        if (entsoeAutoButton) {
+          entsoeAutoButton.addEventListener('click', function () {
+            ensureEntsoeDefaultZone(true);
+          });
+        }
+
+        let entsoeFrameLoaded = false;
+        if (entsoeOpenFullButton) {
+          entsoeOpenFullButton.addEventListener('click', function () {
+            if (!entsoeFullContainer) {
+              return;
+            }
+            const isHidden = entsoeFullContainer.hasAttribute('hidden');
+            if (isHidden) {
+              entsoeFullContainer.removeAttribute('hidden');
+              if (entsoeFullFrame && !entsoeFrameLoaded) {
+                entsoeFullFrame.src = '../assets/settings/index.html';
+                entsoeFrameLoaded = true;
+              }
+              entsoeOpenFullButton.textContent = 'Hide full ENTSO-E settings';
+              entsoeOpenFullButton.setAttribute('aria-expanded', 'true');
+            } else {
+              entsoeFullContainer.setAttribute('hidden', '');
+              entsoeOpenFullButton.textContent = 'Open full ENTSO-E settings';
+              entsoeOpenFullButton.setAttribute('aria-expanded', 'false');
+            }
+          });
+        }
 
         // Hot water tank elements
         const enableTankControlElement = document.getElementById("enable_tank_control");
@@ -1331,6 +1598,18 @@
         // Buttons now use onclick attributes with global functions
 
         // Load current settings
+        Homey.get("price_data_source", function (err, value) {
+          if (err) {
+            console.error('Failed to load price_data_source', err);
+            renderPriceSource('tibber');
+            return;
+          }
+          renderPriceSource(value);
+          if (value === 'entsoe') {
+            ensureEntsoeDefaultZone();
+          }
+        });
+
         Homey.get("melcloud_user", function (err, value) {
           if (err) return Homey.alert(err);
           if (value) melcloudUserElement.value = value;
@@ -1380,6 +1659,12 @@
         Homey.get("tibber_token", function (err, value) {
           if (err) return Homey.alert(err);
           if (value) tibberTokenElement.value = value;
+        });
+
+        Homey.get('entsoe_area_eic', function (err, value) {
+          if (!err && typeof value === 'string') {
+            updateEntsoeZoneInput(value);
+          }
         });
 
         // Load costs & consumption settings

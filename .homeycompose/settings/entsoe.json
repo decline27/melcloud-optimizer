@@ -1,0 +1,92 @@
+{
+  "id": "entsoe",
+  "title": {
+    "en": "ENTSO-E Pricing"
+  },
+  "hint": {
+    "en": "Configure ENTSO-E token, default price area, optional currency conversion and the area map used for ISO -> EIC lookups."
+  },
+  "children": [
+    {
+      "id": "entsoe_credentials",
+      "type": "group",
+      "label": {
+        "en": "Credentials"
+      },
+      "children": [
+        {
+          "id": "entsoe_security_token",
+          "type": "password",
+          "label": {
+            "en": "ENTSO-E Security Token"
+          },
+          "hint": {
+            "en": "Create an account at transparency.entsoe.eu and request an API token."
+          },
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": "entsoe_area",
+      "type": "group",
+      "label": {
+        "en": "Price Area"
+      },
+      "children": [
+        {
+          "id": "entsoe_area_eic",
+          "type": "text",
+          "label": {
+            "en": "Default ENTSO-E Zone"
+          },
+          "hint": {
+            "en": "Enter an ISO code (e.g. SE3) or an EIC (e.g. 10YSE-3--------J)."
+          },
+          "value": ""
+        },
+        {
+          "id": "entsoe_area_map",
+          "type": "textarea",
+          "label": {
+            "en": "ENTSO-E Area Map (JSON)"
+          },
+          "hint": {
+            "en": "Optional override of entsoe_area_map.json. Leave blank to use the bundled map."
+          },
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": "entsoe_currency",
+      "type": "group",
+      "label": {
+        "en": "Currency Conversion"
+      },
+      "children": [
+        {
+          "id": "use_currency_conversion",
+          "type": "checkbox",
+          "label": {
+            "en": "Enable EUR -> SEK Conversion"
+          },
+          "value": false
+        },
+        {
+          "id": "fx_rate_eur_to_sek",
+          "type": "number",
+          "label": {
+            "en": "EUR to SEK Rate"
+          },
+          "hint": {
+            "en": "Used when conversion is enabled. Example: 11.2"
+          },
+          "min": 0,
+          "step": 0.0001,
+          "value": 0
+        }
+      ]
+    }
+  ]
+}

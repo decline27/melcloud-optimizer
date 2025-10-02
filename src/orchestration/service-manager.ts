@@ -1,8 +1,10 @@
 import WeatherApi from '../../weather';
 import { MelCloudApi } from '../services/melcloud-api';
 import { TibberApi } from '../services/tibber-api';
+import { EntsoePriceService } from '../services/entsoe-price-service';
 import { Optimizer } from '../services/optimizer';
 import { COPHelper } from '../services/cop-helper';
+import type { PriceProvider } from '../types';
 
 export interface HomeyLikeSettings {
   get(key: string): any;
@@ -28,7 +30,7 @@ export interface HistoricalData {
 
 export interface ServiceState {
   melCloud: MelCloudApi | null;
-  tibber: TibberApi | null;
+  tibber: PriceProvider | null;
   optimizer: Optimizer | null;
   weather: WeatherApi | null;
   historicalData: HistoricalData;
@@ -38,6 +40,35 @@ const createEmptyHistoricalData = (): HistoricalData => ({
   optimizations: [],
   lastCalibration: null
 });
+
+function selectPriceProvider(
+  homey: HomeyLike,
+  priceSource: 'tibber' | 'entsoe',
+  tibberToken: string | null,
+  timeZoneOffset: number,
+  useDST: boolean,
+  appLogger?: any
+): PriceProvider | null {
+  if (priceSource === 'tibber') {
+    if (tibberToken) {
+      const tibberLogger = (appLogger && typeof appLogger.api === 'function') ? appLogger : undefined;
+      const tibberApi = new TibberApi(tibberToken, tibberLogger);
+      tibberApi.updateTimeZoneSettings(timeZoneOffset, useDST);
+      homey.app.log?.('Tibber price provider initialized');
+      return tibberApi;
+    }
+    homey.app.warn?.('Tibber selected as price source but token not configured. Falling back to ENTSO-E.');
+  }
+
+  try {
+    const entsoeService = new EntsoePriceService(homey as any);
+    homey.app.log?.('ENTSO-E price provider initialized');
+    return entsoeService;
+  } catch (error) {
+    homey.app.error?.('Failed to initialize ENTSO-E price provider:', error);
+    return null;
+  }
+}
 
 const serviceState: ServiceState = {
   melCloud: null,
@@ -169,6 +200,10 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
   const deviceId = homey.settings.get('device_id') || homey.settings.get('deviceId') || 'Boiler';
   let buildingIdRaw = homey.settings.get('building_id') || homey.settings.get('buildingId') || '456';
   const useWeatherData = homey.settings.get('use_weather_data') !== false;
+  const priceSourceSetting = (homey.settings.get('price_data_source') || 'tibber') as string;
+  const priceSource = typeof priceSourceSetting === 'string' && priceSourceSetting.toLowerCase() === 'entsoe'
+    ? 'entsoe'
+    : 'tibber';
   
   // Get timezone settings for all services
   const timeZoneOffset = homey.settings.get('time_zone_offset') || 2;
@@ -190,7 +225,9 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
   homey.app.log('Initializing services with settings:');
   homey.app.log('- MELCloud User:', melcloudUser ? '✓ Set' : '✗ Not set');
   homey.app.log('- MELCloud Pass:', melcloudPass ? '✓ Set' : '✗ Not set');
-  homey.app.log('- Tibber Token:', tibberToken ? '✓ Set' : '✗ Not set');
+  homey.app.log('- Price source:', priceSource === 'entsoe' ? 'ENTSO-E day-ahead' : 'Tibber API');
+  const tibberTokenStatus = tibberToken ? '✓ Set' : '✗ Not set';
+  homey.app.log(`- Tibber Token: ${tibberTokenStatus}${priceSource === 'entsoe' ? ' (not used)' : ''}`);
   homey.app.log('- Device ID:', deviceId, '(Will be resolved after login)');
   homey.app.log('- Building ID:', buildingId, '(Will be resolved after login)');
   homey.app.log('- Weather Data:', useWeatherData ? '✓ Enabled' : '✗ Disabled');
@@ -226,18 +263,17 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
     homey.app.log('WARNING: No devices found in your MELCloud account.');
   }
 
-  if (tibberToken) {
-    const tibberLogger = (appLogger && typeof appLogger.api === 'function') ? appLogger : undefined;
-    const tibber = new TibberApi(tibberToken, tibberLogger);
-    // Set timezone settings after construction
-    tibber.updateTimeZoneSettings(timeZoneOffset, useDST);
-    serviceState.tibber = tibber;
-    (global as any).tibber = tibber;
-  } else {
-    homey.app.warn?.('Skipping Tibber initialization: token not configured');
-    serviceState.tibber = null;
-    (global as any).tibber = null;
-  }
+  const priceProvider = selectPriceProvider(
+    homey,
+    priceSource,
+    tibberToken || null,
+    timeZoneOffset,
+    useDST,
+    appLogger
+  );
+
+  serviceState.tibber = priceProvider;
+  (global as any).tibber = priceProvider;
 
   if (useWeatherData) {
     try {
@@ -258,7 +294,7 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
 
   const optimizer = new Optimizer(
     melCloud,
-    tibber,
+    priceProvider,
     deviceId,
     buildingId,
     homey.app as any,
@@ -294,6 +330,35 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
 
   homey.app.log('Services initialized successfully');
   return serviceState;
+}
+
+export function refreshPriceProvider(homey: HomeyLike): PriceProvider | null {
+  const appLogger = (homey.app as any)?.logger;
+  const priceSourceSetting = (homey.settings.get('price_data_source') || 'tibber') as string;
+  const priceSource = typeof priceSourceSetting === 'string' && priceSourceSetting.toLowerCase() === 'entsoe'
+    ? 'entsoe'
+    : 'tibber';
+  const tibberToken = homey.settings.get('tibber_token') || homey.settings.get('tibberToken') || null;
+  const timeZoneOffset = homey.settings.get('time_zone_offset') || 2;
+  const useDST = homey.settings.get('use_dst') || false;
+
+  const priceProvider = selectPriceProvider(
+    homey,
+    priceSource,
+    tibberToken,
+    timeZoneOffset,
+    useDST,
+    appLogger
+  );
+
+  serviceState.tibber = priceProvider;
+  (global as any).tibber = priceProvider;
+
+  if (serviceState.optimizer && typeof serviceState.optimizer.setPriceProvider === 'function') {
+    (serviceState.optimizer as any).setPriceProvider(priceProvider);
+  }
+
+  return priceProvider;
 }
 
 export async function updateOptimizerSettings(homey: HomeyLike): Promise<void> {
