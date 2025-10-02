@@ -239,8 +239,25 @@ function toArray<T>(value: T | T[] | undefined): T[] {
   return Array.isArray(value) ? value : [value];
 }
 
+function buildEntsoeReasonMessage(reasonSource: any): string {
+  const reasons = toArray(reasonSource);
+  const messages = reasons
+    .map((reason: any) => [reason?.code, reason?.text, reason?.value]
+      .filter((part) => typeof part === 'string' && part.trim().length > 0)
+      .join(' - '))
+    .filter((msg: string) => msg.length > 0);
+  return messages.join('; ');
+}
+
 function parseEntsoeXml(xml: string): RawPoint[] {
   const doc = parser.parse(xml);
+  const acknowledgementDocument = doc?.Acknowledgement_MarketDocument;
+  if (acknowledgementDocument) {
+    const message = buildEntsoeReasonMessage(acknowledgementDocument.Reason || acknowledgementDocument.reason);
+    const suffix = message || 'Unknown acknowledgement reason';
+    throw new Error(`ENTSO-E returned an error: ${suffix}`);
+  }
+
   const marketDocument = doc?.Publication_MarketDocument || doc?.GL_MarketDocument;
 
   if (!marketDocument) {
@@ -248,14 +265,9 @@ function parseEntsoeXml(xml: string): RawPoint[] {
     throw new Error(`Unexpected ENTSO-E response. Body: ${errorText}`);
   }
 
-  if (marketDocument?.Reason) {
-    const reasons = toArray(marketDocument.Reason);
-    const messages = reasons
-      .map((reason: any) => [reason?.code, reason?.text, reason?.value]
-        .filter((part) => typeof part === 'string' && part.trim().length > 0)
-        .join(' - '))
-      .filter(Boolean);
-    throw new Error(`ENTSO-E returned an error: ${messages.join('; ') || 'Unknown reason'}`);
+  if (marketDocument?.Reason || marketDocument?.reason) {
+    const message = buildEntsoeReasonMessage(marketDocument.Reason || marketDocument.reason);
+    throw new Error(`ENTSO-E returned an error: ${message || 'Unknown reason'}`);
   }
 
   const seriesList = toArray(marketDocument.TimeSeries);
@@ -569,3 +581,8 @@ export function clearEntsoeCache(): void {
   cache.clear();
   inFlight.clear();
 }
+
+export const __testables = {
+  parseEntsoeXml,
+  buildEntsoeReasonMessage,
+};
