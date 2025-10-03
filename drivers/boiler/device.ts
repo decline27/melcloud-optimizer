@@ -1,6 +1,7 @@
 import Homey from 'homey';
 import { BaseApiService } from '../../src/services/base-api-service';
 import { MelCloudApi } from '../../src/services/melcloud-api';
+import { HotWaterService } from '../../src/services/hot-water/hot-water-service';
 import { ErrorHandler } from '../../src/util/error-handler';
 import { HomeyLogger, LogLevel } from '../../src/util/logger';
 import { MelCloudDevice } from '../../src/types';
@@ -32,6 +33,7 @@ module.exports = class BoilerDevice extends Homey.Device {
   private hasZone2: boolean = false;
   private zone2Checked: boolean = false;
   private energyBasedZone2Check: boolean = false;
+  private hotWaterService?: HotWaterService;
   
   // Power command debouncing properties (Task 1.1)
   private powerCommandDebounce?: NodeJS.Timeout;
@@ -682,6 +684,9 @@ module.exports = class BoilerDevice extends Homey.Device {
       // Update capabilities based on device state
       await this.updateCapabilities(deviceState);
 
+      // Feed the hot water learning model using fresh device telemetry
+      await this.collectHotWaterUsage(deviceState);
+
       // Mark device as available if it was unavailable
       if (!this.getAvailable()) {
         await this.setAvailable();
@@ -691,6 +696,47 @@ module.exports = class BoilerDevice extends Homey.Device {
     } catch (error) {
       this.logger.error('Failed to fetch device data:', error);
       this.setWarning('Failed to fetch data from MELCloud');
+    }
+  }
+
+  /**
+   * Collect hot water usage data using the shared Hot Water Service
+   */
+  private async collectHotWaterUsage(deviceState: MelCloudDevice) {
+    try {
+      const service = this.getHotWaterService();
+      if (!service || typeof service.collectData !== 'function') {
+        return;
+      }
+
+      await service.collectData(deviceState);
+    } catch (error) {
+      this.logger.error('Failed to collect hot water usage data during polling:', error);
+    }
+  }
+
+  /**
+   * Get (or lazily initialize) the Hot Water Service instance
+   */
+  private getHotWaterService(): HotWaterService | null {
+    if (this.hotWaterService) {
+      return this.hotWaterService;
+    }
+
+    const homeyWithService = this.homey as any;
+    if (homeyWithService.hotWaterService && typeof homeyWithService.hotWaterService.collectData === 'function') {
+      this.hotWaterService = homeyWithService.hotWaterService as HotWaterService;
+      return this.hotWaterService;
+    }
+
+    try {
+      const service = new HotWaterService(this.homey as any);
+      homeyWithService.hotWaterService = service;
+      this.hotWaterService = service;
+      return this.hotWaterService;
+    } catch (error) {
+      this.logger.error('Failed to initialize Hot Water Service for polling:', error);
+      return null;
     }
   }
 

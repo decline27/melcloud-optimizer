@@ -140,7 +140,7 @@ describe('Optimizer', () => {
     it('should initialize with default values', () => {
       expect(optimizer).toBeDefined();
       expect((optimizer as any).melCloud).toBe(mockMelCloud);
-      expect((optimizer as any).tibber).toBe(mockTibber);
+      expect((optimizer as any).priceProvider).toBe(mockTibber);
       expect((optimizer as any).deviceId).toBe(deviceId);
       expect((optimizer as any).buildingId).toBe(buildingId);
       expect((optimizer as any).logger).toBe(mockLogger);

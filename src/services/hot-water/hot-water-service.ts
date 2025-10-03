@@ -16,7 +16,7 @@ export class HotWaterService {
   private analyzer: HotWaterAnalyzer;
   private timeZoneHelper: TimeZoneHelper;
   private lastDataCollectionTime: number = 0;
-  private dataCollectionInterval: number = 60 * 60 * 1000; // 60 minutes in milliseconds (matches optimizer schedule)
+  private dataCollectionInterval: number = 5 * 60 * 1000; // 5 minutes in milliseconds (aligns with device polling cadence)
   private lastAnalysisTime: number = 0;
   private analysisInterval: number = 6 * 60 * 60 * 1000; // 6 hours in milliseconds
 
@@ -52,7 +52,7 @@ export class HotWaterService {
    */
   public async collectData(deviceState: any): Promise<boolean> {
     try {
-      // Check if it's time to collect data (every hour, matching optimizer schedule)
+      // Throttle collection to align with the 5-minute device polling cadence
       const now = Date.now();
       if (now - this.lastDataCollectionTime < this.dataCollectionInterval) {
         return false;

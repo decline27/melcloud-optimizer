@@ -83,6 +83,8 @@ export interface TibberPriceInfo {
   prices: PricePoint[];
   quarterHourly?: PricePoint[];
   intervalMinutes?: number;
+  currencyCode?: string;
+  baseCurrency?: string;
 }
 
 export interface PriceProvider {

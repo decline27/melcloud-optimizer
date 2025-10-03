@@ -1426,16 +1426,6 @@ export class Optimizer {
       const currentTarget = deviceState.SetTemperature || deviceState.SetTemperatureZone1;
       const outdoorTemp = deviceState.OutdoorTemperature || 0;
 
-      // Collect hot water usage data if hot water service is available
-      const hotWaterService = (this.homey as any)?.hotWaterService;
-      if (hotWaterService && typeof hotWaterService.collectData === 'function') {
-        try {
-          await hotWaterService.collectData(deviceState);
-        } catch (hwDataErr) {
-          this.logger.error('Failed to collect hot water usage data', hwDataErr as Error);
-        }
-      }
-
       // Check if temperature data is missing and log an error
       if (currentTemp === undefined && deviceState.RoomTemperature === undefined && deviceState.RoomTemperatureZone1 === undefined) {
         this.logger.error('Missing indoor temperature data in device state', deviceState);
@@ -1676,16 +1666,6 @@ export class Optimizer {
       const currentTemp = deviceState.RoomTemperature || deviceState.RoomTemperatureZone1;
       const currentTarget = deviceState.SetTemperature || deviceState.SetTemperatureZone1;
       const outdoorTemp = deviceState.OutdoorTemperature || 0;
-
-      // Collect hot water usage data if hot water service is available
-      const hotWaterService = (this.homey as any)?.hotWaterService;
-      if (hotWaterService && typeof hotWaterService.collectData === 'function') {
-        try {
-          await hotWaterService.collectData(deviceState);
-        } catch (hwDataErr) {
-          this.logger.error('Failed to collect hot water usage data', hwDataErr as Error);
-        }
-      }
 
       // Validate temperature data
       if (currentTemp === undefined && deviceState.RoomTemperature === undefined && deviceState.RoomTemperatureZone1 === undefined) {

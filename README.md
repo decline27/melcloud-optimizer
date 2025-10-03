@@ -48,7 +48,7 @@ console.log(prices[0]);
 2. **Choose price provider** – in the Homey settings, select either Tibber (requires your own API token) or ENTSO-E (uses the bundled token). Tibber remains the default for existing setups.
 3. **Get an ENTSO-E security token (optional)** – create an account at [transparency.entsoe.eu](https://transparency.entsoe.eu) and enter it if you prefer to run with your own credentials instead of the bundled token.
 4. **Select your price area** – open `assets/settings/index.html` from Homey’s app settings, use the search or “Detect Country” button, and confirm that `entsoe_area_eic` is stored.
-5. **Enable currency conversion (optional)** – toggle the SEK conversion switch and enter `fx_rate_eur_to_sek` if you want SEK/kWh output.
+5. **Currency conversion** – nothing to configure. ENTSO-E prices are converted automatically to the currency you selected under Homey’s localisation settings. Historical rates are cached for resilience, and manual overrides are no longer required.
 6. **Override the area map (optional)** – edit/download/upload `entsoe_area_map.json` from the settings UI or run `scripts/generate_entsoe_area_map.py` to regenerate the JSON from ENTSO-E’s area directory.
 
 ### Environment variables & shared tokens

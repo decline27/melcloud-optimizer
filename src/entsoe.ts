@@ -356,19 +356,23 @@ function getFxRate(homey: HomeyLike, override?: number): number | null {
   if (typeof override === 'number' && Number.isFinite(override)) {
     return override;
   }
-  const raw = homey.settings.get('fx_rate_eur_to_sek');
-  if (raw == null) {
-    return null;
+  const generic = homey.settings.get('fx_rate_eur_to_currency');
+  const values = [generic, homey.settings.get('fx_rate_eur_to_sek')];
+  for (const raw of values) {
+    if (raw == null) continue;
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
   }
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  return null;
 }
 
 function shouldUseCurrencyConversion(homey: HomeyLike, override?: boolean): boolean {
   if (typeof override === 'boolean') {
     return override;
   }
-  return homey.settings.get('use_currency_conversion') === true;
+  return getFxRate(homey, undefined) != null;
 }
 
 function extractEntsoeErrorMessage(error: unknown): string {

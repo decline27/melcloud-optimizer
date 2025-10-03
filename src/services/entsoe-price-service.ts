@@ -1,10 +1,12 @@
 import moment from 'moment-timezone';
 import { fetchPrices } from '../entsoe';
 import { PricePoint, PriceProvider, TibberPriceInfo } from '../types';
+import FxRateService from './fx-rate-service';
 
 type HomeyLike = {
   settings: {
     get(key: string): any;
+    set?(key: string, value: any): void | Promise<void>;
   };
   app?: {
     log(message: string, ...args: any[]): void;
@@ -23,9 +25,88 @@ export class EntsoePriceService implements PriceProvider {
 
   private readonly cacheTtlMs: number;
 
+  private readonly fxRateService: FxRateService;
+
   constructor(private readonly homey: HomeyLike, options?: { cacheTtlMinutes?: number }) {
     const ttlMinutes = options?.cacheTtlMinutes ?? 5;
     this.cacheTtlMs = Math.max(1, ttlMinutes) * 60 * 1000;
+    this.fxRateService = new FxRateService(homey);
+  }
+
+  private getLocalCurrency(): string {
+    try {
+      const code = this.homey.settings.get('currency_code') || this.homey.settings.get('currency');
+      if (typeof code === 'string' && code.trim()) {
+        return code.trim().toUpperCase();
+      }
+    } catch (_error) {
+      // Ignore setting lookup errors and fall back to EUR
+    }
+    return 'EUR';
+  }
+
+  private getNumericSetting(key: string): number | null {
+    try {
+      const raw = this.homey.settings.get(key);
+      if (raw == null) return null;
+      const value = typeof raw === 'number' ? raw : Number(raw);
+      return Number.isFinite(value) && value > 0 ? value : null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  private getStoredFxRate(currency: string): number | null {
+    if (!currency || currency === 'EUR') {
+      return 1;
+    }
+
+    const specificKey = `fx_rate_eur_to_${currency.toLowerCase()}`;
+    const specific = this.getNumericSetting(specificKey);
+    if (specific) {
+      return specific;
+    }
+
+    const generic = this.getNumericSetting('fx_rate_eur_to_currency');
+    if (generic) {
+      return generic;
+    }
+
+    // Legacy support for SEK-specific rate
+    if (currency === 'SEK') {
+      const legacy = this.getNumericSetting('fx_rate_eur_to_sek');
+      if (legacy) {
+        return legacy;
+      }
+    }
+
+    return null;
+  }
+
+  private async persistFxRate(currency: string, rate: number): Promise<void> {
+    const upper = currency.toUpperCase();
+    const entries: Array<[string, number]> = [
+      ['fx_rate_eur_to_currency', rate],
+      [`fx_rate_eur_to_${upper.toLowerCase()}`, rate]
+    ];
+
+    if (upper === 'SEK') {
+      entries.push(['fx_rate_eur_to_sek', rate]);
+    }
+
+    for (const [key, value] of entries) {
+      if (typeof this.homey.settings.set !== 'function') {
+        continue;
+      }
+      try {
+        const result = this.homey.settings.set(key, value);
+        if (result instanceof Promise) {
+          await result;
+        }
+      } catch (error) {
+        this.homey.app?.warn?.(`Failed to store FX rate setting ${key}`, error);
+      }
+    }
   }
 
   updateTimeZoneSettings(): void {
@@ -56,7 +137,7 @@ export class EntsoePriceService implements PriceProvider {
       endUtc
     );
 
-    const prices: PricePoint[] = entsoePoints
+    const pricesEur: PricePoint[] = entsoePoints
       .map((point) => {
         const price = Number.isFinite(point.price_eur_per_kwh)
           ? Number(point.price_eur_per_kwh)
@@ -70,9 +151,50 @@ export class EntsoePriceService implements PriceProvider {
       })
       .filter((entry) => Number.isFinite(entry.price));
 
-    if (prices.length === 0) {
+    if (pricesEur.length === 0) {
       throw new Error('ENTSO-E response returned no usable price data.');
     }
+
+    const currencyCode = this.getLocalCurrency();
+    const targetIsEur = currencyCode === 'EUR';
+    let fxRate = targetIsEur ? 1 : this.getStoredFxRate(currencyCode) ?? 0;
+    let fxSource = targetIsEur ? 'EUR' : 'manual';
+
+    if (!targetIsEur) {
+      const fxResult = await this.fxRateService.getRate(currencyCode);
+      if (fxResult.rate && fxResult.rate > 0) {
+        fxRate = fxResult.rate;
+        fxSource = fxResult.source ?? 'auto';
+        await this.persistFxRate(currencyCode, fxRate);
+      } else if (!fxRate || fxRate <= 0) {
+        fxRate = 1;
+        fxSource = 'fallback';
+        this.homey.app?.warn?.(
+          `Using EUR prices because no valid exchange rate for ${currencyCode} was retrieved.`
+        );
+      }
+    }
+
+    const convert = !targetIsEur && Number.isFinite(fxRate) && fxRate > 0;
+    if (!targetIsEur && !convert) {
+      this.homey.app?.warn?.(`Currency conversion to ${currencyCode} failed; using EUR prices instead.`);
+    }
+
+    const appliedCurrency = convert ? currencyCode : 'EUR';
+
+    const convertPrice = (value: number): number => {
+      if (!convert) {
+        return value;
+      }
+      const converted = value * (fxRate as number);
+      // Clamp to reasonable precision to avoid floating noise
+      return Number.isFinite(converted) ? Number(converted.toFixed(6)) : value;
+    };
+
+    const prices: PricePoint[] = pricesEur.map((entry) => ({
+      time: entry.time,
+      price: convertPrice(entry.price)
+    }));
 
     const current = this.pickCurrentPrice(prices, nowCet.toDate());
     const priceInfo: TibberPriceInfo = {
@@ -81,7 +203,9 @@ export class EntsoePriceService implements PriceProvider {
         price: current.price
       },
       prices,
-      intervalMinutes: 60
+      intervalMinutes: 60,
+      currencyCode: appliedCurrency,
+      baseCurrency: 'EUR'
     };
 
     this.cache = {
@@ -91,8 +215,13 @@ export class EntsoePriceService implements PriceProvider {
 
     if (this.homey.app?.log) {
       this.homey.app.log(
-        `[ENTSO-E] Loaded ${prices.length} hourly prices, current ${current.price.toFixed(4)} EUR/kWh`
+        `[ENTSO-E] Loaded ${prices.length} hourly prices, current ${current.price.toFixed(4)} ${appliedCurrency}/kWh`
       );
+      if (convert) {
+        this.homey.app.log(
+          `ENTSO-E price conversion applied using EUR -> ${currencyCode} rate ${(fxRate as number).toFixed(6)} (${fxSource})`
+        );
+      }
     }
 
     return priceInfo;

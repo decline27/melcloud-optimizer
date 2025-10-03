@@ -15,7 +15,7 @@ const HOT_WATER_DATA_SETTINGS_KEY = 'hot_water_usage_data';
 // Settings key for aggregated historical data
 const HOT_WATER_AGGREGATED_DATA_SETTINGS_KEY = 'hot_water_usage_aggregated_data';
 // Maximum number of data points to keep in memory
-const DEFAULT_MAX_DATA_POINTS = 336; // ~2 weeks of data at hourly intervals
+const DEFAULT_MAX_DATA_POINTS = 2016; // ~7 days of data at 5-minute intervals
 // Maximum age of data points in days
 const MAX_DATA_AGE_DAYS = 30;
 // Maximum size of data to store in settings (bytes)

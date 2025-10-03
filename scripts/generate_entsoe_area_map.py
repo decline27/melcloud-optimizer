@@ -43,7 +43,7 @@ FORCE_ISO = {
     '10YDE-RWENET---I': 'DE',
     '10YDE-EON------1': 'DE',
     '10YGB----------A': 'GB',
-    '10YGB-NIR------Y': 'GB',
+    '10Y1001A1001A016': 'GB',
     '10YIE-1001A00010': 'IE',
     '10YCH-SWISSGRIDZ': 'CH'
 }

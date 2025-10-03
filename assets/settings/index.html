@@ -164,7 +164,7 @@
         <h2>Zone Selection</h2>
         <p>Pick an ISO country code or a specific EIC. Clicking a zone copies the EIC to your clipboard and stores it as <code>entsoe_area_eic</code>.</p>
         <div class="controls">
-          <input id="search" type="search" placeholder="Search for SE3, Sweden, 10YSE-3..." aria-label="Search price areas" />
+          <input id="search" type="search" placeholder="Search for SE3, Sweden, 10Y1001A1001A46L..." aria-label="Search price areas" />
           <button id="detect" type="button">Detect Country</button>
           <button id="download" type="button" class="secondary">Download Map JSON</button>
         </div>
@@ -174,17 +174,8 @@
 
       <section class="card">
         <h2>Currency Conversion</h2>
-        <div class="currency-row">
-          <label>
-            <input type="checkbox" id="useConversion" />
-            Enable EUR -> SEK conversion
-          </label>
-          <label>
-            EUR -> SEK:
-            <input id="fxRate" type="number" inputmode="decimal" step="0.0001" min="0" placeholder="11.20" />
-          </label>
-        </div>
-        <div class="status" id="currencyStatus" role="status" aria-live="polite"></div>
+        <p id="currencySummary">Prices are converted to your Homey currency automatically.</p>
+        <p class="status" id="fxRateInfo" role="status" aria-live="polite"></p>
       </section>
 
       <section class="card">
@@ -241,8 +232,7 @@
           map: {},
           bundledMap: {},
           selectedEic: '',
-          useConversion: false,
-          fxRate: '',
+          currencyCode: 'EUR',
           bridgeReady: false
         };
 
@@ -251,9 +241,8 @@
         const searchEl = document.getElementById('search');
         const detectBtn = document.getElementById('detect');
         const downloadBtn = document.getElementById('download');
-        const useConversionEl = document.getElementById('useConversion');
-        const fxRateEl = document.getElementById('fxRate');
-        const currencyStatusEl = document.getElementById('currencyStatus');
+        const currencySummaryEl = document.getElementById('currencySummary');
+        const fxRateInfoEl = document.getElementById('fxRateInfo');
         const mapEditorEl = document.getElementById('mapEditor');
         const mapStatusEl = document.getElementById('mapStatus');
         const resetMapBtn = document.getElementById('resetMap');
@@ -428,6 +417,45 @@
           }, 4000);
         }
 
+        function updateCurrencySummary() {
+          const code = (state.currencyCode || 'EUR').toUpperCase();
+          if (currencySummaryEl) {
+            currencySummaryEl.textContent =
+              code === 'EUR'
+                ? 'Prices are provided in EUR.'
+                : `Prices are automatically converted from EUR to ${code}.`;
+          }
+        }
+
+        function initCurrencyCode(callback) {
+          let resolved = false;
+          const apply = (raw) => {
+            if (resolved) {
+              return;
+            }
+            resolved = true;
+            if (typeof raw === 'string' && raw.trim()) {
+              state.currencyCode = raw.trim().toUpperCase();
+            } else {
+              state.currencyCode = 'EUR';
+            }
+            updateCurrencySummary();
+            if (typeof callback === 'function') {
+              callback();
+            }
+          };
+
+          bridge.get('currency_code', (value) => {
+            if (typeof value === 'string' && value.trim()) {
+              apply(value);
+            } else {
+              bridge.get('currency', (fallback) => {
+                apply(typeof fallback === 'string' && fallback.trim() ? fallback : 'EUR');
+              });
+            }
+          });
+        }
+
         async function selectZone(iso, eic) {
           state.selectedEic = eic;
           renderZoneList(searchEl.value || '');
@@ -466,20 +494,50 @@
           URL.revokeObjectURL(url);
         }
 
-        function saveCurrencySettings() {
-          bridge.set('use_currency_conversion', useConversionEl.checked);
-          notifyStatus(currencyStatusEl, useConversionEl.checked ? 'Currency conversion enabled.' : 'Currency conversion disabled.');
+        function renderFxRateInfo() {
+          if (!fxRateInfoEl) {
+            return;
+          }
 
-          const value = fxRateEl.value.trim();
-          if (value) {
-            const numeric = Number(value);
-            if (!Number.isFinite(numeric) || numeric <= 0) {
-              notifyStatus(currencyStatusEl, 'Invalid EUR -> SEK rate. Use positive numbers like 11.2');
+          bridge.get('fx_rate_cache', (value) => {
+            if (!value) {
+              const code = (state.currencyCode || 'EUR').toUpperCase();
+              fxRateInfoEl.textContent = code === 'EUR'
+                ? 'ENTSO-E prices are already published in EUR.'
+                : 'Awaiting first automatic FX rate fetch.';
               return;
             }
-            bridge.set('fx_rate_eur_to_sek', numeric);
-            notifyStatus(currencyStatusEl, `Saved conversion rate ${numeric}.`);
-          }
+
+            let record = value;
+            if (typeof value === 'string') {
+              try {
+                record = JSON.parse(value);
+              } catch (error) {
+                console.warn('Failed to parse fx_rate_cache', error);
+                fxRateInfoEl.textContent = 'Stored FX rate could not be read.';
+                return;
+              }
+            }
+
+            if (!record || typeof record !== 'object') {
+              fxRateInfoEl.textContent = 'Stored FX rate could not be read.';
+              return;
+            }
+
+            const rate = Number(record.rate);
+            const currency = (record.currency || state.currencyCode || 'EUR').toUpperCase();
+            const fetchedAt = Number(record.fetchedAt || 0);
+            const source = record.source || 'auto';
+            const date = Number.isFinite(fetchedAt) && fetchedAt > 0
+              ? new Date(fetchedAt).toLocaleString()
+              : 'unknown time';
+
+            if (Number.isFinite(rate) && rate > 0) {
+              fxRateInfoEl.textContent = `Last rate: 1 EUR = ${rate.toFixed(6)} ${currency} (${source}, ${date})`;
+            } else {
+              fxRateInfoEl.textContent = 'No valid FX rate stored.';
+            }
+          });
         }
 
         function resetMap() {
@@ -526,13 +584,8 @@
               mapEditorEl.value = JSON.stringify(state.map, null, 2);
             }
           });
-          bridge.get('use_currency_conversion', (value) => {
-            useConversionEl.checked = value === true;
-          });
-          bridge.get('fx_rate_eur_to_sek', (value) => {
-            if (value != null && value !== '') {
-              fxRateEl.value = value;
-            }
+          initCurrencyCode(() => {
+            renderFxRateInfo();
           });
         }
 
@@ -563,8 +616,6 @@
             downloadBtn.title = 'Downloads are blocked in this Homey settings view.';
           }
         }
-        useConversionEl.addEventListener('change', saveCurrencySettings);
-        fxRateEl.addEventListener('change', saveCurrencySettings);
         resetMapBtn.addEventListener('click', resetMap);
         saveMapBtn.addEventListener('click', saveMap);
 
