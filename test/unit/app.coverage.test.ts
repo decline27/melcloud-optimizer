@@ -173,8 +173,8 @@ describe('HeatOptimizerApp focused coverage tests', () => {
       if (key === 'melcloud_user') return 'user@example.com';
       if (key === 'melcloud_pass') return 'password';
       if (key === 'tibber_token') return 'token';
-      if (key === 'min_temp') return 25;
-      if (key === 'max_temp') return 20;
+      if (key === 'comfort_lower_occupied') return 22;
+      if (key === 'comfort_upper_occupied') return 21;
       return undefined;
     });
 
@@ -186,8 +186,10 @@ describe('HeatOptimizerApp focused coverage tests', () => {
       if (key === 'melcloud_user') return 'user@example.com';
       if (key === 'melcloud_pass') return 'password';
       if (key === 'tibber_token') return 'token';
-      if (key === 'min_temp') return 18;
-      if (key === 'max_temp') return 25;
+      if (key === 'comfort_lower_occupied') return 20;
+      if (key === 'comfort_upper_occupied') return 21.5;
+      if (key === 'comfort_lower_away') return 18.5;
+      if (key === 'comfort_upper_away') return 22;
       if (key === 'enable_zone2') return false;
       if (key === 'enable_tank_control') return false;
       if (key === 'use_weather_data') return false;

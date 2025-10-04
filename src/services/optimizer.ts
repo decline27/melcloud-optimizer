@@ -281,16 +281,6 @@ export class Optimizer {
         }
 
         // Load temperature constraint settings
-        const minTemp = Number(homey.settings.get('min_temp'));
-        if (!Number.isNaN(minTemp) && minTemp >= 16 && minTemp <= 22) {
-          this.minTemp = minTemp;
-        }
-        
-        const maxTemp = Number(homey.settings.get('max_temp'));
-        if (!Number.isNaN(maxTemp) && maxTemp >= 20 && maxTemp <= 26) {
-          this.maxTemp = maxTemp;
-        }
-        
         const tempStep = Number(homey.settings.get('temp_step_max'));
         if (!Number.isNaN(tempStep) && tempStep >= 0.5 && tempStep <= 1.0) {
           this.tempStep = tempStep;

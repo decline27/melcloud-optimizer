@@ -5,6 +5,7 @@ import { EntsoePriceService } from '../services/entsoe-price-service';
 import { Optimizer } from '../services/optimizer';
 import { COPHelper } from '../services/cop-helper';
 import type { PriceProvider } from '../types';
+import { DefaultEngineConfig } from '../../optimization/engine';
 
 export interface HomeyLikeSettings {
   get(key: string): any;
@@ -367,10 +368,41 @@ export async function updateOptimizerSettings(homey: HomeyLike): Promise<void> {
     return;
   }
 
-  const minTemp = homey.settings.get('min_temp') || 18;
-  const maxTemp = homey.settings.get('max_temp') || 22;
-  const tempStep = homey.settings.get('temp_step_max') || 0.5;
-  const kFactor = homey.settings.get('initial_k') || 0.5;
+  const toNumber = (value: unknown): number | null => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  };
+
+  const comfortLowerCandidates = [
+    toNumber(homey.settings.get('comfort_lower_occupied')),
+    toNumber(homey.settings.get('comfort_lower_away')),
+    DefaultEngineConfig.comfortOccupied.lowerC,
+    DefaultEngineConfig.comfortAway.lowerC
+  ].filter((value): value is number => value !== null);
+
+  const comfortUpperCandidates = [
+    toNumber(homey.settings.get('comfort_upper_occupied')),
+    toNumber(homey.settings.get('comfort_upper_away')),
+    DefaultEngineConfig.comfortOccupied.upperC,
+    DefaultEngineConfig.comfortAway.upperC
+  ].filter((value): value is number => value !== null);
+
+  const derivedMin = Math.min(...comfortLowerCandidates);
+  let derivedMax = Math.max(...comfortUpperCandidates);
+
+  if (derivedMax <= derivedMin) {
+    derivedMax = derivedMin + 1;
+  }
+
+  const minTemp = Math.max(16, Math.min(derivedMin, 26));
+  let maxTemp = Math.max(minTemp + 0.5, Math.min(derivedMax, 26));
+
+  if (maxTemp - minTemp < 0.5) {
+    maxTemp = minTemp + 0.5;
+  }
+
+  const tempStep = toNumber(homey.settings.get('temp_step_max')) ?? 0.5;
+  const kFactor = toNumber(homey.settings.get('initial_k')) ?? 0.5;
 
   const enableZone2 = homey.settings.get('enable_zone2') === true;
   const minTempZone2 = homey.settings.get('min_temp_zone2') || 18;
@@ -383,8 +415,8 @@ export async function updateOptimizerSettings(homey: HomeyLike): Promise<void> {
   const tankTempStep = homey.settings.get('tank_temp_step') || 1.0;
 
   homey.app.log('Optimizer settings:');
-  homey.app.log('- Min Temp:', minTemp, '°C');
-  homey.app.log('- Max Temp:', maxTemp, '°C');
+  homey.app.log('- Derived Min Target:', minTemp, '°C');
+  homey.app.log('- Derived Max Target:', maxTemp, '°C');
   homey.app.log('- Temp Step:', tempStep, '°C (MELCloud supports 0.5°C increments)');
   homey.app.log('- K Factor:', kFactor);
 

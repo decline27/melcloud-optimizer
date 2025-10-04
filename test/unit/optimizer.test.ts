@@ -88,8 +88,10 @@ describe('Temperature Optimization', () => {
           case 'device_id': return '123';
           case 'building_id': return '456';
           case 'temp_step_max': return 0.5;
-          case 'min_temp': return 18;
-          case 'max_temp': return 24;
+          case 'comfort_lower_occupied': return 20;
+          case 'comfort_upper_occupied': return 21.5;
+          case 'comfort_lower_away': return 18.5;
+          case 'comfort_upper_away': return 22;
           case 'initial_k': return 0.3;
           // Zone2 settings
           case 'enable_zone2': return true;

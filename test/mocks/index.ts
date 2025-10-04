@@ -145,8 +145,10 @@ export const createMockHomey = () => ({
         'tibber_token': 'test-token',
         'device_id': 'device-1',
         'building_id': '1',
-        'min_temp': 18,
-        'max_temp': 22,
+        'comfort_lower_occupied': 20,
+        'comfort_upper_occupied': 21,
+        'comfort_lower_away': 19,
+        'comfort_upper_away': 20.5,
         'cop_weight': 0.3,
         'auto_seasonal_mode': true,
         'summer_mode': false

@@ -21,7 +21,6 @@ describe('Optimizer + Engine integration and safety', () => {
         const base: Record<string, any> = {
           melcloud_user: 'u', melcloud_pass: 'p', tibber_token: 't',
           device_id: '123', building_id: 456,
-          min_temp: 18, max_temp: 22,
           use_engine: true,
           deadband_c: 0.3,
           min_setpoint_change_minutes: 15,
@@ -124,4 +123,3 @@ describe('Optimizer + Engine integration and safety', () => {
     expect(mel.setDeviceTemperature).not.toHaveBeenCalled();
   });
 });
-

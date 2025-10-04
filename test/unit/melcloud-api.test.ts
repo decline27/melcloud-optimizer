@@ -13,8 +13,6 @@ global.homeySettings = {
       'tibber_token': 'test-token',
       'device_id': 'device-1',
       'building_id': '1',
-      'min_temp': 18,
-      'max_temp': 22,
       'cop_weight': 0.3,
       'auto_seasonal_mode': true,
       'summer_mode': false

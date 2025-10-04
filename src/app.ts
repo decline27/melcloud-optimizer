@@ -664,7 +664,15 @@ export default class HeatOptimizerApp extends App {
       }
     }
     // If temperature settings changed, re-validate
-    else if (['min_temp', 'max_temp', 'min_temp_zone2', 'max_temp_zone2', 'enable_zone2'].includes(key)) {
+    else if ([
+      'min_temp_zone2',
+      'max_temp_zone2',
+      'enable_zone2',
+      'comfort_lower_occupied',
+      'comfort_upper_occupied',
+      'comfort_lower_away',
+      'comfort_upper_away'
+    ].includes(key)) {
       this.log(`Temperature setting '${key}' changed, re-validating settings`);
       this.validateSettings();
     }
@@ -1268,13 +1276,21 @@ export default class HeatOptimizerApp extends App {
       return false;
     }
 
-    // Check temperature settings
-    const minTemp = this.homey.settings.get('min_temp');
-    const maxTemp = this.homey.settings.get('max_temp');
+    // Check comfort band settings when provided
+    const comfortLowerOccupied = Number(this.homey.settings.get('comfort_lower_occupied'));
+    const comfortUpperOccupied = Number(this.homey.settings.get('comfort_upper_occupied'));
+    if (Number.isFinite(comfortLowerOccupied) && Number.isFinite(comfortUpperOccupied)) {
+      if (comfortLowerOccupied >= comfortUpperOccupied) {
+        this.error('Occupied comfort lower bound must be less than the upper bound');
+        return false;
+      }
+    }
 
-    if (minTemp !== undefined && maxTemp !== undefined) {
-      if (minTemp >= maxTemp) {
-        this.error('Min temperature must be less than max temperature');
+    const comfortLowerAway = Number(this.homey.settings.get('comfort_lower_away'));
+    const comfortUpperAway = Number(this.homey.settings.get('comfort_upper_away'));
+    if (Number.isFinite(comfortLowerAway) && Number.isFinite(comfortUpperAway)) {
+      if (comfortLowerAway >= comfortUpperAway) {
+        this.error('Away comfort lower bound must be less than the upper bound');
         return false;
       }
     }

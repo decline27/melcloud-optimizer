@@ -179,20 +179,6 @@
 
 
 
-    <details class="homey-form-fieldset">
-      <summary class="homey-form-legend">Advanced: Classic Targets (Legacy)</summary>
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="min_temp">Minimum Temperature (°C)</label>
-        <input class="homey-form-input" id="min_temp" type="number" min="16" max="22" step="0.5" value="18" />
-        <p class="homey-form-helper">The minimum temperature that will be set during optimization. Suggested default: 19°C - provides good balance between comfort and energy savings during price peaks.</p>
-      </div>
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="max_temp">Maximum Temperature (°C)</label>
-        <input class="homey-form-input" id="max_temp" type="number" min="20" max="26" step="0.5" value="24" />
-        <p class="homey-form-helper">The maximum temperature that will be set during optimization. Suggested default: 22°C - comfortable temperature during low-price periods without excessive energy use.</p>
-      </div>
-    </details>
-
     <details class="homey-form-fieldset" id="zone2_fieldset">
       <summary class="homey-form-legend">Device: Zone 2 Temperature</summary>
       <div class="homey-form-group">
@@ -243,7 +229,7 @@
           <input type="checkbox" id="use_engine" />
           <span>Comfort band control + price-aware preheating (recommended)</span>
         </label>
-        <p class="homey-form-helper">Turn on the new engine for clearer control and savings. Turn off to use the classic optimizer. Suggested default: <b>Enabled</b>.</p>
+        <p class="homey-form-helper">Turn on the advanced engine for clearer control and savings. Suggested default: <b>Enabled</b>.</p>
         <p class="homey-form-helper">Impact: When enabled, decisions prioritize cost within your comfort band and respect the safety limits below.</p>
       </div>
 
@@ -277,6 +263,7 @@
             <p class="homey-form-helper">Impact: Protects comfort/COP during cold snaps (prevents over‑setbacks). Increase if your home cools quickly.</p>
           </div>
         </div>
+        <p class="homey-form-helper">Overall min/max targets now follow the lowest and highest comfort band values. Adjust the comfort bands below to tighten or widen that range.</p>
       </div>
 
       <div class="homey-form-group">
@@ -1315,8 +1302,6 @@
         const entsoeFullContainer = document.getElementById("entsoe_full_container");
         const entsoeFullFrame = document.getElementById("entsoe_full_frame");
         const entsoeZoneStatus = document.getElementById("entsoe_zone_status");
-        const minTempElement = document.getElementById("min_temp");
-        const maxTempElement = document.getElementById("max_temp");
         const tempStepMaxElement = document.getElementById("temp_step_max");
         const useWeatherDataElement = document.getElementById("use_weather_data");
         const latitudeElement = document.getElementById("latitude");
@@ -1757,16 +1742,6 @@
         // Load costs & consumption settings
         Homey.get("grid_fee_per_kwh", function (err, value) {
           if (!err && value !== undefined && value !== null) gridFeeElement.value = value;
-        });
-
-        Homey.get("min_temp", function (err, value) {
-          if (err) return Homey.alert(err);
-          if (value !== undefined) minTempElement.value = value;
-        });
-
-        Homey.get("max_temp", function (err, value) {
-          if (err) return Homey.alert(err);
-          if (value !== undefined) maxTempElement.value = value;
         });
 
         Homey.get("temp_step_max", function (err, value) {
@@ -2235,18 +2210,6 @@
                 return Homey.alert('Invalid grid fee. Must be a non-negative number.');
               }
             })();
-          }
-
-          if (minTempElement) {
-            Homey.set("min_temp", parseFloat(minTempElement.value), function (err) {
-              if (err) console.error('Error saving min_temp:', err);
-            });
-          }
-
-          if (maxTempElement) {
-            Homey.set("max_temp", parseFloat(maxTempElement.value), function (err) {
-              if (err) console.error('Error saving max_temp:', err);
-            });
           }
 
           if (tempStepMaxElement) {
