@@ -647,14 +647,21 @@ function recordOptimizationEntry(
       ? (optimizationResult as { comfort?: number }).comfort
       : null;
 
+    const indoorTemp = typeof optimizationResult.indoorTemp === 'number'
+      ? optimizationResult.indoorTemp
+      : null;
+    const outdoorTemp = typeof optimizationResult.outdoorTemp === 'number'
+      ? optimizationResult.outdoorTemp
+      : null;
+
     const entry = {
       timestamp,
       action: optimizationResult?.action ?? 'unknown',
       reason: optimizationResult?.reason ?? '',
       targetTemp,
       targetOriginal,
-      indoorTemp: null,
-      outdoorTemp: null,
+      indoorTemp,
+      outdoorTemp,
       priceNow,
       savings: Number.isFinite(savingsValue) ? Number(savingsValue.toFixed(4)) : (optimizationResult?.savings ?? 0),
       comfort,

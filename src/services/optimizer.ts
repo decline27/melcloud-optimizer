@@ -110,6 +110,8 @@ interface EnhancedOptimizationResult {
   fromTemp: number;
   toTemp: number;
   reason: string;
+  indoorTemp?: number | null;
+  outdoorTemp?: number | null;
   priceData: {
     current: number;
     average: number;
@@ -2238,6 +2240,8 @@ export class Optimizer {
           fromTemp: safeCurrentTarget,
           toTemp: targetTemp,
           reason: adjustmentReason,
+          indoorTemp: currentTemp ?? null,
+          outdoorTemp,
           priceData: {
             current: currentPrice,
             average: avgPrice,
@@ -2306,6 +2310,8 @@ export class Optimizer {
           fromTemp: safeCurrentTarget,
           toTemp: safeCurrentTarget,
           reason: failureOrHoldReason,
+          indoorTemp: currentTemp ?? null,
+          outdoorTemp,
           priceData: {
             current: currentPrice,
             average: avgPrice,
@@ -2507,39 +2513,62 @@ export class Optimizer {
     timestamp: string;
     thermalCharacteristics?: any;
     method?: string;
+    analysis?: string;
   }> {
     this.logger.log('Starting weekly calibration');
 
     try {
+      const previousK = this.thermalModel.K;
+      const previousS = this.thermalModel.S;
+
       // If using thermal learning model, update it with collected data
       if (this.useThermalLearning && this.thermalModelService) {
         try {
           // The thermal model service automatically updates its model
           // We just need to get the current characteristics
           const characteristics = this.thermalModelService.getThermalCharacteristics();
+          const confidence = typeof characteristics.modelConfidence === 'number'
+            ? characteristics.modelConfidence
+            : 0;
 
           // Update our simple K-factor based on the thermal model's characteristics
           // This maintains compatibility with the existing system
-          const newK = characteristics.modelConfidence > 0.3
-            ? (characteristics.heatingRate / 0.5) * this.thermalModel.K
-            : this.thermalModel.K;
+          const baseK = previousK;
+          const newK = confidence > 0.3
+            ? (characteristics.heatingRate / 0.5) * baseK
+            : baseK;
 
-          const newS = characteristics.thermalMass;
+          const thermalMass = characteristics.thermalMass;
+          const newS = (typeof thermalMass === 'number' && Number.isFinite(thermalMass))
+            ? thermalMass
+            : (typeof previousS === 'number' ? previousS : 0.1);
 
           // Update thermal model
           this.setThermalModel(newK, newS);
 
+          const heatingRate = typeof characteristics.heatingRate === 'number' && Number.isFinite(characteristics.heatingRate)
+            ? characteristics.heatingRate
+            : NaN;
+          const coolingRate = typeof characteristics.coolingRate === 'number' && Number.isFinite(characteristics.coolingRate)
+            ? characteristics.coolingRate
+            : NaN;
+
           this.logger.log(`Calibrated thermal model using learning data: K=${newK.toFixed(2)}, S=${newS.toFixed(2)}`);
-          this.logger.log(`Thermal characteristics: Heating rate=${characteristics.heatingRate.toFixed(3)}, Cooling rate=${characteristics.coolingRate.toFixed(3)}, Thermal mass=${characteristics.thermalMass.toFixed(2)}`);
+          this.logger.log(
+            `Thermal characteristics: Heating rate=${Number.isFinite(heatingRate) ? heatingRate.toFixed(3) : 'n/a'}, ` +
+            `Cooling rate=${Number.isFinite(coolingRate) ? coolingRate.toFixed(3) : 'n/a'}, ` +
+            `Thermal mass=${Number.isFinite(thermalMass) ? thermalMass.toFixed(2) : 'n/a'}`
+          );
 
           // Return result
           return {
-            oldK: this.thermalModel.K,
+            oldK: previousK,
             newK,
-            oldS: this.thermalModel.S,
+            oldS: previousS,
             newS,
             timestamp: new Date().toISOString(),
-            thermalCharacteristics: characteristics
+            thermalCharacteristics: characteristics,
+            analysis: `Learning-based calibration (confidence ${(confidence * 100).toFixed(0)}%)`
           };
         } catch (modelError) {
           this.logger.error('Error updating thermal model from learning data:', modelError);
@@ -2548,8 +2577,9 @@ export class Optimizer {
       }
 
       // Basic calibration (used as fallback or when thermal learning is disabled)
-      const newK = this.thermalModel.K * (0.9 + Math.random() * 0.2);
-      const newS = this.thermalModel.S || 0.1;
+      const baseK = previousK;
+      const newK = baseK * (0.9 + Math.random() * 0.2);
+      const newS = typeof previousS === 'number' ? previousS : (this.thermalModel.S || 0.1);
 
       // Update thermal model
       this.setThermalModel(newK, newS);
@@ -2558,12 +2588,13 @@ export class Optimizer {
 
       // Return result
       return {
-        oldK: this.thermalModel.K,
+        oldK: previousK,
         newK,
-        oldS: this.thermalModel.S,
+        oldS: previousS,
         newS,
         timestamp: new Date().toISOString(),
-        method: 'basic'
+        method: 'basic',
+        analysis: 'Basic calibration applied (learning data unavailable)'
       };
     } catch (error) {
       this.logger.error('Error in weekly calibration', error);

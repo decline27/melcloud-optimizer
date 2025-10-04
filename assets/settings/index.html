@@ -162,7 +162,7 @@
     <main>
       <section class="card">
         <h2>Zone Selection</h2>
-        <p>Pick an ISO country code or a specific EIC. Clicking a zone copies the EIC to your clipboard and stores it as <code>entsoe_area_eic</code>.</p>
+        <p>Pick an ISO country code or a specific EIC. Clicking a zone stores it instantly as <code>entsoe_area_eic</code> for the app.</p>
         <div class="controls">
           <input id="search" type="search" placeholder="Search for SE3, Sweden, 10Y1001A1001A46L..." aria-label="Search price areas" />
           <button id="detect" type="button">Detect Country</button>
@@ -248,18 +248,6 @@
         const resetMapBtn = document.getElementById('resetMap');
         const saveMapBtn = document.getElementById('saveMap');
 
-        const permissionsPolicy = document.permissionsPolicy;
-        function allowsFeature(feature) {
-          if (!permissionsPolicy || typeof permissionsPolicy.allowsFeature !== 'function') {
-            return true;
-          }
-          try {
-            return permissionsPolicy.allowsFeature(feature);
-          } catch (error) {
-            return true;
-          }
-        }
-
         function sandboxAllowsDownloads() {
           const frames = [];
           try {
@@ -289,21 +277,6 @@
             }
           }
           return true;
-        }
-
-        let clipboardSupported = allowsFeature('clipboard-write') && !!(navigator.clipboard && typeof navigator.clipboard.writeText === 'function');
-        if (clipboardSupported && navigator.permissions && typeof navigator.permissions.query === 'function') {
-          navigator.permissions
-            .query({ name: 'clipboard-write' })
-            .then((status) => {
-              clipboardSupported = status.state !== 'denied';
-              status.onchange = () => {
-                clipboardSupported = status.state !== 'denied';
-              };
-            })
-            .catch(() => {
-              clipboardSupported = false;
-            });
         }
 
         const downloadsSupported = sandboxAllowsDownloads();
@@ -373,7 +346,7 @@
               const actionBtn = document.createElement('button');
               actionBtn.type = 'button';
               actionBtn.textContent = 'Use this zone';
-              actionBtn.addEventListener('click', () => selectZone(iso, eic));
+              actionBtn.addEventListener('click', () => selectZone(iso, eic, display));
               card.appendChild(actionBtn);
 
               if (state.selectedEic === eic) {
@@ -389,19 +362,6 @@
             const empty = document.createElement('p');
             empty.textContent = 'No matches found. Try a different search term or reset the map.';
             zoneListEl.appendChild(empty);
-          }
-        }
-
-        async function copyToClipboard(text) {
-          if (!clipboardSupported) {
-            return false;
-          }
-          try {
-            await navigator.clipboard.writeText(text);
-            return true;
-          } catch (error) {
-            clipboardSupported = false;
-            return false;
           }
         }
 
@@ -456,17 +416,25 @@
           });
         }
 
-        async function selectZone(iso, eic) {
+        function selectZone(iso, eic, display = '') {
           state.selectedEic = eic;
           renderZoneList(searchEl.value || '');
-          const copied = await copyToClipboard(eic);
           bridge.set('entsoe_area_eic', eic);
-          notifyStatus(
-            zoneStatusEl,
-            copied
-              ? `Saved ${eic} and copied to clipboard.`
-              : `Saved ${eic}. Clipboard copy is not available in this Homey settings view.`
-          );
+          const payload = { type: 'entsoe:zoneSelected', iso, eic, display };
+          let delivered = false;
+          if (window.parent && typeof window.parent.__entsoeZoneSelected === 'function') {
+            try {
+              window.parent.__entsoeZoneSelected(payload);
+              delivered = true;
+            } catch (error) {
+              delivered = false;
+            }
+          }
+          if (!delivered && window.parent && typeof window.parent.postMessage === 'function') {
+            window.parent.postMessage(payload, '*');
+          }
+          const friendly = display ? `${display} (${eic})` : eic;
+          notifyStatus(zoneStatusEl, `Saved ${friendly}. This zone is now active.`);
         }
 
         function detectCountry() {
@@ -478,7 +446,8 @@
             return;
           }
           const eic = state.map[iso][0];
-          selectZone(iso, eic);
+          const label = isoLabels[iso] || iso;
+          selectZone(iso, eic, `${iso} · ${label}`);
         }
 
         function downloadMap() {

@@ -114,6 +114,10 @@
     "getHotWaterPatterns": {
       "method": "GET",
       "path": "/hot-water/patterns"
+    },
+    "validateAndStartCron": {
+      "method": "GET",
+      "path": "/validateAndStartCron"
     }
   },
   "flow": {
