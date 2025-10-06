@@ -23,12 +23,19 @@ describe('Timezone Fix Verification', () => {
       const { MelCloudApi } = require('../../src/services/melcloud-api');
       const api = new MelCloudApi(mockLogger);
 
-      // Test timezone update
+      // Test timezone update without timezone name
       api.updateTimeZoneSettings(8, true); // UTC+8 with DST
 
       // Verify the logger was called with correct parameters
       expect(mockLogger.info).toHaveBeenCalledWith(
-        'MELCloud API timezone settings updated: offset=8, DST=true'
+        'MELCloud API timezone settings updated: offset=8, DST=true, name=n/a'
+      );
+
+      // Test timezone update with timezone name
+      api.updateTimeZoneSettings(1, true, 'Europe/Stockholm');
+
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        'MELCloud API timezone settings updated: offset=1, DST=true, name=Europe/Stockholm'
       );
     });
   });
@@ -47,12 +54,19 @@ describe('Timezone Fix Verification', () => {
       const { TibberApi } = require('../../src/services/tibber-api');
       const api = new TibberApi('test-token', mockLogger);
 
-      // Test timezone update
+      // Test timezone update without timezone name
       api.updateTimeZoneSettings(-5, false); // UTC-5 without DST
 
       // Verify the logger was called with correct parameters
       expect(mockLogger.info).toHaveBeenCalledWith(
-        'Tibber API timezone settings updated: offset=-5, DST=false'
+        'Tibber API timezone settings updated: offset=-5, DST=false, name=n/a'
+      );
+
+      // Test timezone update with timezone name
+      api.updateTimeZoneSettings(-5, true, 'America/New_York');
+
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        'Tibber API timezone settings updated: offset=-5, DST=true, name=America/New_York'
       );
     });
   });
