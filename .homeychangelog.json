@@ -103,5 +103,11 @@
   },
   "13.4.4": {
     "en": "bug "
+  },
+  "13.4.5": {
+    "en": "New pris api for all EU markets you dont need to have tibber as provider"
+  },
+  "14.0.0": {
+    "en": "New pris api for all EU markets you don"
   }
 }
