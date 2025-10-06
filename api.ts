@@ -747,29 +747,34 @@ async function refreshOptimizerSettings(homey: HomeyLike): Promise<void> {
  * @param timeZoneOffset Timezone offset in hours
  * @param useDST Whether to use daylight saving time
  */
-async function updateAllServiceTimezones(homey: HomeyLike, timeZoneOffset: number, useDST: boolean): Promise<void> {
+async function updateAllServiceTimezones(
+  homey: HomeyLike,
+  timeZoneOffset: number,
+  useDST: boolean,
+  timeZoneName?: string | null
+): Promise<void> {
   const state = getServiceState();
   
   // Update MelCloud API service timezone
   if (state.melCloud && typeof state.melCloud.updateTimeZoneSettings === 'function') {
-    state.melCloud.updateTimeZoneSettings(timeZoneOffset, useDST);
-    homey.app.log('Updated MelCloud API timezone settings');
+    state.melCloud.updateTimeZoneSettings(timeZoneOffset, useDST, timeZoneName ?? undefined);
+    homey.app.log(`Updated MelCloud API timezone settings (${timeZoneName || `offset ${timeZoneOffset}`})`);
   }
   
   // Update Tibber API service timezone
   if (state.tibber && typeof state.tibber.updateTimeZoneSettings === 'function') {
-    state.tibber.updateTimeZoneSettings(timeZoneOffset, useDST);
-    homey.app.log('Updated Tibber API timezone settings');
+    state.tibber.updateTimeZoneSettings(timeZoneOffset, useDST, timeZoneName ?? undefined);
+    homey.app.log(`Updated Tibber API timezone settings (${timeZoneName || `offset ${timeZoneOffset}`})`);
   }
   
   // Update Hot Water Service timezone if available
   const hotWaterService = getHotWaterService(homey);
   if (hotWaterService && typeof (hotWaterService as any).updateTimeZoneSettings === 'function') {
-    (hotWaterService as any).updateTimeZoneSettings(timeZoneOffset, useDST);
-    homey.app.log('Updated Hot Water Service timezone settings');
+    (hotWaterService as any).updateTimeZoneSettings(timeZoneOffset, useDST, timeZoneName ?? undefined);
+    homey.app.log(`Updated Hot Water Service timezone settings (${timeZoneName || `offset ${timeZoneOffset}`})`);
   }
   
-  homey.app.log(`All services updated with timezone: offset=${timeZoneOffset}, DST=${useDST}`);
+  homey.app.log(`All services updated with timezone: offset=${timeZoneOffset}, DST=${useDST}, name=${timeZoneName || 'n/a'}`);
 }
 
 const apiHandlers: ApiHandlers = {

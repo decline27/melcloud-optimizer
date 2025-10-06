@@ -14,6 +14,7 @@ import {
 import { isError } from '../util/error-handler';
 import { EnhancedSavingsCalculator, OptimizationData, SavingsCalculationResult } from '../util/enhanced-savings-calculator';
 import { HomeyLogger } from '../util/logger';
+import { TimeZoneHelper } from '../util/time-zone-helper';
 import { DefaultEngineConfig, computeHeatingDecision } from '../../optimization/engine';
 
 /**
@@ -204,6 +205,7 @@ export class Optimizer {
   private enhancedSavingsCalculator: EnhancedSavingsCalculator;
   private lastEnergyData: RealEnergyData | null = null;
   private optimizationMetrics: OptimizationMetrics | null = null;
+  private timeZoneHelper!: TimeZoneHelper;
 
   // Thermal mass optimization properties
   private thermalMassModel: ThermalMassModel = {
@@ -265,6 +267,18 @@ export class Optimizer {
         this.summerMode = homey.settings.get('summer_mode') === true;
 
         this.logger.log(`COP settings loaded - Weight: ${this.copWeight}, Auto Seasonal: ${this.autoSeasonalMode}, Summer Mode: ${this.summerMode}`);
+        
+        // Initialize TimeZoneHelper with user settings
+        const tzOffset = homey.settings.get('time_zone_offset') || 2;
+        const useDST = homey.settings.get('use_dst') || false;
+        const timeZoneName = homey.settings.get('time_zone_name');
+        this.timeZoneHelper = new TimeZoneHelper(
+          this.logger,
+          Number(tzOffset),
+          Boolean(useDST),
+          typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined
+        );
+        this.logger.log('TimeZoneHelper initialized for Optimizer');
         
         // Load safety constraints
         const mins = Number(homey.settings.get('min_setpoint_change_minutes'));
@@ -330,6 +344,10 @@ export class Optimizer {
         this.logger.error('Failed to initialize COP helper:', error);
         this.copHelper = null;
       }
+    } else {
+      // Initialize TimeZoneHelper with defaults when no homey instance
+      this.timeZoneHelper = new TimeZoneHelper(this.logger, 2, false);
+      this.logger.log('TimeZoneHelper initialized with defaults (no homey instance)');
     }
 
     // Initialize enhanced savings calculator after all services are set up
@@ -1943,7 +1961,7 @@ export class Optimizer {
           
           // Use pattern-based hot water scheduling if we have usage data
           if (this.hotWaterUsagePattern && this.hotWaterUsagePattern.dataPoints > 50) {
-            const currentHour = new Date().getHours();
+            const currentHour = this.timeZoneHelper.getLocalTime().hour;
             const hotWaterSchedule = this.optimizeHotWaterSchedulingByPattern(
               currentHour,
               priceData.prices,
@@ -2742,7 +2760,7 @@ export class Optimizer {
     return this.enhancedSavingsCalculator.calculateEnhancedDailySavings(
       currentHourSavings,
       historicalOptimizations,
-      new Date().getHours(),
+      this.timeZoneHelper.getLocalTime().hour,
       futurePriceFactors
     );
   }
@@ -2755,7 +2773,7 @@ export class Optimizer {
     historicalOptimizations: OptimizationData[] = []
   ): Promise<SavingsCalculationResult> {
     try {
-      const currentHour = new Date().getHours();
+      const currentHour = this.timeZoneHelper.getLocalTime().hour;
       const gridFee: number = Number(this.homey?.settings.get('grid_fee_per_kwh')) || 0;
       if (!this.priceProvider) {
         throw new Error('Price provider not initialized');
@@ -2842,7 +2860,7 @@ export class Optimizer {
       return this.enhancedSavingsCalculator.calculateEnhancedDailySavingsWithBaseline(
         currentHourSavings,
         historicalOptimizations,
-        new Date().getHours(),
+        this.timeZoneHelper.getLocalTime().hour,
         priceFactors,
         {
           actualConsumptionKWh,

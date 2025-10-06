@@ -121,6 +121,27 @@
           <p class="homey-form-helper">The ID of the building (not stored; used only when saving)</p>
         </div>
       </div>
+
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="time_zone_name">Time Zone Name (recommended)</label>
+        <input
+          class="homey-form-input"
+          id="time_zone_name"
+          type="text"
+          list="time_zone_name_list"
+          placeholder="e.g., Europe/Stockholm"
+          autocomplete="off"
+        />
+        <datalist id="time_zone_name_list"></datalist>
+        <p class="homey-form-helper">
+          Use an IANA time zone such as <code>Europe/Stockholm</code> for accurate DST handling.
+          Leave blank to fall back to the numeric UTC offset.
+        </p>
+        <div class="button-container">
+          <button type="button" class="homey-button-secondary" id="detect_time_zone_name">Use device timezone</button>
+          <span id="time_zone_name_status" class="homey-form-helper" aria-live="polite"></span>
+        </div>
+      </div>
     </details>
 
     <details class="homey-form-fieldset">
@@ -413,17 +434,28 @@
       <div class="homey-form-group" id="consumer_markup_config_section" style="display: none;">
         <label class="homey-form-label" for="consumer_markup_config">Consumer Price Components (JSON)</label>
         <textarea class="homey-form-input" id="consumer_markup_config" rows="12" placeholder="Consumer markup configuration..."></textarea>
-        <p class="homey-form-helper">Configure grid fees, taxes, and markup by country. <button type="button" class="homey-button-secondary" id="load_markup_defaults">Load Defaults</button></p>
+        <p class="homey-form-helper">Configure grid fees, taxes, and markup by country. Includes defaults for 33+ European markets. <button type="button" class="homey-button-secondary" id="load_markup_defaults">Load Defaults</button></p>
         <div id="consumer_markup_status" class="homey-form-helper" style="color: #666; font-style: italic;"></div>
       </div>
 
       <div class="homey-form-group" id="markup_currency_section" style="display: none;">
         <label class="homey-form-label" for="markup_currency_unit">Markup Values Currency</label>
         <select class="homey-form-input" id="markup_currency_unit">
-          <option value="LOCAL">Local Currency (SEK, EUR, etc.)</option>
+          <option value="LOCAL">Auto-detect from Homey settings</option>
           <option value="EUR">Euro (EUR)</option>
+          <option value="SEK">Swedish Krona (SEK)</option>
+          <option value="NOK">Norwegian Krone (NOK)</option>
+          <option value="DKK">Danish Krone (DKK)</option>
+          <option value="PLN">Polish Złoty (PLN)</option>
+          <option value="CZK">Czech Koruna (CZK)</option>
+          <option value="HUF">Hungarian Forint (HUF)</option>
+          <option value="RON">Romanian Leu (RON)</option>
+          <option value="BGN">Bulgarian Lev (BGN)</option>
+          <option value="HRK">Croatian Kuna (HRK)</option>
+          <option value="CHF">Swiss Franc (CHF)</option>
+          <option value="GBP">British Pound (GBP)</option>
         </select>
-        <p class="homey-form-helper">Currency unit for grid fees, taxes, and markup values in the configuration above.</p>
+        <p class="homey-form-helper">Currency used for grid fees, taxes, and markup values in the JSON configuration above. If values are in different currencies, they'll be converted to your Homey currency automatically.</p>
       </div>
     </details>
 
@@ -1337,10 +1369,69 @@
         const preHeatHoursElement = document.getElementById("pre_heat_hours");
         const timeZoneOffsetElement = document.getElementById("time_zone_offset");
         const useDstElement = document.getElementById("use_dst");
+        const timeZoneNameElement = document.getElementById("time_zone_name");
+        const timeZoneNameListElement = document.getElementById("time_zone_name_list");
+        const detectTimeZoneNameButton = document.getElementById("detect_time_zone_name");
+        const timeZoneNameStatusElement = document.getElementById("time_zone_name_status");
         const logLevelElement = document.getElementById("log_level");
         const notifyOnSuccessElement = document.getElementById("notify_on_success");
         const currencyCodeElement = document.getElementById("currency_code");
         const saveElement = document.getElementById("save");
+
+        // Populate timezone list if supported
+        if (timeZoneNameListElement) {
+          try {
+            if (typeof Intl !== 'undefined' && typeof Intl.supportedValuesOf === 'function') {
+              const tzValues = Intl.supportedValuesOf('timeZone');
+              tzValues.forEach(tz => {
+                const option = document.createElement('option');
+                option.value = tz;
+                timeZoneNameListElement.appendChild(option);
+              });
+            } else {
+              // Minimal fallback list covering common regions; users can still type custom values
+              const fallbackZones = [
+                'Europe/Stockholm', 'Europe/Oslo', 'Europe/Berlin', 'Europe/London',
+                'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+                'America/Sao_Paulo', 'Asia/Dubai', 'Asia/Tokyo', 'Asia/Shanghai',
+                'Australia/Sydney', 'Pacific/Auckland', 'Africa/Johannesburg'
+              ];
+              fallbackZones.forEach(tz => {
+                const option = document.createElement('option');
+                option.value = tz;
+                timeZoneNameListElement.appendChild(option);
+              });
+            }
+          } catch (error) {
+            console.warn('Failed to populate timezone list', error);
+          }
+        }
+
+        if (detectTimeZoneNameButton && timeZoneNameElement) {
+          detectTimeZoneNameButton.addEventListener('click', () => {
+            try {
+              const resolved = Intl.DateTimeFormat().resolvedOptions().timeZone;
+              if (resolved) {
+                timeZoneNameElement.value = resolved;
+                if (timeZoneNameStatusElement) {
+                  timeZoneNameStatusElement.textContent = `Using device timezone: ${resolved}`;
+                }
+              }
+            } catch (error) {
+              console.warn('Failed to detect device timezone', error);
+              if (timeZoneNameStatusElement) {
+                timeZoneNameStatusElement.textContent = 'Could not detect timezone automatically';
+              }
+            }
+          });
+        }
+
+        if (timeZoneNameElement && timeZoneNameStatusElement) {
+          timeZoneNameElement.addEventListener('input', () => {
+            const value = (timeZoneNameElement.value || '').trim();
+            timeZoneNameStatusElement.textContent = value ? `Using timezone: ${value}` : 'Using UTC offset fallback';
+          });
+        }
 
         // Consumer markup elements (declared early to avoid initialization errors)
         const enableConsumerMarkupElement = document.getElementById("enable_consumer_markup");
@@ -1767,6 +1858,83 @@
               "vatRate": 1.27,
               "description": "Hungary - typical residential"
             },
+            "IE": {
+              "gridFee": 0.048,
+              "energyTax": 0.009,
+              "retailMarkup": 0.018,
+              "vatRate": 1.135,
+              "description": "Ireland - typical residential"
+            },
+            "RO": {
+              "gridFee": 0.028,
+              "energyTax": 0.012,
+              "retailMarkup": 0.010,
+              "vatRate": 1.19,
+              "description": "Romania - typical residential"
+            },
+            "BG": {
+              "gridFee": 0.025,
+              "energyTax": 0.008,
+              "retailMarkup": 0.008,
+              "vatRate": 1.20,
+              "description": "Bulgaria - typical residential"
+            },
+            "HR": {
+              "gridFee": 0.032,
+              "energyTax": 0.014,
+              "retailMarkup": 0.012,
+              "vatRate": 1.25,
+              "description": "Croatia - typical residential"
+            },
+            "GR": {
+              "gridFee": 0.038,
+              "energyTax": 0.025,
+              "retailMarkup": 0.015,
+              "vatRate": 1.24,
+              "description": "Greece - typical residential"
+            },
+            "RS": {
+              "gridFee": 0.020,
+              "energyTax": 0.006,
+              "retailMarkup": 0.008,
+              "vatRate": 1.20,
+              "description": "Serbia - typical residential"
+            },
+            "BA": {
+              "gridFee": 0.022,
+              "energyTax": 0.008,
+              "retailMarkup": 0.009,
+              "vatRate": 1.17,
+              "description": "Bosnia and Herzegovina - typical residential"
+            },
+            "ME": {
+              "gridFee": 0.025,
+              "energyTax": 0.005,
+              "retailMarkup": 0.010,
+              "vatRate": 1.21,
+              "description": "Montenegro - typical residential"
+            },
+            "MK": {
+              "gridFee": 0.018,
+              "energyTax": 0.004,
+              "retailMarkup": 0.007,
+              "vatRate": 1.18,
+              "description": "North Macedonia - typical residential"
+            },
+            "AL": {
+              "gridFee": 0.015,
+              "energyTax": 0.003,
+              "retailMarkup": 0.006,
+              "vatRate": 1.20,
+              "description": "Albania - typical residential"
+            },
+            "TR": {
+              "gridFee": 0.012,
+              "energyTax": 0.005,
+              "retailMarkup": 0.008,
+              "vatRate": 1.18,
+              "description": "Turkey - typical residential"
+            },
             "default": {
               "gridFee": 0.040,
               "energyTax": 0.020,
@@ -2146,6 +2314,19 @@
         Homey.get("use_dst", function (err, value) {
           if (err) return Homey.alert(err);
           if (value !== undefined) useDstElement.checked = value;
+        });
+
+        Homey.get("time_zone_name", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (timeZoneNameElement) {
+            const tzName = typeof value === 'string' ? value : '';
+            timeZoneNameElement.value = tzName;
+            if (timeZoneNameStatusElement) {
+              timeZoneNameStatusElement.textContent = tzName
+                ? `Using timezone: ${tzName}`
+                : 'Using UTC offset fallback';
+            }
+          }
         });
 
         // Load Zone2 settings
@@ -2654,6 +2835,13 @@
           if (useDstElement) {
             Homey.set("use_dst", useDstElement.checked, function (err) {
               if (err) console.error('Error saving use_dst:', err);
+            });
+          }
+
+          if (timeZoneNameElement) {
+            const tzName = (timeZoneNameElement.value || '').trim();
+            Homey.set("time_zone_name", tzName || null, function (err) {
+              if (err) console.error('Error saving time_zone_name:', err);
             });
           }
 

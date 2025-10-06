@@ -572,7 +572,13 @@ export default class HeatOptimizerApp extends App {
     // Initialize Time Zone Helper with current settings
     const tzOffset = this.homey.settings.get('time_zone_offset') || 2;
     const useDST = this.homey.settings.get('use_dst') || false;
-    this.timeZoneHelper = new TimeZoneHelper(this.logger, Number(tzOffset), Boolean(useDST));
+    const timeZoneName = this.homey.settings.get('time_zone_name') || undefined;
+    this.timeZoneHelper = new TimeZoneHelper(
+      this.logger,
+      Number(tzOffset),
+      Boolean(useDST),
+      typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined
+    );
 
     // Log initialization
     this.log(`Centralized logger initialized with level: ${LogLevel[logLevel]}`);
@@ -584,17 +590,27 @@ export default class HeatOptimizerApp extends App {
   private async updateTimezoneSettings(): Promise<void> {
     const tzOffset = this.homey.settings.get('time_zone_offset') || 2;
     const useDST = this.homey.settings.get('use_dst') || false;
+    const timeZoneName = this.homey.settings.get('time_zone_name');
     
     // Update our own TimeZoneHelper
     if (this.timeZoneHelper) {
-      this.timeZoneHelper.updateSettings(Number(tzOffset), Boolean(useDST));
+      this.timeZoneHelper.updateSettings(
+        Number(tzOffset),
+        Boolean(useDST),
+        typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined
+      );
     }
     
     // Update services through API if available
     try {
       const api = require('../api.js');
       if (api.updateAllServiceTimezones) {
-        await api.updateAllServiceTimezones(this.homey, Number(tzOffset), Boolean(useDST));
+        await api.updateAllServiceTimezones(
+          this.homey,
+          Number(tzOffset),
+          Boolean(useDST),
+          typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined
+        );
       }
     } catch (error) {
       this.error('Failed to update service timezones via API:', error as Error);
@@ -690,7 +706,7 @@ export default class HeatOptimizerApp extends App {
       }
     }
     // If timezone settings changed, update all services
-    else if (['time_zone_offset', 'use_dst'].includes(key)) {
+    else if (['time_zone_offset', 'use_dst', 'time_zone_name'].includes(key)) {
       this.log(`Timezone setting '${key}' changed, updating all services`);
       
       try {

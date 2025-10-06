@@ -109,8 +109,9 @@ export class EntsoePriceService implements PriceProvider {
     }
   }
 
-  updateTimeZoneSettings(): void {
+  updateTimeZoneSettings(offsetHours?: number, useDst?: boolean, timeZoneName?: string): void {
     // ENTSO-E timestamps are UTC-based; nothing to adjust for local offsets.
+    // Parameters are ignored for compatibility with the interface
   }
 
   cleanup(): void {

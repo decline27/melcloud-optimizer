@@ -48,13 +48,18 @@ function selectPriceProvider(
   tibberToken: string | null,
   timeZoneOffset: number,
   useDST: boolean,
+  timeZoneName?: string | null,
   appLogger?: any
 ): PriceProvider | null {
   if (priceSource === 'tibber') {
     if (tibberToken) {
       const tibberLogger = (appLogger && typeof appLogger.api === 'function') ? appLogger : undefined;
       const tibberApi = new TibberApi(tibberToken, tibberLogger);
-      tibberApi.updateTimeZoneSettings(timeZoneOffset, useDST);
+      tibberApi.updateTimeZoneSettings(
+        timeZoneOffset,
+        useDST,
+        typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined
+      );
       homey.app.log?.('Tibber price provider initialized');
       return tibberApi;
     }
@@ -209,6 +214,7 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
   // Get timezone settings for all services
   const timeZoneOffset = homey.settings.get('time_zone_offset') || 2;
   const useDST = homey.settings.get('use_dst') || false;
+  const timeZoneName = homey.settings.get('time_zone_name');
 
   if (!melcloudUser || !melcloudPass) {
     throw new Error('MELCloud credentials are required. Please configure them in the settings.');
@@ -233,12 +239,17 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
   homey.app.log('- Building ID:', buildingId, '(Will be resolved after login)');
   homey.app.log('- Weather Data:', useWeatherData ? '✓ Enabled' : '✗ Disabled');
   homey.app.log('- Timezone Offset:', timeZoneOffset, 'hours');
+  homey.app.log('- Timezone Name:', timeZoneName || 'n/a');
   homey.app.log('- DST Enabled:', useDST ? '✓ Yes' : '✗ No');
 
   const melCloudLogger = (appLogger && typeof appLogger.api === 'function') ? appLogger : undefined;
   const melCloud = new MelCloudApi(melCloudLogger);
   // Set timezone settings after construction
-  melCloud.updateTimeZoneSettings(timeZoneOffset, useDST);
+  melCloud.updateTimeZoneSettings(
+    timeZoneOffset,
+    useDST,
+    typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined
+  );
   await melCloud.login(melcloudUser, melcloudPass);
   serviceState.melCloud = melCloud;
   (global as any).melCloud = melCloud;
@@ -270,6 +281,7 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
     tibberToken || null,
     timeZoneOffset,
     useDST,
+    typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined,
     appLogger
   );
 
@@ -342,6 +354,7 @@ export function refreshPriceProvider(homey: HomeyLike): PriceProvider | null {
   const tibberToken = homey.settings.get('tibber_token') || homey.settings.get('tibberToken') || null;
   const timeZoneOffset = homey.settings.get('time_zone_offset') || 2;
   const useDST = homey.settings.get('use_dst') || false;
+  const timeZoneName = homey.settings.get('time_zone_name');
 
   const priceProvider = selectPriceProvider(
     homey,
@@ -349,6 +362,7 @@ export function refreshPriceProvider(homey: HomeyLike): PriceProvider | null {
     tibberToken,
     timeZoneOffset,
     useDST,
+    typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined,
     appLogger
   );
 

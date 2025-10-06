@@ -45,9 +45,15 @@ export class TibberApi extends BaseApiService {
    * @param timeZoneOffset Timezone offset in hours
    * @param useDST Whether to use daylight saving time
    */
-  public updateTimeZoneSettings(timeZoneOffset: number, useDST: boolean): void {
-    this.timeZoneHelper.updateSettings(timeZoneOffset, useDST);
-    this.logger.info(`Tibber API timezone settings updated: offset=${timeZoneOffset}, DST=${useDST}`);
+  public updateTimeZoneSettings(timeZoneOffset: number, useDST: boolean, timeZoneName?: string): void {
+    this.timeZoneHelper.updateSettings(
+      timeZoneOffset,
+      useDST,
+      typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined
+    );
+    this.logger.info(
+      `Tibber API timezone settings updated: offset=${timeZoneOffset}, DST=${useDST}, name=${timeZoneName || 'n/a'}`
+    );
   }
 
   /**

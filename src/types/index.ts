@@ -89,7 +89,7 @@ export interface TibberPriceInfo {
 
 export interface PriceProvider {
   getPrices(): Promise<TibberPriceInfo>;
-  updateTimeZoneSettings?(offsetHours: number, useDst: boolean): void;
+  updateTimeZoneSettings?(offsetHours: number, useDst: boolean, timeZoneName?: string): void;
   cleanup?(): void;
 }
 
