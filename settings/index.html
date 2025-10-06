@@ -401,6 +401,30 @@
         <input class="homey-form-input" id="grid_fee_per_kwh" type="number" min="0" step="0.01" placeholder="e.g., 1.04" />
         <p class="homey-form-helper">Optional. Adds your local grid fee to the electricity price when calculating savings. Example: 1.04 SEK/kWh.</p>
       </div>
+
+      <div class="homey-form-group" id="consumer_markup_section" style="display: none;">
+        <label class="homey-form-label">
+          <input type="checkbox" id="enable_consumer_markup" />
+          <span>Convert ENTSO-E wholesale to consumer prices</span>
+        </label>
+        <p class="homey-form-helper">Add taxes, grid fees, and markup to ENTSO-E wholesale prices to approximate consumer prices.</p>
+      </div>
+
+      <div class="homey-form-group" id="consumer_markup_config_section" style="display: none;">
+        <label class="homey-form-label" for="consumer_markup_config">Consumer Price Components (JSON)</label>
+        <textarea class="homey-form-input" id="consumer_markup_config" rows="12" placeholder="Consumer markup configuration..."></textarea>
+        <p class="homey-form-helper">Configure grid fees, taxes, and markup by country. <button type="button" class="homey-button-secondary" id="load_markup_defaults">Load Defaults</button></p>
+        <div id="consumer_markup_status" class="homey-form-helper" style="color: #666; font-style: italic;"></div>
+      </div>
+
+      <div class="homey-form-group" id="markup_currency_section" style="display: none;">
+        <label class="homey-form-label" for="markup_currency_unit">Markup Values Currency</label>
+        <select class="homey-form-input" id="markup_currency_unit">
+          <option value="LOCAL">Local Currency (SEK, EUR, etc.)</option>
+          <option value="EUR">Euro (EUR)</option>
+        </select>
+        <p class="homey-form-helper">Currency unit for grid fees, taxes, and markup values in the configuration above.</p>
+      </div>
     </details>
 
     <details class="homey-form-fieldset">
@@ -1318,6 +1342,16 @@
         const currencyCodeElement = document.getElementById("currency_code");
         const saveElement = document.getElementById("save");
 
+        // Consumer markup elements (declared early to avoid initialization errors)
+        const enableConsumerMarkupElement = document.getElementById("enable_consumer_markup");
+        const consumerMarkupConfigElement = document.getElementById("consumer_markup_config");
+        const markupCurrencyUnitElement = document.getElementById("markup_currency_unit");
+        const consumerMarkupSection = document.getElementById("consumer_markup_section");
+        const consumerMarkupConfigSection = document.getElementById("consumer_markup_config_section");
+        const markupCurrencySection = document.getElementById("markup_currency_section");
+        const loadMarkupDefaultsButton = document.getElementById("load_markup_defaults");
+        const consumerMarkupStatus = document.getElementById("consumer_markup_status");
+
         // Zone2 elements
         const enableZone2Element = document.getElementById("enable_zone2");
         const zone2SettingsDiv = document.getElementById("zone2_settings");
@@ -1555,6 +1589,233 @@
           if (selection === 'entsoe') {
             ensureEntsoeDefaultZone();
           }
+          
+          // Update consumer markup visibility based on price source
+          updateConsumerMarkupVisibility();
+        }
+
+        // Consumer markup helper functions (defined before use)
+        function updateConsumerMarkupVisibility() {
+          const isEnabled = enableConsumerMarkupElement && enableConsumerMarkupElement.checked;
+          const isEntsoeSelected = priceSourceEntsoeElement && priceSourceEntsoeElement.checked;
+          
+          // Only show consumer markup settings when ENTSO-E is selected
+          if (consumerMarkupSection) {
+            consumerMarkupSection.style.display = isEntsoeSelected ? 'block' : 'none';
+          }
+          if (consumerMarkupConfigSection) {
+            consumerMarkupConfigSection.style.display = (isEntsoeSelected && isEnabled) ? 'block' : 'none';
+          }
+          if (markupCurrencySection) {
+            markupCurrencySection.style.display = (isEntsoeSelected && isEnabled) ? 'block' : 'none';
+          }
+        }
+
+        function loadDefaultConsumerMarkupConfig() {
+          const defaultConfig = {
+            "SE": {
+              "gridFee": 0.030,
+              "energyTax": 0.036,
+              "retailMarkup": 0.010,
+              "vatRate": 1.25,
+              "description": "Sweden - typical residential"
+            },
+            "DE": {
+              "gridFee": 0.070,
+              "energyTax": 0.025,
+              "retailMarkup": 0.015,
+              "vatRate": 1.19,
+              "description": "Germany - typical residential"
+            },
+            "NO": {
+              "gridFee": 0.035,
+              "energyTax": 0.017,
+              "retailMarkup": 0.008,
+              "vatRate": 1.25,
+              "description": "Norway - typical residential"
+            },
+            "DK": {
+              "gridFee": 0.045,
+              "energyTax": 0.089,
+              "retailMarkup": 0.012,
+              "vatRate": 1.25,
+              "description": "Denmark - typical residential"
+            },
+            "FR": {
+              "gridFee": 0.045,
+              "energyTax": 0.022,
+              "retailMarkup": 0.012,
+              "vatRate": 1.20,
+              "description": "France - typical residential"
+            },
+            "NL": {
+              "gridFee": 0.055,
+              "energyTax": 0.030,
+              "retailMarkup": 0.018,
+              "vatRate": 1.21,
+              "description": "Netherlands - typical residential"
+            },
+            "BE": {
+              "gridFee": 0.048,
+              "energyTax": 0.028,
+              "retailMarkup": 0.015,
+              "vatRate": 1.21,
+              "description": "Belgium - typical residential"
+            },
+            "AT": {
+              "gridFee": 0.038,
+              "energyTax": 0.015,
+              "retailMarkup": 0.012,
+              "vatRate": 1.20,
+              "description": "Austria - typical residential"
+            },
+            "CH": {
+              "gridFee": 0.065,
+              "energyTax": 0.023,
+              "retailMarkup": 0.020,
+              "vatRate": 1.077,
+              "description": "Switzerland - typical residential"
+            },
+            "FI": {
+              "gridFee": 0.042,
+              "energyTax": 0.027,
+              "retailMarkup": 0.015,
+              "vatRate": 1.24,
+              "description": "Finland - typical residential"
+            },
+            "PL": {
+              "gridFee": 0.025,
+              "energyTax": 0.012,
+              "retailMarkup": 0.008,
+              "vatRate": 1.23,
+              "description": "Poland - typical residential"
+            },
+            "CZ": {
+              "gridFee": 0.030,
+              "energyTax": 0.018,
+              "retailMarkup": 0.010,
+              "vatRate": 1.21,
+              "description": "Czech Republic - typical residential"
+            },
+            "IT": {
+              "gridFee": 0.055,
+              "energyTax": 0.035,
+              "retailMarkup": 0.018,
+              "vatRate": 1.22,
+              "description": "Italy - typical residential"
+            },
+            "ES": {
+              "gridFee": 0.045,
+              "energyTax": 0.051,
+              "retailMarkup": 0.015,
+              "vatRate": 1.21,
+              "description": "Spain - typical residential"
+            },
+            "PT": {
+              "gridFee": 0.042,
+              "energyTax": 0.034,
+              "retailMarkup": 0.013,
+              "vatRate": 1.23,
+              "description": "Portugal - typical residential"
+            },
+            "GB": {
+              "gridFee": 0.050,
+              "energyTax": 0.006,
+              "retailMarkup": 0.020,
+              "vatRate": 1.05,
+              "description": "United Kingdom - typical residential"
+            },
+            "EE": {
+              "gridFee": 0.035,
+              "energyTax": 0.007,
+              "retailMarkup": 0.012,
+              "vatRate": 1.20,
+              "description": "Estonia - typical residential"
+            },
+            "LV": {
+              "gridFee": 0.038,
+              "energyTax": 0.009,
+              "retailMarkup": 0.014,
+              "vatRate": 1.21,
+              "description": "Latvia - typical residential"
+            },
+            "LT": {
+              "gridFee": 0.040,
+              "energyTax": 0.011,
+              "retailMarkup": 0.016,
+              "vatRate": 1.21,
+              "description": "Lithuania - typical residential"
+            },
+            "SK": {
+              "gridFee": 0.028,
+              "energyTax": 0.015,
+              "retailMarkup": 0.009,
+              "vatRate": 1.20,
+              "description": "Slovakia - typical residential"
+            },
+            "SI": {
+              "gridFee": 0.045,
+              "energyTax": 0.030,
+              "retailMarkup": 0.012,
+              "vatRate": 1.22,
+              "description": "Slovenia - typical residential"
+            },
+            "HU": {
+              "gridFee": 0.022,
+              "energyTax": 0.008,
+              "retailMarkup": 0.007,
+              "vatRate": 1.27,
+              "description": "Hungary - typical residential"
+            },
+            "default": {
+              "gridFee": 0.040,
+              "energyTax": 0.020,
+              "retailMarkup": 0.010,
+              "vatRate": 1.20,
+              "description": "EU average approximation"
+            }
+          };
+
+          const configJson = JSON.stringify(defaultConfig, null, 2);
+          if (consumerMarkupConfigElement) {
+            consumerMarkupConfigElement.value = configJson;
+            Homey.set("consumer_markup_config", configJson, function (err) {
+              if (err) console.error('Error saving default consumer_markup_config:', err);
+            });
+            validateConsumerMarkupConfig();
+          }
+        }
+
+        function validateConsumerMarkupConfig() {
+          if (!consumerMarkupConfigElement || !consumerMarkupStatus) return;
+          
+          const value = consumerMarkupConfigElement.value.trim();
+          if (!value) {
+            consumerMarkupStatus.textContent = 'Configuration is empty. Click "Load Defaults" to get started.';
+            consumerMarkupStatus.style.color = '#999';
+            return;
+          }
+
+          try {
+            const config = JSON.parse(value);
+            const countries = Object.keys(config);
+            const validCountries = countries.filter(country => {
+              const c = config[country];
+              return c && typeof c.gridFee === 'number' && typeof c.energyTax === 'number' && 
+                     typeof c.retailMarkup === 'number' && typeof c.vatRate === 'number';
+            });
+            
+            if (validCountries.length === 0) {
+              consumerMarkupStatus.textContent = 'Invalid configuration: No valid country entries found.';
+              consumerMarkupStatus.style.color = '#d32f2f';
+            } else {
+              consumerMarkupStatus.textContent = `Valid configuration with ${validCountries.length} countries: ${validCountries.join(', ')}`;
+              consumerMarkupStatus.style.color = '#2e7d32';
+            }
+          } catch (error) {
+            consumerMarkupStatus.textContent = 'Invalid JSON format. Please check syntax.';
+            consumerMarkupStatus.style.color = '#d32f2f';
+          }
         }
 
         function savePriceSource(value) {
@@ -1580,6 +1841,7 @@
           priceSourceTibberElement.addEventListener('change', function () {
             if (priceSourceTibberElement.checked) {
               savePriceSource('tibber');
+              updateConsumerMarkupVisibility();
             }
           });
         }
@@ -1587,6 +1849,7 @@
           priceSourceEntsoeElement.addEventListener('change', function () {
             if (priceSourceEntsoeElement.checked) {
               savePriceSource('entsoe');
+              updateConsumerMarkupVisibility();
             }
           });
         }
@@ -1600,6 +1863,40 @@
         if (entsoeAutoButton) {
           entsoeAutoButton.addEventListener('click', function () {
             ensureEntsoeDefaultZone(true);
+          });
+        }
+
+        // Consumer markup event handlers
+        if (enableConsumerMarkupElement) {
+          enableConsumerMarkupElement.addEventListener('change', function () {
+            Homey.set("enable_consumer_markup", enableConsumerMarkupElement.checked, function (err) {
+              if (err) console.error('Error saving enable_consumer_markup:', err);
+            });
+            updateConsumerMarkupVisibility();
+          });
+        }
+
+        if (consumerMarkupConfigElement) {
+          consumerMarkupConfigElement.addEventListener('change', function () {
+            const value = consumerMarkupConfigElement.value.trim();
+            Homey.set("consumer_markup_config", value, function (err) {
+              if (err) console.error('Error saving consumer_markup_config:', err);
+            });
+            validateConsumerMarkupConfig();
+          });
+        }
+
+        if (markupCurrencyUnitElement) {
+          markupCurrencyUnitElement.addEventListener('change', function () {
+            Homey.set("markup_currency_unit", markupCurrencyUnitElement.value, function (err) {
+              if (err) console.error('Error saving markup_currency_unit:', err);
+            });
+          });
+        }
+
+        if (loadMarkupDefaultsButton) {
+          loadMarkupDefaultsButton.addEventListener('click', function () {
+            loadDefaultConsumerMarkupConfig();
           });
         }
 
@@ -1742,6 +2039,29 @@
         // Load costs & consumption settings
         Homey.get("grid_fee_per_kwh", function (err, value) {
           if (!err && value !== undefined && value !== null) gridFeeElement.value = value;
+        });
+
+        // Load consumer markup settings
+        Homey.get("enable_consumer_markup", function (err, value) {
+          if (!err && value !== undefined) {
+            enableConsumerMarkupElement.checked = !!value;
+            updateConsumerMarkupVisibility();
+          }
+        });
+
+        Homey.get("consumer_markup_config", function (err, value) {
+          if (!err && typeof value === 'string' && value.trim()) {
+            consumerMarkupConfigElement.value = value;
+            validateConsumerMarkupConfig();
+          } else {
+            loadDefaultConsumerMarkupConfig();
+          }
+        });
+
+        Homey.get("markup_currency_unit", function (err, value) {
+          if (!err && typeof value === 'string') {
+            markupCurrencyUnitElement.value = value;
+          }
         });
 
         Homey.get("temp_step_max", function (err, value) {
