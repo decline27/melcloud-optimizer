@@ -3,6 +3,9 @@
   "title": {
     "en": "Fetch ENTSO-E day-ahead prices"
   },
+  "titleFormatted": {
+    "en": "Fetch ENTSO-E day-ahead prices for [[zone]]"
+  },
   "hint": {
     "en": "Returns hourly prices for the selected ENTSO-E price area."
   },

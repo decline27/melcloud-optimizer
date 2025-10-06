@@ -1,7 +1,7 @@
 {
   "name": "com.melcloud.optimize",
-  "version": "12.5.0",
-  "description": "Heat Pump Optimizer for Homey SDK 3.0 (TypeScript)",
+  "version": "14.0.1",
+  "description": "Optimize your MELCloud heat pump based on electricity prices and weather",
   "main": "index.js",
   "scripts": {
     "build": "tsc && homey app build",
