@@ -109,5 +109,8 @@
   },
   "14.0.0": {
     "en": "New pris api for all EU markets you don"
+  },
+  "14.0.1": {
+    "en": "new price provider"
   }
 }
