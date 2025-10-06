@@ -22,7 +22,7 @@ To use this app you need:
 - Homey Pro device (2019 or later)
 - Mitsubishi Electric heat pump connected through MELCloud
 - MELCloud account (same login as the official MELCloud app)
-- Either a Tibber account with API access OR an ENTSO-E API token
+- Either a Tibber account with API access OR use the free ENTSO-E price data
 
 The app works with most Mitsubishi Electric heat pumps that support MELCloud connectivity, including air-to-water and ground source models.
 
@@ -42,11 +42,10 @@ SETUP GUIDE:
    - Tibber provides real-time consumer prices including all taxes and fees
 
    ENTSO-E (Free option for European users):
-   - Register for a free account at transparency.entsoe.eu
-   - Go to Account Settings and generate an API token
-   - Enter the token in the app settings
-   - Select your bidding zone/price area from the dropdown
+   - No registration or API token required
+   - Simply select your bidding zone/price area from the dropdown
    - Choose your local currency if different from EUR
+   - Enable consumer price markup for realistic pricing
 
 3. CONFIGURE CONSUMER PRICING (ENTSO-E users only):
    ENTSO-E provides wholesale market prices, but you pay consumer prices that include taxes, grid fees, and retailer markup. Enable "Convert Wholesale to Consumer Prices" to get realistic pricing.
@@ -80,9 +79,9 @@ TIBBER:
 - No additional configuration needed for realistic pricing
 
 ENTSO-E:
-- Free API access to European wholesale electricity markets
+- Free access to European wholesale electricity markets (no registration required)
 - Works in any European country regardless of your electricity provider
-- Covers 22 major European markets with hourly price data
+- Covers 33+ major European markets with hourly price data
 - Requires consumer markup configuration to convert wholesale to retail prices
 - Updates hourly with next-day prices available around 1 PM
 - Good option if Tibber is not available in your area
