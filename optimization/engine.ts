@@ -87,9 +87,11 @@ function pricePercentile(prices: PricePoint[], now: Date, horizonHours: number, 
   const end = Math.min(prices.length, idx + Math.max(1, Math.round(horizonHours)));
   const slice = prices.slice(idx, end).map(p => p.price).sort((a, b) => a - b);
   if (!slice.length) return 0.5;
-  let count = 0;
-  for (const v of slice) if (v <= currentPrice) count++;
-  return count / slice.length;
+  
+  // Find position of current price in sorted array (0 = cheapest, 1 = most expensive)
+  const position = slice.findIndex(p => p >= currentPrice);
+  if (position === -1) return 1.0; // Current price is higher than all prices
+  return position / (slice.length - 1); // Convert to 0-1 percentile
 }
 
 // ----- Decisions -----
