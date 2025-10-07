@@ -1523,12 +1523,12 @@ export class Optimizer {
       // Use thermal learning model if available
       if (this.useThermalLearning && this.thermalModelService) {
         try {
-          // Get comfort profile (if available)
+          // Get comfort profile from user settings
           const comfortProfile = {
-            dayStart: 7,
-            dayEnd: 23,
-            nightTempReduction: 2,
-            preHeatHours: 2
+            dayStart: Number(this.homey?.settings.get('day_start_hour')) || 7,
+            dayEnd: Number(this.homey?.settings.get('day_end_hour')) || 23,
+            nightTempReduction: Number(this.homey?.settings.get('night_temp_reduction')) || 2,
+            preHeatHours: Number(this.homey?.settings.get('pre_heat_hours')) || 2
           };
 
           // Get thermal model recommendation
@@ -1772,7 +1772,15 @@ export class Optimizer {
       }
       if (useEngine) {
         try {
-          const occupied = this.homey ? (this.homey.settings.get('occupied') !== false) : true;
+          // Occupancy logic: Manual override OR automatic schedule
+          const manuallyOccupied = this.homey ? (this.homey.settings.get('occupied') !== false) : true;
+          const dayStart = Number(this.homey?.settings.get('day_start_hour')) || 7;
+          const dayEnd = Number(this.homey?.settings.get('day_end_hour')) || 23;
+          const currentHour = new Date().getHours();
+          const isScheduledOccupied = currentHour >= dayStart && currentHour < dayEnd;
+          
+          // Use schedule-based occupancy when manually occupied, otherwise respect manual away
+          const occupied = manuallyOccupied ? isScheduledOccupied : false;
           const comfortLowerOcc = Number(this.homey?.settings.get('comfort_lower_occupied'));
           const comfortUpperOcc = Number(this.homey?.settings.get('comfort_upper_occupied'));
           const comfortLowerAway = Number(this.homey?.settings.get('comfort_lower_away'));
