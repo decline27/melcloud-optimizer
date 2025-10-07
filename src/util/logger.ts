@@ -376,3 +376,52 @@ export class HomeyLogger implements Logger {
     }
   }
 }
+
+/**
+ * Create a fallback logger that uses console when Homey logger is not available
+ */
+export function createFallbackLogger(prefix: string = 'MELCloud'): Logger {
+  let currentLogLevel = LogLevel.INFO;
+  const enabledCategories = new Set<LogCategory>(Object.values(LogCategory));
+
+  const fallbackLogger: Logger = {
+    log: (message: string, ...args: any[]) => console.log(`[${prefix}] ${message}`, ...args),
+    info: (message: string, ...args: any[]) => console.log(`[${prefix}] INFO: ${message}`, ...args),
+    error: (message: string, error?: Error | unknown, context?: Record<string, any>) => {
+      console.error(`[${prefix}] ERROR: ${message}`, error, context);
+    },
+    debug: (message: string, ...args: any[]) => {
+      if (currentLogLevel <= LogLevel.DEBUG) {
+        console.log(`[${prefix}] DEBUG: ${message}`, ...args);
+      }
+    },
+    warn: (message: string, context?: Record<string, any>) => console.warn(`[${prefix}] WARN: ${message}`, context),
+    api: (message: string, context?: Record<string, any>) => console.log(`[${prefix}] API: ${message}`, context),
+    optimization: (message: string, context?: Record<string, any>) => console.log(`[${prefix}] OPT: ${message}`, context),
+    notify: async (message: string) => { console.log(`[${prefix}] NOTIFY: ${message}`); },
+    marker: (message: string) => console.log(`[${prefix}] MARKER: ${message}`),
+    sendToTimeline: async (message: string, type?: 'info' | 'warning' | 'error') => { 
+      console.log(`[${prefix}] TIMELINE: ${message} (${type || 'info'})`); 
+    },
+    setLogLevel: (level: LogLevel) => { 
+      currentLogLevel = level;
+      console.log(`[${prefix}] Log level set to ${LogLevel[level]}`); 
+    },
+    setTimelineLogging: (enabled: boolean) => {
+      console.log(`[${prefix}] Timeline logging ${enabled ? 'enabled' : 'disabled'}`);
+    },
+    getLogLevel: () => currentLogLevel,
+    enableCategory: (category: LogCategory) => {
+      enabledCategories.add(category);
+      console.log(`[${prefix}] Enabled category: ${category}`);
+    },
+    disableCategory: (category: LogCategory) => {
+      enabledCategories.delete(category);
+      console.log(`[${prefix}] Disabled category: ${category}`);
+    },
+    isCategoryEnabled: (category: LogCategory) => enabledCategories.has(category),
+    formatValue: (value: any) => formatValue(value)
+  };
+  
+  return fallbackLogger;
+}

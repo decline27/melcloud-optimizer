@@ -157,7 +157,7 @@
       </div>
       <div class="homey-form-group">
         <label class="homey-form-checkbox">
-          <input type="radio" name="price_source" id="price_source_entsoe" value="entsoe" />
+          <input type="radio" name="price_source" id="price_source_entsoe" value="entsoe" checked />
           <span>Use ENTSO-E day-ahead prices (bundled token)</span>
         </label>
       </div>
@@ -170,7 +170,7 @@
       <summary class="homey-form-legend">ENTSO-E Zone (Quick)</summary>
       <div class="homey-form-group">
         <label class="homey-form-label" for="entsoe_zone_input">ISO or EIC</label>
-        <input class="homey-form-input" id="entsoe_zone_input" type="text" placeholder="SE3 or 10Y1001A1001A46L" autocomplete="off" />
+        <input class="homey-form-input" id="entsoe_zone_input" type="text" placeholder="SE3 or 10Y1001A1001A46L" autocomplete="off" value="SE3" />
         <p class="homey-form-helper">This value is stored as <code>entsoe_area_eic</code>. Use ISO (country/area) or a full EIC. For the full selector and map editor open the ENTSO-E Pricing section below.</p>
       </div>
       <div class="homey-form-group">
@@ -247,7 +247,7 @@
       <div class="homey-form-group">
         <label class="homey-form-label" for="use_engine">Use Optimization Engine</label>
         <label class="homey-form-checkbox">
-          <input type="checkbox" id="use_engine" />
+          <input type="checkbox" id="use_engine" checked />
           <span>Comfort band control + price-aware preheating (recommended)</span>
         </label>
         <p class="homey-form-helper">Turn on the advanced engine for clearer control and savings. Suggested default: <b>Enabled</b>.</p>
@@ -292,7 +292,7 @@
         <div class="homey-form-row">
           <div class="homey-form-col">
             <label class="homey-form-checkbox">
-              <input type="checkbox" id="occupied" />
+              <input type="checkbox" id="occupied" checked />
               <span>Home is occupied</span>
             </label>
             <p class="homey-form-helper">Use occupied band; turn off for away band. Can be automated via Flows. Suggested default: <b>Enabled</b>.</p>
@@ -331,7 +331,7 @@
       <div class="homey-form-group">
         <label class="homey-form-label">Price‑Aware Preheating</label>
         <label class="homey-form-checkbox">
-          <input type="checkbox" id="preheat_enable" />
+          <input type="checkbox" id="preheat_enable" checked />
           <span>Enable preheating in cheap hours</span>
         </label>
         <p class="homey-form-helper">Suggested default: <b>Enabled</b>. Builds thermal buffer during low-price hours for use during peaks.</p>
@@ -358,7 +358,7 @@
       <div class="homey-form-group">
         <label class="homey-form-label" for="enable_tank_control">Enable Hot Water Tank Control</label>
         <label class="homey-form-checkbox">
-          <input type="checkbox" id="enable_tank_control" />
+          <input type="checkbox" id="enable_tank_control" checked />
           <span>Enable optimization of hot water tank temperature</span>
         </label>
         <p class="homey-form-helper">Enable optimization of hot water tank temperature based on electricity prices. Suggested default: Enabled - allows the system to store hot water as thermal energy when electricity is cheap.</p>
@@ -410,7 +410,7 @@
       <summary class="homey-form-legend">Localization</summary>
       <div class="homey-form-group">
         <label class="homey-form-label" for="currency_code">Currency (ISO 4217)</label>
-        <input class="homey-form-input" id="currency_code" type="text" placeholder="e.g., NOK, SEK, EUR" />
+        <input class="homey-form-input" id="currency_code" type="text" placeholder="e.g., NOK, SEK, EUR" value="EUR" />
         <p class="homey-form-helper">Optional. Overrides automatic currency detection for timeline messages. Use a 3-letter code (e.g., NOK, SEK, EUR, DKK, USD).</p>
       </div>
     </details>
@@ -543,8 +543,8 @@
               <option value="-2">UTC-02:00</option>
               <option value="-1">UTC-01:00</option>
               <option value="0">UTC+00:00</option>
-              <option value="1">UTC+01:00</option>
-              <option value="2" selected>UTC+02:00</option>
+              <option value="1" selected>UTC+01:00</option>
+              <option value="2">UTC+02:00</option>
               <option value="3">UTC+03:00</option>
               <option value="4">UTC+04:00</option>
               <option value="5">UTC+05:00</option>
@@ -2401,6 +2401,10 @@
           if (value !== undefined) summerModeElement.checked = value;
         });
 
+        // Default values are now provided directly in HTML form fields
+
+        // No need for complex timing logic - defaults are in HTML now
+
         // Function to load the device list and select the saved device and building IDs
         function loadDeviceList(savedDeviceId, savedBuildingId) {
           console.log('Loading device list with saved IDs:', { savedDeviceId, savedBuildingId });
@@ -2567,14 +2571,45 @@
 
           // Disable the button and show loading state
           refreshDevicesButton.disabled = true;
-          deviceRefreshStatus.textContent = "Loading devices...";
+          deviceRefreshStatus.textContent = "Saving credentials...";
 
-          // Get the current saved IDs
-          const currentDeviceId = deviceIdElement.value || manualDeviceIdElement.value;
-          const currentBuildingId = buildingIdElement.value || manualBuildingIdElement.value;
+          // Get credentials from form inputs
+          const melcloudUser = melcloudUserElement.value.trim();
+          const melcloudPass = melcloudPassElement.value;
 
-          // Call the loadDeviceList function
-          loadDeviceList(currentDeviceId, currentBuildingId);
+          // Validate credentials
+          if (!melcloudUser || !melcloudPass) {
+            refreshDevicesButton.disabled = false;
+            deviceRefreshStatus.textContent = "Error: Please enter both email and password";
+            return;
+          }
+
+          // Save credentials to Homey settings first
+          Homey.set("melcloud_user", melcloudUser, function (err) {
+            if (err) {
+              refreshDevicesButton.disabled = false;
+              deviceRefreshStatus.textContent = "Error saving email: " + err.message;
+              return;
+            }
+
+            Homey.set("melcloud_pass", melcloudPass, function (err) {
+              if (err) {
+                refreshDevicesButton.disabled = false;
+                deviceRefreshStatus.textContent = "Error saving password: " + err.message;
+                return;
+              }
+
+              // Credentials saved successfully, now load devices
+              deviceRefreshStatus.textContent = "Loading devices...";
+
+              // Get the current saved IDs
+              const currentDeviceId = deviceIdElement.value || manualDeviceIdElement.value;
+              const currentBuildingId = buildingIdElement.value || manualBuildingIdElement.value;
+
+              // Call the loadDeviceList function
+              loadDeviceList(currentDeviceId, currentBuildingId);
+            });
+          });
         });
 
         // Add event listener for the device selection to update building selection

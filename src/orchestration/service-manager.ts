@@ -42,6 +42,20 @@ const createEmptyHistoricalData = (): HistoricalData => ({
   lastCalibration: null
 });
 
+// Default settings are now provided directly in the HTML form fields
+
+/**
+ * Initialize K factor with default value if not set
+ * K factor is auto-calibrated by weekly jobs, but needs a starting value
+ */
+function initializeKFactor(homey: HomeyLike): void {
+  const currentKFactor = homey.settings.get('initial_k');
+  if (currentKFactor === null || currentKFactor === undefined || currentKFactor === 0) {
+    homey.settings.set('initial_k', 0.3);
+    homey.app.log?.('Initialized K factor (initial_k) with default value: 0.3 (will be auto-calibrated by weekly jobs)');
+  }
+}
+
 function selectPriceProvider(
   homey: HomeyLike,
   priceSource: 'tibber' | 'entsoe',
@@ -95,6 +109,8 @@ export function resetServiceState(): void {
   serviceState.weather = null;
   serviceState.historicalData = createEmptyHistoricalData();
 }
+
+// Default settings removed - now provided directly in HTML form
 
 export function applyServiceOverrides(overrides: Partial<ServiceState>): void {
   if (Object.prototype.hasOwnProperty.call(overrides, 'melCloud')) {
@@ -198,12 +214,16 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
     (global as any).logger = appLogger;
   }
 
+  // Default settings are now provided directly in the HTML form
+  // Initialize K factor with default value (gets auto-calibrated by weekly jobs)
+  initializeKFactor(homey);
+
   loadHistoricalData(homey);
 
   const melcloudUser = homey.settings.get('melcloud_user') || homey.settings.get('melcloudUser');
   const melcloudPass = homey.settings.get('melcloud_pass') || homey.settings.get('melcloudPass');
   const tibberToken = homey.settings.get('tibber_token') || homey.settings.get('tibberToken');
-  const deviceId = homey.settings.get('device_id') || homey.settings.get('deviceId') || 'Boiler';
+  let deviceId = homey.settings.get('device_id') || homey.settings.get('deviceId') || 'Boiler';
   let buildingIdRaw = homey.settings.get('building_id') || homey.settings.get('buildingId') || '456';
   const useWeatherData = homey.settings.get('use_weather_data') !== false;
   const priceSourceSetting = (homey.settings.get('price_data_source') || 'tibber') as string;
@@ -224,7 +244,7 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
   if (!Number.isFinite(parsedBuildingId)) {
     buildingIdRaw = '456';
   }
-  const buildingId = Number.isFinite(parsedBuildingId) ? parsedBuildingId : 456;
+  let buildingId = Number.isFinite(parsedBuildingId) ? parsedBuildingId : 456;
 
   homey.app.log(`Using device ID: ${deviceId}`);
   homey.app.log(`Using building ID: ${buildingId}`);
@@ -263,13 +283,69 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
       homey.app.log(`Device: ${device.name} (ID: ${device.id}, Building ID: ${device.buildingId})`);
     });
     homey.app.log('=============================');
-    const exists = devices.some((device: any) => (
-      device.id?.toString() === deviceId.toString() ||
-      String(device.name || '').toLowerCase() === deviceId.toLowerCase()
-    ));
-    if (!exists && devices[0]) {
-      const fallback = devices[0];
-      homey.app.log(`WARNING: Configured device ID "${deviceId}" not found. Using ${fallback.name} (ID: ${fallback.id}).`);
+    
+    // Automatic device ID resolution for initial setup
+    let resolvedDeviceId = deviceId;
+    let resolvedBuildingId = buildingId;
+    let deviceResolved = false;
+    
+    // Check if we need to resolve device IDs (placeholder values or invalid numeric IDs)
+    const needsResolution = (
+      deviceId === 'Boiler' || // Default placeholder
+      buildingId === 456 || // Default placeholder
+      !devices.some((device: any) => device.id?.toString() === deviceId.toString()) // Device ID doesn't exist
+    );
+    
+    if (needsResolution) {
+      // Try to find device by name match first
+      let targetDevice = devices.find((device: any) => 
+        String(device.name || '').toLowerCase() === deviceId.toLowerCase()
+      );
+      
+      // If no name match, try by numeric ID
+      if (!targetDevice) {
+        targetDevice = devices.find((device: any) => 
+          device.id?.toString() === deviceId.toString()
+        );
+      }
+      
+      // If still no match, use the first available device
+      if (!targetDevice && devices.length > 0) {
+        targetDevice = devices[0];
+        homey.app.log(`WARNING: Configured device ID "${deviceId}" not found. Auto-resolving to first available device.`);
+      }
+      
+      if (targetDevice) {
+        resolvedDeviceId = targetDevice.id.toString();
+        resolvedBuildingId = targetDevice.buildingId;
+        deviceResolved = true;
+        
+        // Update settings with resolved IDs
+        homey.settings.set('device_id', resolvedDeviceId);
+        homey.settings.set('building_id', resolvedBuildingId);
+        
+        homey.app.log(`🔄 AUTO-RESOLVED DEVICE IDs:`);
+        homey.app.log(`- Original: Device ID "${deviceId}", Building ID "${buildingId}"`);
+        homey.app.log(`- Resolved: Device ID "${resolvedDeviceId}", Building ID "${resolvedBuildingId}"`);
+        homey.app.log(`- Device Name: "${targetDevice.name}"`);
+        homey.app.log(`✅ Settings updated with resolved device IDs`);
+      }
+    } else {
+      // Verify that the configured device exists
+      const exists = devices.some((device: any) => (
+        device.id?.toString() === deviceId.toString() ||
+        String(device.name || '').toLowerCase() === deviceId.toLowerCase()
+      ));
+      if (!exists && devices[0]) {
+        const fallback = devices[0];
+        homey.app.log(`WARNING: Configured device ID "${deviceId}" not found. Consider using ${fallback.name} (ID: ${fallback.id}).`);
+      }
+    }
+    
+    // Update the variables for subsequent service initialization
+    if (deviceResolved) {
+      deviceId = resolvedDeviceId;
+      buildingId = resolvedBuildingId;
     }
   } else {
     homey.app.log('WARNING: No devices found in your MELCloud account.');

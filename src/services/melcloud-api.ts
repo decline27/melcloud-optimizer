@@ -1,6 +1,6 @@
 import * as https from 'https';
 import { URL } from 'url';
-import { Logger } from '../util/logger';
+import { Logger, createFallbackLogger } from '../util/logger';
 import { DeviceInfo, MelCloudDevice, HomeySettings } from '../types';
 import { ErrorHandler, AppError, ErrorCategory } from '../util/error-handler';
 import { BaseApiService } from './base-api-service';
@@ -35,8 +35,11 @@ export class MelCloudApi extends BaseApiService {
    * @param logger Logger instance
    */
   constructor(logger?: Logger) {
+    // Ensure we have a valid logger - use fallback if none provided
+    const safeLogger = logger || (global.logger as Logger) || createFallbackLogger('MELCloud');
+    
     // Call the parent constructor with service name and logger
-    super('MELCloud', logger || (global.logger as Logger), {
+    super('MELCloud', safeLogger, {
       failureThreshold: 3,
       resetTimeout: 60000, // 1 minute
       halfOpenSuccessThreshold: 1,
@@ -1157,9 +1160,17 @@ export class MelCloudApi extends BaseApiService {
   ): Promise<any> {
     const url = 'EnergyCost/Report';
     
+    // Validate device ID - must be numeric
+    const numericDeviceId = parseInt(deviceId, 10);
+    if (isNaN(numericDeviceId) || numericDeviceId <= 0) {
+      this.logger.info(`Invalid device ID for energy data: ${deviceId} (parsed as ${numericDeviceId}), skipping API call`);
+      // Return empty data structure instead of failing
+      return { message: 'Invalid device ID - energy data not available' };
+    }
+    
     // Build the request body according to MELCloud API specification
     const postData = {
-      DeviceID: parseInt(deviceId),
+      DeviceID: numericDeviceId,
       FromDate: from || '1970-01-01',
       ToDate: to || new Date().toISOString().split('T')[0]
     };
@@ -1206,6 +1217,28 @@ export class MelCloudApi extends BaseApiService {
     HasZone2?: boolean; // Include Zone 2 support flag from API
   }> {
     try {
+      // Validate device ID - must be numeric
+      const numericDeviceId = parseInt(deviceId, 10);
+      if (isNaN(numericDeviceId) || numericDeviceId <= 0) {
+        this.logger.info(`Invalid device ID for daily energy totals: ${deviceId}, returning zero values`);
+        // Return safe defaults
+        return {
+          TotalHeatingConsumed: 0,
+          TotalHeatingProduced: 0,
+          TotalHotWaterConsumed: 0,
+          TotalHotWaterProduced: 0,
+          TotalCoolingConsumed: 0,
+          TotalCoolingProduced: 0,
+          CoP: [],
+          AverageHeatingCOP: 0,
+          AverageHotWaterCOP: 0,
+          heatingCOP: null,
+          hotWaterCOP: null,
+          coolingCOP: null,
+          averageCOP: null,
+          HasZone2: false
+        };
+      }
       // Try with a broader date range - last 7 days to increase chances of getting data
       const today = new Date();
       const oneWeekAgo = new Date(today);

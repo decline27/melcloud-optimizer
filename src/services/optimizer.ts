@@ -337,8 +337,10 @@ export class Optimizer {
 
         this.logger.log(`Hot water tank settings loaded - Enabled: ${this.enableTankControl}, Min: ${this.minTankTemp}°C, Max: ${this.maxTankTemp}°C, Step: ${this.tankTempStep}°C`);
 
-        // Initialize thermal mass model from historical data
-        this.initializeThermalMassFromHistory();
+        // Initialize thermal mass model from historical data (async, non-blocking)
+        this.initializeThermalMassFromHistory().catch(error => {
+          this.logger.log('Failed to initialize thermal mass from history (this is normal during initial setup):', error);
+        });
         
       } catch (error) {
         this.logger.error('Failed to initialize COP helper:', error);
@@ -376,6 +378,13 @@ export class Optimizer {
   private async initializeThermalMassFromHistory(): Promise<void> {
     try {
       if (!this.homey) return;
+      
+      // Validate device ID before attempting to fetch data
+      const numericDeviceId = parseInt(this.deviceId, 10);
+      if (isNaN(numericDeviceId) || numericDeviceId <= 0) {
+        this.logger.log(`Cannot initialize thermal mass from history - invalid device ID: ${this.deviceId}. This is normal during initial setup.`);
+        return;
+      }
       
       // Get recent energy data to learn thermal characteristics
       const sevenDaysAgo = new Date();

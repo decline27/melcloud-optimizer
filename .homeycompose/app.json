@@ -1,6 +1,6 @@
 {
   "id": "com.melcloud.optimize",
-  "version": "14.0.1",
+  "version": "14.0.2",
   "compatibility": ">=12.2.0",
   "sdk": 3,
   "platforms": [
@@ -257,6 +257,14 @@
     "validateAndStartCron": {
       "method": "GET",
       "path": "/validateAndStartCron"
+    },
+    "updateAllServiceTimezones": {
+      "method": "GET",
+      "path": "/updateAllServiceTimezones"
+    },
+    "updatePriceProvider": {
+      "method": "GET",
+      "path": "/updatePriceProvider"
     }
   }
 }

@@ -2890,12 +2890,18 @@ const apiHandlers: ApiHandlers = {
         const melcloudPass = homey.settings.get('melcloud_pass');
         const tibberToken = homey.settings.get('tibber_token');
         const deviceId = homey.settings.get('device_id');
+        const priceDataSource = homey.settings.get('price_data_source') || 'tibber';
         
         // Check for missing required settings
         const missingSettings = [];
         if (!melcloudUser) missingSettings.push('MELCloud email');
         if (!melcloudPass) missingSettings.push('MELCloud password');
-        if (!tibberToken) missingSettings.push('Tibber API token');
+        
+        // Only require Tibber token if Tibber is selected as price source
+        if (priceDataSource === 'tibber' && !tibberToken) {
+          missingSettings.push('Tibber API token');
+        }
+        
         if (!deviceId) missingSettings.push('Device ID');
         
         const isValid = missingSettings.length === 0;
