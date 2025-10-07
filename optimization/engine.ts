@@ -109,10 +109,16 @@ export function computeHeatingDecision(cfg: EngineConfig, inp: EngineInputs): He
     target = Math.min(band.upperC + 0.2, cfg.maxSetpointC);
   }
 
-  // Preheat when cheap and cold outside (build thermal buffer)
+  // Preheat when cheap and cool/cold outside (build thermal buffer)
   const cheap = pctl <= cfg.preheat.cheapPercentile;
-  if (cfg.preheat.enable && cheap && inp.weather.outdoorC < 5 && inp.telemetry.indoorC < band.upperC - 0.1) {
+  if (cfg.preheat.enable && cheap && inp.weather.outdoorC < 15 && inp.telemetry.indoorC < band.upperC - 0.1) {
     target = Math.min(band.upperC + 0.25, cfg.maxSetpointC);
+  }
+  
+  // Moderate preheating for moderately cheap periods (25th-50th percentile)
+  const moderateCheap = pctl > cfg.preheat.cheapPercentile && pctl <= 0.50;
+  if (cfg.preheat.enable && moderateCheap && inp.weather.outdoorC < 20 && inp.telemetry.indoorC < band.upperC - 0.3) {
+    target = Math.min(band.lowerC + (band.upperC - band.lowerC) * 0.75, cfg.maxSetpointC);
   }
 
   // Coast during very expensive hours if we have buffer
@@ -168,12 +174,12 @@ export function computeDHWDecision(cfg: EngineConfig, inp: EngineInputs): DHWDec
 
 // Example defaults (can be copied to JSON)
 export const DefaultEngineConfig: EngineConfig = {
-  comfortOccupied: { lowerC: 20.0, upperC: 21.0 },
-  comfortAway: { lowerC: 19.0, upperC: 20.5 },
+  comfortOccupied: { lowerC: 20.0, upperC: 23.0 }, // Expanded to match user settings capability
+  comfortAway: { lowerC: 19.0, upperC: 21.0 },     // Reasonable away range
   minSetpointC: 18,
   maxSetpointC: 23,
   stepMinutes: 60,
-  preheat: { enable: true, horizonHours: 12, cheapPercentile: 0.25 },
+  preheat: { enable: true, horizonHours: 12, cheapPercentile: 0.35 }, // More responsive to cheap periods
   safety: { deadbandC: 0.3, minSetpointChangeMinutes: 5, extremeWeatherMinC: 20 },
   thermal: { rThermal: 2.5, cThermal: 10 }
 };
