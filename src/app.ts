@@ -1281,13 +1281,15 @@ export default class HeatOptimizerApp extends App {
     const melcloudUser = this.homey.settings.get('melcloud_user');
     const melcloudPass = this.homey.settings.get('melcloud_pass');
     const tibberToken = this.homey.settings.get('tibber_token') || this.homey.settings.get('tibberToken');
+    const priceDataSource = this.homey.settings.get('price_data_source') || 'entsoe';
 
     if (!melcloudUser || !melcloudPass) {
       this.error('MELCloud credentials are missing');
       return false;
     }
 
-    if (!tibberToken) {
+    // Only require Tibber token if Tibber is selected as price source
+    if (priceDataSource === 'tibber' && !tibberToken) {
       this.error('Tibber API token is missing');
       return false;
     }

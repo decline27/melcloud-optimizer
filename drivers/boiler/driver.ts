@@ -162,7 +162,7 @@ module.exports = class BoilerDriver extends Homey.Driver {
       const melcloudPass = this.homey.settings.get('melcloud_pass');
       const tibberToken = this.homey.settings.get('tibber_token');
       const deviceId = this.homey.settings.get('device_id');
-      const priceDataSource = this.homey.settings.get('price_data_source') || 'tibber';
+      const priceDataSource = this.homey.settings.get('price_data_source') || 'entsoe';
 
       // Check for missing required settings
       const missingSettings = [];

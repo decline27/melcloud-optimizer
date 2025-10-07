@@ -2890,7 +2890,7 @@ const apiHandlers: ApiHandlers = {
         const melcloudPass = homey.settings.get('melcloud_pass');
         const tibberToken = homey.settings.get('tibber_token');
         const deviceId = homey.settings.get('device_id');
-        const priceDataSource = homey.settings.get('price_data_source') || 'tibber';
+        const priceDataSource = homey.settings.get('price_data_source') || 'entsoe';
         
         // Check for missing required settings
         const missingSettings = [];

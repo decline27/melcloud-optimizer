@@ -1335,6 +1335,11 @@
         Homey.ready();
         console.log('Homey.ready() called');
 
+        // Helper function to check if a value should override HTML defaults
+        function hasValidValue(err, value) {
+          return !err && value !== undefined && value !== null && value !== "";
+        }
+
         // Get elements
         const melcloudUserElement = document.getElementById("melcloud_user");
         const melcloudPassElement = document.getElementById("melcloud_pass");
@@ -1650,7 +1655,7 @@
         }
 
         function renderPriceSource(value) {
-          const selection = value === 'entsoe' ? 'entsoe' : 'tibber';
+          const selection = value === 'tibber' ? 'tibber' : 'entsoe';
           if (priceSourceTibberElement) {
             priceSourceTibberElement.checked = selection === 'tibber';
           }
@@ -2138,7 +2143,7 @@
         Homey.get("price_data_source", function (err, value) {
           if (err) {
             console.error('Failed to load price_data_source', err);
-            renderPriceSource('tibber');
+            renderPriceSource('entsoe');
             return;
           }
           renderPriceSource(value);
@@ -2206,12 +2211,12 @@
 
         // Load costs & consumption settings
         Homey.get("grid_fee_per_kwh", function (err, value) {
-          if (!err && value !== undefined && value !== null) gridFeeElement.value = value;
+          if (hasValidValue(err, value)) gridFeeElement.value = value;
         });
 
         // Load consumer markup settings
         Homey.get("enable_consumer_markup", function (err, value) {
-          if (!err && value !== undefined) {
+          if (!err && value !== undefined && value !== null && value !== "") {
             enableConsumerMarkupElement.checked = !!value;
             updateConsumerMarkupVisibility();
           }
@@ -2234,31 +2239,31 @@
 
         Homey.get("temp_step_max", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) tempStepMaxElement.value = value;
+          if (value !== undefined && value !== null && value !== "") tempStepMaxElement.value = value;
         });
 
         // Load engine settings
-        Homey.get("use_engine", function (err, value) { if (!err && value !== undefined) useEngineElement.checked = !!value; });
-        Homey.get("deadband_c", function (err, value) { if (!err && value !== undefined) deadbandElement.value = value; });
-        Homey.get("min_setpoint_change_minutes", function (err, value) { if (!err && value !== undefined) minChangeMinutesElement.value = value; });
-        Homey.get("extreme_weather_min_temp", function (err, value) { if (!err && value !== undefined) extremeMinElement.value = value; });
-        Homey.get("occupied", function (err, value) { if (!err && value !== undefined) occupiedElement.checked = !!value; });
-        Homey.get("comfort_lower_occupied", function (err, value) { if (!err && value !== undefined) comfortLowerOccElement.value = value; });
-        Homey.get("comfort_upper_occupied", function (err, value) { if (!err && value !== undefined) comfortUpperOccElement.value = value; });
-        Homey.get("comfort_lower_away", function (err, value) { if (!err && value !== undefined) comfortLowerAwayElement.value = value; });
-        Homey.get("comfort_upper_away", function (err, value) { if (!err && value !== undefined) comfortUpperAwayElement.value = value; });
-        Homey.get("preheat_enable", function (err, value) { if (!err && value !== undefined) preheatEnableElement.checked = !!value; });
-        Homey.get("preheat_horizon_hours", function (err, value) { if (!err && value !== undefined) preheatHorizonElement.value = value; });
-        Homey.get("preheat_cheap_percentile", function (err, value) { if (!err && value !== undefined) preheatPercentileElement.value = value; });
+        Homey.get("use_engine", function (err, value) { if (!err && value !== undefined && value !== null && value !== "") useEngineElement.checked = !!value; });
+        Homey.get("deadband_c", function (err, value) { if (hasValidValue(err, value)) deadbandElement.value = value; });
+        Homey.get("min_setpoint_change_minutes", function (err, value) { if (hasValidValue(err, value)) minChangeMinutesElement.value = value; });
+        Homey.get("extreme_weather_min_temp", function (err, value) { if (hasValidValue(err, value)) extremeMinElement.value = value; });
+        Homey.get("occupied", function (err, value) { if (!err && value !== undefined && value !== null && value !== "") occupiedElement.checked = !!value; });
+        Homey.get("comfort_lower_occupied", function (err, value) { if (hasValidValue(err, value)) comfortLowerOccElement.value = value; });
+        Homey.get("comfort_upper_occupied", function (err, value) { if (hasValidValue(err, value)) comfortUpperOccElement.value = value; });
+        Homey.get("comfort_lower_away", function (err, value) { if (hasValidValue(err, value)) comfortLowerAwayElement.value = value; });
+        Homey.get("comfort_upper_away", function (err, value) { if (hasValidValue(err, value)) comfortUpperAwayElement.value = value; });
+        Homey.get("preheat_enable", function (err, value) { if (!err && value !== undefined && value !== null && value !== "") preheatEnableElement.checked = !!value; });
+        Homey.get("preheat_horizon_hours", function (err, value) { if (hasValidValue(err, value)) preheatHorizonElement.value = value; });
+        Homey.get("preheat_cheap_percentile", function (err, value) { if (hasValidValue(err, value)) preheatPercentileElement.value = value; });
 
         Homey.get("log_level", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) logLevelElement.value = value;
+          if (value !== undefined && value !== null && value !== "") logLevelElement.value = value;
         });
 
         Homey.get("notify_on_success", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) notifyOnSuccessElement.checked = !!value;
+          if (value !== undefined && value !== null && value !== "") notifyOnSuccessElement.checked = !!value;
         });
 
         Homey.get("currency", function (err, value) {
@@ -2268,52 +2273,52 @@
 
         Homey.get("use_weather_data", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) useWeatherDataElement.checked = value;
+          if (value !== undefined && value !== null && value !== "") useWeatherDataElement.checked = !!value;
           updateWeatherLocationWarning();
         });
 
         Homey.get("latitude", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) latitudeElement.value = value;
+          if (value !== undefined && value !== null && value !== "") latitudeElement.value = value;
           updateWeatherLocationWarning();
         });
 
         Homey.get("longitude", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) longitudeElement.value = value;
+          if (value !== undefined && value !== null && value !== "") longitudeElement.value = value;
           updateWeatherLocationWarning();
         });
 
         // Load comfort profile settings
         Homey.get("day_start_hour", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) dayStartHourElement.value = value;
+          if (value !== undefined && value !== null && value !== "") dayStartHourElement.value = value;
         });
 
         Homey.get("day_end_hour", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) dayEndHourElement.value = value;
+          if (value !== undefined && value !== null && value !== "") dayEndHourElement.value = value;
         });
 
         Homey.get("night_temp_reduction", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) nightTempReductionElement.value = value;
+          if (value !== undefined && value !== null && value !== "") nightTempReductionElement.value = value;
         });
 
         Homey.get("pre_heat_hours", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) preHeatHoursElement.value = value;
+          if (value !== undefined && value !== null && value !== "") preHeatHoursElement.value = value;
         });
 
         // Load time zone settings
         Homey.get("time_zone_offset", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) timeZoneOffsetElement.value = value;
+          if (value !== undefined && value !== null && value !== "") timeZoneOffsetElement.value = value;
         });
 
         Homey.get("use_dst", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) useDstElement.checked = value;
+          if (value !== undefined && value !== null && value !== "") useDstElement.checked = !!value;
         });
 
         Homey.get("time_zone_name", function (err, value) {
@@ -2332,25 +2337,25 @@
         // Load Zone2 settings
         Homey.get("enable_zone2", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) {
-            enableZone2Element.checked = value;
+          if (value !== undefined && value !== null && value !== "") {
+            enableZone2Element.checked = !!value;
             zone2SettingsDiv.style.display = value ? 'block' : 'none';
           }
         });
 
         Homey.get("min_temp_zone2", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) minTempZone2Element.value = value;
+          if (value !== undefined && value !== null && value !== "") minTempZone2Element.value = value;
         });
 
         Homey.get("max_temp_zone2", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) maxTempZone2Element.value = value;
+          if (value !== undefined && value !== null && value !== "") maxTempZone2Element.value = value;
         });
 
         Homey.get("temp_step_zone2", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) tempStepZone2Element.value = value;
+          if (value !== undefined && value !== null && value !== "") tempStepZone2Element.value = value;
         });
 
         // Manual entry controls are not persisted; default to hidden
@@ -2360,22 +2365,22 @@
         // Load hot water tank settings
         Homey.get("enable_tank_control", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) enableTankControlElement.checked = value;
+          if (value !== undefined && value !== null && value !== "") enableTankControlElement.checked = !!value;
         });
 
         Homey.get("min_tank_temp", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) minTankTempElement.value = value;
+          if (value !== undefined && value !== null && value !== "") minTankTempElement.value = value;
         });
 
         Homey.get("max_tank_temp", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) maxTankTempElement.value = value;
+          if (value !== undefined && value !== null && value !== "") maxTankTempElement.value = value;
         });
 
         Homey.get("tank_temp_step", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) tankTempStepElement.value = value;
+          if (value !== undefined && value !== null && value !== "") tankTempStepElement.value = value;
         });
         
         // Removed: loads for unused hot water pattern settings
@@ -2383,13 +2388,13 @@
         // Load COP settings
         Homey.get("cop_weight", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) copWeightElement.value = value;
+          if (value !== undefined && value !== null && value !== "") copWeightElement.value = value;
         });
 
         Homey.get("auto_seasonal_mode", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) {
-            autoSeasonalModeElement.checked = value;
+          if (value !== undefined && value !== null && value !== "") {
+            autoSeasonalModeElement.checked = !!value;
             // Show/hide summer mode based on auto seasonal mode
             summerModeContainer.style.opacity = value ? '0.5' : '1';
             summerModeElement.disabled = value;
@@ -2398,7 +2403,7 @@
 
         Homey.get("summer_mode", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) summerModeElement.checked = value;
+          if (value !== undefined && value !== null && value !== "") summerModeElement.checked = !!value;
         });
 
         // Default values are now provided directly in HTML form fields

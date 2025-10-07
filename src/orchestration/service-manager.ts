@@ -226,7 +226,7 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
   let deviceId = homey.settings.get('device_id') || homey.settings.get('deviceId') || 'Boiler';
   let buildingIdRaw = homey.settings.get('building_id') || homey.settings.get('buildingId') || '456';
   const useWeatherData = homey.settings.get('use_weather_data') !== false;
-  const priceSourceSetting = (homey.settings.get('price_data_source') || 'tibber') as string;
+  const priceSourceSetting = (homey.settings.get('price_data_source') || 'entsoe') as string;
   const priceSource = typeof priceSourceSetting === 'string' && priceSourceSetting.toLowerCase() === 'entsoe'
     ? 'entsoe'
     : 'tibber';
