@@ -82,16 +82,18 @@ function clamp(x: number, lo: number, hi: number) {
 }
 
 function pricePercentile(prices: PricePoint[], now: Date, horizonHours: number, currentPrice: number): number {
+  // Get the relevant price window for analysis
   const startIdx = prices.findIndex(p => Math.abs(new Date(p.time).getTime() - now.getTime()) < 60 * 60 * 1000);
   const idx = startIdx >= 0 ? startIdx : 0;
   const end = Math.min(prices.length, idx + Math.max(1, Math.round(horizonHours)));
-  const slice = prices.slice(idx, end).map(p => p.price).sort((a, b) => a - b);
+  const slice = prices.slice(idx, end);
+  
   if (!slice.length) return 0.5;
   
-  // Find position of current price in sorted array (0 = cheapest, 1 = most expensive)
-  const position = slice.findIndex(p => p >= currentPrice);
-  if (position === -1) return 1.0; // Current price is higher than all prices
-  return position / (slice.length - 1); // Convert to 0-1 percentile
+  // Use the SAME method as the main system for consistency
+  // Count how many prices are <= current price, divide by total
+  const cheaperOrEqualCount = slice.filter(p => p.price <= currentPrice).length;
+  return cheaperOrEqualCount / slice.length; // 0 = cheapest, 1 = most expensive
 }
 
 // ----- Decisions -----
@@ -106,8 +108,7 @@ export function computeHeatingDecision(cfg: EngineConfig, inp: EngineInputs): He
   const pctl = pricePercentile(inp.prices, inp.now, cfg.preheat.horizonHours, inp.currentPrice);
   let target = band.lowerC + (1 - pctl) * (band.upperC - band.lowerC);
   
-  // Debug logging for troubleshooting
-  console.log(`[ENGINE] Base calculation: pctl=${pctl.toFixed(3)}, band=[${band.lowerC}-${band.upperC}°C], baseTarget=${target.toFixed(1)}°C`);
+
 
   // Comfort recovery takes precedence
   if (inp.telemetry.indoorC < band.lowerC - deadband / 2) {
@@ -116,26 +117,14 @@ export function computeHeatingDecision(cfg: EngineConfig, inp: EngineInputs): He
 
   // Preheat when cheap and cool/cold outside (build thermal buffer)
   const cheap = pctl <= cfg.preheat.cheapPercentile;
-  const preheatConditions = {
-    enable: cfg.preheat.enable,
-    cheap: cheap,
-    outdoor: inp.weather.outdoorC < 15,
-    indoor: inp.telemetry.indoorC < band.upperC - 0.1
-  };
-  console.log(`[ENGINE] Preheat check: ${JSON.stringify(preheatConditions)}, pctl=${pctl.toFixed(3)}, threshold=${cfg.preheat.cheapPercentile}`);
-  
   if (cfg.preheat.enable && cheap && inp.weather.outdoorC < 15 && inp.telemetry.indoorC < band.upperC - 0.1) {
-    const preheatTarget = Math.min(band.upperC + 0.25, cfg.maxSetpointC);
-    console.log(`[ENGINE] Preheat triggered: target=${target.toFixed(1)}°C → ${preheatTarget.toFixed(1)}°C`);
-    target = preheatTarget;
+    target = Math.min(band.upperC + 0.25, cfg.maxSetpointC);
   }
   
   // Moderate preheating for moderately cheap periods (25th-50th percentile)
   const moderateCheap = pctl > cfg.preheat.cheapPercentile && pctl <= 0.50;
   if (cfg.preheat.enable && moderateCheap && inp.weather.outdoorC < 20 && inp.telemetry.indoorC < band.upperC - 0.3) {
-    const moderateTarget = Math.min(band.lowerC + (band.upperC - band.lowerC) * 0.75, cfg.maxSetpointC);
-    console.log(`[ENGINE] Moderate preheat triggered: target=${target.toFixed(1)}°C → ${moderateTarget.toFixed(1)}°C`);
-    target = moderateTarget;
+    target = Math.min(band.lowerC + (band.upperC - band.lowerC) * 0.75, cfg.maxSetpointC);
   }
 
   // Coast during very expensive hours if we have buffer
@@ -152,9 +141,6 @@ export function computeHeatingDecision(cfg: EngineConfig, inp: EngineInputs): He
   target = clamp(target, cfg.minSetpointC, cfg.maxSetpointC);
   const delta = target - inp.telemetry.targetC;
   const significant = Math.abs(delta) >= deadband;
-  
-  // Debug final decision
-  console.log(`[ENGINE] Final: target=${target.toFixed(1)}°C, current=${inp.telemetry.targetC}°C, delta=${delta.toFixed(1)}°C, deadband=${deadband}°C, significant=${significant}, lockout=${lockout}`);
 
   if (!significant || lockout) {
     return {
