@@ -82,18 +82,14 @@ function clamp(x: number, lo: number, hi: number) {
 }
 
 function pricePercentile(prices: PricePoint[], now: Date, horizonHours: number, currentPrice: number): number {
-  // Get the relevant price window for analysis
-  const startIdx = prices.findIndex(p => Math.abs(new Date(p.time).getTime() - now.getTime()) < 60 * 60 * 1000);
-  const idx = startIdx >= 0 ? startIdx : 0;
-  const end = Math.min(prices.length, idx + Math.max(1, Math.round(horizonHours)));
-  const slice = prices.slice(idx, end);
-  
-  if (!slice.length) return 0.5;
+  // Use ALL available prices for percentile calculation, not just horizon window
+  // This ensures consistency with main system that uses full price dataset
+  if (!prices.length) return 0.5;
   
   // Use the SAME method as the main system for consistency
   // Count how many prices are <= current price, divide by total
-  const cheaperOrEqualCount = slice.filter(p => p.price <= currentPrice).length;
-  return cheaperOrEqualCount / slice.length; // 0 = cheapest, 1 = most expensive
+  const cheaperOrEqualCount = prices.filter(p => p.price <= currentPrice).length;
+  return cheaperOrEqualCount / prices.length; // 0 = cheapest, 1 = most expensive
 }
 
 // ----- Decisions -----
