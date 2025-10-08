@@ -18,6 +18,7 @@ import { HomeyLogger } from '../util/logger';
 import { TimeZoneHelper } from '../util/time-zone-helper';
 import { DefaultEngineConfig, computeHeatingDecision } from '../../optimization/engine';
 import { applySetpointConstraints } from '../../optimization/setpoint-constraints';
+import { computePlanningBias, updateThermalResponse } from './planning-utils';
 import { AdaptiveParametersLearner } from './adaptive-parameters';
 
 /**
@@ -1770,6 +1771,28 @@ export class Optimizer {
         nextHourPrice = undefined;
       }
       const priceForecast = (priceData as any)?.forecast || null;
+      const planningReferenceTime = priceData.current?.time ? new Date(priceData.current.time) : new Date();
+
+      let thermalResponse = 1;
+      let previousIndoorTemp: number | null = null;
+      let previousIndoorTempTs: number | null = null;
+      if (this.homey) {
+        try {
+          const rawResponse = this.homey.settings.get('thermal_response');
+          const numericResponse = typeof rawResponse === 'number' ? rawResponse : Number(rawResponse);
+          if (Number.isFinite(numericResponse) && numericResponse >= 0.5 && numericResponse <= 1.5) {
+            thermalResponse = numericResponse;
+          }
+          const rawPrevTemp = this.homey.settings.get('optimizer_last_indoor_temp');
+          if (typeof rawPrevTemp === 'number' && Number.isFinite(rawPrevTemp)) {
+            previousIndoorTemp = rawPrevTemp;
+          }
+          const rawPrevTs = this.homey.settings.get('optimizer_last_indoor_temp_ts');
+          if (typeof rawPrevTs === 'number' && Number.isFinite(rawPrevTs)) {
+            previousIndoorTempTs = rawPrevTs;
+          }
+        } catch {}
+      }
 
       // Validate price freshness (failsafe)
       try {
@@ -1940,6 +1963,32 @@ export class Optimizer {
         }
       }
 
+      const planningBiasResult = computePlanningBias(priceData.prices, planningReferenceTime, {
+        windowHours: 6,
+        lookaheadHours: 12,
+        cheapPercentile: 25,
+        expensivePercentile: 75,
+        cheapBiasC: 0.5,
+        expensiveBiasC: 0.3,
+        maxAbsBiasC: 0.7
+      });
+      const scaledPlanningBiasRaw = planningBiasResult.biasC * thermalResponse;
+      const scaledPlanningBias = Math.abs(scaledPlanningBiasRaw) < 1e-6
+        ? 0
+        : Math.max(-0.7, Math.min(0.7, scaledPlanningBiasRaw));
+      if (scaledPlanningBias !== 0) {
+        targetTemp += scaledPlanningBias;
+        adjustmentReason += ` + Planning ${scaledPlanningBias > 0 ? '+' : ''}${scaledPlanningBias.toFixed(2)}°C`;
+      }
+      logDecision('optimizer.planning.bias', {
+        rawBiasC: planningBiasResult.biasC,
+        thermalResponse,
+        scaledBiasC: scaledPlanningBias,
+        windowHours: planningBiasResult.windowHours,
+        hasCheap: planningBiasResult.hasCheap,
+        hasExpensive: planningBiasResult.hasExpensive
+      });
+
       const safeCurrentTarget = Number.isFinite(currentTarget as number)
         ? (currentTarget as number)
         : Number.isFinite(currentTemp as number)
@@ -2077,6 +2126,7 @@ export class Optimizer {
       }
 
       // Reapply constraints after any secondary adjustments (e.g., thermal strategy)
+      let expectedDelta = 0;
       const zone1FinalConstraints = applySetpointConstraints({
         proposedC: targetTemp,
         currentTargetC: safeCurrentTarget,
@@ -2100,6 +2150,7 @@ export class Optimizer {
         adjustmentReason += ` | ${zone1FinalConstraints.reason}`;
       }
       targetTemp = zone1FinalConstraints.constrainedC;
+      expectedDelta = zone1FinalConstraints.deltaC > 0 ? 0.2 : zone1FinalConstraints.deltaC < 0 ? -0.1 : 0;
       tempDifference = Math.abs(zone1FinalConstraints.deltaC);
       lockoutActive = zone1FinalConstraints.lockoutActive;
       isSignificantChange = zone1FinalConstraints.changed && !lockoutActive;
@@ -2110,6 +2161,8 @@ export class Optimizer {
       duplicateTarget = this.lastIssuedSetpointC !== null &&
         Math.abs((this.lastIssuedSetpointC as number) - targetTemp) < 1e-4;
       logData.duplicateTarget = duplicateTarget;
+      logData.planningBias = scaledPlanningBias.toFixed(2);
+      logData.thermalResponse = thermalResponse.toFixed(2);
 
       logDecision('optimizer.run.summary', logData);
       this.logger.log('Enhanced optimization result:', logData);
@@ -2377,6 +2430,46 @@ export class Optimizer {
         });
       }
 
+      const updateThermalResponseIfPossible = () => {
+        const nowMs = Date.now();
+        const indoorTemp = typeof currentTemp === 'number' && Number.isFinite(currentTemp) ? currentTemp : null;
+        if (indoorTemp !== null) {
+          if (this.homey) {
+            try {
+              this.homey.settings.set('optimizer_last_indoor_temp', indoorTemp);
+              this.homey.settings.set('optimizer_last_indoor_temp_ts', nowMs);
+            } catch {}
+          }
+          if (
+            previousIndoorTemp !== null &&
+            previousIndoorTempTs !== null &&
+            nowMs - previousIndoorTempTs >= 20 * 60 * 1000 &&
+            Math.abs(indoorTemp - previousIndoorTemp) < 5
+          ) {
+            const observedDelta = indoorTemp - previousIndoorTemp;
+            const updatedThermalResponse = updateThermalResponse(thermalResponse, observedDelta, expectedDelta, {
+              alpha: 0.1,
+              min: 0.5,
+              max: 1.5
+            });
+            if (Math.abs(updatedThermalResponse - thermalResponse) > 1e-6) {
+              if (this.homey) {
+                try {
+                  this.homey.settings.set('thermal_response', updatedThermalResponse);
+                } catch {}
+              }
+              logDecision('optimizer.thermal.update', {
+                previous: thermalResponse,
+                observedDelta,
+                expectedDelta,
+                updated: updatedThermalResponse
+              });
+              thermalResponse = updatedThermalResponse;
+            }
+          }
+        }
+      };
+
       if (setpointApplied) {
         const savingsZone1 = await this.calculateRealHourlySavings(
           safeCurrentTarget,
@@ -2420,6 +2513,8 @@ export class Optimizer {
         const comfortViolations = 0; // Could be calculated based on temperature vs comfort bands
         const currentCOP = optimizationResult.metrics?.realHeatingCOP || optimizationResult.metrics?.realHotWaterCOP;
         this.learnFromOptimizationOutcome(savingsNumeric, comfortViolations, currentCOP);
+
+        updateThermalResponseIfPossible();
 
         return {
           success: true,
@@ -2496,6 +2591,7 @@ export class Optimizer {
         } catch (savingsErr) {
           this.logger.warn('Failed to calculate secondary savings contributions (no change path)', savingsErr as Error);
         }
+        updateThermalResponseIfPossible();
         return {
           success: true,
           action: 'no_change',

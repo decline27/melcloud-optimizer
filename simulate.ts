@@ -161,6 +161,37 @@ function bandFor(config, occupied) {
   return {lower: band.lower_c, upper: band.upper_c};
 }
 
+function percentile(values, fraction) {
+  if (!values.length) return NaN;
+  if (values.length === 1) return values[0];
+  const idx = Math.max(0, Math.min(values.length - 1, Math.round(fraction * (values.length - 1))));
+  return values[idx];
+}
+
+function computePlanningBiasSim(prices, startIndex, windowHours = 6, lookaheadHours = 12) {
+  if (!Array.isArray(prices) || prices.length === 0) return 0;
+  const future = [];
+  for (let i = startIndex + 1; i < prices.length && future.length < lookaheadHours; i++) {
+    const entry = prices[i];
+    const price = Number(entry?.price);
+    if (Number.isFinite(price)) {
+      future.push(price);
+    }
+  }
+  if (!future.length) return 0;
+  const sorted = [...future].sort((a, b) => a - b);
+  const cheapCut = percentile(sorted, 0.25);
+  const expensiveCut = percentile(sorted, 0.75);
+  if (!Number.isFinite(cheapCut) || !Number.isFinite(expensiveCut)) return 0;
+  const windowSlice = future.slice(0, windowHours);
+  const hasCheap = windowSlice.some(price => price < cheapCut);
+  const hasExpensive = windowSlice.some(price => price > expensiveCut);
+  let bias = 0;
+  if (hasCheap) bias += 0.5;
+  if (hasExpensive) bias -= 0.3;
+  return Math.max(-0.7, Math.min(0.7, bias));
+}
+
 function nextSetpointV1(ctx) {
   const {config, limits, prices, idx} = ctx;
   const band = bandFor(config, ctx.occ === 1);
@@ -277,10 +308,13 @@ function simulateStrategy(name, series, prices, config, limits, copData, chooseS
       copLookup: copLookupFn,
     });
 
+    const planningBias = computePlanningBiasSim(pricesArr, i);
+    const setpointBiased = clamp(setpoint + planningBias, limits.minSetpoint, limits.maxSetpoint);
+
     // Hysteresis on setpoint control
     let targetHeating = heating;
-    if (tempIn < setpoint - deadband / 2) targetHeating = true;
-    else if (tempIn > setpoint + deadband / 2) targetHeating = false;
+    if (tempIn < setpointBiased - deadband / 2) targetHeating = true;
+    else if (tempIn > setpointBiased + deadband / 2) targetHeating = false;
 
     // Respect min cycle time
     if (targetHeating !== heating && i - lastSwitchIdx < minCycleSteps) {
@@ -301,7 +335,7 @@ function simulateStrategy(name, series, prices, config, limits, copData, chooseS
     let p_elec_kw = 0;
     let q_in_kw = 0;
     if (heating) {
-      const delta = Math.max(1, Math.abs(setpoint - tempIn));
+      const delta = Math.max(1, Math.abs(setpointBiased - tempIn));
       cop = clamp(copLookupFn(tempOut, delta), 1.2, 5.0);
       p_elec_kw = limits.maxPowerKw; // simple constant power when ON
       q_in_kw = p_elec_kw * cop;
@@ -328,14 +362,15 @@ function simulateStrategy(name, series, prices, config, limits, copData, chooseS
       price_sek_per_kwh: price.toFixed(4),
       temp_out_c: tempOut.toFixed(2),
       temp_in_c: tempIn.toFixed(2),
-      setpoint_c: setpoint.toFixed(2),
+      setpoint_c: setpointBiased.toFixed(2),
+      planning_bias_c: planningBias.toFixed(2),
       heating: heating ? 1 : 0,
       power_kw: p_elec_kw.toFixed(3),
       cop: cop ? cop.toFixed(2) : '',
       occupancy: occ,
     });
 
-    lastSetpoint = setpoint;
+    lastSetpoint = setpointBiased;
   }
 
   const avgCop = energyWeightedDen > 0 ? energyWeightedCopNum / energyWeightedDen : 0;
