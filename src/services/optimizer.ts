@@ -1697,7 +1697,11 @@ export class Optimizer {
   async runEnhancedOptimization(): Promise<EnhancedOptimizationResult> {
     const correlationId = randomUUID();
     const logDecision = (event: string, payload: Record<string, unknown>) => {
-      this.logger.optimization(event, { correlationId, ...payload });
+      if (this.logger && typeof (this.logger as any).optimization === 'function') {
+        (this.logger as any).optimization(event, { correlationId, ...payload });
+      } else if (this.logger && typeof this.logger.log === 'function') {
+        this.logger.log(`${event}: ${JSON.stringify({ correlationId, ...payload })}`);
+      }
     };
     logDecision('optimizer.run.start', {
       note: 'Starting enhanced optimization with real energy data analysis'
