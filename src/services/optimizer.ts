@@ -16,6 +16,7 @@ import { EnhancedSavingsCalculator, OptimizationData, SavingsCalculationResult }
 import { HomeyLogger } from '../util/logger';
 import { TimeZoneHelper } from '../util/time-zone-helper';
 import { DefaultEngineConfig, computeHeatingDecision } from '../../optimization/engine';
+import { AdaptiveParametersLearner } from './adaptive-parameters';
 
 /**
  * Real energy data from MELCloud API
@@ -225,6 +226,7 @@ export class Optimizer {
   };
 
   private thermalStrategyHistory: ThermalStrategy[] = [];
+  private adaptiveParametersLearner?: AdaptiveParametersLearner;
 
   /**
    * Constructor
@@ -279,6 +281,10 @@ export class Optimizer {
           typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined
         );
         this.logger.log('TimeZoneHelper initialized for Optimizer');
+        
+        // Initialize adaptive parameters learner
+        this.adaptiveParametersLearner = new AdaptiveParametersLearner(homey);
+        this.logger.log('Adaptive parameters learner initialized');
         
         // Load safety constraints
         const mins = Number(homey.settings.get('min_setpoint_change_minutes'));
@@ -1224,7 +1230,8 @@ export class Optimizer {
 
     if (metrics.seasonalMode === 'summer') {
       // Summer optimization: Focus on hot water efficiency and minimal heating
-      const priceWeight = 0.7; // Higher price sensitivity in summer
+      const adaptiveParams = this.adaptiveParametersLearner?.getParameters();
+      const priceWeight = adaptiveParams?.priceWeightSummer || 0.7; // Learned or fallback
       
       // Update COP range and normalize
       this.updateCOPRange(metrics.realHotWaterCOP);
@@ -1236,7 +1243,7 @@ export class Optimizer {
       // Efficiency bonus for excellent hot water COP
       let efficiencyAdjustment = 0;
       if (hotWaterEfficiency > 0.8) {
-        efficiencyAdjustment = 0.3; // Small bonus for excellent COP
+        efficiencyAdjustment = adaptiveParams?.copEfficiencyBonusHigh || 0.3; // Learned or fallback
       } else if (hotWaterEfficiency < 0.3) {
         efficiencyAdjustment = -0.5; // Penalty for poor COP
       }
@@ -1246,7 +1253,8 @@ export class Optimizer {
 
     } else if (metrics.seasonalMode === 'winter') {
       // Winter optimization: Balance heating efficiency with comfort and prices
-      const priceWeight = 0.4; // Lower price sensitivity in winter (comfort priority)
+      const adaptiveParams = this.adaptiveParametersLearner?.getParameters();
+      const priceWeight = adaptiveParams?.priceWeightWinter || 0.4; // Learned or fallback
       
       // Update COP range and normalize  
       this.updateCOPRange(metrics.realHeatingCOP);
@@ -1259,7 +1267,7 @@ export class Optimizer {
       let efficiencyAdjustment = 0;
       if (heatingEfficiency > 0.8) {
         // Excellent heating COP: maintain comfort
-        efficiencyAdjustment = 0.2;
+        efficiencyAdjustment = adaptiveParams?.copEfficiencyBonusMedium || 0.2; // Learned or fallback
       } else if (heatingEfficiency > 0.5) {
         // Good heating COP: slight reduction
         efficiencyAdjustment = -0.1;
@@ -1279,7 +1287,8 @@ export class Optimizer {
 
     } else {
       // Transition mode: Balanced approach using both COPs
-      const priceWeight = 0.5;
+      const adaptiveParams = this.adaptiveParametersLearner?.getParameters();
+      const priceWeight = adaptiveParams?.priceWeightTransition || 0.5; // Learned or fallback
       
       // Update COP ranges for both systems
       this.updateCOPRange(metrics.realHeatingCOP);
@@ -1294,7 +1303,7 @@ export class Optimizer {
       // Combined efficiency adjustment
       let efficiencyAdjustment = 0;
       if (combinedEfficiency > 0.7) {
-        efficiencyAdjustment = 0.2;
+        efficiencyAdjustment = adaptiveParams?.copEfficiencyBonusMedium || 0.2; // Learned or fallback
       } else if (combinedEfficiency < 0.4) {
         efficiencyAdjustment = -0.4;
       }
@@ -2259,6 +2268,11 @@ export class Optimizer {
           savingsNumeric
         });
 
+        // Learn from optimization outcome (adaptive parameter learning)
+        const comfortViolations = 0; // Could be calculated based on temperature vs comfort bands
+        const currentCOP = optimizationResult.metrics?.realHeatingCOP || optimizationResult.metrics?.realHotWaterCOP;
+        this.learnFromOptimizationOutcome(savingsNumeric, comfortViolations, currentCOP);
+
         return {
           success: true,
           action: 'temperature_adjusted',
@@ -2625,6 +2639,29 @@ export class Optimizer {
       this.logger.error('Error in weekly calibration', error);
       this.handleApiError(error);
     }
+  }
+
+  /**
+   * Learn from optimization outcome (called after each optimization cycle)
+   * @param actualSavings Energy savings achieved
+   * @param comfortViolations Number of comfort violations
+   * @param currentCOP Current COP performance
+   */
+  public learnFromOptimizationOutcome(actualSavings: number, comfortViolations: number, currentCOP?: number): void {
+    if (!this.adaptiveParametersLearner) return;
+    
+    // Determine current season based on month
+    const month = new Date().getMonth();
+    let season: 'summer' | 'winter' | 'transition';
+    if (month >= 5 && month <= 8) {
+      season = 'summer';
+    } else if (month >= 11 || month <= 2) {
+      season = 'winter';
+    } else {
+      season = 'transition';
+    }
+    
+    this.adaptiveParametersLearner.learnFromOutcome(season, actualSavings, comfortViolations, currentCOP);
   }
 
   /**

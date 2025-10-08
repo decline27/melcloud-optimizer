@@ -1,8 +1,42 @@
 import { Logger } from './logger';
 
 /**
+ * UTC offset to IANA timezone mapping for common offsets
+ */
+const OFFSET_TO_IANA_MAP: Record<number, string> = {
+  [-12]: 'Pacific/Kwajalein',
+  [-11]: 'Pacific/Midway', 
+  [-10]: 'Pacific/Honolulu',
+  [-9]: 'America/Anchorage',
+  [-8]: 'America/Los_Angeles',
+  [-7]: 'America/Denver',
+  [-6]: 'America/Chicago',
+  [-5]: 'America/New_York',
+  [-4]: 'America/Halifax',
+  [-3]: 'America/Sao_Paulo',
+  [-2]: 'Atlantic/South_Georgia',
+  [-1]: 'Atlantic/Azores',
+  [0]: 'Europe/London',
+  [1]: 'Europe/Stockholm',    // Most common for this app
+  [2]: 'Europe/Helsinki',
+  [3]: 'Europe/Moscow',
+  [4]: 'Asia/Dubai',
+  [5]: 'Asia/Karachi',
+  [5.5]: 'Asia/Kolkata',
+  [6]: 'Asia/Dhaka',
+  [7]: 'Asia/Bangkok',
+  [8]: 'Asia/Shanghai',
+  [9]: 'Asia/Tokyo',
+  [9.5]: 'Australia/Adelaide',
+  [10]: 'Australia/Sydney',
+  [11]: 'Pacific/Noumea',
+  [12]: 'Pacific/Auckland',
+  [13]: 'Pacific/Tongatapu'
+};
+
+/**
  * Time Zone Helper
- * Provides utilities for handling time zones and DST
+ * Provides utilities for handling time zones and DST with enhanced migration support
  */
 export class TimeZoneHelper {
   private timeZoneOffset: number;
@@ -15,6 +49,7 @@ export class TimeZoneHelper {
    * @param logger Logger instance
    * @param timeZoneOffset Time zone offset in hours (default: 2)
    * @param useDST Whether to use DST (default: false)
+   * @param timeZoneName IANA timezone name (preferred)
    */
   constructor(
     logger: Logger,
@@ -26,10 +61,61 @@ export class TimeZoneHelper {
     this.timeZoneOffset = timeZoneOffset;
     this.useDST = useDST;
     this.timeZoneName = timeZoneName;
+
+    // Validate IANA timezone if provided
+    if (timeZoneName && !this.validateTimezone(timeZoneName)) {
+      this.logger.warn(`Invalid IANA timezone '${timeZoneName}', falling back to offset-based calculation`);
+      this.timeZoneName = undefined;
+    }
   }
 
   /**
-   * Update settings
+   * Validate IANA timezone name
+   * @param timezone IANA timezone name to validate
+   * @returns True if valid
+   */
+  public static validateTimezone(timezone: string): boolean {
+    if (!timezone || typeof timezone !== 'string') return false;
+    try {
+      Intl.DateTimeFormat(undefined, { timeZone: timezone });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Validate IANA timezone name (instance method)
+   * @param timezone IANA timezone name to validate
+   * @returns True if valid
+   */
+  private validateTimezone(timezone: string): boolean {
+    return TimeZoneHelper.validateTimezone(timezone);
+  }
+
+  /**
+   * Convert UTC offset to equivalent IANA timezone
+   * @param offset UTC offset in hours
+   * @returns IANA timezone name or null if no mapping exists
+   */
+  public static offsetToIANA(offset: number): string | null {
+    return OFFSET_TO_IANA_MAP[offset] || null;
+  }
+
+  /**
+   * Auto-detect system timezone
+   * @returns IANA timezone name or null if detection fails
+   */
+  public static detectSystemTimezone(): string | null {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Update settings with enhanced validation and migration
    * @param timeZoneOffset Time zone offset in hours
    * @param useDST Whether to use DST
    * @param timeZoneName Optional IANA time zone name
@@ -37,12 +123,85 @@ export class TimeZoneHelper {
   public updateSettings(timeZoneOffset: number, useDST: boolean, timeZoneName?: string): void {
     this.timeZoneOffset = timeZoneOffset;
     this.useDST = useDST;
-    this.timeZoneName = timeZoneName;
+    
+    // Validate and set timezone name
+    if (timeZoneName && this.validateTimezone(timeZoneName)) {
+      this.timeZoneName = timeZoneName;
+    } else if (timeZoneName) {
+      this.logger.warn(`Invalid IANA timezone '${timeZoneName}', ignoring`);
+      this.timeZoneName = undefined;
+    } else {
+      this.timeZoneName = undefined;
+    }
+
     if (this.logger && typeof this.logger.log === 'function') {
       this.logger.log(
-        `Time zone settings updated: offset=${timeZoneOffset}, DST=${useDST}, name=${timeZoneName || 'n/a'}`
+        `Time zone settings updated: offset=${timeZoneOffset}, DST=${useDST}, name=${this.timeZoneName || 'n/a'}`
       );
     }
+  }
+
+  /**
+   * Get current configuration status for migration purposes
+   * @returns Configuration status object
+   */
+  public getConfigurationStatus(): {
+    hasIANA: boolean;
+    hasManual: boolean;
+    preferredApproach: 'IANA' | 'MANUAL' | 'NONE';
+    suggestedIANA?: string;
+  } {
+    const hasIANA = !!this.timeZoneName;
+    const hasManual = this.timeZoneOffset !== 2 || this.useDST; // 2 is the default offset
+    
+    let preferredApproach: 'IANA' | 'MANUAL' | 'NONE' = 'NONE';
+    let suggestedIANA: string | undefined;
+
+    if (hasIANA) {
+      preferredApproach = 'IANA';
+    } else if (hasManual) {
+      preferredApproach = 'MANUAL';
+      suggestedIANA = OFFSET_TO_IANA_MAP[this.timeZoneOffset];
+    }
+
+    return {
+      hasIANA,
+      hasManual,
+      preferredApproach,
+      suggestedIANA
+    };
+  }
+
+  /**
+   * Attempt to migrate from manual offset to IANA timezone
+   * @returns Migration result with new timezone or null if migration not possible
+   */
+  public attemptMigration(): { success: boolean; newTimezone?: string; reason: string } {
+    const status = this.getConfigurationStatus();
+    
+    if (status.hasIANA) {
+      return { success: false, reason: 'Already using IANA timezone' };
+    }
+
+    if (!status.hasManual) {
+      // Try to auto-detect system timezone
+      const detected = TimeZoneHelper.detectSystemTimezone();
+      if (detected && this.validateTimezone(detected)) {
+        return { success: true, newTimezone: detected, reason: 'Auto-detected system timezone' };
+      }
+      return { success: false, reason: 'No configuration to migrate and auto-detection failed' };
+    }
+
+    // Try to convert offset to IANA
+    if (status.suggestedIANA) {
+      return { 
+        success: true, 
+        newTimezone: status.suggestedIANA, 
+        reason: `Converted UTC${this.timeZoneOffset >= 0 ? '+' : ''}${this.timeZoneOffset} to ${status.suggestedIANA}` 
+      };
+    }
+
+    return { success: false, reason: `No IANA mapping found for UTC${this.timeZoneOffset >= 0 ? '+' : ''}${this.timeZoneOffset}` };
   }
 
   /**
