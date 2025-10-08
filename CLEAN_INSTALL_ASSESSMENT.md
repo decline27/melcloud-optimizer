@@ -78,7 +78,7 @@ The settings page provides sensible defaults:
 
 <!-- All thermal control settings have sensible defaults -->
 <input id="deadband_c" type="number" value="0.3" />
-<input id="min_setpoint_change_minutes" type="number" value="5" />
+<input id="min_setpoint_change_minutes" type="number" value="30" />
 <input id="comfort_lower_occupied" type="number" value="20" />
 <input id="comfort_upper_occupied" type="number" value="21" />
 <!-- ... etc ... -->

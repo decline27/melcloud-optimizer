@@ -2056,8 +2056,24 @@ const apiHandlers: ApiHandlers = {
         // Import the cron library
         const { CronJob } = require('cron');
 
+        const resolveCronTimezone = (): string => {
+          try {
+            const tzName = homey.settings.get('time_zone_name');
+            if (typeof tzName === 'string' && tzName.trim().length > 0) {
+              return tzName.trim();
+            }
+          } catch (err) {
+            homey.app.warn?.('Failed to read time_zone_name setting, falling back to default', err);
+          }
+          if (typeof process !== 'undefined' && typeof process.env === 'object' && process.env.TZ) {
+            return String(process.env.TZ);
+          }
+          return 'Europe/Stockholm';
+        };
+        const cronTimeZone = resolveCronTimezone();
+
         // Create hourly job - runs at minute 5 of every hour
-        homey.app.log('Creating hourly cron job with pattern: 0 5 * * * *');
+        homey.app.log(`Creating hourly cron job with pattern: 0 5 * * * * (tz: ${cronTimeZone})`);
         const hourlyJob = new CronJob('0 5 * * * *', async () => {
           // Log the trigger
           const currentTime = new Date().toISOString();
@@ -2075,10 +2091,10 @@ const apiHandlers: ApiHandlers = {
           } catch (err: any) {
             homey.app.error('Error in hourly cron job', err);
           }
-        });
+        }, null, false, cronTimeZone);
 
         // Create weekly job - runs at 2:05 AM on Sundays
-        homey.app.log('Creating weekly cron job with pattern: 0 5 2 * * 0');
+        homey.app.log(`Creating weekly cron job with pattern: 0 5 2 * * 0 (tz: ${cronTimeZone})`);
         const weeklyJob = new CronJob('0 5 2 * * 0', async () => {
           // Log the trigger
           const currentTime = new Date().toISOString();
@@ -2096,7 +2112,7 @@ const apiHandlers: ApiHandlers = {
           } catch (err: any) {
             homey.app.error('Error in weekly cron job', err);
           }
-        });
+        }, null, false, cronTimeZone);
 
         // Start the cron jobs
         homey.app.log('Starting hourly cron job...');

@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { MelCloudApi } from './melcloud-api';
 import { ThermalModelService } from './thermal-model';
 import { COPHelper } from './cop-helper';
@@ -16,6 +17,7 @@ import { EnhancedSavingsCalculator, OptimizationData, SavingsCalculationResult }
 import { HomeyLogger } from '../util/logger';
 import { TimeZoneHelper } from '../util/time-zone-helper';
 import { DefaultEngineConfig, computeHeatingDecision } from '../../optimization/engine';
+import { applySetpointConstraints } from '../../optimization/setpoint-constraints';
 import { AdaptiveParametersLearner } from './adaptive-parameters';
 
 /**
@@ -163,6 +165,7 @@ interface SecondaryZoneResult {
   targetTemp?: number;
   indoorTemp?: number;
   success?: boolean;
+  changed?: boolean;
 }
 
 interface TankOptimizationResult {
@@ -185,8 +188,13 @@ export class Optimizer {
   private tempStep: number = 0.5;
   private deadband: number = 0.3; // Minimum temperature change to trigger adjustment
   // Safety: avoid frequent setpoint changes (anti–short-cycling proxy)
-  private minSetpointChangeMinutes: number = 5;
+  private minSetpointChangeMinutes: number = 30;
   private lastSetpointChangeMs: number | null = null;
+  private lastIssuedSetpointC: number | null = null;
+  private lastZone2SetpointChangeMs: number | null = null;
+  private lastZone2IssuedSetpointC: number | null = null;
+  private lastTankSetpointChangeMs: number | null = null;
+  private lastTankIssuedSetpointC: number | null = null;
   // Secondary zone constraints
   private enableZone2: boolean = false;
   private minTempZone2: number = 18;
@@ -1686,7 +1694,13 @@ export class Optimizer {
    * @returns Promise resolving to enhanced optimization result
    */
   async runEnhancedOptimization(): Promise<EnhancedOptimizationResult> {
-    this.logger.log('Starting enhanced optimization with real energy data analysis');
+    const correlationId = randomUUID();
+    const logDecision = (event: string, payload: Record<string, unknown>) => {
+      this.logger.optimization(event, { correlationId, ...payload });
+    };
+    logDecision('optimizer.run.start', {
+      note: 'Starting enhanced optimization with real energy data analysis'
+    });
 
     try {
       // Get current device state
@@ -1700,11 +1714,37 @@ export class Optimizer {
         throw new Error('No temperature data available from device');
       }
 
-      // Get Tibber price data
+      // Get price data (ENTSO-E/Tibber)
       if (!this.priceProvider) {
         throw new Error('Price provider not initialized');
       }
-      const priceData = await this.priceProvider.getPrices();
+      let priceData;
+      try {
+        priceData = await this.priceProvider.getPrices();
+      } catch (error) {
+        logDecision('inputs.prices.error', {
+          message: error instanceof Error ? error.message : String(error)
+        });
+        const holdTemp = currentTarget ?? currentTemp ?? 20;
+        return {
+          success: true,
+          action: 'no_change',
+          fromTemp: holdTemp,
+          toTemp: holdTemp,
+          reason: 'Price fetch failed; holding last setpoint',
+          priceData: {
+            current: 0,
+            average: 0,
+            min: 0,
+            max: 0
+          }
+        };
+      }
+      logDecision('inputs.prices', {
+        priceCount: Array.isArray(priceData.prices) ? priceData.prices.length : 0,
+        currency: priceData.currencyCode,
+        currentPrice: priceData.current?.price
+      });
       const currentPrice = priceData.current.price;
       const avgPrice = priceData.prices.reduce((sum, p) => sum + p.price, 0) / priceData.prices.length;
       const minPrice = Math.min(...priceData.prices.map((p: any) => p.price));
@@ -1900,40 +1940,52 @@ export class Optimizer {
         }
       }
 
-      // Clamp to valid range
-      if (targetTemp < this.minTemp) {
-        targetTemp = this.minTemp;
-        adjustmentReason += ` (clamped to minimum ${this.minTemp}°C)`;
-      } else if (targetTemp > this.maxTemp) {
-        targetTemp = this.maxTemp;
-        adjustmentReason += ` (clamped to maximum ${this.maxTemp}°C)`;
-      }
-
-      // Apply step constraint (don't change by more than tempStep)
-      const maxChange = this.tempStep;
-      const safeCurrentTarget = currentTarget ?? 20;
-      if (Math.abs(targetTemp - safeCurrentTarget) > maxChange) {
-        targetTemp = safeCurrentTarget + (targetTemp > safeCurrentTarget ? maxChange : -maxChange);
-        adjustmentReason += ` (limited to ${maxChange}°C step)`;
-      }
-
-      // Round to nearest step
-      targetTemp = Math.round(targetTemp / this.tempStep) * this.tempStep;
+      const safeCurrentTarget = Number.isFinite(currentTarget as number)
+        ? (currentTarget as number)
+        : Number.isFinite(currentTemp as number)
+          ? (currentTemp as number)
+          : this.minTemp;
+      const zone1ConstraintsInitial = applySetpointConstraints({
+        proposedC: targetTemp,
+        currentTargetC: safeCurrentTarget,
+        minC: this.minTemp,
+        maxC: this.maxTemp,
+        stepC: this.tempStep,
+        deadbandC: this.deadband,
+        minChangeMinutes: this.minSetpointChangeMinutes,
+        lastChangeMs: this.lastSetpointChangeMs
+      });
+      adjustmentReason += zone1ConstraintsInitial.reason !== 'within constraints'
+        ? ` | ${zone1ConstraintsInitial.reason}`
+        : '';
+      logDecision('constraints.zone1.initial', {
+        proposed: targetTemp,
+        currentTarget: safeCurrentTarget,
+        result: zone1ConstraintsInitial
+      });
+      targetTemp = zone1ConstraintsInitial.constrainedC;
 
       // Check if adjustment is needed
-      let tempDifference = Math.abs(targetTemp - safeCurrentTarget);
-      let isSignificantChange = tempDifference >= this.deadband;
+      let tempDifference = Math.abs(zone1ConstraintsInitial.deltaC);
+      let lockoutActive = zone1ConstraintsInitial.lockoutActive;
+      let isSignificantChange = zone1ConstraintsInitial.changed && !lockoutActive;
       let melCloudSetpointApplied = true;
       let melCloudSetpointError: string | undefined;
       let setpointApplied = false;
 
       // Enhanced logging with real energy metrics
+      const priceRange = Math.max(maxPrice - minPrice, 0.0001);
+      let duplicateTarget = this.lastIssuedSetpointC !== null &&
+        Math.abs((this.lastIssuedSetpointC as number) - targetTemp) < 1e-4;
+
       const logData: any = {
         targetTemp: targetTemp.toFixed(1),
-        tempDifference: tempDifference.toFixed(1),
+        tempDifference: tempDifference.toFixed(2),
         isSignificantChange,
+        lockoutActive,
+        duplicateTarget,
         adjustmentReason,
-        priceNormalized: ((currentPrice - minPrice) / (maxPrice - minPrice)).toFixed(2),
+        priceNormalized: ((currentPrice - minPrice) / priceRange).toFixed(2),
         pricePercentile: `${pricePercentile.toFixed(0)}%`
       };
 
@@ -2025,22 +2077,41 @@ export class Optimizer {
       }
 
       // Reapply constraints after any secondary adjustments (e.g., thermal strategy)
-      if (thermalStrategy && thermalStrategy.action !== 'maintain') {
-        targetTemp = Math.max(this.minTemp, Math.min(this.maxTemp, targetTemp));
-        const maxChangeAfterStrategy = this.tempStep;
-        if (Math.abs(targetTemp - safeCurrentTarget) > maxChangeAfterStrategy) {
-          targetTemp = safeCurrentTarget + (targetTemp > safeCurrentTarget ? maxChangeAfterStrategy : -maxChangeAfterStrategy);
-          adjustmentReason += ` (limited to ${maxChangeAfterStrategy}°C step after thermal strategy)`;
-        }
-        targetTemp = Math.round(targetTemp / this.tempStep) * this.tempStep;
-
-        tempDifference = Math.abs(targetTemp - safeCurrentTarget);
-        isSignificantChange = tempDifference >= this.deadband;
-        logData.targetTemp = targetTemp.toFixed(1);
-        logData.tempDifference = tempDifference.toFixed(1);
-        logData.isSignificantChange = isSignificantChange;
+      const zone1FinalConstraints = applySetpointConstraints({
+        proposedC: targetTemp,
+        currentTargetC: safeCurrentTarget,
+        minC: this.minTemp,
+        maxC: this.maxTemp,
+        stepC: this.tempStep,
+        deadbandC: this.deadband,
+        minChangeMinutes: this.minSetpointChangeMinutes,
+        lastChangeMs: this.lastSetpointChangeMs
+      });
+      logDecision('constraints.zone1.final', {
+        proposed: targetTemp,
+        currentTarget: safeCurrentTarget,
+        result: zone1FinalConstraints,
+        thermalStrategyApplied: Boolean(thermalStrategy && thermalStrategy.action !== 'maintain')
+      });
+      if (
+        zone1FinalConstraints.reason !== 'within constraints' &&
+        !adjustmentReason.includes(zone1FinalConstraints.reason)
+      ) {
+        adjustmentReason += ` | ${zone1FinalConstraints.reason}`;
       }
+      targetTemp = zone1FinalConstraints.constrainedC;
+      tempDifference = Math.abs(zone1FinalConstraints.deltaC);
+      lockoutActive = zone1FinalConstraints.lockoutActive;
+      isSignificantChange = zone1FinalConstraints.changed && !lockoutActive;
+      logData.targetTemp = targetTemp.toFixed(1);
+      logData.tempDifference = tempDifference.toFixed(2);
+      logData.isSignificantChange = isSignificantChange;
+      logData.lockoutActive = lockoutActive;
+      duplicateTarget = this.lastIssuedSetpointC !== null &&
+        Math.abs((this.lastIssuedSetpointC as number) - targetTemp) < 1e-4;
+      logData.duplicateTarget = duplicateTarget;
 
+      logDecision('optimizer.run.summary', logData);
       this.logger.log('Enhanced optimization result:', logData);
 
       // Handle secondary zone optimization (Zone2)
@@ -2067,17 +2138,26 @@ export class Optimizer {
             zone2Target += weatherAdjustment.adjustment;
           }
 
-          zone2Target = Math.max(this.minTempZone2, Math.min(this.maxTempZone2, zone2Target));
-
-          const maxZone2Change = this.tempStepZone2;
-          if (Math.abs(zone2Target - currentTargetZone2) > maxZone2Change) {
-            zone2Target = currentTargetZone2 + (zone2Target > currentTargetZone2 ? maxZone2Change : -maxZone2Change);
-          }
-
-          zone2Target = Math.round(zone2Target / this.tempStepZone2) * this.tempStepZone2;
-
           const zone2Deadband = Math.max(0.1, this.tempStepZone2 / 2);
-          const zone2Change = Math.abs(zone2Target - currentTargetZone2);
+          const zone2Constraints = applySetpointConstraints({
+            proposedC: zone2Target,
+            currentTargetC: currentTargetZone2,
+            minC: this.minTempZone2,
+            maxC: this.maxTempZone2,
+            stepC: this.tempStepZone2,
+            deadbandC: zone2Deadband,
+            minChangeMinutes: this.minSetpointChangeMinutes,
+            lastChangeMs: this.lastZone2SetpointChangeMs
+          });
+          logDecision('constraints.zone2.final', {
+            proposed: zone2Target,
+            currentTarget: currentTargetZone2,
+            result: zone2Constraints
+          });
+
+          zone2Target = zone2Constraints.constrainedC;
+          const zone2Change = Math.abs(zone2Constraints.deltaC);
+          const zone2Lockout = zone2Constraints.lockoutActive;
 
           let zone2Reason = 'No change needed';
           if (zone2Target < currentTargetZone2) {
@@ -2090,11 +2170,29 @@ export class Optimizer {
               : `Tibber price level ${priceLevel} – increasing Zone2 temperature`;
           }
 
-          if (zone2Change >= zone2Deadband) {
+          if (
+            zone2Constraints.reason !== 'within constraints' &&
+            !zone2Reason.includes(zone2Constraints.reason)
+          ) {
+            zone2Reason += ` | ${zone2Constraints.reason}`;
+          }
+
+          const zone2Duplicate = this.lastZone2IssuedSetpointC !== null &&
+            Math.abs((this.lastZone2IssuedSetpointC as number) - zone2Target) < 1e-4;
+          const zone2ShouldApply = zone2Constraints.changed && !zone2Lockout && !zone2Duplicate;
+
+          if (zone2ShouldApply) {
             await this.melCloud.setZoneTemperature(this.deviceId, this.buildingId, zone2Target, 2);
             this.logger.log(`Zone2 temperature adjusted from ${currentTargetZone2.toFixed(1)}°C to ${zone2Target.toFixed(1)}°C`);
+            this.lastZone2SetpointChangeMs = zone2Constraints.evaluatedAtMs;
+            this.lastZone2IssuedSetpointC = zone2Target;
           } else {
-            this.logger.log(`Zone2 change ${zone2Change.toFixed(2)}°C below deadband ${zone2Deadband.toFixed(2)}°C – keeping ${currentTargetZone2.toFixed(1)}°C`);
+            const zone2HoldReason = zone2Duplicate
+              ? 'duplicate target'
+              : zone2Lockout
+                ? `lockout ${this.minSetpointChangeMinutes}m`
+                : `change ${zone2Change.toFixed(2)}°C below deadband ${zone2Deadband.toFixed(2)}°C`;
+            this.logger.log(`Zone2 hold (${zone2HoldReason}) – keeping ${currentTargetZone2.toFixed(1)}°C`);
           }
 
           zone2Result = {
@@ -2104,7 +2202,8 @@ export class Optimizer {
             targetOriginal: currentTargetZone2,
             targetTemp: zone2Target,
             indoorTemp: currentTempZone2,
-            success: zone2Change >= zone2Deadband
+            success: zone2ShouldApply,
+            changed: zone2ShouldApply
           };
         } catch (zone2Error) {
           this.logger.error('Zone2 optimization failed', zone2Error as Error);
@@ -2147,19 +2246,45 @@ export class Optimizer {
             }
           }
 
-          tankTarget = Math.max(this.minTankTemp, Math.min(this.maxTankTemp, tankTarget));
-          tankTarget = Math.round(tankTarget / this.tankTempStep) * this.tankTempStep;
-
           const tankDeadband = Math.max(0.2, this.tankTempStep / 2);
-          const tankChange = Math.abs(tankTarget - currentTankTarget);
+          const tankConstraints = applySetpointConstraints({
+            proposedC: tankTarget,
+            currentTargetC: currentTankTarget,
+            minC: this.minTankTemp,
+            maxC: this.maxTankTemp,
+            stepC: this.tankTempStep,
+            deadbandC: tankDeadband,
+            minChangeMinutes: this.minSetpointChangeMinutes,
+            lastChangeMs: this.lastTankSetpointChangeMs
+          });
+          logDecision('constraints.tank.final', {
+            proposed: tankTarget,
+            currentTarget: currentTankTarget,
+            result: tankConstraints
+          });
 
-          const changeApplied = tankChange >= tankDeadband;
+          tankTarget = tankConstraints.constrainedC;
+          const tankChange = Math.abs(tankConstraints.deltaC);
+          const tankLockout = tankConstraints.lockoutActive;
+
+          if (
+            tankConstraints.reason !== 'within constraints' &&
+            !tankReason.includes(tankConstraints.reason)
+          ) {
+            tankReason += ` | ${tankConstraints.reason}`;
+          }
+
+          const tankDuplicate = this.lastTankIssuedSetpointC !== null &&
+            Math.abs((this.lastTankIssuedSetpointC as number) - tankTarget) < 1e-4;
+          const changeApplied = tankConstraints.changed && !tankLockout && !tankDuplicate;
 
           if (changeApplied) {
             try {
               await this.melCloud.setTankTemperature(this.deviceId, this.buildingId, tankTarget);
               this.logger.log(`Tank temperature adjusted from ${currentTankTarget.toFixed(1)}°C to ${tankTarget.toFixed(1)}°C`);
               tankStatus = { setpointApplied: true };
+              this.lastTankSetpointChangeMs = tankConstraints.evaluatedAtMs;
+              this.lastTankIssuedSetpointC = tankTarget;
               tankResult = {
                 fromTemp: currentTankTarget,
                 toTemp: tankTarget,
@@ -2180,7 +2305,13 @@ export class Optimizer {
               };
             }
           } else {
-            this.logger.log(`Tank change ${tankChange.toFixed(2)}°C below deadband ${tankDeadband.toFixed(2)}°C – keeping ${currentTankTarget.toFixed(1)}°C`);
+            const tankHoldReason = tankDuplicate
+              ? 'duplicate target'
+              : tankLockout
+                ? `lockout ${this.minSetpointChangeMinutes}m`
+                : `change ${tankChange.toFixed(2)}°C below deadband ${tankDeadband.toFixed(2)}°C`;
+            this.logger.log(`Tank hold (${tankHoldReason}) – keeping ${currentTankTarget.toFixed(1)}°C`);
+            tankStatus = { setpointApplied: false, error: tankHoldReason };
             tankResult = {
               fromTemp: currentTankTarget,
               toTemp: currentTankTarget,
@@ -2199,7 +2330,6 @@ export class Optimizer {
       }
 
       // Anti–short-cycling lockout: avoid frequent setpoint changes
-      let lockoutActive = false;
       try {
         const last = (this.homey && Number(this.homey.settings.get('last_setpoint_change_ms'))) || this.lastSetpointChangeMs || 0;
         const sinceMin = last > 0 ? (Date.now() - last) / 60000 : Infinity;
@@ -2210,23 +2340,41 @@ export class Optimizer {
       } catch {}
 
       // Apply temperature change if significant and not within lockout window
-      if (isSignificantChange && !lockoutActive) {
+      if (isSignificantChange && !lockoutActive && !duplicateTarget) {
+        const apiStart = Date.now();
         try {
           await this.melCloud.setDeviceTemperature(this.deviceId, this.buildingId, targetTemp);
           setpointApplied = true;
           melCloudSetpointApplied = true;
+          logDecision('optimizer.setpoint.applied', {
+            targetTemp,
+            from: safeCurrentTarget,
+            delta: targetTemp - safeCurrentTarget,
+            latencyMs: Date.now() - apiStart
+          });
         } catch (error) {
           melCloudSetpointApplied = false;
           melCloudSetpointError = (error instanceof Error) ? error.message : String(error);
           this.logger.error('Failed to apply MELCloud temperature change during optimization:', error);
+          logDecision('optimizer.setpoint.error', {
+            error: melCloudSetpointError,
+            latencyMs: Date.now() - apiStart
+          });
         }
         if (setpointApplied) {
           try {
             const now = Date.now();
             this.lastSetpointChangeMs = now;
             if (this.homey) this.homey.settings.set('last_setpoint_change_ms', now);
+            this.lastIssuedSetpointC = targetTemp;
           } catch {}
         }
+      } else {
+        logDecision('optimizer.setpoint.skipped', {
+          isSignificantChange,
+          lockoutActive,
+          duplicateTarget
+        });
       }
 
       if (setpointApplied) {
@@ -2314,11 +2462,16 @@ export class Optimizer {
         ? `Temperature change requested but MELCloud rejected: ${melCloudSetpointError}`
         : lockoutActive
           ? `Setpoint change lockout (${this.minSetpointChangeMinutes}m) to prevent cycling`
-          : `Temperature difference ${tempDifference.toFixed(1)}°C below deadband ${this.deadband}°C`;
+          : duplicateTarget
+            ? 'Duplicate target – already applied recently'
+            : `Temperature difference ${tempDifference.toFixed(1)}°C below deadband ${this.deadband}°C`;
 
       if (!setpointApplied) {
         // No change either due to small delta or lockout
-        this.logger.log(`No enhanced temperature adjustment needed (difference: ${tempDifference.toFixed(1)}°C < deadband: ${this.deadband}°C)`);
+        this.logger.log(`No enhanced temperature adjustment applied: ${failureOrHoldReason}`);
+        logDecision('optimizer.setpoint.hold', {
+          reason: failureOrHoldReason
+        });
 
         let savingsNumericNoChange = 0;
         try {

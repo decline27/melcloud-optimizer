@@ -182,7 +182,6 @@ export const DefaultEngineConfig: EngineConfig = {
   maxSetpointC: 23,
   stepMinutes: 60,
   preheat: { enable: true, horizonHours: 12, cheapPercentile: 0.35 }, // More responsive to cheap periods
-  safety: { deadbandC: 0.3, minSetpointChangeMinutes: 5, extremeWeatherMinC: 20 },
+  safety: { deadbandC: 0.3, minSetpointChangeMinutes: 30, extremeWeatherMinC: 20 },
   thermal: { rThermal: 2.5, cThermal: 10 }
 };
-

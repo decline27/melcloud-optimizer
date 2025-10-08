@@ -7,7 +7,7 @@ describe('Settings Form Default Values Debug', () => {
     // These are the expected HTML defaults based on the form
     const expectedDefaults = {
       deadband_c: '0.3',
-      min_setpoint_change_minutes: '5', 
+      min_setpoint_change_minutes: '30', 
       temp_step_max: '0.5',
       extreme_weather_min_temp: '20',
       comfort_lower_occupied: '20',

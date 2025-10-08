@@ -12,6 +12,13 @@ Space heating control reads the latest device state, prices, and weather, checks
 
 The optimization engine lives in the optimization folder and receives inputs through adapters that abstract Tibber, MELCloud, and weather services. Decisions flow back to the API layer, which updates the device and records structured logs for follow-up analysis.
 
+### Key control defaults and observability
+
+- Setpoint changes now respect a **30 minute minimum dwell** by default; the shared helper in `optimization/setpoint-constraints.ts` clamps values to the configured band, snaps them to the device's 0.5 °C step, and short-circuits duplicate commands.
+- Each optimization pass emits structured JSON logs tagged with a correlation id (`optimizer.run.*`, `constraints.*`, `optimizer.setpoint.*`) so telemetry → decision → MELCloud response can be stitched together quickly.
+- When ENTSO-E/Tibber data is unavailable or stale, the optimizer returns early with a hold decision instead of acting on partial information.
+- Cron schedules explicitly target the user's configured IANA timezone (default `Europe/Stockholm`) so hourly jobs fire once across DST transitions.
+
 Savings come primarily from shifting consumption toward low price periods, scheduling hot water heating when electricity is cheap, using small comfort band adjustments around the preferred indoor temperature, and preventing rapid toggling that harms efficiency. Typical households observe between five and thirty percent cost reduction depending on price volatility and allowed comfort flexibility.
 
 For support, documentation, and change history visit https://github.com/decline27/melcloud-optimizer.

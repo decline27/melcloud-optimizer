@@ -228,6 +228,13 @@ export class TimeZoneHelper {
             return sign * ((hours * 60) + minutes);
           }
         }
+        // Fallback: derive offset by converting to localised time string
+        const localized = date.toLocaleString('en-US', { timeZone: this.timeZoneName });
+        const tzDate = new Date(localized);
+        if (!Number.isNaN(tzDate.getTime())) {
+          const diffMinutes = Math.round((tzDate.getTime() - date.getTime()) / 60000);
+          return diffMinutes;
+        }
       } catch (error) {
         if (this.logger && typeof this.logger.warn === 'function') {
           this.logger.warn(`Failed to derive offset from timezone name ${this.timeZoneName}: ${error}`);
