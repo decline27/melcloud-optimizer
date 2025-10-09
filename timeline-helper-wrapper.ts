@@ -1,4 +1,10 @@
 import { HomeyApp } from './src/types';
+import { 
+  formatTimelineMessage, 
+  getTimelineVerbosity, 
+  getCurrencyCode,
+  TimelinePayload 
+} from './src/util/timeline-formatter';
 
 export enum TimelineEventType {
   HOURLY_OPTIMIZATION = 'hourly_optimization',
@@ -105,33 +111,30 @@ export class TimelineHelperWrapper {
 
   private messageFor(eventType: TimelineEventType, details: TimelineDetails, extra: TimelineExtra): string {
     if (eventType === TimelineEventType.HOURLY_OPTIMIZATION_RESULT) {
-      const from = extra.fromTemp ?? extra.targetOriginal;
-      const to = extra.toTemp ?? extra.targetTemp;
+      // Use the new formatter for hourly optimization results
+      const verbosity = getTimelineVerbosity(this.homey);
+      const currency = getCurrencyCode(this.homey);
+      
+      const payload: TimelinePayload = {
+        zoneName: 'Zone1', // Default zone name
+        fromTempC: extra.fromTemp ?? extra.targetOriginal ?? 20,
+        toTempC: extra.toTemp ?? extra.targetTemp ?? 20,
+        tankFromC: extra.tankOriginal,
+        tankToC: extra.tankTemp,
+        projectedDailySavingsSEK: extra.dailySavings,
+        reasonCode: this.extractReasonCode(details.reason),
+        planningShiftHours: typeof extra.planningShiftHours === 'number' ? extra.planningShiftHours : undefined,
+        // Add technical parameters if available
+        outdoorTempC: typeof extra.outdoorTemp === 'number' ? extra.outdoorTemp : undefined,
+        copEstimate: typeof extra.copEstimate === 'number' ? extra.copEstimate : undefined,
+        pricePercentile: typeof extra.pricePercentile === 'number' ? extra.pricePercentile : undefined,
+        comfortBandLowC: typeof extra.comfortLowC === 'number' ? extra.comfortLowC : undefined,
+        comfortBandHighC: typeof extra.comfortHighC === 'number' ? extra.comfortHighC : undefined,
+        // For debug mode, include the legacy format
+        rawEngineText: verbosity === 'debug' ? this.getLegacyMessage(details, extra) : undefined
+      };
 
-      const head = from !== undefined && to !== undefined
-        ? (from === to ? `No change (target ${to}°C)` : `Zone1 ${from}°C → ${to}°C`)
-        : 'Temperature optimized';
-
-      const segments: string[] = [head];
-
-      if (extra.zone2Original !== undefined && extra.zone2Temp !== undefined) {
-        segments.push(`Zone2 ${extra.zone2Original}°C → ${extra.zone2Temp}°C`);
-      }
-      if (extra.tankOriginal !== undefined && extra.tankTemp !== undefined) {
-        segments.push(`Tank ${extra.tankOriginal}°C → ${extra.tankTemp}°C`);
-      }
-
-      if (typeof extra.dailySavings === 'number') {
-        const currency = this.detectCurrency();
-        const amount = Number(extra.dailySavings).toFixed(2);
-        segments.push(`Projected daily savings: ${amount} ${currency}/day`);
-      }
-
-      if (details.reason) {
-        segments.push(String(details.reason));
-      }
-
-      return segments.join(' | ');
+      return formatTimelineMessage(payload, verbosity, currency);
     }
 
     if (eventType === TimelineEventType.WEEKLY_CALIBRATION_RESULT) {
@@ -147,6 +150,65 @@ export class TimelineHelperWrapper {
     }
 
     return 'Event logged';
+  }
+
+  /**
+   * Extract reason code from reason string for mapping to friendly text
+   */
+  private extractReasonCode(reason?: string): string {
+    if (!reason) return 'unknown';
+    
+    const reasonStr = String(reason).toLowerCase();
+    
+    // Map common reason patterns to codes
+    if (reasonStr.includes('within') && reasonStr.includes('deadband')) {
+      return 'within_deadband';
+    }
+    if (reasonStr.includes('cheaper') && reasonStr.includes('raise') && reasonStr.includes('comfort')) {
+      return 'cheaper_hour_raise_within_comfort';
+    }
+    if (reasonStr.includes('cheaper') && reasonStr.includes('lower') && reasonStr.includes('comfort')) {
+      return 'cheaper_hour_lower_within_comfort';
+    }
+    if (reasonStr.includes('planning') && reasonStr.includes('shift')) {
+      return 'planning_shift';
+    }
+    
+    // Return the original reason as code for unmapped cases
+    return reasonStr.replace(/[^a-z0-9_]/g, '_');
+  }
+
+  /**
+   * Generate legacy message format for debug mode
+   */
+  private getLegacyMessage(details: TimelineDetails, extra: TimelineExtra): string {
+    const from = extra.fromTemp ?? extra.targetOriginal;
+    const to = extra.toTemp ?? extra.targetTemp;
+
+    const head = from !== undefined && to !== undefined
+      ? (from === to ? `No change (target ${to}°C)` : `Zone1 ${from}°C → ${to}°C`)
+      : 'Temperature optimized';
+
+    const segments: string[] = [head];
+
+    if (extra.zone2Original !== undefined && extra.zone2Temp !== undefined) {
+      segments.push(`Zone2 ${extra.zone2Original}°C → ${extra.zone2Temp}°C`);
+    }
+    if (extra.tankOriginal !== undefined && extra.tankTemp !== undefined) {
+      segments.push(`Tank ${extra.tankOriginal}°C → ${extra.tankTemp}°C`);
+    }
+
+    if (typeof extra.dailySavings === 'number') {
+      const currency = this.detectCurrency();
+      const amount = Number(extra.dailySavings).toFixed(2);
+      segments.push(`Projected daily savings: ${amount} ${currency}/day`);
+    }
+
+    if (details.reason) {
+      segments.push(String(details.reason));
+    }
+
+    return segments.join(' | ');
   }
 
   private detectCurrency(): string {

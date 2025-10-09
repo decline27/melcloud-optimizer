@@ -124,5 +124,8 @@
   },
   "14.0.5": {
     "en": "Bug fix"
+  },
+  "14.0.6": {
+    "en": "Improved the optimasation"
   }
 }

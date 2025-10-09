@@ -446,6 +446,17 @@
         </label>
         <p class="homey-form-helper">When enabled, you will receive a Homey notification for successful hourly optimization and weekly calibration.</p>
       </div>
+
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="timeline_verbosity">Timeline Detail</label>
+        <select class="homey-form-input" id="timeline_verbosity">
+          <option value="minimal">Minimal - Daily savings + key actions</option>
+          <option value="standard" selected>Standard - Hourly summary, friendly phrasing</option>
+          <option value="detailed">Detailed - All hourly actions + parameters</option>
+          <option value="debug" id="timeline_debug_option" style="display: none;">Developer debug - Raw engine text for troubleshooting</option>
+        </select>
+        <p class="homey-form-helper">Controls how much detail appears in timeline posts. Standard is recommended for most users.</p>
+      </div>
     </details>
 
     <details class="homey-form-fieldset">
@@ -1432,6 +1443,7 @@
         const timeZoneNameStatusElement = document.getElementById("time_zone_name_status");
         const logLevelElement = document.getElementById("log_level");
         const notifyOnSuccessElement = document.getElementById("notify_on_success");
+        const timelineVerbosityElement = document.getElementById("timeline_verbosity");
         const currencyCodeElement = document.getElementById("currency_code");
         const saveElement = document.getElementById("save");
 
@@ -2449,6 +2461,38 @@
           if (value !== undefined && value !== null && value !== "") notifyOnSuccessElement.checked = !!value;
         });
 
+        Homey.get("timeline_verbosity", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined && value !== null && value !== "") {
+            timelineVerbosityElement.value = value;
+          } else {
+            // Default to 'standard' if not set
+            timelineVerbosityElement.value = 'standard';
+          }
+        });
+
+        // Show/hide debug option based on log level
+        function updateTimelineDebugOption() {
+          const debugOption = document.getElementById("timeline_debug_option");
+          if (debugOption && logLevelElement) {
+            if (logLevelElement.value === "0") { // Debug log level
+              debugOption.style.display = "block";
+            } else {
+              debugOption.style.display = "none";
+              // If debug was selected but log level changed, reset to standard
+              if (timelineVerbosityElement.value === "debug") {
+                timelineVerbosityElement.value = "standard";
+              }
+            }
+          }
+        }
+
+        if (logLevelElement) {
+          logLevelElement.addEventListener('change', updateTimelineDebugOption);
+          // Update on initial load
+          setTimeout(updateTimelineDebugOption, 100);
+        }
+
         Homey.get("currency", function (err, value) {
           if (err) return Homey.alert(err);
           if (value !== undefined && value !== null) currencyCodeElement.value = value;
@@ -2986,6 +3030,12 @@
           if (notifyOnSuccessElement) {
             Homey.set("notify_on_success", notifyOnSuccessElement.checked, function (err) {
               if (err) console.error('Error saving notify_on_success:', err);
+            });
+          }
+
+          if (timelineVerbosityElement) {
+            Homey.set("timeline_verbosity", timelineVerbosityElement.value, function (err) {
+              if (err) console.error('Error saving timeline_verbosity:', err);
             });
           }
 
