@@ -127,5 +127,8 @@
   },
   "14.0.6": {
     "en": "Improved the optimasation"
+  },
+  "14.0.7": {
+    "en": "Savings calculation fix"
   }
 }
