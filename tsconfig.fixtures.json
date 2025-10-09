@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["test/fixtures/generate-scenarios.ts"],
+  "exclude": []
+}

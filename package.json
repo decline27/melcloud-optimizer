@@ -20,6 +20,7 @@
     "test:ci": "jest --ci --coverage --watchAll=false",
     "clean": "rm -rf .homeybuild coverage results",
     "simulate": "npm run build:ts && node .homeybuild/scripts/simulate.js --data data/timeseries.csv --config data/config.yaml --output results/",
+    "gen:scenarios": "tsc -p tsconfig.fixtures.json && node .homeybuild/test/fixtures/generate-scenarios.js",
     "validate": "homey app validate",
     "homey:install": "homey app install"
   },

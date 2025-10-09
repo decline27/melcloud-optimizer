@@ -15,6 +15,39 @@ const makePrice = (startIso: string, hours: number, cheapCount = 0, expensiveCou
 };
 
 describe('planning-utils', () => {
+  describe('computePlanningBias window controls', () => {
+    test('respects lookahead and window hours limits', () => {
+      const now = new Date('2024-01-01T00:00:00Z');
+      const prices: { time: string; price: number }[] = [];
+      for (let i = 1; i <= 24; i += 1) {
+        prices.push({ time: new Date(now.getTime() + i * 3600000).toISOString(), price: i });
+      }
+      const result = computePlanningBias(prices, now, {
+        windowHours: 3,
+        lookaheadHours: 4,
+        cheapPercentile: 10,
+        expensivePercentile: 90,
+        cheapBiasC: 0.6,
+        expensiveBiasC: 0.4,
+        maxAbsBiasC: 0.5
+      });
+      expect(result.windowHours).toBe(3);
+      expect(result.biasC).toBeLessThanOrEqual(0.5);
+    });
+
+    test('returns zero bias when future prices invalid', () => {
+      const now = new Date('2024-01-01T00:00:00Z');
+      const prices = [
+        { time: 'invalid', price: 0.2 },
+        { time: '2023-12-31T23:00:00Z', price: 0.2 }
+      ];
+      const result = computePlanningBias(prices, now);
+      expect(result.biasC).toBe(0);
+      expect(result.hasCheap).toBe(false);
+      expect(result.hasExpensive).toBe(false);
+    });
+  });
+
   test('computes positive bias when cheap window ahead', () => {
     const prices = makePrice('2024-01-01T00:00:00Z', 24, 4, 0);
     const now = new Date('2024-01-01T00:00:00Z');
