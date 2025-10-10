@@ -463,19 +463,20 @@ export async function updateOptimizerSettings(homey: HomeyLike): Promise<void> {
     return Number.isFinite(numeric) ? numeric : null;
   };
 
-  const comfortLowerCandidates = [
-    toNumber(homey.settings.get('comfort_lower_occupied')),
-    toNumber(homey.settings.get('comfort_lower_away')),
-    DefaultEngineConfig.comfortOccupied.lowerC,
-    DefaultEngineConfig.comfortAway.lowerC
-  ].filter((value): value is number => value !== null);
+  // Use user settings with fallback to defaults (don't mix them for min/max calculation)
+  const userComfortLowerOccupied = toNumber(homey.settings.get('comfort_lower_occupied'));
+  const userComfortLowerAway = toNumber(homey.settings.get('comfort_lower_away'));
+  const userComfortUpperOccupied = toNumber(homey.settings.get('comfort_upper_occupied'));
+  const userComfortUpperAway = toNumber(homey.settings.get('comfort_upper_away'));
 
-  const comfortUpperCandidates = [
-    toNumber(homey.settings.get('comfort_upper_occupied')),
-    toNumber(homey.settings.get('comfort_upper_away')),
-    DefaultEngineConfig.comfortOccupied.upperC,
-    DefaultEngineConfig.comfortAway.upperC
-  ].filter((value): value is number => value !== null);
+  // Use user settings if available, otherwise use defaults
+  const comfortLowerOccupied = userComfortLowerOccupied ?? DefaultEngineConfig.comfortOccupied.lowerC;
+  const comfortLowerAway = userComfortLowerAway ?? DefaultEngineConfig.comfortAway.lowerC;
+  const comfortUpperOccupied = userComfortUpperOccupied ?? DefaultEngineConfig.comfortOccupied.upperC;
+  const comfortUpperAway = userComfortUpperAway ?? DefaultEngineConfig.comfortAway.upperC;
+
+  const comfortLowerCandidates = [comfortLowerOccupied, comfortLowerAway];
+  const comfortUpperCandidates = [comfortUpperOccupied, comfortUpperAway];
 
   const derivedMin = Math.min(...comfortLowerCandidates);
   let derivedMax = Math.max(...comfortUpperCandidates);
@@ -486,6 +487,14 @@ export async function updateOptimizerSettings(homey: HomeyLike): Promise<void> {
 
   const minTemp = Math.max(16, Math.min(derivedMin, 26));
   let maxTemp = Math.max(minTemp + 0.5, Math.min(derivedMax, 26));
+
+  // Debug comfort band resolution
+  homey.app.log('Comfort band resolution:');
+  homey.app.log('- User Occupied:', userComfortLowerOccupied ?? 'unset', '→', userComfortUpperOccupied ?? 'unset');
+  homey.app.log('- User Away:', userComfortLowerAway ?? 'unset', '→', userComfortUpperAway ?? 'unset');
+  homey.app.log('- Final Occupied:', comfortLowerOccupied, '→', comfortUpperOccupied);
+  homey.app.log('- Final Away:', comfortLowerAway, '→', comfortUpperAway);
+  homey.app.log('- Derived Range:', derivedMin, '→', derivedMax);
 
   if (maxTemp - minTemp < 0.5) {
     maxTemp = minTemp + 0.5;

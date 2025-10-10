@@ -130,5 +130,8 @@
   },
   "14.0.7": {
     "en": "Savings calculation fix"
+  },
+  "14.0.8": {
+    "en": "Bug fix"
   }
 }

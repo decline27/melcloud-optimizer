@@ -82,14 +82,21 @@ function clamp(x: number, lo: number, hi: number) {
 }
 
 function pricePercentile(prices: PricePoint[], now: Date, horizonHours: number, currentPrice: number): number {
-  // Use ALL available prices for percentile calculation, not just horizon window
-  // This ensures consistency with main system that uses full price dataset
   if (!prices.length) return 0.5;
   
-  // Use the SAME method as the main system for consistency
-  // Count how many prices are <= current price, divide by total
-  const cheaperOrEqualCount = prices.filter(p => p.price <= currentPrice).length;
-  return cheaperOrEqualCount / prices.length; // 0 = cheapest, 1 = most expensive
+  // Forward-looking optimization: consider prices within the horizon window
+  const horizonEndTime = new Date(now.getTime() + horizonHours * 60 * 60 * 1000);
+  const relevantPrices = prices.filter(p => {
+    const priceTime = new Date(p.time);
+    return priceTime >= now && priceTime <= horizonEndTime;
+  });
+  
+  // If no forward prices available, fall back to all available prices
+  const pricesToUse = relevantPrices.length > 0 ? relevantPrices : prices;
+  
+  // Calculate percentile within the relevant time window
+  const cheaperOrEqualCount = pricesToUse.filter(p => p.price <= currentPrice).length;
+  return cheaperOrEqualCount / pricesToUse.length; // 0 = cheapest, 1 = most expensive
 }
 
 // ----- Decisions -----
@@ -151,11 +158,31 @@ export function computeHeatingDecision(cfg: EngineConfig, inp: EngineInputs): He
 
   // Heuristic expected cost: 1 kWh/h at current price scaled by direction
   const expected = Math.sign(delta) * inp.currentPrice; // + = cost increase, - = saving
+  
+  // Generate accurate reasoning based on actual price level and adjustment direction
+  let reason: string;
+  const priceDesc = pctl <= 0.25 ? 'very cheap' : pctl <= 0.35 ? 'cheap' : pctl <= 0.65 ? 'moderate' : pctl <= 0.85 ? 'expensive' : 'very expensive';
+  const percentileDesc = `${Math.round(pctl * 100)}th percentile`;
+  
+  if (delta > 0) {
+    if (pctl <= 0.35) {
+      reason = `Cheap prices (${percentileDesc}) → raising to store thermal energy`;
+    } else {
+      reason = `Adjusting to optimal target for ${priceDesc} prices (${percentileDesc})`;
+    }
+  } else {
+    if (pctl >= 0.7) {
+      reason = `Expensive prices (${percentileDesc}) → lowering to save energy`;
+    } else {
+      reason = `Adjusting to optimal target for ${priceDesc} prices (${percentileDesc})`;
+    }
+  }
+  
   return {
     action: 'set_target',
     fromC: inp.telemetry.targetC,
     toC: target,
-    reason: delta > 0 ? 'Cheaper hour → raise within comfort' : 'Expensive hour → lower within comfort',
+    reason,
     comfortRisk: 'low',
     expectedDeltaCostPerHourSEK: expected
   };

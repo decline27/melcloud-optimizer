@@ -584,6 +584,19 @@ export class Optimizer {
   }
 
   /**
+   * Calculate price level based on percentile (works for both Tibber and ENTSO-E APIs)
+   * @param percentile Price percentile (0-100)
+   * @returns Price level string
+   */
+  private calculatePriceLevel(percentile: number): string {
+    if (percentile <= 10) return 'VERY_CHEAP';
+    if (percentile <= 30) return 'CHEAP';
+    if (percentile <= 70) return 'NORMAL';
+    if (percentile <= 90) return 'EXPENSIVE';
+    return 'VERY_EXPENSIVE';
+  }
+
+  /**
    * Calculate thermal mass strategy for strategic heating
    * @param currentTemp Current indoor temperature
    * @param targetTemp Target temperature
@@ -1754,10 +1767,12 @@ export class Optimizer {
       const avgPrice = priceData.prices.reduce((sum, p) => sum + p.price, 0) / priceData.prices.length;
       const minPrice = Math.min(...priceData.prices.map((p: any) => p.price));
       const maxPrice = Math.max(...priceData.prices.map((p: any) => p.price));
-      const priceLevel: string = (priceData.current as any)?.level || 'NORMAL';
       const pricePercentile = priceData.prices.length > 0
         ? (priceData.prices.filter((p: any) => p.price <= currentPrice).length / priceData.prices.length) * 100
         : 0;
+      
+      // Calculate price level based on percentile (works for both Tibber and ENTSO-E APIs)
+      const priceLevel: string = this.calculatePriceLevel(pricePercentile);
       let nextHourPrice: number | undefined;
       try {
         const currentTs = priceData.current?.time ? new Date(priceData.current.time) : new Date();
