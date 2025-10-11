@@ -18,7 +18,7 @@ Homey.get("setting_name", function (err, value) {
 ```
 
 **Examples that follow this pattern:**
-- All engine settings (use_engine, deadband_c, comfort temperatures, etc.)
+- All thermal and comfort settings (deadband_c, comfort temperatures, etc.)
 - All numeric inputs (temperatures, time values)
 - Most checkbox settings
 - Zone2 settings
@@ -78,7 +78,7 @@ Homey.get("price_data_source", function (err, value) {
 ## 📊 **Complete Settings Analysis**
 
 ### ✅ **Settings That Respect HTML Defaults (Safe):**
-1. **Engine Settings**: `use_engine`, `deadband_c`, `min_setpoint_change_minutes`, etc.
+1. **Comfort & Stability Settings**: `deadband_c`, `min_setpoint_change_minutes`, etc.
 2. **Comfort Settings**: All temperature ranges and occupied/away settings
 3. **Preheat Settings**: `preheat_enable`, horizons, percentiles
 4. **Zone2/Tank Settings**: All conditional settings

@@ -3,13 +3,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { HomeySettings } from '../../src/types';
 import { createMockLogger } from '../mocks/logger.mock';
-import { loadTestConfig, shouldSkipIntegrationTests } from '../test-config';
+import { shouldSkipIntegrationTests } from '../test-config';
 
 // Load test configuration to decide whether to run these real-API tests
 const configPath = path.join(__dirname, '../config.json');
 const hasConfig = fs.existsSync(configPath);
-const testConfig = loadTestConfig();
 const skipReal = shouldSkipIntegrationTests();
+const runRealIntegration = hasConfig && !skipReal && process.env.RUN_MELCLOUD_INTEGRATION === 'true';
 
 // Mock global homeySettings
 declare global {
@@ -17,7 +17,9 @@ declare global {
 }
 
 // Only run these tests if credentials are available AND integration isn't skipped
-((hasConfig && !skipReal) ? describe : describe.skip)('MelCloudApi with real credentials', () => {
+const describeOrSkip = runRealIntegration ? describe : describe.skip;
+
+describeOrSkip('MelCloudApi with real credentials', () => {
   let melCloudApi: MelCloudApi;
   let config: any;
   let originalHomeySettings: any;
@@ -27,7 +29,7 @@ declare global {
     // Save original homeySettings if it exists
     originalHomeySettings = global.homeySettings;
 
-    if (hasConfig && !skipReal) {
+    if (runRealIntegration) {
       try {
         const configContent = fs.readFileSync(configPath, 'utf8');
         config = JSON.parse(configContent);

@@ -270,13 +270,13 @@
       </div>
     </details>
 
-    <!-- Optimization Engine Settings -->
+    <!-- Comfort & Safety Settings -->
     <details class="homey-form-fieldset" id="engine_fieldset" open>
-      <summary class="homey-form-legend">Comfort & Engine</summary>
+      <summary class="homey-form-legend">Comfort & Stability</summary>
 
       <div class="homey-form-group">
         <div style="background:#f7fbff;border:1px solid #dbe9ff;border-radius:6px;padding:10px;">
-          <div style="font-weight:600;margin-bottom:6px;">How the Engine saves money</div>
+          <div style="font-weight:600;margin-bottom:6px;">How optimisation saves money</div>
           <div class="homey-form-helper" style="margin:0;">
             • Shifts heating to cheap hours (preheat), coasts in expensive hours.<br>
             • Keeps comfort within a band (occupied vs away).<br>
@@ -284,16 +284,6 @@
             • Applies weather context (for example, warm trend → smaller targets).
           </div>
         </div>
-      </div>
-
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="use_engine">Use Optimization Engine</label>
-        <label class="homey-form-checkbox">
-          <input type="checkbox" id="use_engine" checked />
-          <span>Comfort band control + price-aware preheating (recommended)</span>
-        </label>
-        <p class="homey-form-helper">Turn on the advanced engine for clearer control and savings. Suggested default: <b>Enabled</b>.</p>
-        <p class="homey-form-helper">Impact: When enabled, decisions prioritize cost within your comfort band and respect the safety limits below.</p>
       </div>
 
       <div class="homey-form-group">
@@ -2303,7 +2293,6 @@
         const gridFeeElement = document.getElementById("grid_fee_per_kwh");
 
         // Engine elements
-        const useEngineElement = document.getElementById("use_engine");
         const deadbandElement = document.getElementById("deadband_c");
         const minChangeMinutesElement = document.getElementById("min_setpoint_change_minutes");
         const extremeMinElement = document.getElementById("extreme_weather_min_temp");
@@ -2438,7 +2427,6 @@
         });
 
         // Load engine settings
-        Homey.get("use_engine", function (err, value) { if (!err && value !== undefined && value !== null && value !== "") useEngineElement.checked = !!value; });
         Homey.get("deadband_c", function (err, value) { if (hasValidValue(err, value)) deadbandElement.value = value; });
         Homey.get("min_setpoint_change_minutes", function (err, value) { if (hasValidValue(err, value)) minChangeMinutesElement.value = value; });
         Homey.get("extreme_weather_min_temp", function (err, value) { if (hasValidValue(err, value)) extremeMinElement.value = value; });
@@ -3172,11 +3160,6 @@
             });
           }
 
-          // Save Engine settings
-          if (useEngineElement) {
-            Homey.set("use_engine", useEngineElement.checked, function (err) { if (err) console.error('Error saving use_engine:', err); });
-          }
-          
           if (deadbandElement) {
             const deadband = parseFloat(deadbandElement.value);
             if (!isNaN(deadband) && deadband >= 0.1 && deadband <= 2.0) {

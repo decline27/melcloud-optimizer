@@ -16,7 +16,6 @@ import { isError } from '../util/error-handler';
 import { EnhancedSavingsCalculator, OptimizationData, SavingsCalculationResult } from '../util/enhanced-savings-calculator';
 import { HomeyLogger } from '../util/logger';
 import { TimeZoneHelper } from '../util/time-zone-helper';
-import { DefaultEngineConfig, computeHeatingDecision } from '../../optimization/engine';
 import { applySetpointConstraints } from '../../optimization/setpoint-constraints';
 import { computePlanningBias, updateThermalResponse } from './planning-utils';
 import { AdaptiveParametersLearner } from './adaptive-parameters';
@@ -1854,102 +1853,6 @@ export class Optimizer {
       let adjustmentReason = optimizationResult.reason;
 
       // Optional: Use pure Optimization Engine when enabled (robust boolean parsing)
-      let useEngine = false;
-      if (this.homey) {
-        try {
-          const ue = this.homey.settings.get('use_engine');
-          useEngine = (ue === true) || (ue === 'true') || (ue === 1);
-        } catch {}
-      }
-      if (useEngine) {
-        try {
-          // Occupancy logic: Manual override OR automatic schedule
-          const manuallyOccupied = this.homey ? (this.homey.settings.get('occupied') !== false) : true;
-          const dayStart = Number(this.homey?.settings.get('day_start_hour')) || 7;
-          const dayEnd = Number(this.homey?.settings.get('day_end_hour')) || 23;
-          const currentHour = new Date().getHours();
-          const isScheduledOccupied = currentHour >= dayStart && currentHour < dayEnd;
-          
-          // Use schedule-based occupancy when manually occupied, otherwise respect manual away
-          const occupied = manuallyOccupied ? isScheduledOccupied : false;
-          const comfortLowerOcc = Number(this.homey?.settings.get('comfort_lower_occupied'));
-          const comfortUpperOcc = Number(this.homey?.settings.get('comfort_upper_occupied'));
-          const comfortLowerAway = Number(this.homey?.settings.get('comfort_lower_away'));
-          const comfortUpperAway = Number(this.homey?.settings.get('comfort_upper_away'));
-
-          const engineCfg = {
-            ...DefaultEngineConfig,
-            comfortOccupied: {
-              lowerC: Number.isFinite(comfortLowerOcc) ? comfortLowerOcc : DefaultEngineConfig.comfortOccupied.lowerC,
-              upperC: Number.isFinite(comfortUpperOcc) ? comfortUpperOcc : DefaultEngineConfig.comfortOccupied.upperC,
-            },
-            comfortAway: {
-              lowerC: Number.isFinite(comfortLowerAway) ? comfortLowerAway : DefaultEngineConfig.comfortAway.lowerC,
-              upperC: Number.isFinite(comfortUpperAway) ? comfortUpperAway : DefaultEngineConfig.comfortAway.upperC,
-            },
-            minSetpointC: this.minTemp,
-            maxSetpointC: this.maxTemp,
-            safety: {
-              deadbandC: this.deadband,
-              minSetpointChangeMinutes: this.minSetpointChangeMinutes,
-              extremeWeatherMinC: Number(this.homey?.settings.get('extreme_weather_min_temp')) || DefaultEngineConfig.safety.extremeWeatherMinC,
-            },
-            preheat: {
-              enable: this.homey?.settings.get('preheat_enable') !== false,
-              horizonHours: Number(this.homey?.settings.get('preheat_horizon_hours')) || DefaultEngineConfig.preheat.horizonHours,
-              cheapPercentile: Number(this.homey?.settings.get('preheat_cheap_percentile')) || DefaultEngineConfig.preheat.cheapPercentile,
-            },
-            thermal: {
-              rThermal: Number(this.homey?.settings.get('r_thermal')) || DefaultEngineConfig.thermal.rThermal,
-              cThermal: Number(this.homey?.settings.get('c_thermal')) || DefaultEngineConfig.thermal.cThermal,
-            }
-          } as typeof DefaultEngineConfig;
-
-          const engineDecision = computeHeatingDecision(engineCfg, {
-            now: new Date(),
-            occupied,
-            prices: priceData.prices,
-            currentPrice,
-            telemetry: { indoorC: currentTemp ?? 20, targetC: currentTarget ?? 20 },
-            weather: { outdoorC: outdoorTemp },
-            lastSetpointChangeMs: this.lastSetpointChangeMs ?? (this.homey ? Number(this.homey.settings.get('last_setpoint_change_ms')) : null)
-          });
-
-          // Explicit ON marker with config snapshot for easier troubleshooting
-          try {
-            this.logger.log('Engine: ON', {
-              occupied,
-              bands: {
-                occupied: [engineCfg.comfortOccupied.lowerC, engineCfg.comfortOccupied.upperC],
-                away: [engineCfg.comfortAway.lowerC, engineCfg.comfortAway.upperC]
-              },
-              safety: { deadband: this.deadband, minChangeMin: this.minSetpointChangeMinutes },
-              preheat: { enable: engineCfg.preheat.enable, horizon: engineCfg.preheat.horizonHours, cheapPct: engineCfg.preheat.cheapPercentile }
-            });
-          } catch {}
-
-          if (engineDecision.action === 'set_target') {
-            targetTemp = engineDecision.toC;
-            adjustmentReason = `Engine: ${engineDecision.reason}`;
-          } else {
-            targetTemp = currentTarget ?? targetTemp;
-            adjustmentReason = `Engine: ${engineDecision.reason}`;
-          }
-
-          this.logger.log('Engine decision applied', {
-            from: currentTarget ?? 20,
-            to: targetTemp,
-            reason: adjustmentReason
-          });
-        } catch (e) {
-          this.logger.error('Engine decision failed; using optimizer result', e);
-        }
-      } else {
-        try {
-          const raw = this.homey ? this.homey.settings.get('use_engine') : undefined;
-          this.logger.log('Engine: OFF', { use_engine_setting: raw });
-        } catch {}
-      }
 
       // Apply weather-based adjustment when available (uses forecast + price context)
       let weatherInfo: any = null;

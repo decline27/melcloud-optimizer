@@ -157,10 +157,11 @@ describe('HeatOptimizerApp focused coverage tests', () => {
     let result = (app as any).validateSettings();
     expect(result).toBe(false);
 
-    // Test missing Tibber token
+    // Test missing Tibber token when Tibber source selected
     homey.settings.get.mockImplementation((key: string) => {
       if (key === 'melcloud_user') return 'user@example.com';
       if (key === 'melcloud_pass') return 'password';
+      if (key === 'price_data_source') return 'tibber';
       if (key === 'tibber_token') return undefined;
       return undefined;
     });
@@ -172,7 +173,7 @@ describe('HeatOptimizerApp focused coverage tests', () => {
     homey.settings.get.mockImplementation((key: string) => {
       if (key === 'melcloud_user') return 'user@example.com';
       if (key === 'melcloud_pass') return 'password';
-      if (key === 'tibber_token') return 'token';
+      if (key === 'price_data_source') return 'entsoe';
       if (key === 'comfort_lower_occupied') return 22;
       if (key === 'comfort_upper_occupied') return 21;
       return undefined;

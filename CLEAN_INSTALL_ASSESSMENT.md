@@ -73,9 +73,6 @@ The settings page provides sensible defaults:
 <!-- Currency: EUR by default -->
 <input id="currency_code" type="text" value="EUR" />
 
-<!-- Optimization Engine: Enabled by default -->
-<input type="checkbox" id="use_engine" checked />
-
 <!-- All thermal control settings have sensible defaults -->
 <input id="deadband_c" type="number" value="0.3" />
 <input id="min_setpoint_change_minutes" type="number" value="30" />
