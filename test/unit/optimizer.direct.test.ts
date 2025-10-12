@@ -83,6 +83,10 @@ describe('Optimizer', () => {
       error: jest.fn(),
       settings: {
         get: jest.fn().mockImplementation((key) => {
+          if (key === 'comfort_lower_occupied') return 18;
+          if (key === 'comfort_upper_occupied') return 22;
+          if (key === 'comfort_lower_away') return 17;
+          if (key === 'comfort_upper_away') return 21;
           if (key === 'cop_weight') return 0.3;
           if (key === 'auto_seasonal_mode') return true;
           if (key === 'summer_mode') return false;

@@ -3,8 +3,15 @@ import HeatOptimizerApp from '../../src/app';
 describe('Home/Away Flow Actions', () => {
   let app: HeatOptimizerApp;
   let mockHomey: any;
+  let mockEntsoeActionCard: any;
+  let currentSetOccupiedCard: any;
 
   beforeEach(() => {
+    mockEntsoeActionCard = {
+      registerRunListener: jest.fn()
+    };
+    currentSetOccupiedCard = null;
+
     mockHomey = {
       settings: {
         get: jest.fn().mockReturnValue(true),
@@ -12,7 +19,15 @@ describe('Home/Away Flow Actions', () => {
         on: jest.fn()
       },
       flow: {
-        getActionCard: jest.fn()
+        getActionCard: jest.fn((cardId: string) => {
+          if (cardId === 'get_entsoe_prices') {
+            return mockEntsoeActionCard;
+          }
+          if (cardId === 'set_occupied') {
+            return currentSetOccupiedCard;
+          }
+          return undefined;
+        })
       },
       log: jest.fn(),
       error: jest.fn()
@@ -30,29 +45,25 @@ describe('Home/Away Flow Actions', () => {
 
   describe('set_occupied flow action', () => {
     it('should register flow action without errors', () => {
-      const mockActionCard = {
+      currentSetOccupiedCard = {
         registerRunListener: jest.fn()
       };
-      
-      mockHomey.flow.getActionCard.mockReturnValue(mockActionCard);
 
       // Call the private method that registers flow actions
-      (app as any).registerFlowActions();
+      (app as any).registerEntsoeFlowAction();
 
       expect(mockHomey.flow.getActionCard).toHaveBeenCalledWith('set_occupied');
-      expect(mockActionCard.registerRunListener).toHaveBeenCalled();
+      expect(currentSetOccupiedCard.registerRunListener).toHaveBeenCalled();
     });
 
     it('should handle occupied=true argument correctly', async () => {
-      const mockActionCard = {
+      currentSetOccupiedCard = {
         registerRunListener: jest.fn()
       };
-      
-      mockHomey.flow.getActionCard.mockReturnValue(mockActionCard);
-      (app as any).registerFlowActions();
+      (app as any).registerEntsoeFlowAction();
 
       // Get the registered listener
-      const listener = mockActionCard.registerRunListener.mock.calls[0][0];
+      const listener = currentSetOccupiedCard.registerRunListener.mock.calls[0][0];
       
       // Call with occupied=true
       const result = await listener({ occupied: 'true' });
@@ -62,15 +73,13 @@ describe('Home/Away Flow Actions', () => {
     });
 
     it('should handle occupied=false argument correctly', async () => {
-      const mockActionCard = {
+      currentSetOccupiedCard = {
         registerRunListener: jest.fn()
       };
-      
-      mockHomey.flow.getActionCard.mockReturnValue(mockActionCard);
-      (app as any).registerFlowActions();
+      (app as any).registerEntsoeFlowAction();
 
       // Get the registered listener
-      const listener = mockActionCard.registerRunListener.mock.calls[0][0];
+      const listener = currentSetOccupiedCard.registerRunListener.mock.calls[0][0];
       
       // Call with occupied=false
       const result = await listener({ occupied: 'false' });
@@ -85,15 +94,13 @@ describe('Home/Away Flow Actions', () => {
       };
       (app as any).timelineHelper = mockTimelineHelper;
 
-      const mockActionCard = {
+      currentSetOccupiedCard = {
         registerRunListener: jest.fn()
       };
-      
-      mockHomey.flow.getActionCard.mockReturnValue(mockActionCard);
-      (app as any).registerFlowActions();
+      (app as any).registerEntsoeFlowAction();
 
       // Get the registered listener and call it
-      const listener = mockActionCard.registerRunListener.mock.calls[0][0];
+      const listener = currentSetOccupiedCard.registerRunListener.mock.calls[0][0];
       await listener({ occupied: 'true' });
 
       expect(mockTimelineHelper.addTimelineEntry).toHaveBeenCalled();
@@ -103,7 +110,7 @@ describe('Home/Away Flow Actions', () => {
       mockHomey.flow = undefined;
 
       expect(() => {
-        (app as any).registerFlowActions();
+        (app as any).registerEntsoeFlowAction();
       }).not.toThrow();
     });
   });
