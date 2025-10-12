@@ -547,6 +547,41 @@ export default class HeatOptimizerApp extends App {
     } catch (error) {
       this.logger.error('Failed to register ENTSO-E flow action', error as Error);
     }
+
+    // Register home/away flow action
+    try {
+      const setOccupiedCard = this.homey.flow?.getActionCard('set_occupied');
+      if (setOccupiedCard) {
+        setOccupiedCard.registerRunListener(async (args: { occupied?: string }) => {
+          const occupied = args?.occupied === 'true';
+          this.homey.settings.set('occupied', occupied);
+          
+          this.logger.info(`Home/Away state changed via flow: ${occupied ? 'Home (Occupied)' : 'Away'}`);
+          
+          // Notify timeline
+          if (this.timelineHelper) {
+            try {
+              await this.timelineHelper.addTimelineEntry(
+                TimelineEventType.CUSTOM,
+                { 
+                  title: '🏠 Home/Away Mode Changed',
+                  message: `Switched to ${occupied ? 'Home (Occupied)' : 'Away'} mode`,
+                  occupied 
+                },
+                false // Don't create notification
+              );
+            } catch (timelineError) {
+              this.logger.warn('Failed to add timeline entry for occupancy change', timelineError as Error);
+            }
+          }
+          
+          return Promise.resolve(true);
+        });
+        this.logger.info('Home/Away flow action registered');
+      }
+    } catch (error) {
+      this.logger.error('Failed to register Home/Away flow action', error as Error);
+    }
   }
 
   /**

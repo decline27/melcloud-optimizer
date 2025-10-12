@@ -215,6 +215,9 @@ export class Optimizer {
   private lastEnergyData: RealEnergyData | null = null;
   private optimizationMetrics: OptimizationMetrics | null = null;
   private timeZoneHelper!: TimeZoneHelper;
+  
+  // Home/Away state management
+  private occupied: boolean = true;
 
   // Thermal mass optimization properties
   private thermalMassModel: ThermalMassModel = {
@@ -350,6 +353,11 @@ export class Optimizer {
         }
 
         this.logger.log(`Hot water tank settings loaded - Enabled: ${this.enableTankControl}, Min: ${this.minTankTemp}°C, Max: ${this.maxTankTemp}°C, Step: ${this.tankTempStep}°C`);
+
+        // Load home/away state
+        const occupiedSetting = homey.settings.get('occupied');
+        this.occupied = occupiedSetting !== false; // Default to true if not set
+        this.logger.log(`Home/Away state loaded - Currently: ${this.occupied ? 'Home (Occupied)' : 'Away'}`);
 
         // Initialize thermal mass model from historical data (async, non-blocking)
         this.initializeThermalMassFromHistory().catch(error => {
@@ -509,6 +517,78 @@ export class Optimizer {
     this.tempStepZone2 = validateNumber(tempStepZone2 || 0.5, 'tempStepZone2', { min: 0.1, max: 2 });
 
     this.logger.log(`Zone2 constraints updated - Enabled: ${enableZone2}, Min: ${this.minTempZone2}°C, Max: ${this.maxTempZone2}°C, Step: ${this.tempStepZone2}°C`);
+  }
+
+  /**
+   * Set home/away occupancy state
+   * @param occupied True for home (occupied), false for away
+   */
+  setOccupied(occupied: boolean): void {
+    const wasOccupied = this.occupied;
+    this.occupied = occupied;
+    
+    if (this.homey) {
+      this.homey.settings.set('occupied', occupied);
+    }
+    
+    this.logger.log(`Home/Away state changed: ${wasOccupied ? 'Home' : 'Away'} → ${occupied ? 'Home (Occupied)' : 'Away'}`);
+  }
+
+  /**
+   * Refresh occupancy state from settings (called when settings change)
+   */
+  refreshOccupancyFromSettings(): void {
+    if (!this.homey) return;
+    
+    const occupiedSetting = this.homey.settings.get('occupied');
+    const newOccupied = occupiedSetting !== false; // Default to true if not set
+    
+    if (newOccupied !== this.occupied) {
+      this.occupied = newOccupied;
+      this.logger.log(`Home/Away state refreshed from settings: ${this.occupied ? 'Home (Occupied)' : 'Away'}`);
+    }
+  }
+
+  /**
+   * Get current home/away occupancy state
+   * @returns True if home (occupied), false if away
+   */
+  isOccupied(): boolean {
+    return this.occupied;
+  }
+
+  /**
+   * Get the appropriate comfort band (min/max temperatures) based on current occupancy
+   * @returns Object with minTemp and maxTemp based on occupied/away settings
+   */
+  private getCurrentComfortBand(): { minTemp: number; maxTemp: number } {
+    if (!this.homey) {
+      // Fallback to default constraints if no homey instance
+      return { minTemp: this.minTemp, maxTemp: this.maxTemp };
+    }
+
+    const toNumber = (value: unknown): number | null => {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : null;
+    };
+
+    if (this.occupied) {
+      // Use occupied (home) comfort band - defaults match settings page HTML
+      const comfortLowerOccupied = toNumber(this.homey.settings.get('comfort_lower_occupied')) ?? 20.0;
+      const comfortUpperOccupied = toNumber(this.homey.settings.get('comfort_upper_occupied')) ?? 21.0;
+      return { 
+        minTemp: Math.max(comfortLowerOccupied, 16), 
+        maxTemp: Math.min(comfortUpperOccupied, 26) 
+      };
+    } else {
+      // Use away comfort band - defaults match settings page HTML
+      const comfortLowerAway = toNumber(this.homey.settings.get('comfort_lower_away')) ?? 19.0;
+      const comfortUpperAway = toNumber(this.homey.settings.get('comfort_upper_away')) ?? 20.5;
+      return { 
+        minTemp: Math.max(comfortLowerAway, 16), 
+        maxTemp: Math.min(comfortUpperAway, 26) 
+      };
+    }
   }
 
   /**
@@ -2851,9 +2931,10 @@ export class Optimizer {
     maxPrice: number,
     currentTemp: number
   ): Promise<number> {
-    // Cache frequently used values
-    const tempRange = this.maxTemp - this.minTemp;
-    const midTemp = (this.maxTemp + this.minTemp) / 2;
+    // Get the appropriate comfort band based on occupancy
+    const comfortBand = this.getCurrentComfortBand();
+    const tempRange = comfortBand.maxTemp - comfortBand.minTemp;
+    const midTemp = (comfortBand.maxTemp + comfortBand.minTemp) / 2;
 
     // Normalize price between 0 and 1 more efficiently
     const normalizedPrice = maxPrice === minPrice
@@ -2931,6 +3012,9 @@ export class Optimizer {
         this.logger.error('Error applying COP adjustment:', error);
       }
     }
+
+    // Apply final comfort band constraints
+    targetTemp = Math.max(comfortBand.minTemp, Math.min(comfortBand.maxTemp, targetTemp));
 
     return targetTemp;
   }

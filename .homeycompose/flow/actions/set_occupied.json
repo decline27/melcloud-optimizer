@@ -1,0 +1,35 @@
+{
+  "id": "set_occupied",
+  "title": {
+    "en": "Set home/away state"
+  },
+  "titleFormatted": {
+    "en": "Set home/away state to [[occupied]]"
+  },
+  "hint": {
+    "en": "Switch between home (occupied) and away modes for different comfort settings and optimization strategies."
+  },
+  "args": [
+    {
+      "name": "occupied",
+      "type": "dropdown", 
+      "title": {
+        "en": "State"
+      },
+      "values": [
+        {
+          "id": "true",
+          "label": {
+            "en": "Home (Occupied)"
+          }
+        },
+        {
+          "id": "false", 
+          "label": {
+            "en": "Away"
+          }
+        }
+      ]
+    }
+  ]
+}

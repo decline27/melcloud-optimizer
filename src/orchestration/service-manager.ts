@@ -548,5 +548,6 @@ export async function updateOptimizerSettings(homey: HomeyLike): Promise<void> {
   optimizer.setZone2TemperatureConstraints(enableZone2, minTempZone2, maxTempZone2, tempStepZone2);
   optimizer.setTankTemperatureConstraints(enableTankControl, minTankTemp, maxTankTemp, tankTempStep);
   optimizer.setThermalModel(kFactor);
+  optimizer.refreshOccupancyFromSettings();
   optimizer.setCOPSettings(copWeight, autoSeasonalMode, summerMode);
 }

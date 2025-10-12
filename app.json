@@ -1,7 +1,7 @@
 {
   "_comment": "This file is generated. Please edit .homeycompose/app.json instead.",
   "id": "com.melcloud.optimize",
-  "version": "14.0.9",
+  "version": "14.0.10",
   "compatibility": ">=12.2.0",
   "sdk": 3,
   "platforms": [
@@ -161,6 +161,41 @@
               "en": "Prices JSON"
             },
             "example": "[{\"ts_iso_utc\":\"2024-01-01T00:00:00.000Z\",\"price_eur_per_kwh\":0.12}]"
+          }
+        ]
+      },
+      {
+        "id": "set_occupied",
+        "title": {
+          "en": "Set home/away state"
+        },
+        "titleFormatted": {
+          "en": "Set home/away state to [[occupied]]"
+        },
+        "hint": {
+          "en": "Switch between home (occupied) and away modes for different comfort settings and optimization strategies."
+        },
+        "args": [
+          {
+            "name": "occupied",
+            "type": "dropdown",
+            "title": {
+              "en": "State"
+            },
+            "values": [
+              {
+                "id": "true",
+                "label": {
+                  "en": "Home (Occupied)"
+                }
+              },
+              {
+                "id": "false",
+                "label": {
+                  "en": "Away"
+                }
+              }
+            ]
           }
         ]
       }
