@@ -14,9 +14,12 @@
 
 const fs = require('fs');
 const path = require('path');
-const { applySetpointConstraints } = require('./optimization/setpoint-constraints');
+const { applySetpointConstraints } = require('./src/util/setpoint-constraints');
 const { computePlanningBias, updateThermalResponse } = require('./src/services/planning-utils');
-const { DefaultEngineConfig, computeHeatingDecision } = require('./optimization/engine');
+const { DefaultComfortConfig } = require('./src/config/comfort-defaults');
+
+// Import the real optimizer that's actually used in production
+const { Optimizer } = require('./src/services/optimizer');
 const { TimeZoneHelper } = require('./src/util/time-zone-helper');
 
 // --- CLI args parsing (simple) ---
@@ -156,7 +159,14 @@ function runScenarioHarness(options) {
     priceProvider,
     melCloud,
     logger = defaultScenarioLogger(),
-    config = DefaultEngineConfig,
+    config = {
+      comfortOccupied: DefaultComfortConfig.comfortOccupied,
+      comfortAway: DefaultComfortConfig.comfortAway,
+      minSetpointC: 18,
+      maxSetpointC: 23,
+      stepMinutes: 60,
+      safety: { deadbandC: 0.3, minSetpointChangeMinutes: 30 }
+    },
     thrashLimitPerDay = 12
   } = options || {};
 
@@ -293,20 +303,83 @@ function runScenarioHarness(options) {
           decisionReason = 'price outage';
           forcedHoldReason = 'price_outage';
         } else {
-          const decision = computeHeatingDecision(config, {
-            now,
-            occupied,
-            prices: pricePoints,
-            currentPrice: price,
-            telemetry: {
-              indoorC: indoor,
-              targetC: currentTarget
-            },
-            weather: { outdoorC: outdoor },
-            lastSetpointChangeMs: lastChangeMs
-          });
-          targetBefore = decision.toC;
-          decisionReason = decision.reason;
+          // Use the actual advanced optimizer with all its sophisticated features
+          try {
+            // Create a mock price provider for the optimizer
+            const mockPriceProvider = {
+              getPrices: () => Promise.resolve({
+                current: { price, time: now.toISOString() },
+                prices: pricePoints.map(p => ({ price: p.price, time: p.time })),
+                currencyCode: 'SEK'
+              })
+            };
+            
+            // Create a mock MELCloud API for the optimizer
+            const mockMelCloud = {
+              getDeviceState: () => Promise.resolve({
+                RoomTemperature: indoor,
+                SetTemperature: currentTarget,
+                OutdoorTemperature: outdoor,
+                IdleZone1: false
+              }),
+              setDeviceTemperature: (deviceId, buildingId, temp) => {
+                // Capture the temperature decision from the advanced optimizer
+                targetBefore = temp;
+                return Promise.resolve();
+              },
+              getDailyEnergyTotals: () => Promise.resolve({
+                TotalHeatingConsumed: 10,
+                TotalHotWaterConsumed: 5,
+                AverageHeatingCOP: 2.5,
+                AverageHotWaterCOP: 2.0
+              })
+            };
+            
+            // Create a simple logger for the optimizer
+            const mockLogger = {
+              log: () => {},
+              error: () => {},
+              warn: () => {},
+              info: () => {}
+            };
+            
+            // Create optimizer instance with all advanced features:
+            // - COP tracking, thermal learning, weather adjustments
+            // - Home/Away optimization, adaptive parameters
+            // - Enhanced savings calculations, hot water scheduling
+            const optimizer = new Optimizer(
+              mockMelCloud,
+              mockPriceProvider,
+              'sim-device',
+              1,
+              mockLogger
+            );
+            
+            // Set occupancy state for home/away optimization
+            optimizer.setOccupied(occupied);
+            
+            // Run the full advanced optimization with all features
+            const result = await optimizer.runHourlyOptimization();
+            targetBefore = result.targetTemp;
+            decisionReason = result.reason;
+            
+          } catch (error) {
+            // Fallback to basic price-based logic if advanced optimizer fails
+            const band = occupied ? config.comfortOccupied : config.comfortAway;
+            const prices = pricePoints.map(p => p.price).filter(p => Number.isFinite(p));
+            const avgPrice = prices.length > 0 ? prices.reduce((sum, p) => sum + p, 0) / prices.length : price;
+            
+            if (price < avgPrice * 0.8) {
+              targetBefore = Math.min(band.upperC, currentTarget + 0.5);
+              decisionReason = 'cheap electricity → raise temp (fallback)';
+            } else if (price > avgPrice * 1.2) {
+              targetBefore = Math.max(band.lowerC, currentTarget - 0.5);
+              decisionReason = 'expensive electricity → lower temp (fallback)';
+            } else {
+              targetBefore = currentTarget;
+              decisionReason = 'moderate prices → maintain (fallback)';
+            }
+          }
 
           planningBiasResult = computePlanningBias(pricePoints, now, {
             windowHours: 6,

@@ -16,7 +16,7 @@ import { isError } from '../util/error-handler';
 import { EnhancedSavingsCalculator, OptimizationData, SavingsCalculationResult } from '../util/enhanced-savings-calculator';
 import { HomeyLogger } from '../util/logger';
 import { TimeZoneHelper } from '../util/time-zone-helper';
-import { applySetpointConstraints } from '../../optimization/setpoint-constraints';
+import { applySetpointConstraints } from '../util/setpoint-constraints';
 import { computePlanningBias, updateThermalResponse } from './planning-utils';
 import { AdaptiveParametersLearner } from './adaptive-parameters';
 

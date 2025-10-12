@@ -5,7 +5,7 @@ import { EntsoePriceService } from '../services/entsoe-price-service';
 import { Optimizer } from '../services/optimizer';
 import { COPHelper } from '../services/cop-helper';
 import type { PriceProvider } from '../types';
-import { DefaultEngineConfig } from '../../optimization/engine';
+import { DefaultComfortConfig } from '../config/comfort-defaults';
 
 export interface HomeyLikeSettings {
   get(key: string): any;
@@ -470,10 +470,10 @@ export async function updateOptimizerSettings(homey: HomeyLike): Promise<void> {
   const userComfortUpperAway = toNumber(homey.settings.get('comfort_upper_away'));
 
   // Use user settings if available, otherwise use defaults
-  const comfortLowerOccupied = userComfortLowerOccupied ?? DefaultEngineConfig.comfortOccupied.lowerC;
-  const comfortLowerAway = userComfortLowerAway ?? DefaultEngineConfig.comfortAway.lowerC;
-  const comfortUpperOccupied = userComfortUpperOccupied ?? DefaultEngineConfig.comfortOccupied.upperC;
-  const comfortUpperAway = userComfortUpperAway ?? DefaultEngineConfig.comfortAway.upperC;
+  const comfortLowerOccupied = userComfortLowerOccupied ?? DefaultComfortConfig.comfortOccupied.lowerC;
+  const comfortLowerAway = userComfortLowerAway ?? DefaultComfortConfig.comfortAway.lowerC;
+  const comfortUpperOccupied = userComfortUpperOccupied ?? DefaultComfortConfig.comfortOccupied.upperC;
+  const comfortUpperAway = userComfortUpperAway ?? DefaultComfortConfig.comfortAway.upperC;
 
   const comfortLowerCandidates = [comfortLowerOccupied, comfortLowerAway];
   const comfortUpperCandidates = [comfortUpperOccupied, comfortUpperAway];

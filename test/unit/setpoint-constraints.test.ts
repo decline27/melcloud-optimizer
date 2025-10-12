@@ -1,5 +1,5 @@
 import { describe, expect, test } from '@jest/globals';
-import { applySetpointConstraints } from '../../optimization/setpoint-constraints';
+import { applySetpointConstraints } from '../../src/util/setpoint-constraints';
 
 describe('applySetpointConstraints', () => {
   const baseInput = {

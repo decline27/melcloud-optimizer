@@ -2,7 +2,7 @@
  * Test for comfort band constraint resolution fix
  */
 
-import { DefaultEngineConfig } from '../../optimization/engine';
+import { DefaultComfortConfig } from '../../src/config/comfort-defaults';
 
 describe('Comfort Band Constraint Resolution', () => {
   const mockToNumber = (value: unknown): number | null => {
@@ -28,10 +28,10 @@ describe('Comfort Band Constraint Resolution', () => {
     const userComfortUpperAway = mockToNumber(mockHomeySettingsGet('comfort_upper_away'));
 
     // Use user settings if available, otherwise use defaults
-    const comfortLowerOccupied = userComfortLowerOccupied ?? DefaultEngineConfig.comfortOccupied.lowerC;
-    const comfortLowerAway = userComfortLowerAway ?? DefaultEngineConfig.comfortAway.lowerC;
-    const comfortUpperOccupied = userComfortUpperOccupied ?? DefaultEngineConfig.comfortOccupied.upperC;
-    const comfortUpperAway = userComfortUpperAway ?? DefaultEngineConfig.comfortAway.upperC;
+    const comfortLowerOccupied = userComfortLowerOccupied ?? DefaultComfortConfig.comfortOccupied.lowerC;
+    const comfortLowerAway = userComfortLowerAway ?? DefaultComfortConfig.comfortAway.lowerC;
+    const comfortUpperOccupied = userComfortUpperOccupied ?? DefaultComfortConfig.comfortOccupied.upperC;
+    const comfortUpperAway = userComfortUpperAway ?? DefaultComfortConfig.comfortAway.upperC;
 
     const comfortLowerCandidates = [comfortLowerOccupied, comfortLowerAway];
     const comfortUpperCandidates = [comfortUpperOccupied, comfortUpperAway];
@@ -59,8 +59,8 @@ describe('Comfort Band Constraint Resolution', () => {
     const userComfortLowerOccupied = mockToNumber(mockHomeySettingsGet('comfort_lower_occupied'));
     const userComfortLowerAway = mockToNumber(mockHomeySettingsGet('comfort_lower_away'));
 
-    const comfortLowerOccupied = userComfortLowerOccupied ?? DefaultEngineConfig.comfortOccupied.lowerC;
-    const comfortLowerAway = userComfortLowerAway ?? DefaultEngineConfig.comfortAway.lowerC;
+    const comfortLowerOccupied = userComfortLowerOccupied ?? DefaultComfortConfig.comfortOccupied.lowerC;
+    const comfortLowerAway = userComfortLowerAway ?? DefaultComfortConfig.comfortAway.lowerC;
 
     const comfortLowerCandidates = [comfortLowerOccupied, comfortLowerAway];
     const derivedMin = Math.min(...comfortLowerCandidates);
@@ -86,8 +86,8 @@ describe('Comfort Band Constraint Resolution', () => {
     const oldComfortLowerCandidates = [
       mockToNumber(mockHomeySettingsGet('comfort_lower_occupied')),
       mockToNumber(mockHomeySettingsGet('comfort_lower_away')),
-      DefaultEngineConfig.comfortOccupied.lowerC,
-      DefaultEngineConfig.comfortAway.lowerC  // This 19.0 would override user's 20.0!
+      DefaultComfortConfig.comfortOccupied.lowerC,
+      DefaultComfortConfig.comfortAway.lowerC  // This 19.0 would override user's 20.0!
     ].filter((value) => value !== null);
 
     const oldDerivedMin = Math.min(...oldComfortLowerCandidates);
