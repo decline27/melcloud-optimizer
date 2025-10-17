@@ -1822,6 +1822,7 @@ const apiHandlers: ApiHandlers = {
             action: result.action,
             fromTemp: result.fromTemp,
             toTemp: result.toTemp,
+            targetTemp: result.toTemp,  // Added for driver logging compatibility
             reason: result.reason,
             priceData: result.priceData,
             // Added for compatibility with app.ts accounting logic

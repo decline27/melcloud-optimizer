@@ -144,8 +144,8 @@ export class HotWaterDataCollector {
 
       // Check if data is too large for settings storage
       if (dataJson.length > MAX_SETTINGS_DATA_SIZE) {
-        this.homey.warn(`Hot water usage data size (${dataJson.length} bytes) exceeds maximum settings size (${MAX_SETTINGS_DATA_SIZE} bytes)`);
-        this.homey.warn('Reducing data size by aggregating older data points');
+        this.homey.log(`Hot water usage data size (${dataJson.length} bytes) exceeds maximum settings size (${MAX_SETTINGS_DATA_SIZE} bytes)`);
+        this.homey.log('Reducing data size by aggregating older data points');
 
         // Reduce data size by aggregating older data
         await this.reduceDataSize();
@@ -186,7 +186,7 @@ export class HotWaterDataCollector {
       // If memory usage is high, trigger cleanup
       if (memoryUsage.usagePercent > 70) {
         if (!this.memoryWarningIssued) {
-          this.homey.warn(`High memory usage detected (${memoryUsage.usagePercent.toFixed(2)}%), reducing data size`);
+          this.homey.log(`High memory usage detected (${memoryUsage.usagePercent.toFixed(2)}%), reducing data size`);
           this.memoryWarningIssued = true;
         }
 
@@ -376,12 +376,12 @@ export class HotWaterDataCollector {
 
       // Check temperature ranges (more lenient validation)
       if (typeof dataPoint.tankTemperature !== 'number' || dataPoint.tankTemperature < 0 || dataPoint.tankTemperature > 100) {
-        this.homey.warn(`Invalid hot water usage data point: tank temperature out of range or not a number (${dataPoint.tankTemperature}) - skipping this data point`);
+        this.homey.log(`Invalid hot water usage data point: tank temperature out of range or not a number (${dataPoint.tankTemperature}) - skipping this data point`);
         return false;
       }
 
       if (typeof dataPoint.targetTankTemperature !== 'number' || dataPoint.targetTankTemperature < 0 || dataPoint.targetTankTemperature > 100) {
-        this.homey.warn(`Invalid hot water usage data point: target tank temperature out of range or not a number (${dataPoint.targetTankTemperature}) - skipping this data point`);
+        this.homey.log(`Invalid hot water usage data point: target tank temperature out of range or not a number (${dataPoint.targetTankTemperature}) - skipping this data point`);
         return false;
       }
 
@@ -559,7 +559,7 @@ export class HotWaterDataCollector {
       const validDataPoints = dataPoints.filter(dp => this.validateDataPoint(dp));
 
       if (validDataPoints.length !== dataPoints.length) {
-        this.homey.warn(`${dataPoints.length - validDataPoints.length} invalid hot water usage data points were filtered out`);
+        this.homey.log(`${dataPoints.length - validDataPoints.length} invalid hot water usage data points were filtered out`);
       }
 
       // Replace existing data points
@@ -592,7 +592,7 @@ export class HotWaterDataCollector {
   public async setMaxDataPoints(maxDataPoints: number): Promise<void> {
     try {
       if (maxDataPoints < 100) {
-        this.homey.warn(`Maximum data points value ${maxDataPoints} is too low, using minimum value of 100`);
+        this.homey.log(`Maximum data points value ${maxDataPoints} is too low, using minimum value of 100`);
         maxDataPoints = 100;
       }
 
