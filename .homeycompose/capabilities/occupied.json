@@ -1,0 +1,9 @@
+{
+  "type": "boolean",
+  "title": {
+    "en": "Home/Away State"
+  },
+  "getable": true,
+  "setable": true,
+  "uiComponent": "toggle"
+}

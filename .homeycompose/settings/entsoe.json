@@ -1,0 +1,148 @@
+{
+  "id": "entsoe",
+  "title": {
+    "en": "ENTSO-E Pricing"
+  },
+  "hint": {
+    "en": "Configure ENTSO-E token, default price area, optional currency conversion and the area map used for ISO -> EIC lookups."
+  },
+  "children": [
+    {
+      "id": "entsoe_credentials",
+      "type": "group",
+      "label": {
+        "en": "Credentials"
+      },
+      "children": [
+        {
+          "id": "entsoe_security_token",
+          "type": "password",
+          "label": {
+            "en": "ENTSO-E Security Token"
+          },
+          "hint": {
+            "en": "Create an account at transparency.entsoe.eu and request an API token."
+          },
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": "entsoe_area",
+      "type": "group",
+      "label": {
+        "en": "Price Area"
+      },
+      "children": [
+        {
+          "id": "entsoe_area_eic",
+          "type": "text",
+          "label": {
+            "en": "Default ENTSO-E Zone"
+          },
+          "hint": {
+            "en": "Enter an ISO code (e.g. SE3) or an EIC (e.g. 10YSE-3--------J)."
+          },
+          "value": ""
+        },
+        {
+          "id": "entsoe_area_map",
+          "type": "textarea",
+          "label": {
+            "en": "ENTSO-E Area Map (JSON)"
+          },
+          "hint": {
+            "en": "Optional override of entsoe_area_map.json. Leave blank to use the bundled map."
+          },
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": "entsoe_currency",
+      "type": "group",
+      "label": {
+        "en": "Currency Conversion"
+      },
+      "children": [
+        {
+          "id": "use_currency_conversion",
+          "type": "checkbox",
+          "label": {
+            "en": "Enable EUR -> SEK Conversion"
+          },
+          "value": false
+        },
+        {
+          "id": "fx_rate_eur_to_sek",
+          "type": "number",
+          "label": {
+            "en": "EUR to SEK Rate"
+          },
+          "hint": {
+            "en": "Used when conversion is enabled. Example: 11.2"
+          },
+          "min": 0,
+          "step": 0.0001,
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": "entsoe_consumer_markup",
+      "type": "group",
+      "label": {
+        "en": "Consumer Price Markup"
+      },
+      "children": [
+        {
+          "id": "enable_consumer_markup",
+          "type": "checkbox",
+          "label": {
+            "en": "Convert Wholesale to Consumer Prices"
+          },
+          "hint": {
+            "en": "Add taxes, grid fees, and markup to ENTSO-E wholesale prices to approximate consumer prices."
+          },
+          "value": false
+        },
+        {
+          "id": "consumer_markup_config",
+          "type": "textarea",
+          "label": {
+            "en": "Consumer Markup Configuration (JSON)"
+          },
+          "hint": {
+            "en": "Configure markup components by country/region. See documentation for format examples."
+          },
+          "value": "{\n  \"SE\": { \"gridFee\": 0.030, \"energyTax\": 0.036, \"retailMarkup\": 0.010, \"vatRate\": 1.25, \"description\": \"Sweden\" },\n  \"DE\": { \"gridFee\": 0.070, \"energyTax\": 0.025, \"retailMarkup\": 0.015, \"vatRate\": 1.19, \"description\": \"Germany\" },\n  \"NO\": { \"gridFee\": 0.035, \"energyTax\": 0.017, \"retailMarkup\": 0.008, \"vatRate\": 1.25, \"description\": \"Norway\" },\n  \"DK\": { \"gridFee\": 0.045, \"energyTax\": 0.089, \"retailMarkup\": 0.012, \"vatRate\": 1.25, \"description\": \"Denmark\" },\n  \"FR\": { \"gridFee\": 0.045, \"energyTax\": 0.022, \"retailMarkup\": 0.012, \"vatRate\": 1.20, \"description\": \"France\" },\n  \"NL\": { \"gridFee\": 0.055, \"energyTax\": 0.030, \"retailMarkup\": 0.018, \"vatRate\": 1.21, \"description\": \"Netherlands\" },\n  \"BE\": { \"gridFee\": 0.048, \"energyTax\": 0.028, \"retailMarkup\": 0.015, \"vatRate\": 1.21, \"description\": \"Belgium\" },\n  \"AT\": { \"gridFee\": 0.038, \"energyTax\": 0.015, \"retailMarkup\": 0.012, \"vatRate\": 1.20, \"description\": \"Austria\" },\n  \"CH\": { \"gridFee\": 0.065, \"energyTax\": 0.023, \"retailMarkup\": 0.020, \"vatRate\": 1.077, \"description\": \"Switzerland\" },\n  \"FI\": { \"gridFee\": 0.042, \"energyTax\": 0.027, \"retailMarkup\": 0.015, \"vatRate\": 1.24, \"description\": \"Finland\" },\n  \"PL\": { \"gridFee\": 0.025, \"energyTax\": 0.012, \"retailMarkup\": 0.008, \"vatRate\": 1.23, \"description\": \"Poland\" },\n  \"CZ\": { \"gridFee\": 0.030, \"energyTax\": 0.018, \"retailMarkup\": 0.010, \"vatRate\": 1.21, \"description\": \"Czech Republic\" },\n  \"IT\": { \"gridFee\": 0.055, \"energyTax\": 0.035, \"retailMarkup\": 0.018, \"vatRate\": 1.22, \"description\": \"Italy\" },\n  \"ES\": { \"gridFee\": 0.045, \"energyTax\": 0.051, \"retailMarkup\": 0.015, \"vatRate\": 1.21, \"description\": \"Spain\" },\n  \"PT\": { \"gridFee\": 0.042, \"energyTax\": 0.034, \"retailMarkup\": 0.013, \"vatRate\": 1.23, \"description\": \"Portugal\" },\n  \"GB\": { \"gridFee\": 0.050, \"energyTax\": 0.006, \"retailMarkup\": 0.020, \"vatRate\": 1.05, \"description\": \"United Kingdom\" },\n  \"EE\": { \"gridFee\": 0.035, \"energyTax\": 0.007, \"retailMarkup\": 0.012, \"vatRate\": 1.20, \"description\": \"Estonia\" },\n  \"LV\": { \"gridFee\": 0.038, \"energyTax\": 0.009, \"retailMarkup\": 0.014, \"vatRate\": 1.21, \"description\": \"Latvia\" },\n  \"LT\": { \"gridFee\": 0.040, \"energyTax\": 0.011, \"retailMarkup\": 0.016, \"vatRate\": 1.21, \"description\": \"Lithuania\" },\n  \"SK\": { \"gridFee\": 0.028, \"energyTax\": 0.015, \"retailMarkup\": 0.009, \"vatRate\": 1.20, \"description\": \"Slovakia\" },\n  \"SI\": { \"gridFee\": 0.045, \"energyTax\": 0.030, \"retailMarkup\": 0.012, \"vatRate\": 1.22, \"description\": \"Slovenia\" },\n  \"HU\": { \"gridFee\": 0.022, \"energyTax\": 0.008, \"retailMarkup\": 0.007, \"vatRate\": 1.27, \"description\": \"Hungary\" },\n  \"default\": { \"gridFee\": 0.040, \"energyTax\": 0.020, \"retailMarkup\": 0.010, \"vatRate\": 1.20, \"description\": \"EU average\" }\n}"
+        },
+        {
+          "id": "markup_currency_unit",
+          "type": "dropdown",
+          "label": {
+            "en": "Markup Values Currency"
+          },
+          "hint": {
+            "en": "Currency unit for grid fees, taxes, and markup values in the configuration above."
+          },
+          "value": "LOCAL",
+          "values": [
+            {
+              "id": "LOCAL",
+              "label": {
+                "en": "Local Currency (SEK, EUR, etc.)"
+              }
+            },
+            {
+              "id": "EUR",
+              "label": {
+                "en": "Euro (EUR)"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

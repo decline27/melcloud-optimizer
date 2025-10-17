@@ -24,17 +24,17 @@ describe('validateAndStartCron API endpoint', () => {
   });
 
   it('should return cronRunning: true when all settings are valid', async () => {
-    // Mock all required settings as present
+    // Mock all required settings as present (defaulting to ENTSO-E)
     mockHomey.settings.get.mockImplementation((key: string) => {
       switch (key) {
         case 'melcloud_user':
           return 'test@example.com';
         case 'melcloud_pass':
           return 'password123';
-        case 'tibber_token':
-          return 'tibber_token_123';
         case 'device_id':
           return 'device_123';
+        case 'price_data_source':
+          return 'entsoe';
         default:
           return undefined;
       }
@@ -64,8 +64,6 @@ describe('validateAndStartCron API endpoint', () => {
           return 'test@example.com';
         case 'melcloud_pass':
           return undefined; // Missing password
-        case 'tibber_token':
-          return undefined; // Missing token
         case 'device_id':
           return 'device_123';
         default:
@@ -78,7 +76,7 @@ describe('validateAndStartCron API endpoint', () => {
     expect(result).toEqual({
       success: true,
       cronRunning: false,
-      message: 'Please complete required settings: MELCloud password, Tibber API token',
+      message: 'Please complete required settings: MELCloud password',
     });
   });
 
@@ -90,10 +88,10 @@ describe('validateAndStartCron API endpoint', () => {
           return 'test@example.com';
         case 'melcloud_pass':
           return 'password123';
-        case 'tibber_token':
-          return 'tibber_token_123';
         case 'device_id':
           return 'device_123';
+        case 'price_data_source':
+          return 'entsoe';
         default:
           return undefined;
       }

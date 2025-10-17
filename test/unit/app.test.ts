@@ -329,8 +329,8 @@ describe('HeatOptimizerApp', () => {
     it('should validate temperature settings correctly', async () => {
       // Mock settings.get to return invalid temperature settings
       mockSettings.get.mockImplementation((key: string) => {
-        if (key === 'min_temp') return 22;
-        if (key === 'max_temp') return 20;
+        if (key === 'comfort_lower_occupied') return 22;
+        if (key === 'comfort_upper_occupied') return 21;
         return 'some-value';
       });
 
@@ -339,7 +339,7 @@ describe('HeatOptimizerApp', () => {
 
       // Mock the validateSettings implementation
       (app as any).validateSettings.mockImplementation(async () => {
-        (app as any).error('Min temperature must be less than max temperature');
+        (app as any).error('Occupied comfort lower bound must be less than the upper bound');
         return false;
       });
 
@@ -348,7 +348,7 @@ describe('HeatOptimizerApp', () => {
 
       // Check if error was logged and function returned false
       expect((app as any).error).toHaveBeenCalledWith(
-        expect.stringContaining('Min temperature must be less than max temperature')
+        expect.stringContaining('Occupied comfort lower bound must be less than the upper bound')
       );
       expect(result).toBe(false);
     });
@@ -412,8 +412,10 @@ describe('HeatOptimizerApp', () => {
     it('should validate all settings correctly when valid', async () => {
       // Mock settings.get to return valid settings
       mockSettings.get.mockImplementation((key: string) => {
-        if (key === 'min_temp') return 18;
-        if (key === 'max_temp') return 22;
+        if (key === 'comfort_lower_occupied') return 20;
+        if (key === 'comfort_upper_occupied') return 21.5;
+        if (key === 'comfort_lower_away') return 18.5;
+        if (key === 'comfort_upper_away') return 22;
         if (key === 'enable_zone2') return true;
         if (key === 'min_temp_zone2') return 19;
         if (key === 'max_temp_zone2') return 23;
@@ -512,7 +514,7 @@ describe('HeatOptimizerApp', () => {
       (app as any).validateSettings.mockClear();
 
       // Call onSettingsChanged with a temperature setting
-      (app as any).onSettingsChanged('min_temp');
+      (app as any).onSettingsChanged('comfort_lower_occupied');
 
       // Check if validateSettings was called
       expect((app as any).validateSettings).toHaveBeenCalled();

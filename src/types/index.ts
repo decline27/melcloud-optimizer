@@ -83,6 +83,14 @@ export interface TibberPriceInfo {
   prices: PricePoint[];
   quarterHourly?: PricePoint[];
   intervalMinutes?: number;
+  currencyCode?: string;
+  baseCurrency?: string;
+}
+
+export interface PriceProvider {
+  getPrices(): Promise<TibberPriceInfo>;
+  updateTimeZoneSettings?(offsetHours: number, useDst: boolean, timeZoneName?: string): void;
+  cleanup?(): void;
 }
 
 // Weather API types
@@ -151,6 +159,10 @@ export interface HomeyApp {
   };
   flow?: {
     runFlowCardAction(options: { uri: string; args: any }): Promise<any>;
+    getActionCard(id: string): any;
+    getConditionCard(id: string): any;
+    getTriggerCard(id: string): any;
+    getDeviceTriggerCard(id: string): any;
   };
   // Internationalization and localization
   i18n?: {

@@ -157,10 +157,11 @@ describe('HeatOptimizerApp focused coverage tests', () => {
     let result = (app as any).validateSettings();
     expect(result).toBe(false);
 
-    // Test missing Tibber token
+    // Test missing Tibber token when Tibber source selected
     homey.settings.get.mockImplementation((key: string) => {
       if (key === 'melcloud_user') return 'user@example.com';
       if (key === 'melcloud_pass') return 'password';
+      if (key === 'price_data_source') return 'tibber';
       if (key === 'tibber_token') return undefined;
       return undefined;
     });
@@ -172,9 +173,9 @@ describe('HeatOptimizerApp focused coverage tests', () => {
     homey.settings.get.mockImplementation((key: string) => {
       if (key === 'melcloud_user') return 'user@example.com';
       if (key === 'melcloud_pass') return 'password';
-      if (key === 'tibber_token') return 'token';
-      if (key === 'min_temp') return 25;
-      if (key === 'max_temp') return 20;
+      if (key === 'price_data_source') return 'entsoe';
+      if (key === 'comfort_lower_occupied') return 22;
+      if (key === 'comfort_upper_occupied') return 21;
       return undefined;
     });
 
@@ -186,8 +187,10 @@ describe('HeatOptimizerApp focused coverage tests', () => {
       if (key === 'melcloud_user') return 'user@example.com';
       if (key === 'melcloud_pass') return 'password';
       if (key === 'tibber_token') return 'token';
-      if (key === 'min_temp') return 18;
-      if (key === 'max_temp') return 25;
+      if (key === 'comfort_lower_occupied') return 20;
+      if (key === 'comfort_upper_occupied') return 21.5;
+      if (key === 'comfort_lower_away') return 18.5;
+      if (key === 'comfort_upper_away') return 22;
       if (key === 'enable_zone2') return false;
       if (key === 'enable_tank_control') return false;
       if (key === 'use_weather_data') return false;
@@ -234,7 +237,7 @@ describe('HeatOptimizerApp focused coverage tests', () => {
       if (key === 'melcloud_pass') return 'password';
       if (key === 'tibber_token') return 'token';
       if (key === 'device_id') return '123';
-      if (key === 'time_zone_offset') return 2;
+      if (key === 'time_zone_offset') return 1; // Updated to match settings page default (UTC+01:00)
       if (key === 'use_dst') return true;
       return undefined;
     });

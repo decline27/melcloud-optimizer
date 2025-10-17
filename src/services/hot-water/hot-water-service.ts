@@ -16,7 +16,7 @@ export class HotWaterService {
   private analyzer: HotWaterAnalyzer;
   private timeZoneHelper: TimeZoneHelper;
   private lastDataCollectionTime: number = 0;
-  private dataCollectionInterval: number = 60 * 60 * 1000; // 60 minutes in milliseconds (matches optimizer schedule)
+  private dataCollectionInterval: number = 5 * 60 * 1000; // 5 minutes in milliseconds (aligns with device polling cadence)
   private lastAnalysisTime: number = 0;
   private analysisInterval: number = 6 * 60 * 60 * 1000; // 6 hours in milliseconds
 
@@ -27,10 +27,16 @@ export class HotWaterService {
     // Initialize TimeZoneHelper with user settings
     const timeZoneOffset = homey.settings?.get('time_zone_offset') || 2;
     const useDST = homey.settings?.get('use_dst') || false;
+    const timeZoneName = homey.settings?.get('time_zone_name');
     
     // Create a minimal logger for TimeZoneHelper
     const logger = new HomeyLogger(homey, { level: 1, logToTimeline: false, prefix: 'HotWater' });
-    this.timeZoneHelper = new TimeZoneHelper(logger, timeZoneOffset, useDST);
+    this.timeZoneHelper = new TimeZoneHelper(
+      logger,
+      timeZoneOffset,
+      useDST,
+      typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined
+    );
     
     this.homey.log('Hot Water Service initialized with timezone settings');
   }
@@ -40,9 +46,15 @@ export class HotWaterService {
    * @param timeZoneOffset Timezone offset in hours
    * @param useDST Whether to use daylight saving time
    */
-  public updateTimeZoneSettings(timeZoneOffset: number, useDST: boolean): void {
-    this.timeZoneHelper.updateSettings(timeZoneOffset, useDST);
-    this.homey.log(`Hot Water Service timezone settings updated: offset=${timeZoneOffset}, DST=${useDST}`);
+  public updateTimeZoneSettings(timeZoneOffset: number, useDST: boolean, timeZoneName?: string): void {
+    this.timeZoneHelper.updateSettings(
+      timeZoneOffset,
+      useDST,
+      typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined
+    );
+    this.homey.log(
+      `Hot Water Service timezone settings updated: offset=${timeZoneOffset}, DST=${useDST}, name=${timeZoneName || 'n/a'}`
+    );
   }
 
   /**
@@ -52,7 +64,7 @@ export class HotWaterService {
    */
   public async collectData(deviceState: any): Promise<boolean> {
     try {
-      // Check if it's time to collect data (every hour, matching optimizer schedule)
+      // Throttle collection to align with the 5-minute device polling cadence
       const now = Date.now();
       if (now - this.lastDataCollectionTime < this.dataCollectionInterval) {
         return false;

@@ -2,13 +2,13 @@
 
 import { COPHelper } from './services/cop-helper';
 import { MelCloudApi } from './services/melcloud-api';
-import { TibberApi } from './services/tibber-api';
 import { Optimizer } from './services/optimizer';
+import { PriceProvider } from './types';
 
 declare global {
   var copHelper: COPHelper | null;
   var melCloud: MelCloudApi | null;
-  var tibber: TibberApi | null;
+  var tibber: PriceProvider | null;
   var optimizer: Optimizer | null;
 }
 

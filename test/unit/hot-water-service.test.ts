@@ -52,7 +52,7 @@ describe('HotWaterService (unit)', () => {
     };
 
     // Force lastDataCollectionTime back so collectData proceeds
-    (svc as any).lastDataCollectionTime = Date.now() - (60 * 60 * 1000);
+    (svc as any).lastDataCollectionTime = Date.now() - (6 * 60 * 1000);
     (svc as any).lastAnalysisTime = Date.now() - (24 * 60 * 60 * 1000);
 
     const deviceState = {

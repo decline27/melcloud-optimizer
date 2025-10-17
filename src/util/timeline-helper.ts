@@ -5,6 +5,12 @@
  */
 
 import { HomeyApp } from '../types';
+import { 
+  formatTimelineMessage, 
+  getTimelineVerbosity, 
+  getCurrencyCode,
+  TimelinePayload 
+} from './timeline-formatter';
 
 /**
  * Currency detection utility using GPS coordinates
@@ -356,83 +362,31 @@ export class TimelineHelper {
       if (additionalData) {
         // Handle specific event types with custom formatting
         if (eventType === TimelineEventType.HOURLY_OPTIMIZATION_RESULT) {
-          // Add heating temperature information if available
-          if (additionalData.targetTemp !== undefined && additionalData.targetOriginal !== undefined) {
-            message += ` from ${additionalData.targetOriginal}°C to ${additionalData.targetTemp}°C`;
-          }
+          // Use the new formatter for hourly optimization results
+          const verbosity = getTimelineVerbosity(this.homey);
+          const currency = getCurrencyCode(this.homey);
+          
+          const payload: TimelinePayload = {
+            zoneName: 'Zone1', // Default zone name, could be made configurable
+            fromTempC: additionalData.targetOriginal ?? 20,
+            toTempC: additionalData.targetTemp ?? 20,
+            tankFromC: additionalData.tankOriginal,
+            tankToC: additionalData.tankTemp,
+            projectedDailySavingsSEK: additionalData.dailySavings ?? (additionalData.savings ? additionalData.savings * 24 : undefined),
+            reasonCode: this.extractReasonCodeFromDetails(details),
+            planningShiftHours: typeof additionalData.planningShiftHours === 'number' ? additionalData.planningShiftHours : undefined,
+            // Add technical parameters if available
+            outdoorTempC: typeof additionalData.outdoorTemp === 'number' ? additionalData.outdoorTemp : undefined,
+            copEstimate: typeof additionalData.copEstimate === 'number' ? additionalData.copEstimate : undefined,
+            pricePercentile: typeof additionalData.pricePercentile === 'number' ? additionalData.pricePercentile : undefined,
+            comfortBandLowC: typeof additionalData.comfortLowC === 'number' ? additionalData.comfortLowC : undefined,
+            comfortBandHighC: typeof additionalData.comfortHighC === 'number' ? additionalData.comfortHighC : undefined,
+            // For debug mode, include the legacy format if needed
+            rawEngineText: verbosity === 'debug' ? this.getLegacyOptimizationMessage(additionalData) : undefined
+          };
 
-          // Add hot water tank temperature information if available
-          if (additionalData.tankTemp !== undefined && additionalData.tankOriginal !== undefined) {
-            message += `. Hot water tank: ${additionalData.tankOriginal}°C to ${additionalData.tankTemp}°C`;
-          }
-
-          // Add savings information
-          // Prefer an accumulated "today so far" value if provided
-          if (additionalData.todaySoFar !== undefined) {
-            try {
-              const userLocale = this.homey.i18n?.getLanguage() || 'en-US';
-              const userCurrency = CurrencyDetector.getCurrencyWithFallback(this.homey);
-
-              const formattedToday = new Intl.NumberFormat(userLocale, {
-                style: 'currency',
-                currency: userCurrency,
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2
-              }).format(additionalData.todaySoFar);
-
-              message += `. Today so far: ${formattedToday}`;
-            } catch (error) {
-              message += `. Today so far: €${Number(additionalData.todaySoFar).toFixed(2)}`;
-              this.logger.error('Error formatting currency:', error);
-            }
-          } else if (additionalData.dailySavings !== undefined || additionalData.savings !== undefined) {
-            try {
-              // Get the user's locale or default to the system locale
-              const userLocale = this.homey.i18n?.getLanguage() || 'en-US';
-
-              // Use GPS-based currency detection with fallback chain
-              const userCurrency = CurrencyDetector.getCurrencyWithFallback(this.homey);
-
-              // Format the savings amount with proper currency formatting based on locale
-              const savingsAmount = additionalData.dailySavings !== undefined ?
-                additionalData.dailySavings :
-                (additionalData.savings * 24); // Convert hourly to daily if dailySavings not available
-
-              // Use Intl.NumberFormat for proper currency formatting
-              const formattedSavings = new Intl.NumberFormat(userLocale, {
-                style: 'currency',
-                currency: userCurrency,
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2
-              }).format(savingsAmount);
-
-              message += `. Projected daily savings: ${formattedSavings}`;
-            } catch (error) {
-              // Fallback to simple formatting if there's an error with locale/currency
-              const savingsAmount = additionalData.dailySavings !== undefined ?
-                additionalData.dailySavings :
-                (additionalData.savings * 24);
-              message += `. Projected daily savings: €${savingsAmount.toFixed(2)}`;
-              this.logger.error('Error formatting currency:', error);
-            }
-          }
-
-          if (additionalData.costImpactToday !== undefined) {
-            try {
-              const userLocale = this.homey.i18n?.getLanguage() || 'en-US';
-              const userCurrency = CurrencyDetector.getCurrencyWithFallback(this.homey);
-              const formattedImpact = new Intl.NumberFormat(userLocale, {
-                style: 'currency',
-                currency: userCurrency,
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2
-              }).format(additionalData.costImpactToday);
-              message += `. Cost impact today: ${formattedImpact}`;
-            } catch (error) {
-              message += `. Cost impact today: €${Number(additionalData.costImpactToday).toFixed(2)}`;
-              this.logger.error('Error formatting currency for cost impact:', error);
-            }
-          }
+          // Replace the entire message with formatted output
+          message = formatTimelineMessage(payload, verbosity, currency);
         } else if (eventType === TimelineEventType.WEEKLY_CALIBRATION_RESULT) {
           if (additionalData.oldK !== undefined && additionalData.newK !== undefined) {
             message += `. K-factor adjusted from ${additionalData.oldK.toFixed(2)} to ${additionalData.newK.toFixed(2)}`;
@@ -742,5 +696,65 @@ export class TimelineHelper {
       icon: 'mdi:alert-circle',
       createNotification
     });
+  }
+
+  /**
+   * Extract reason code from details for mapping to friendly text
+   */
+  private extractReasonCodeFromDetails(details?: Record<string, any>): string {
+    if (!details) return 'unknown';
+    
+    // Look for reason in various possible fields
+    const reason = details.reason || details.message || details.action;
+    if (!reason) return 'unknown';
+    
+    const reasonStr = String(reason).toLowerCase();
+    
+    // Map common reason patterns to codes
+    if (reasonStr.includes('within') && reasonStr.includes('deadband')) {
+      return 'within_deadband';
+    }
+    if (reasonStr.includes('cheaper') && reasonStr.includes('raise') && reasonStr.includes('comfort')) {
+      return 'cheaper_hour_raise_within_comfort';
+    }
+    if (reasonStr.includes('cheaper') && reasonStr.includes('lower') && reasonStr.includes('comfort')) {
+      return 'cheaper_hour_lower_within_comfort';
+    }
+    if (reasonStr.includes('planning') && reasonStr.includes('shift')) {
+      return 'planning_shift';
+    }
+    
+    // Return the original reason as code for unmapped cases
+    return reasonStr.replace(/[^a-z0-9_]/g, '_');
+  }
+
+  /**
+   * Generate legacy message format for debug mode
+   */
+  private getLegacyOptimizationMessage(additionalData: Record<string, any>): string {
+    const segments: string[] = [];
+    
+    // Temperature information
+    if (additionalData.targetTemp !== undefined && additionalData.targetOriginal !== undefined) {
+      const from = additionalData.targetOriginal;
+      const to = additionalData.targetTemp;
+      segments.push(from === to ? `No change (target ${to}°C)` : `Zone1 ${from}°C → ${to}°C`);
+    }
+
+    // Tank information
+    if (additionalData.tankTemp !== undefined && additionalData.tankOriginal !== undefined) {
+      segments.push(`Tank ${additionalData.tankOriginal}°C → ${additionalData.tankTemp}°C`);
+    }
+
+    // Savings information
+    if (additionalData.dailySavings !== undefined || additionalData.savings !== undefined) {
+      const currency = CurrencyDetector.getCurrencyWithFallback(this.homey);
+      const savingsAmount = additionalData.dailySavings !== undefined ?
+        additionalData.dailySavings :
+        (additionalData.savings * 24);
+      segments.push(`Projected daily savings: ${savingsAmount.toFixed(2)} ${currency}/day`);
+    }
+
+    return segments.length > 0 ? segments.join(' | ') : 'Temperature optimized based on electricity prices';
   }
 }

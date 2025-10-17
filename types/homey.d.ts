@@ -15,6 +15,10 @@ declare module 'homey' {
       };
       flow?: {
         runFlowCardAction(action: any): Promise<void>;
+        getActionCard(id: string): FlowCardAction;
+        getConditionCard(id: string): FlowCardCondition;
+        getTriggerCard(id: string): FlowCardTrigger;
+        getDeviceTriggerCard(id: string): FlowCardTriggerDevice;
       };
       drivers: {
         getDriver(id: string): any;
@@ -72,6 +76,24 @@ declare module 'homey' {
     };
     log(message: string, ...args: any[]): void;
     error(message: string, error?: Error): void;
+  }
+
+  export interface FlowCardAction {
+    registerRunListener(listener: (args: any, state?: any) => Promise<any> | any): FlowCardAction;
+  }
+
+  export interface FlowCardCondition {
+    registerRunListener(listener: (args: any, state?: any) => Promise<boolean> | boolean): FlowCardCondition;
+  }
+
+  export interface FlowCardTrigger {
+    registerRunListener(listener: (args: any, state?: any) => Promise<any> | any): FlowCardTrigger;
+    trigger(device?: any, tokens?: any, state?: any): Promise<void>;
+  }
+
+  export interface FlowCardTriggerDevice {
+    registerRunListener(listener: (args: any, state?: any) => Promise<any> | any): FlowCardTriggerDevice;
+    trigger(device: any, tokens?: any, state?: any): Promise<void>;
   }
 }
 

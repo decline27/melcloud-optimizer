@@ -31,7 +31,8 @@
     "hotwater_cop",
     "alarm_generic.offline",
     "holiday_mode",
-    "legionella_now"
+    "legionella_now",
+    "occupied"
   ],
   "capabilitiesOptions": {
     "measure_temperature": {

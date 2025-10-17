@@ -55,7 +55,7 @@ describe('Optimizer.calculateThermalMassStrategy branches', () => {
   });
 
   test('boost branch when cheap, excellent COP, and below target', () => {
-    const future = pricesWithCheapest(7); // 7/24 ~ 0.29 <= 0.3
+    const future = pricesWithCheapest(6); // 6/24 = 0.25 <= user's cheap threshold (0.25)
     const res = (opt as any).calculateThermalMassStrategy(
       19, // currentTemp below target by >1
       21.5, // targetTemp

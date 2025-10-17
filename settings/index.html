@@ -52,6 +52,10 @@
         padding: 8px 12px;
       }
       .homey-form-error { color: #b00; margin-top: 4px; }
+      .homey-form-group.disabled {
+        opacity: 0.6;
+        pointer-events: none;
+      }
     </style>
   </head>
   <body>
@@ -117,6 +121,114 @@
           <p class="homey-form-helper">The ID of the building (not stored; used only when saving)</p>
         </div>
       </div>
+
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="time_zone_name">Time Zone (automatic DST handling)</label>
+        <div class="timezone-input-container">
+          <input
+            class="homey-form-input"
+            id="time_zone_name"
+            type="text"
+            list="time_zone_name_list"
+            placeholder="e.g., Europe/Stockholm"
+            autocomplete="off"
+          />
+          <button type="button" class="homey-button-secondary" id="detect_time_zone_name" style="margin-left: 8px;">Auto-detect</button>
+        </div>
+        <datalist id="time_zone_name_list"></datalist>
+        <div class="timezone-info">
+          <p class="homey-form-helper">
+            <strong>✅ Recommended:</strong> Use an IANA time zone like <code>Europe/Stockholm</code> for accurate DST handling.
+            This automatically manages daylight saving time transitions.
+          </p>
+          <div id="timezone_preview" class="timezone-preview" style="display: none;">
+            <p class="homey-form-helper" style="color: #007acc; font-weight: 500;">
+              Current time in selected zone: <span id="timezone_preview_time"></span>
+            </p>
+          </div>
+          <div id="migration_notice" class="migration-notice" style="display: none; background: #f0f8ff; padding: 12px; border-radius: 6px; margin: 8px 0;">
+            <p style="margin: 0; color: #0066cc;">
+              💡 <strong>Upgrade Available:</strong> You're currently using manual timezone settings. 
+              <button type="button" id="convert_to_auto" class="homey-button-secondary" style="margin-left: 8px;">Convert to Automatic</button>
+            </p>
+          </div>
+        </div>
+        <span id="time_zone_name_status" class="homey-form-helper" aria-live="polite"></span>
+        
+        <style>
+          .timezone-input-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+          }
+          
+          .timezone-input-container input {
+            flex: 1;
+            margin: 0;
+          }
+          
+          .timezone-preview {
+            background: #f8fffe;
+            border-left: 3px solid #00cc88;
+            padding: 8px 12px;
+            margin: 8px 0;
+            border-radius: 4px;
+          }
+          
+          .migration-notice {
+            background: #f0f8ff;
+            border-left: 3px solid #0066cc;
+            padding: 12px;
+            margin: 8px 0;
+            border-radius: 4px;
+          }
+        </style>
+      </div>
+    </details>
+
+    <details class="homey-form-fieldset">
+      <summary class="homey-form-legend">Electricity Price Source</summary>
+      <div class="homey-form-group">
+        <p class="homey-form-helper">Choose which provider supplies hourly electricity prices. Tibber requires your own API token, while ENTSO-E uses the bundled token and zone settings.</p>
+      </div>
+      <div class="homey-form-group">
+        <label class="homey-form-checkbox">
+          <input type="radio" name="price_source" id="price_source_tibber" value="tibber" />
+          <span>Use Tibber API (personal token required)</span>
+        </label>
+      </div>
+      <div class="homey-form-group">
+        <label class="homey-form-checkbox">
+          <input type="radio" name="price_source" id="price_source_entsoe" value="entsoe" checked />
+          <span>Use ENTSO-E day-ahead prices (bundled token)</span>
+        </label>
+      </div>
+      <div class="homey-form-group">
+        <span class="homey-form-helper" id="price_source_status"></span>
+      </div>
+    </details>
+
+    <details class="homey-form-fieldset" id="entsoe_quick_settings">
+      <summary class="homey-form-legend">ENTSO-E Zone (Quick)</summary>
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="entsoe_zone_input">ISO or EIC</label>
+        <input class="homey-form-input" id="entsoe_zone_input" type="text" placeholder="SE3 or 10Y1001A1001A46L" autocomplete="off" value="SE3" />
+        <p class="homey-form-helper">This value is stored as <code>entsoe_area_eic</code>. Use ISO (country/area) or a full EIC. For the full selector and map editor open the ENTSO-E Pricing section below.</p>
+      </div>
+      <div class="homey-form-group">
+        <button type="button" class="homey-button-secondary" id="entsoe_auto_detect">Auto-detect from locale</button>
+        <button type="button" class="homey-button-secondary" id="entsoe_open_full" aria-expanded="false">Open full ENTSO-E settings</button>
+      </div>
+      <div class="homey-form-group" id="entsoe_full_container" hidden>
+        <iframe
+          id="entsoe_full_frame"
+          title="ENTSO-E detailed settings"
+          style="width: 100%; min-height: 600px; border: 1px solid var(--homey-border-color, #d0d7e2); border-radius: 8px;"
+        ></iframe>
+      </div>
+      <div class="homey-form-group">
+        <span class="homey-form-helper" id="entsoe_zone_status" aria-live="polite"></span>
+      </div>
     </details>
 
     <details class="homey-form-fieldset">
@@ -129,20 +241,6 @@
     </details>
 
 
-
-    <details class="homey-form-fieldset">
-      <summary class="homey-form-legend">Advanced: Classic Targets (Legacy)</summary>
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="min_temp">Minimum Temperature (°C)</label>
-        <input class="homey-form-input" id="min_temp" type="number" min="16" max="22" step="0.5" value="18" />
-        <p class="homey-form-helper">The minimum temperature that will be set during optimization. Suggested default: 19°C - provides good balance between comfort and energy savings during price peaks.</p>
-      </div>
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="max_temp">Maximum Temperature (°C)</label>
-        <input class="homey-form-input" id="max_temp" type="number" min="20" max="26" step="0.5" value="24" />
-        <p class="homey-form-helper">The maximum temperature that will be set during optimization. Suggested default: 22°C - comfortable temperature during low-price periods without excessive energy use.</p>
-      </div>
-    </details>
 
     <details class="homey-form-fieldset" id="zone2_fieldset">
       <summary class="homey-form-legend">Device: Zone 2 Temperature</summary>
@@ -172,13 +270,13 @@
       </div>
     </details>
 
-    <!-- Optimization Engine Settings -->
+    <!-- Comfort & Safety Settings -->
     <details class="homey-form-fieldset" id="engine_fieldset" open>
-      <summary class="homey-form-legend">Comfort & Engine</summary>
+      <summary class="homey-form-legend">Comfort & Stability</summary>
 
       <div class="homey-form-group">
         <div style="background:#f7fbff;border:1px solid #dbe9ff;border-radius:6px;padding:10px;">
-          <div style="font-weight:600;margin-bottom:6px;">How the Engine saves money</div>
+          <div style="font-weight:600;margin-bottom:6px;">How optimisation saves money</div>
           <div class="homey-form-helper" style="margin:0;">
             • Shifts heating to cheap hours (preheat), coasts in expensive hours.<br>
             • Keeps comfort within a band (occupied vs away).<br>
@@ -186,16 +284,6 @@
             • Applies weather context (for example, warm trend → smaller targets).
           </div>
         </div>
-      </div>
-
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="use_engine">Use Optimization Engine</label>
-        <label class="homey-form-checkbox">
-          <input type="checkbox" id="use_engine" />
-          <span>Comfort band control + price-aware preheating (recommended)</span>
-        </label>
-        <p class="homey-form-helper">Turn on the new engine for clearer control and savings. Turn off to use the classic optimizer. Suggested default: <b>Enabled</b>.</p>
-        <p class="homey-form-helper">Impact: When enabled, decisions prioritize cost within your comfort band and respect the safety limits below.</p>
       </div>
 
       <div class="homey-form-group">
@@ -209,7 +297,7 @@
           </div>
           <div class="homey-form-col">
             <label class="homey-form-label" for="min_setpoint_change_minutes">Min Setpoint Interval (min)</label>
-            <input class="homey-form-input" id="min_setpoint_change_minutes" type="number" min="5" max="180" step="5" value="5" />
+            <input class="homey-form-input" id="min_setpoint_change_minutes" type="number" min="5" max="180" step="5" value="30" />
             <p class="homey-form-helper">Anti–short‑cycling lockout between changes. Suggested default: <b>5 minutes</b>.</p>
             <p class="homey-form-helper">Impact: Higher values reduce compressor starts and avoid fighting defrost cycles; too high can slow reactions to big price swings.</p>
           </div>
@@ -228,6 +316,7 @@
             <p class="homey-form-helper">Impact: Protects comfort/COP during cold snaps (prevents over‑setbacks). Increase if your home cools quickly.</p>
           </div>
         </div>
+        <p class="homey-form-helper">Overall min/max targets now follow the lowest and highest comfort band values. Adjust the comfort bands below to tighten or widen that range.</p>
       </div>
 
       <div class="homey-form-group">
@@ -235,7 +324,7 @@
         <div class="homey-form-row">
           <div class="homey-form-col">
             <label class="homey-form-checkbox">
-              <input type="checkbox" id="occupied" />
+              <input type="checkbox" id="occupied" checked />
               <span>Home is occupied</span>
             </label>
             <p class="homey-form-helper">Use occupied band; turn off for away band. Can be automated via Flows. Suggested default: <b>Enabled</b>.</p>
@@ -274,7 +363,7 @@
       <div class="homey-form-group">
         <label class="homey-form-label">Price‑Aware Preheating</label>
         <label class="homey-form-checkbox">
-          <input type="checkbox" id="preheat_enable" />
+          <input type="checkbox" id="preheat_enable" checked />
           <span>Enable preheating in cheap hours</span>
         </label>
         <p class="homey-form-helper">Suggested default: <b>Enabled</b>. Builds thermal buffer during low-price hours for use during peaks.</p>
@@ -301,7 +390,7 @@
       <div class="homey-form-group">
         <label class="homey-form-label" for="enable_tank_control">Enable Hot Water Tank Control</label>
         <label class="homey-form-checkbox">
-          <input type="checkbox" id="enable_tank_control" />
+          <input type="checkbox" id="enable_tank_control" checked />
           <span>Enable optimization of hot water tank temperature</span>
         </label>
         <p class="homey-form-helper">Enable optimization of hot water tank temperature based on electricity prices. Suggested default: Enabled - allows the system to store hot water as thermal energy when electricity is cheap.</p>
@@ -347,13 +436,24 @@
         </label>
         <p class="homey-form-helper">When enabled, you will receive a Homey notification for successful hourly optimization and weekly calibration.</p>
       </div>
+
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="timeline_verbosity">Timeline Detail</label>
+        <select class="homey-form-input" id="timeline_verbosity">
+          <option value="minimal">Minimal - Daily savings + key actions</option>
+          <option value="standard" selected>Standard - Hourly summary, friendly phrasing</option>
+          <option value="detailed">Detailed - All hourly actions + parameters</option>
+          <option value="debug" id="timeline_debug_option" style="display: none;">Developer debug - Raw engine text for troubleshooting</option>
+        </select>
+        <p class="homey-form-helper">Controls how much detail appears in timeline posts. Standard is recommended for most users.</p>
+      </div>
     </details>
 
     <details class="homey-form-fieldset">
       <summary class="homey-form-legend">Localization</summary>
       <div class="homey-form-group">
         <label class="homey-form-label" for="currency_code">Currency (ISO 4217)</label>
-        <input class="homey-form-input" id="currency_code" type="text" placeholder="e.g., NOK, SEK, EUR" />
+        <input class="homey-form-input" id="currency_code" type="text" placeholder="e.g., NOK, SEK, EUR" value="EUR" />
         <p class="homey-form-helper">Optional. Overrides automatic currency detection for timeline messages. Use a 3-letter code (e.g., NOK, SEK, EUR, DKK, USD).</p>
       </div>
     </details>
@@ -364,6 +464,41 @@
         <label class="homey-form-label" for="grid_fee_per_kwh">Grid Fee (per kWh)</label>
         <input class="homey-form-input" id="grid_fee_per_kwh" type="number" min="0" step="0.01" placeholder="e.g., 1.04" />
         <p class="homey-form-helper">Optional. Adds your local grid fee to the electricity price when calculating savings. Example: 1.04 SEK/kWh.</p>
+      </div>
+
+      <div class="homey-form-group" id="consumer_markup_section" style="display: none;">
+        <label class="homey-form-label">
+          <input type="checkbox" id="enable_consumer_markup" />
+          <span>Convert ENTSO-E wholesale to consumer prices</span>
+        </label>
+        <p class="homey-form-helper">Add taxes, grid fees, and markup to ENTSO-E wholesale prices to approximate consumer prices.</p>
+      </div>
+
+      <div class="homey-form-group" id="consumer_markup_config_section" style="display: none;">
+        <label class="homey-form-label" for="consumer_markup_config">Consumer Price Components (JSON)</label>
+        <textarea class="homey-form-input" id="consumer_markup_config" rows="12" placeholder="Consumer markup configuration..."></textarea>
+        <p class="homey-form-helper">Configure grid fees, taxes, and markup by country. Includes defaults for 33+ European markets. <button type="button" class="homey-button-secondary" id="load_markup_defaults">Load Defaults</button></p>
+        <div id="consumer_markup_status" class="homey-form-helper" style="color: #666; font-style: italic;"></div>
+      </div>
+
+      <div class="homey-form-group" id="markup_currency_section" style="display: none;">
+        <label class="homey-form-label" for="markup_currency_unit">Markup Values Currency</label>
+        <select class="homey-form-input" id="markup_currency_unit">
+          <option value="LOCAL">Auto-detect from Homey settings</option>
+          <option value="EUR">Euro (EUR)</option>
+          <option value="SEK">Swedish Krona (SEK)</option>
+          <option value="NOK">Norwegian Krone (NOK)</option>
+          <option value="DKK">Danish Krone (DKK)</option>
+          <option value="PLN">Polish Złoty (PLN)</option>
+          <option value="CZK">Czech Koruna (CZK)</option>
+          <option value="HUF">Hungarian Forint (HUF)</option>
+          <option value="RON">Romanian Leu (RON)</option>
+          <option value="BGN">Bulgarian Lev (BGN)</option>
+          <option value="HRK">Croatian Kuna (HRK)</option>
+          <option value="CHF">Swiss Franc (CHF)</option>
+          <option value="GBP">British Pound (GBP)</option>
+        </select>
+        <p class="homey-form-helper">Currency used for grid fees, taxes, and markup values in the JSON configuration above. If values are in different currencies, they'll be converted to your Homey currency automatically.</p>
       </div>
     </details>
 
@@ -432,53 +567,63 @@
         </div>
       </div>
 
-      <div class="homey-form-group">
-        <label class="homey-form-label">Time Zone</label>
-        <div class="homey-form-row">
-          <div class="homey-form-col">
-            <label class="homey-form-label" for="time_zone_offset">UTC Offset</label>
-            <select class="homey-form-input" id="time_zone_offset">
-              <option value="-12">UTC-12:00</option>
-              <option value="-11">UTC-11:00</option>
-              <option value="-10">UTC-10:00</option>
-              <option value="-9">UTC-09:00</option>
-              <option value="-8">UTC-08:00</option>
-              <option value="-7">UTC-07:00</option>
-              <option value="-6">UTC-06:00</option>
-              <option value="-5">UTC-05:00</option>
-              <option value="-4">UTC-04:00</option>
-              <option value="-3">UTC-03:00</option>
-              <option value="-2">UTC-02:00</option>
-              <option value="-1">UTC-01:00</option>
-              <option value="0">UTC+00:00</option>
-              <option value="1">UTC+01:00</option>
-              <option value="2" selected>UTC+02:00</option>
-              <option value="3">UTC+03:00</option>
-              <option value="4">UTC+04:00</option>
-              <option value="5">UTC+05:00</option>
-              <option value="5.5">UTC+05:30</option>
-              <option value="6">UTC+06:00</option>
-              <option value="7">UTC+07:00</option>
-              <option value="8">UTC+08:00</option>
-              <option value="9">UTC+09:00</option>
-              <option value="9.5">UTC+09:30</option>
-              <option value="10">UTC+10:00</option>
-              <option value="11">UTC+11:00</option>
-              <option value="12">UTC+12:00</option>
-              <option value="13">UTC+13:00</option>
-            </select>
-            <p class="homey-form-helper">Your local time zone offset from UTC</p>
-          </div>
-          <div class="homey-form-col">
-            <label class="homey-form-label" for="use_dst">Daylight Saving Time</label>
-            <label class="homey-form-checkbox">
-              <input type="checkbox" id="use_dst" checked />
-              <span>Automatically adjust for DST</span>
-            </label>
-            <p class="homey-form-helper">Automatically adjust for daylight saving time changes</p>
+      <details class="homey-form-fieldset" style="margin-top: 20px;">
+        <summary class="homey-form-legend">⚙️ Advanced: Manual Timezone (deprecated)</summary>
+        <div class="homey-form-group" style="background: #fff8dc; padding: 12px; border-radius: 6px; margin: 12px 0;">
+          <p style="margin: 0; color: #b8860b; font-weight: 500;">
+            ⚠️ <strong>Deprecated:</strong> Manual timezone settings are less accurate than IANA timezones. 
+            We recommend using the automatic timezone setting above for better DST handling.
+          </p>
+        </div>
+        
+        <div class="homey-form-group">
+          <label class="homey-form-label">Manual Time Zone Override</label>
+          <div class="homey-form-row">
+            <div class="homey-form-col">
+              <label class="homey-form-label" for="time_zone_offset">UTC Offset</label>
+              <select class="homey-form-input" id="time_zone_offset">
+                <option value="-12">UTC-12:00</option>
+                <option value="-11">UTC-11:00</option>
+                <option value="-10">UTC-10:00</option>
+                <option value="-9">UTC-09:00</option>
+                <option value="-8">UTC-08:00</option>
+                <option value="-7">UTC-07:00</option>
+                <option value="-6">UTC-06:00</option>
+                <option value="-5">UTC-05:00</option>
+                <option value="-4">UTC-04:00</option>
+                <option value="-3">UTC-03:00</option>
+                <option value="-2">UTC-02:00</option>
+                <option value="-1">UTC-01:00</option>
+                <option value="0">UTC+00:00</option>
+                <option value="1" selected>UTC+01:00</option>
+                <option value="2">UTC+02:00</option>
+                <option value="3">UTC+03:00</option>
+                <option value="4">UTC+04:00</option>
+                <option value="5">UTC+05:00</option>
+                <option value="5.5">UTC+05:30</option>
+                <option value="6">UTC+06:00</option>
+                <option value="7">UTC+07:00</option>
+                <option value="8">UTC+08:00</option>
+                <option value="9">UTC+09:00</option>
+                <option value="9.5">UTC+09:30</option>
+                <option value="10">UTC+10:00</option>
+                <option value="11">UTC+11:00</option>
+                <option value="12">UTC+12:00</option>
+                <option value="13">UTC+13:00</option>
+              </select>
+              <p class="homey-form-helper">Only used if IANA timezone above is empty</p>
+            </div>
+            <div class="homey-form-col">
+              <label class="homey-form-label" for="use_dst">Daylight Saving Time</label>
+              <label class="homey-form-checkbox">
+                <input type="checkbox" id="use_dst" checked />
+                <span>Manually adjust for DST</span>
+              </label>
+              <p class="homey-form-helper">Manual DST adjustment (less accurate than IANA)</p>
+            </div>
           </div>
         </div>
-      </div>
+      </details>
     </details>
 
     <details class="homey-form-fieldset">
@@ -1243,6 +1388,11 @@
         Homey.ready();
         console.log('Homey.ready() called');
 
+        // Helper function to check if a value should override HTML defaults
+        function hasValidValue(err, value) {
+          return !err && value !== undefined && value !== null && value !== "";
+        }
+
         // Get elements
         const melcloudUserElement = document.getElementById("melcloud_user");
         const melcloudPassElement = document.getElementById("melcloud_pass");
@@ -1255,8 +1405,17 @@
         const manualDeviceIdElement = document.getElementById("manual_device_id");
         const manualBuildingIdElement = document.getElementById("manual_building_id");
         const tibberTokenElement = document.getElementById("tibber_token");
-        const minTempElement = document.getElementById("min_temp");
-        const maxTempElement = document.getElementById("max_temp");
+        const priceSourceTibberElement = document.getElementById("price_source_tibber");
+        const priceSourceEntsoeElement = document.getElementById("price_source_entsoe");
+        const priceSourceStatusElement = document.getElementById("price_source_status");
+        const tibberTokenGroup = tibberTokenElement ? tibberTokenElement.closest('.homey-form-group') : null;
+        const entsoeQuickDetails = document.getElementById("entsoe_quick_settings");
+        const entsoeZoneInput = document.getElementById("entsoe_zone_input");
+        const entsoeAutoButton = document.getElementById("entsoe_auto_detect");
+        const entsoeOpenFullButton = document.getElementById("entsoe_open_full");
+        const entsoeFullContainer = document.getElementById("entsoe_full_container");
+        const entsoeFullFrame = document.getElementById("entsoe_full_frame");
+        const entsoeZoneStatus = document.getElementById("entsoe_zone_status");
         const tempStepMaxElement = document.getElementById("temp_step_max");
         const useWeatherDataElement = document.getElementById("use_weather_data");
         const latitudeElement = document.getElementById("latitude");
@@ -1268,10 +1427,211 @@
         const preHeatHoursElement = document.getElementById("pre_heat_hours");
         const timeZoneOffsetElement = document.getElementById("time_zone_offset");
         const useDstElement = document.getElementById("use_dst");
+        const timeZoneNameElement = document.getElementById("time_zone_name");
+        const timeZoneNameListElement = document.getElementById("time_zone_name_list");
+        const detectTimeZoneNameButton = document.getElementById("detect_time_zone_name");
+        const timeZoneNameStatusElement = document.getElementById("time_zone_name_status");
         const logLevelElement = document.getElementById("log_level");
         const notifyOnSuccessElement = document.getElementById("notify_on_success");
+        const timelineVerbosityElement = document.getElementById("timeline_verbosity");
         const currencyCodeElement = document.getElementById("currency_code");
         const saveElement = document.getElementById("save");
+
+        // Enhanced timezone list population with common zones prioritized
+        if (timeZoneNameListElement) {
+          try {
+            // Common zones that users are likely to need (prioritized)
+            const commonZones = [
+              'Europe/Stockholm', 'Europe/Oslo', 'Europe/Copenhagen', 'Europe/Helsinki',
+              'Europe/Berlin', 'Europe/Paris', 'Europe/Amsterdam', 'Europe/Brussels',
+              'Europe/London', 'Europe/Dublin', 'Europe/Rome', 'Europe/Madrid',
+              'Europe/Warsaw', 'Europe/Prague', 'Europe/Vienna', 'Europe/Zurich',
+              'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+              'America/Toronto', 'America/Vancouver', 'America/Sao_Paulo', 'America/Mexico_City',
+              'Asia/Tokyo', 'Asia/Shanghai', 'Asia/Hong_Kong', 'Asia/Singapore',
+              'Asia/Dubai', 'Asia/Kolkata', 'Asia/Bangkok', 'Asia/Jakarta',
+              'Australia/Sydney', 'Australia/Melbourne', 'Australia/Perth',
+              'Pacific/Auckland', 'Africa/Johannesburg'
+            ];
+
+            if (typeof Intl !== 'undefined' && typeof Intl.supportedValuesOf === 'function') {
+              const allTzValues = Intl.supportedValuesOf('timeZone');
+              
+              // Add common zones first
+              commonZones.forEach(tz => {
+                if (allTzValues.includes(tz)) {
+                  const option = document.createElement('option');
+                  option.value = tz;
+                  timeZoneNameListElement.appendChild(option);
+                }
+              });
+              
+              // Add remaining zones
+              allTzValues.forEach(tz => {
+                if (!commonZones.includes(tz)) {
+                  const option = document.createElement('option');
+                  option.value = tz;
+                  timeZoneNameListElement.appendChild(option);
+                }
+              });
+            } else {
+              // Fallback to common zones only
+              commonZones.forEach(tz => {
+                const option = document.createElement('option');
+                option.value = tz;
+                timeZoneNameListElement.appendChild(option);
+              });
+            }
+          } catch (error) {
+            console.warn('Failed to populate timezone list', error);
+          }
+        }
+
+        // Enhanced timezone detection with preview
+        const timezonePreviewElement = document.getElementById("timezone_preview");
+        const timezonePreviewTimeElement = document.getElementById("timezone_preview_time");
+        const migrationNoticeElement = document.getElementById("migration_notice");
+        const convertToAutoButton = document.getElementById("convert_to_auto");
+
+        function updateTimezonePreview(timezone) {
+          if (!timezone || !timezonePreviewElement || !timezonePreviewTimeElement) return;
+          
+          try {
+            const now = new Date();
+            const formatter = new Intl.DateTimeFormat('en-US', {
+              timeZone: timezone,
+              weekday: 'short',
+              year: 'numeric',
+              month: 'short', 
+              day: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+              timeZoneName: 'short'
+            });
+            
+            timezonePreviewTimeElement.textContent = formatter.format(now);
+            timezonePreviewElement.style.display = 'block';
+          } catch (error) {
+            console.warn('Failed to format timezone preview:', error);
+            timezonePreviewElement.style.display = 'none';
+          }
+        }
+
+        function validateTimezone(timezone) {
+          if (!timezone) return false;
+          try {
+            Intl.DateTimeFormat(undefined, { timeZone: timezone });
+            return true;
+          } catch (error) {
+            return false;
+          }
+        }
+
+        if (detectTimeZoneNameButton && timeZoneNameElement) {
+          detectTimeZoneNameButton.addEventListener('click', () => {
+            try {
+              const resolved = Intl.DateTimeFormat().resolvedOptions().timeZone;
+              if (resolved) {
+                timeZoneNameElement.value = resolved;
+                updateTimezonePreview(resolved);
+                if (timeZoneNameStatusElement) {
+                  timeZoneNameStatusElement.textContent = `✅ Auto-detected: ${resolved}`;
+                  timeZoneNameStatusElement.style.color = '#00aa44';
+                }
+                // Trigger save
+                save('time_zone_name', resolved);
+              }
+            } catch (error) {
+              console.warn('Failed to detect device timezone', error);
+              if (timeZoneNameStatusElement) {
+                timeZoneNameStatusElement.textContent = '❌ Could not auto-detect timezone';
+                timeZoneNameStatusElement.style.color = '#cc0000';
+              }
+            }
+          });
+        }
+
+        if (timeZoneNameElement && timeZoneNameStatusElement) {
+          timeZoneNameElement.addEventListener('input', () => {
+            const value = (timeZoneNameElement.value || '').trim();
+            
+            if (!value) {
+              timeZoneNameStatusElement.textContent = 'Will use manual UTC offset if configured';
+              timeZoneNameStatusElement.style.color = '#888';
+              timezonePreviewElement.style.display = 'none';
+              return;
+            }
+
+            if (validateTimezone(value)) {
+              timeZoneNameStatusElement.textContent = `✅ Valid timezone: ${value}`;
+              timeZoneNameStatusElement.style.color = '#00aa44';
+              updateTimezonePreview(value);
+            } else {
+              timeZoneNameStatusElement.textContent = `❌ Invalid timezone: ${value}`;
+              timeZoneNameStatusElement.style.color = '#cc0000';
+              timezonePreviewElement.style.display = 'none';
+            }
+          });
+
+          // Trigger validation on initial load
+          const initialValue = timeZoneNameElement.value;
+          if (initialValue) {
+            timeZoneNameElement.dispatchEvent(new Event('input'));
+          }
+        }
+
+        // Check for migration opportunity and show notice
+        function checkMigrationOpportunity() {
+          const currentTimezone = load('time_zone_name');
+          const currentOffset = load('time_zone_offset');
+          
+          if (!currentTimezone && currentOffset !== null) {
+            // User has manual settings but no IANA timezone
+            if (migrationNoticeElement) {
+              migrationNoticeElement.style.display = 'block';
+            }
+          }
+        }
+
+        if (convertToAutoButton) {
+          convertToAutoButton.addEventListener('click', () => {
+            try {
+              const resolved = Intl.DateTimeFormat().resolvedOptions().timeZone;
+              if (resolved && timeZoneNameElement) {
+                timeZoneNameElement.value = resolved;
+                timeZoneNameElement.dispatchEvent(new Event('input'));
+                save('time_zone_name', resolved);
+                
+                if (migrationNoticeElement) {
+                  migrationNoticeElement.innerHTML = `
+                    <p style="margin: 0; color: #00aa44;">
+                      ✅ <strong>Converted Successfully:</strong> Now using automatic timezone: ${resolved}
+                    </p>
+                  `;
+                  setTimeout(() => {
+                    migrationNoticeElement.style.display = 'none';
+                  }, 5000);
+                }
+              }
+            } catch (error) {
+              console.warn('Failed to convert to automatic timezone', error);
+            }
+          });
+        }
+
+        // Check migration opportunity on page load
+        setTimeout(checkMigrationOpportunity, 500);
+
+        // Consumer markup elements (declared early to avoid initialization errors)
+        const enableConsumerMarkupElement = document.getElementById("enable_consumer_markup");
+        const consumerMarkupConfigElement = document.getElementById("consumer_markup_config");
+        const markupCurrencyUnitElement = document.getElementById("markup_currency_unit");
+        const consumerMarkupSection = document.getElementById("consumer_markup_section");
+        const consumerMarkupConfigSection = document.getElementById("consumer_markup_config_section");
+        const markupCurrencySection = document.getElementById("markup_currency_section");
+        const loadMarkupDefaultsButton = document.getElementById("load_markup_defaults");
+        const consumerMarkupStatus = document.getElementById("consumer_markup_status");
 
         // Zone2 elements
         const enableZone2Element = document.getElementById("enable_zone2");
@@ -1287,6 +1647,640 @@
         const summerModeElement = document.getElementById("summer_mode");
         const summerModeContainer = document.getElementById("summer_mode_container");
 
+        let entsoeAreaMap = null;
+        let entsoeAutoSelectionDone = false;
+
+        function updateEntsoeZoneInput(value, message) {
+          if (entsoeZoneInput && typeof value === 'string') {
+            entsoeZoneInput.value = value;
+          }
+          if (message && entsoeZoneStatus) {
+            entsoeZoneStatus.textContent = message;
+          } else if (entsoeZoneStatus && !message) {
+            entsoeZoneStatus.textContent = '';
+          }
+        }
+
+        function saveEntsoeZone(value, opts = {}) {
+          const trimmed = (value || '').toString().trim();
+          persistSetting('entsoe_area_eic', trimmed, {
+            trimString: true,
+            onSuccess: function () {
+              if (!opts.silent && entsoeZoneStatus) {
+                entsoeZoneStatus.textContent = trimmed
+                  ? `Saved ENTSO-E zone: ${trimmed}`
+                  : 'Cleared ENTSO-E zone. Enter an ISO code (SE3) or EIC.';
+              }
+            },
+            onUnset: function () {
+              if (!opts.silent && entsoeZoneStatus) {
+                entsoeZoneStatus.textContent = 'Cleared ENTSO-E zone. Enter an ISO code (SE3) or EIC.';
+              }
+            }
+          });
+        }
+
+        function persistSetting(key, rawValue, options = {}) {
+          const {
+            allowEmptyString = false,
+            trimString = false,
+            onSuccess,
+            onUnset
+          } = options;
+
+          let value = rawValue;
+          if (trimString && typeof value === 'string') {
+            value = value.trim();
+          }
+
+          const isEmptyString = typeof value === 'string' && value.length === 0;
+          const isInvalidNumber = typeof value === 'number' && Number.isNaN(value);
+          const isNullish = value === undefined || value === null;
+
+          if (!allowEmptyString && (isEmptyString || isInvalidNumber || isNullish)) {
+            if (typeof Homey.unset === 'function') {
+              Homey.unset(key, function (err) {
+                if (err) {
+                  console.error(`Failed to clear setting ${key}`, err);
+                  // Don't show individual alerts for clearing settings - just log them
+                } else if (typeof onUnset === 'function') {
+                  onUnset();
+                }
+              });
+            } else {
+              console.warn(`Homey.unset is unavailable; attempting to clear setting ${key} using null value`);
+              Homey.set(key, null, function (err) {
+                if (err) {
+                  console.error(`Failed to clear setting ${key} via null`, err);
+                  // Don't show individual alerts for clearing settings - just log them
+                } else if (typeof onUnset === 'function') {
+                  onUnset();
+                }
+              });
+            }
+            return;
+          }
+
+          Homey.set(key, value, function (err) {
+            if (err) {
+              console.error(`Failed to store setting ${key}`, err);
+              // Don't show individual alerts for each setting error - just log them
+              return;
+            }
+            if (typeof onSuccess === 'function') {
+              onSuccess();
+            }
+          });
+        }
+
+        function handleEntsoeZoneSelected(payload) {
+          if (!payload || payload.type !== 'entsoe:zoneSelected') {
+            return;
+          }
+          const eic = (payload.eic || '').toString().trim();
+          if (!eic) {
+            return;
+          }
+          entsoeAutoSelectionDone = true;
+          const display = typeof payload.display === 'string' && payload.display.trim()
+            ? payload.display.trim()
+            : '';
+          saveEntsoeZone(eic, { silent: true });
+          const message = display
+            ? `Saved ENTSO-E zone: ${display} (${eic}).`
+            : `Saved ENTSO-E zone: ${eic}.`;
+          updateEntsoeZoneInput(eic, message);
+        }
+
+        window.__entsoeZoneSelected = function (payload) {
+          handleEntsoeZoneSelected(payload);
+        };
+
+        window.addEventListener('message', function (event) {
+          if (!event) {
+            return;
+          }
+          if (entsoeFullFrame && event.source && event.source !== entsoeFullFrame.contentWindow) {
+            return;
+          }
+          handleEntsoeZoneSelected(event.data);
+        });
+
+        async function loadEntsoeMap() {
+          if (entsoeAreaMap) {
+            return entsoeAreaMap;
+          }
+          try {
+            const response = await fetch('../assets/entsoe_area_map.json', { cache: 'no-cache' });
+            if (!response.ok) {
+              throw new Error('Failed to load entsoe_area_map.json');
+            }
+            entsoeAreaMap = await response.json();
+            return entsoeAreaMap;
+          } catch (error) {
+            console.error('Failed to load entsoe_area_map.json', error);
+            if (priceSourceStatusElement && !priceSourceStatusElement.textContent) {
+              priceSourceStatusElement.textContent = 'Could not auto-detect ENTSO-E zone. Please set it manually in the ENTSO-E section.';
+            }
+            return null;
+          }
+        }
+
+        async function ensureEntsoeDefaultZone(force = false) {
+          if (entsoeAutoSelectionDone && !force) {
+            return null;
+          }
+          if (!force && entsoeAutoSelectionDone) {
+            return null;
+          }
+          entsoeAutoSelectionDone = true;
+          try {
+            const stored = await new Promise((resolve) => {
+              Homey.get('entsoe_area_eic', function(err, value) {
+                if (err) {
+                  console.warn('Failed to read entsoe_area_eic', err);
+                  resolve(null);
+                  return;
+                }
+                resolve(value);
+              });
+            });
+            if (typeof stored === 'string' && stored.trim().length > 0) {
+              updateEntsoeZoneInput(stored.trim(), 'Using stored ENTSO-E zone.');
+              return stored.trim();
+            }
+
+            const map = await loadEntsoeMap();
+            if (!map) {
+              return null;
+            }
+
+            const language = navigator.language || navigator.userLanguage || '';
+            const parts = language.split('-');
+            const iso = parts.length > 1 ? parts[1].toUpperCase() : parts[0]?.toUpperCase() || '';
+            const list = iso && map[iso] ? map[iso] : null;
+            if (!list || list.length === 0) {
+              if (priceSourceStatusElement && !priceSourceStatusElement.textContent) {
+                priceSourceStatusElement.textContent = 'Select your ENTSO-E zone in the ENTSO-E pricing section.';
+              }
+              return null;
+            }
+
+            const eic = list[0];
+            saveEntsoeZone(eic, { silent: true });
+            updateEntsoeZoneInput(eic, `ENTSO-E zone set to ${iso} (${eic}). Adjust if needed.`);
+            return eic;
+          } catch (error) {
+            console.error('Failed to auto-select ENTSO-E zone', error);
+            if (entsoeZoneStatus && !entsoeZoneStatus.textContent) {
+              entsoeZoneStatus.textContent = 'Unable to auto-detect zone; please enter it manually.';
+            }
+            return null;
+          }
+        }
+
+        function renderPriceSource(value) {
+          const selection = value === 'tibber' ? 'tibber' : 'entsoe';
+          if (priceSourceTibberElement) {
+            priceSourceTibberElement.checked = selection === 'tibber';
+          }
+          if (priceSourceEntsoeElement) {
+            priceSourceEntsoeElement.checked = selection === 'entsoe';
+          }
+          if (entsoeQuickDetails) {
+            entsoeQuickDetails.open = selection === 'entsoe';
+          }
+          const enableTibberInputs = selection === 'tibber';
+          if (tibberTokenElement) {
+            tibberTokenElement.disabled = !enableTibberInputs;
+          }
+          if (tibberTokenGroup) {
+            if (enableTibberInputs) {
+              tibberTokenGroup.classList.remove('disabled');
+            } else {
+              tibberTokenGroup.classList.add('disabled');
+            }
+          }
+          if (priceSourceStatusElement) {
+            priceSourceStatusElement.textContent = selection === 'tibber'
+              ? 'Using Tibber data. Remember to keep your token up to date.'
+              : 'Using ENTSO-E day-ahead prices provided by the app.';
+          }
+
+          if (selection === 'entsoe') {
+            ensureEntsoeDefaultZone();
+          }
+          
+          // Update consumer markup visibility based on price source
+          updateConsumerMarkupVisibility();
+        }
+
+        // Consumer markup helper functions (defined before use)
+        function updateConsumerMarkupVisibility() {
+          const isEnabled = enableConsumerMarkupElement && enableConsumerMarkupElement.checked;
+          const isEntsoeSelected = priceSourceEntsoeElement && priceSourceEntsoeElement.checked;
+          
+          // Only show consumer markup settings when ENTSO-E is selected
+          if (consumerMarkupSection) {
+            consumerMarkupSection.style.display = isEntsoeSelected ? 'block' : 'none';
+          }
+          if (consumerMarkupConfigSection) {
+            consumerMarkupConfigSection.style.display = (isEntsoeSelected && isEnabled) ? 'block' : 'none';
+          }
+          if (markupCurrencySection) {
+            markupCurrencySection.style.display = (isEntsoeSelected && isEnabled) ? 'block' : 'none';
+          }
+        }
+
+        function loadDefaultConsumerMarkupConfig() {
+          const defaultConfig = {
+            "SE": {
+              "gridFee": 0.030,
+              "energyTax": 0.036,
+              "retailMarkup": 0.010,
+              "vatRate": 1.25,
+              "description": "Sweden - typical residential"
+            },
+            "DE": {
+              "gridFee": 0.070,
+              "energyTax": 0.025,
+              "retailMarkup": 0.015,
+              "vatRate": 1.19,
+              "description": "Germany - typical residential"
+            },
+            "NO": {
+              "gridFee": 0.035,
+              "energyTax": 0.017,
+              "retailMarkup": 0.008,
+              "vatRate": 1.25,
+              "description": "Norway - typical residential"
+            },
+            "DK": {
+              "gridFee": 0.045,
+              "energyTax": 0.089,
+              "retailMarkup": 0.012,
+              "vatRate": 1.25,
+              "description": "Denmark - typical residential"
+            },
+            "FR": {
+              "gridFee": 0.045,
+              "energyTax": 0.022,
+              "retailMarkup": 0.012,
+              "vatRate": 1.20,
+              "description": "France - typical residential"
+            },
+            "NL": {
+              "gridFee": 0.055,
+              "energyTax": 0.030,
+              "retailMarkup": 0.018,
+              "vatRate": 1.21,
+              "description": "Netherlands - typical residential"
+            },
+            "BE": {
+              "gridFee": 0.048,
+              "energyTax": 0.028,
+              "retailMarkup": 0.015,
+              "vatRate": 1.21,
+              "description": "Belgium - typical residential"
+            },
+            "AT": {
+              "gridFee": 0.038,
+              "energyTax": 0.015,
+              "retailMarkup": 0.012,
+              "vatRate": 1.20,
+              "description": "Austria - typical residential"
+            },
+            "CH": {
+              "gridFee": 0.065,
+              "energyTax": 0.023,
+              "retailMarkup": 0.020,
+              "vatRate": 1.077,
+              "description": "Switzerland - typical residential"
+            },
+            "FI": {
+              "gridFee": 0.042,
+              "energyTax": 0.027,
+              "retailMarkup": 0.015,
+              "vatRate": 1.24,
+              "description": "Finland - typical residential"
+            },
+            "PL": {
+              "gridFee": 0.025,
+              "energyTax": 0.012,
+              "retailMarkup": 0.008,
+              "vatRate": 1.23,
+              "description": "Poland - typical residential"
+            },
+            "CZ": {
+              "gridFee": 0.030,
+              "energyTax": 0.018,
+              "retailMarkup": 0.010,
+              "vatRate": 1.21,
+              "description": "Czech Republic - typical residential"
+            },
+            "IT": {
+              "gridFee": 0.055,
+              "energyTax": 0.035,
+              "retailMarkup": 0.018,
+              "vatRate": 1.22,
+              "description": "Italy - typical residential"
+            },
+            "ES": {
+              "gridFee": 0.045,
+              "energyTax": 0.051,
+              "retailMarkup": 0.015,
+              "vatRate": 1.21,
+              "description": "Spain - typical residential"
+            },
+            "PT": {
+              "gridFee": 0.042,
+              "energyTax": 0.034,
+              "retailMarkup": 0.013,
+              "vatRate": 1.23,
+              "description": "Portugal - typical residential"
+            },
+            "GB": {
+              "gridFee": 0.050,
+              "energyTax": 0.006,
+              "retailMarkup": 0.020,
+              "vatRate": 1.05,
+              "description": "United Kingdom - typical residential"
+            },
+            "EE": {
+              "gridFee": 0.035,
+              "energyTax": 0.007,
+              "retailMarkup": 0.012,
+              "vatRate": 1.20,
+              "description": "Estonia - typical residential"
+            },
+            "LV": {
+              "gridFee": 0.038,
+              "energyTax": 0.009,
+              "retailMarkup": 0.014,
+              "vatRate": 1.21,
+              "description": "Latvia - typical residential"
+            },
+            "LT": {
+              "gridFee": 0.040,
+              "energyTax": 0.011,
+              "retailMarkup": 0.016,
+              "vatRate": 1.21,
+              "description": "Lithuania - typical residential"
+            },
+            "SK": {
+              "gridFee": 0.028,
+              "energyTax": 0.015,
+              "retailMarkup": 0.009,
+              "vatRate": 1.20,
+              "description": "Slovakia - typical residential"
+            },
+            "SI": {
+              "gridFee": 0.045,
+              "energyTax": 0.030,
+              "retailMarkup": 0.012,
+              "vatRate": 1.22,
+              "description": "Slovenia - typical residential"
+            },
+            "HU": {
+              "gridFee": 0.022,
+              "energyTax": 0.008,
+              "retailMarkup": 0.007,
+              "vatRate": 1.27,
+              "description": "Hungary - typical residential"
+            },
+            "IE": {
+              "gridFee": 0.048,
+              "energyTax": 0.009,
+              "retailMarkup": 0.018,
+              "vatRate": 1.135,
+              "description": "Ireland - typical residential"
+            },
+            "RO": {
+              "gridFee": 0.028,
+              "energyTax": 0.012,
+              "retailMarkup": 0.010,
+              "vatRate": 1.19,
+              "description": "Romania - typical residential"
+            },
+            "BG": {
+              "gridFee": 0.025,
+              "energyTax": 0.008,
+              "retailMarkup": 0.008,
+              "vatRate": 1.20,
+              "description": "Bulgaria - typical residential"
+            },
+            "HR": {
+              "gridFee": 0.032,
+              "energyTax": 0.014,
+              "retailMarkup": 0.012,
+              "vatRate": 1.25,
+              "description": "Croatia - typical residential"
+            },
+            "GR": {
+              "gridFee": 0.038,
+              "energyTax": 0.025,
+              "retailMarkup": 0.015,
+              "vatRate": 1.24,
+              "description": "Greece - typical residential"
+            },
+            "RS": {
+              "gridFee": 0.020,
+              "energyTax": 0.006,
+              "retailMarkup": 0.008,
+              "vatRate": 1.20,
+              "description": "Serbia - typical residential"
+            },
+            "BA": {
+              "gridFee": 0.022,
+              "energyTax": 0.008,
+              "retailMarkup": 0.009,
+              "vatRate": 1.17,
+              "description": "Bosnia and Herzegovina - typical residential"
+            },
+            "ME": {
+              "gridFee": 0.025,
+              "energyTax": 0.005,
+              "retailMarkup": 0.010,
+              "vatRate": 1.21,
+              "description": "Montenegro - typical residential"
+            },
+            "MK": {
+              "gridFee": 0.018,
+              "energyTax": 0.004,
+              "retailMarkup": 0.007,
+              "vatRate": 1.18,
+              "description": "North Macedonia - typical residential"
+            },
+            "AL": {
+              "gridFee": 0.015,
+              "energyTax": 0.003,
+              "retailMarkup": 0.006,
+              "vatRate": 1.20,
+              "description": "Albania - typical residential"
+            },
+            "TR": {
+              "gridFee": 0.012,
+              "energyTax": 0.005,
+              "retailMarkup": 0.008,
+              "vatRate": 1.18,
+              "description": "Turkey - typical residential"
+            },
+            "default": {
+              "gridFee": 0.040,
+              "energyTax": 0.020,
+              "retailMarkup": 0.010,
+              "vatRate": 1.20,
+              "description": "EU average approximation"
+            }
+          };
+
+          const configJson = JSON.stringify(defaultConfig, null, 2);
+          if (consumerMarkupConfigElement) {
+            consumerMarkupConfigElement.value = configJson;
+            Homey.set("consumer_markup_config", configJson, function (err) {
+              if (err) console.error('Error saving default consumer_markup_config:', err);
+            });
+            validateConsumerMarkupConfig();
+          }
+        }
+
+        function validateConsumerMarkupConfig() {
+          if (!consumerMarkupConfigElement || !consumerMarkupStatus) return;
+          
+          const value = consumerMarkupConfigElement.value.trim();
+          if (!value) {
+            consumerMarkupStatus.textContent = 'Configuration is empty. Click "Load Defaults" to get started.';
+            consumerMarkupStatus.style.color = '#999';
+            return;
+          }
+
+          try {
+            const config = JSON.parse(value);
+            const countries = Object.keys(config);
+            const validCountries = countries.filter(country => {
+              const c = config[country];
+              return c && typeof c.gridFee === 'number' && typeof c.energyTax === 'number' && 
+                     typeof c.retailMarkup === 'number' && typeof c.vatRate === 'number';
+            });
+            
+            if (validCountries.length === 0) {
+              consumerMarkupStatus.textContent = 'Invalid configuration: No valid country entries found.';
+              consumerMarkupStatus.style.color = '#d32f2f';
+            } else {
+              consumerMarkupStatus.textContent = `Valid configuration with ${validCountries.length} countries: ${validCountries.join(', ')}`;
+              consumerMarkupStatus.style.color = '#2e7d32';
+            }
+          } catch (error) {
+            consumerMarkupStatus.textContent = 'Invalid JSON format. Please check syntax.';
+            consumerMarkupStatus.style.color = '#d32f2f';
+          }
+        }
+
+        function savePriceSource(value) {
+          const selection = value === 'entsoe' ? 'entsoe' : 'tibber';
+          Homey.set('price_data_source', selection, function (err) {
+            if (err) {
+              console.error('Failed to save price_data_source', err);
+              if (priceSourceStatusElement) {
+                priceSourceStatusElement.textContent = 'Failed to save price source preference.';
+              }
+              return;
+            }
+            renderPriceSource(selection);
+            if (priceSourceStatusElement) {
+              priceSourceStatusElement.textContent = selection === 'tibber'
+                ? 'Saved: Tibber API selected for pricing.'
+                : 'Saved: ENTSO-E pricing selected.';
+            }
+          });
+        }
+
+        if (priceSourceTibberElement) {
+          priceSourceTibberElement.addEventListener('change', function () {
+            if (priceSourceTibberElement.checked) {
+              savePriceSource('tibber');
+              updateConsumerMarkupVisibility();
+            }
+          });
+        }
+        if (priceSourceEntsoeElement) {
+          priceSourceEntsoeElement.addEventListener('change', function () {
+            if (priceSourceEntsoeElement.checked) {
+              savePriceSource('entsoe');
+              updateConsumerMarkupVisibility();
+            }
+          });
+        }
+
+        if (entsoeZoneInput) {
+          entsoeZoneInput.addEventListener('change', function () {
+            saveEntsoeZone(entsoeZoneInput.value);
+          });
+        }
+
+        if (entsoeAutoButton) {
+          entsoeAutoButton.addEventListener('click', function () {
+            ensureEntsoeDefaultZone(true);
+          });
+        }
+
+        // Consumer markup event handlers
+        if (enableConsumerMarkupElement) {
+          enableConsumerMarkupElement.addEventListener('change', function () {
+            Homey.set("enable_consumer_markup", enableConsumerMarkupElement.checked, function (err) {
+              if (err) console.error('Error saving enable_consumer_markup:', err);
+            });
+            updateConsumerMarkupVisibility();
+          });
+        }
+
+        if (consumerMarkupConfigElement) {
+          consumerMarkupConfigElement.addEventListener('change', function () {
+            const value = consumerMarkupConfigElement.value.trim();
+            Homey.set("consumer_markup_config", value, function (err) {
+              if (err) console.error('Error saving consumer_markup_config:', err);
+            });
+            validateConsumerMarkupConfig();
+          });
+        }
+
+        if (markupCurrencyUnitElement) {
+          markupCurrencyUnitElement.addEventListener('change', function () {
+            Homey.set("markup_currency_unit", markupCurrencyUnitElement.value, function (err) {
+              if (err) console.error('Error saving markup_currency_unit:', err);
+            });
+          });
+        }
+
+        if (loadMarkupDefaultsButton) {
+          loadMarkupDefaultsButton.addEventListener('click', function () {
+            loadDefaultConsumerMarkupConfig();
+          });
+        }
+
+        let entsoeFrameLoaded = false;
+        if (entsoeOpenFullButton) {
+          entsoeOpenFullButton.addEventListener('click', function () {
+            if (!entsoeFullContainer) {
+              return;
+            }
+            const isHidden = entsoeFullContainer.hasAttribute('hidden');
+            if (isHidden) {
+              entsoeFullContainer.removeAttribute('hidden');
+              if (entsoeFullFrame && !entsoeFrameLoaded) {
+                entsoeFullFrame.src = '../assets/settings/index.html';
+                entsoeFrameLoaded = true;
+              }
+              entsoeOpenFullButton.textContent = 'Hide full ENTSO-E settings';
+              entsoeOpenFullButton.setAttribute('aria-expanded', 'true');
+            } else {
+              entsoeFullContainer.setAttribute('hidden', '');
+              entsoeOpenFullButton.textContent = 'Open full ENTSO-E settings';
+              entsoeOpenFullButton.setAttribute('aria-expanded', 'false');
+            }
+          });
+        }
+
         // Hot water tank elements
         const enableTankControlElement = document.getElementById("enable_tank_control");
         const minTankTempElement = document.getElementById("min_tank_temp");
@@ -1299,7 +2293,6 @@
         const gridFeeElement = document.getElementById("grid_fee_per_kwh");
 
         // Engine elements
-        const useEngineElement = document.getElementById("use_engine");
         const deadbandElement = document.getElementById("deadband_c");
         const minChangeMinutesElement = document.getElementById("min_setpoint_change_minutes");
         const extremeMinElement = document.getElementById("extreme_weather_min_temp");
@@ -1315,7 +2308,7 @@
         // Weather location warning helper
         function updateWeatherLocationWarning() {
           const warn = document.getElementById('weather_location_warning');
-          if (!warn) return;
+          if (!warn || !useWeatherDataElement || !latitudeElement || !longitudeElement) return;
           const enabled = useWeatherDataElement.checked;
           const latOk = latitudeElement.value !== '' && !isNaN(parseFloat(latitudeElement.value));
           const lonOk = longitudeElement.value !== '' && !isNaN(parseFloat(longitudeElement.value));
@@ -1331,6 +2324,18 @@
         // Buttons now use onclick attributes with global functions
 
         // Load current settings
+        Homey.get("price_data_source", function (err, value) {
+          if (err) {
+            console.error('Failed to load price_data_source', err);
+            renderPriceSource('entsoe');
+            return;
+          }
+          renderPriceSource(value);
+          if (value === 'entsoe') {
+            ensureEntsoeDefaultZone();
+          }
+        });
+
         Homey.get("melcloud_user", function (err, value) {
           if (err) return Homey.alert(err);
           if (value) melcloudUserElement.value = value;
@@ -1382,49 +2387,99 @@
           if (value) tibberTokenElement.value = value;
         });
 
+        Homey.get('entsoe_area_eic', function (err, value) {
+          if (!err && typeof value === 'string') {
+            updateEntsoeZoneInput(value);
+          }
+        });
+
         // Load costs & consumption settings
         Homey.get("grid_fee_per_kwh", function (err, value) {
-          if (!err && value !== undefined && value !== null) gridFeeElement.value = value;
+          if (hasValidValue(err, value)) gridFeeElement.value = value;
         });
 
-        Homey.get("min_temp", function (err, value) {
-          if (err) return Homey.alert(err);
-          if (value !== undefined) minTempElement.value = value;
+        // Load consumer markup settings
+        Homey.get("enable_consumer_markup", function (err, value) {
+          if (!err && value !== undefined && value !== null && value !== "") {
+            enableConsumerMarkupElement.checked = !!value;
+            updateConsumerMarkupVisibility();
+          }
         });
 
-        Homey.get("max_temp", function (err, value) {
-          if (err) return Homey.alert(err);
-          if (value !== undefined) maxTempElement.value = value;
+        Homey.get("consumer_markup_config", function (err, value) {
+          if (!err && typeof value === 'string' && value.trim()) {
+            consumerMarkupConfigElement.value = value;
+            validateConsumerMarkupConfig();
+          } else {
+            loadDefaultConsumerMarkupConfig();
+          }
+        });
+
+        Homey.get("markup_currency_unit", function (err, value) {
+          if (!err && typeof value === 'string') {
+            markupCurrencyUnitElement.value = value;
+          }
         });
 
         Homey.get("temp_step_max", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) tempStepMaxElement.value = value;
+          if (value !== undefined && value !== null && value !== "") tempStepMaxElement.value = value;
         });
 
         // Load engine settings
-        Homey.get("use_engine", function (err, value) { if (!err && value !== undefined) useEngineElement.checked = !!value; });
-        Homey.get("deadband_c", function (err, value) { if (!err && value !== undefined) deadbandElement.value = value; });
-        Homey.get("min_setpoint_change_minutes", function (err, value) { if (!err && value !== undefined) minChangeMinutesElement.value = value; });
-        Homey.get("extreme_weather_min_temp", function (err, value) { if (!err && value !== undefined) extremeMinElement.value = value; });
-        Homey.get("occupied", function (err, value) { if (!err && value !== undefined) occupiedElement.checked = !!value; });
-        Homey.get("comfort_lower_occupied", function (err, value) { if (!err && value !== undefined) comfortLowerOccElement.value = value; });
-        Homey.get("comfort_upper_occupied", function (err, value) { if (!err && value !== undefined) comfortUpperOccElement.value = value; });
-        Homey.get("comfort_lower_away", function (err, value) { if (!err && value !== undefined) comfortLowerAwayElement.value = value; });
-        Homey.get("comfort_upper_away", function (err, value) { if (!err && value !== undefined) comfortUpperAwayElement.value = value; });
-        Homey.get("preheat_enable", function (err, value) { if (!err && value !== undefined) preheatEnableElement.checked = !!value; });
-        Homey.get("preheat_horizon_hours", function (err, value) { if (!err && value !== undefined) preheatHorizonElement.value = value; });
-        Homey.get("preheat_cheap_percentile", function (err, value) { if (!err && value !== undefined) preheatPercentileElement.value = value; });
+        Homey.get("deadband_c", function (err, value) { if (hasValidValue(err, value)) deadbandElement.value = value; });
+        Homey.get("min_setpoint_change_minutes", function (err, value) { if (hasValidValue(err, value)) minChangeMinutesElement.value = value; });
+        Homey.get("extreme_weather_min_temp", function (err, value) { if (hasValidValue(err, value)) extremeMinElement.value = value; });
+        Homey.get("occupied", function (err, value) { if (!err && value !== undefined && value !== null && value !== "") occupiedElement.checked = !!value; });
+        Homey.get("comfort_lower_occupied", function (err, value) { if (hasValidValue(err, value)) comfortLowerOccElement.value = value; });
+        Homey.get("comfort_upper_occupied", function (err, value) { if (hasValidValue(err, value)) comfortUpperOccElement.value = value; });
+        Homey.get("comfort_lower_away", function (err, value) { if (hasValidValue(err, value)) comfortLowerAwayElement.value = value; });
+        Homey.get("comfort_upper_away", function (err, value) { if (hasValidValue(err, value)) comfortUpperAwayElement.value = value; });
+        Homey.get("preheat_enable", function (err, value) { if (!err && value !== undefined && value !== null && value !== "") preheatEnableElement.checked = !!value; });
+        Homey.get("preheat_horizon_hours", function (err, value) { if (hasValidValue(err, value)) preheatHorizonElement.value = value; });
+        Homey.get("preheat_cheap_percentile", function (err, value) { if (hasValidValue(err, value)) preheatPercentileElement.value = value; });
 
         Homey.get("log_level", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) logLevelElement.value = value;
+          if (value !== undefined && value !== null && value !== "") logLevelElement.value = value;
         });
 
         Homey.get("notify_on_success", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) notifyOnSuccessElement.checked = !!value;
+          if (value !== undefined && value !== null && value !== "") notifyOnSuccessElement.checked = !!value;
         });
+
+        Homey.get("timeline_verbosity", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (value !== undefined && value !== null && value !== "") {
+            timelineVerbosityElement.value = value;
+          } else {
+            // Default to 'standard' if not set
+            timelineVerbosityElement.value = 'standard';
+          }
+        });
+
+        // Show/hide debug option based on log level
+        function updateTimelineDebugOption() {
+          const debugOption = document.getElementById("timeline_debug_option");
+          if (debugOption && logLevelElement) {
+            if (logLevelElement.value === "0") { // Debug log level
+              debugOption.style.display = "block";
+            } else {
+              debugOption.style.display = "none";
+              // If debug was selected but log level changed, reset to standard
+              if (timelineVerbosityElement.value === "debug") {
+                timelineVerbosityElement.value = "standard";
+              }
+            }
+          }
+        }
+
+        if (logLevelElement) {
+          logLevelElement.addEventListener('change', updateTimelineDebugOption);
+          // Update on initial load
+          setTimeout(updateTimelineDebugOption, 100);
+        }
 
         Homey.get("currency", function (err, value) {
           if (err) return Homey.alert(err);
@@ -1433,76 +2488,118 @@
 
         Homey.get("use_weather_data", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) useWeatherDataElement.checked = value;
+          if (value !== undefined && value !== null && value !== "") useWeatherDataElement.checked = !!value;
           updateWeatherLocationWarning();
         });
 
         Homey.get("latitude", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) latitudeElement.value = value;
+          if (value !== undefined && value !== null && value !== "") latitudeElement.value = value;
           updateWeatherLocationWarning();
         });
 
         Homey.get("longitude", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) longitudeElement.value = value;
+          if (value !== undefined && value !== null && value !== "") longitudeElement.value = value;
           updateWeatherLocationWarning();
         });
 
         // Load comfort profile settings
         Homey.get("day_start_hour", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) dayStartHourElement.value = value;
+          if (value !== undefined && value !== null && value !== "") dayStartHourElement.value = value;
         });
 
         Homey.get("day_end_hour", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) dayEndHourElement.value = value;
+          if (value !== undefined && value !== null && value !== "") dayEndHourElement.value = value;
         });
 
         Homey.get("night_temp_reduction", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) nightTempReductionElement.value = value;
+          if (value !== undefined && value !== null && value !== "") nightTempReductionElement.value = value;
         });
 
         Homey.get("pre_heat_hours", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) preHeatHoursElement.value = value;
+          if (value !== undefined && value !== null && value !== "") preHeatHoursElement.value = value;
         });
 
         // Load time zone settings
         Homey.get("time_zone_offset", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) timeZoneOffsetElement.value = value;
+          if (value !== undefined && value !== null && value !== "") timeZoneOffsetElement.value = value;
         });
 
         Homey.get("use_dst", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) useDstElement.checked = value;
+          if (value !== undefined && value !== null && value !== "") useDstElement.checked = !!value;
+        });
+
+        Homey.get("time_zone_name", function (err, value) {
+          if (err) return Homey.alert(err);
+          if (timeZoneNameElement) {
+            const tzName = typeof value === 'string' ? value : '';
+            
+            // Auto-detect timezone for new users
+            if (!tzName) {
+              try {
+                const autoDetected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                if (autoDetected) {
+                  timeZoneNameElement.value = autoDetected;
+                  updateTimezonePreview(autoDetected);
+                  if (timeZoneNameStatusElement) {
+                    timeZoneNameStatusElement.textContent = `✅ Auto-detected: ${autoDetected}`;
+                    timeZoneNameStatusElement.style.color = '#00aa44';
+                  }
+                  // Save the auto-detected timezone
+                  save('time_zone_name', autoDetected);
+                  console.log('Auto-detected and saved timezone:', autoDetected);
+                  return;
+                }
+              } catch (error) {
+                console.warn('Failed to auto-detect timezone:', error);
+              }
+            }
+            
+            timeZoneNameElement.value = tzName;
+            if (tzName) {
+              updateTimezonePreview(tzName);
+              if (timeZoneNameStatusElement) {
+                timeZoneNameStatusElement.textContent = `✅ Using timezone: ${tzName}`;
+                timeZoneNameStatusElement.style.color = '#00aa44';
+              }
+            } else {
+              if (timeZoneNameStatusElement) {
+                timeZoneNameStatusElement.textContent = 'Will use manual UTC offset if configured';
+                timeZoneNameStatusElement.style.color = '#888';
+              }
+            }
+          }
         });
 
         // Load Zone2 settings
         Homey.get("enable_zone2", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) {
-            enableZone2Element.checked = value;
+          if (value !== undefined && value !== null && value !== "") {
+            enableZone2Element.checked = !!value;
             zone2SettingsDiv.style.display = value ? 'block' : 'none';
           }
         });
 
         Homey.get("min_temp_zone2", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) minTempZone2Element.value = value;
+          if (value !== undefined && value !== null && value !== "") minTempZone2Element.value = value;
         });
 
         Homey.get("max_temp_zone2", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) maxTempZone2Element.value = value;
+          if (value !== undefined && value !== null && value !== "") maxTempZone2Element.value = value;
         });
 
         Homey.get("temp_step_zone2", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) tempStepZone2Element.value = value;
+          if (value !== undefined && value !== null && value !== "") tempStepZone2Element.value = value;
         });
 
         // Manual entry controls are not persisted; default to hidden
@@ -1512,22 +2609,22 @@
         // Load hot water tank settings
         Homey.get("enable_tank_control", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) enableTankControlElement.checked = value;
+          if (value !== undefined && value !== null && value !== "") enableTankControlElement.checked = !!value;
         });
 
         Homey.get("min_tank_temp", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) minTankTempElement.value = value;
+          if (value !== undefined && value !== null && value !== "") minTankTempElement.value = value;
         });
 
         Homey.get("max_tank_temp", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) maxTankTempElement.value = value;
+          if (value !== undefined && value !== null && value !== "") maxTankTempElement.value = value;
         });
 
         Homey.get("tank_temp_step", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) tankTempStepElement.value = value;
+          if (value !== undefined && value !== null && value !== "") tankTempStepElement.value = value;
         });
         
         // Removed: loads for unused hot water pattern settings
@@ -1535,13 +2632,13 @@
         // Load COP settings
         Homey.get("cop_weight", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) copWeightElement.value = value;
+          if (value !== undefined && value !== null && value !== "") copWeightElement.value = value;
         });
 
         Homey.get("auto_seasonal_mode", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) {
-            autoSeasonalModeElement.checked = value;
+          if (value !== undefined && value !== null && value !== "") {
+            autoSeasonalModeElement.checked = !!value;
             // Show/hide summer mode based on auto seasonal mode
             summerModeContainer.style.opacity = value ? '0.5' : '1';
             summerModeElement.disabled = value;
@@ -1550,8 +2647,12 @@
 
         Homey.get("summer_mode", function (err, value) {
           if (err) return Homey.alert(err);
-          if (value !== undefined) summerModeElement.checked = value;
+          if (value !== undefined && value !== null && value !== "") summerModeElement.checked = !!value;
         });
+
+        // Default values are now provided directly in HTML form fields
+
+        // No need for complex timing logic - defaults are in HTML now
 
         // Function to load the device list and select the saved device and building IDs
         function loadDeviceList(savedDeviceId, savedBuildingId) {
@@ -1719,14 +2820,45 @@
 
           // Disable the button and show loading state
           refreshDevicesButton.disabled = true;
-          deviceRefreshStatus.textContent = "Loading devices...";
+          deviceRefreshStatus.textContent = "Saving credentials...";
 
-          // Get the current saved IDs
-          const currentDeviceId = deviceIdElement.value || manualDeviceIdElement.value;
-          const currentBuildingId = buildingIdElement.value || manualBuildingIdElement.value;
+          // Get credentials from form inputs
+          const melcloudUser = melcloudUserElement.value.trim();
+          const melcloudPass = melcloudPassElement.value;
 
-          // Call the loadDeviceList function
-          loadDeviceList(currentDeviceId, currentBuildingId);
+          // Validate credentials
+          if (!melcloudUser || !melcloudPass) {
+            refreshDevicesButton.disabled = false;
+            deviceRefreshStatus.textContent = "Error: Please enter both email and password";
+            return;
+          }
+
+          // Save credentials to Homey settings first
+          Homey.set("melcloud_user", melcloudUser, function (err) {
+            if (err) {
+              refreshDevicesButton.disabled = false;
+              deviceRefreshStatus.textContent = "Error saving email: " + err.message;
+              return;
+            }
+
+            Homey.set("melcloud_pass", melcloudPass, function (err) {
+              if (err) {
+                refreshDevicesButton.disabled = false;
+                deviceRefreshStatus.textContent = "Error saving password: " + err.message;
+                return;
+              }
+
+              // Credentials saved successfully, now load devices
+              deviceRefreshStatus.textContent = "Loading devices...";
+
+              // Get the current saved IDs
+              const currentDeviceId = deviceIdElement.value || manualDeviceIdElement.value;
+              const currentBuildingId = buildingIdElement.value || manualBuildingIdElement.value;
+
+              // Call the loadDeviceList function
+              loadDeviceList(currentDeviceId, currentBuildingId);
+            });
+          });
         });
 
         // Add event listener for the device selection to update building selection
@@ -1830,309 +2962,367 @@
           // Note: Save remains enabled; we validate progressively and only block
           // when an entered value is outside allowed bounds (handled per-field below).
           // Save all settings
-          Homey.set("melcloud_user", melcloudUserElement.value, function (err) {
-            if (err) return Homey.alert(err);
-          });
+          if (melcloudUserElement) persistSetting('melcloud_user', melcloudUserElement.value, { trimString: true });
 
-          Homey.set("melcloud_pass", melcloudPassElement.value, function (err) {
-            if (err) return Homey.alert(err);
-          });
+          if (melcloudPassElement) persistSetting('melcloud_pass', melcloudPassElement.value);
 
           // Save device and building IDs based on selection or manual entry
-          if (showManualEntryElement.checked && manualDeviceIdElement.value) {
-            Homey.set("device_id", manualDeviceIdElement.value, function (err) {
-              if (err) return Homey.alert(err);
-            });
+          if (showManualEntryElement && showManualEntryElement.checked && manualDeviceIdElement && manualDeviceIdElement.value) {
+            persistSetting('device_id', manualDeviceIdElement.value, { trimString: true });
 
-            Homey.set("building_id", parseInt(manualBuildingIdElement.value) || 0, function (err) {
-              if (err) return Homey.alert(err);
-            });
+            const manualBuildingId = parseInt(manualBuildingIdElement ? manualBuildingIdElement.value : '0', 10);
+            persistSetting('building_id', Number.isFinite(manualBuildingId) ? manualBuildingId : 0);
           } else {
-            Homey.set("device_id", deviceIdElement.value, function (err) {
-              if (err) return Homey.alert(err);
-            });
+            if (deviceIdElement) persistSetting('device_id', deviceIdElement.value, { trimString: true });
 
-            Homey.set("building_id", parseInt(buildingIdElement.value) || 0, function (err) {
-              if (err) return Homey.alert(err);
-            });
+            const selectedBuildingId = parseInt(buildingIdElement ? buildingIdElement.value : '0', 10);
+            persistSetting('building_id', Number.isFinite(selectedBuildingId) ? selectedBuildingId : 0);
           }
 
           // Do not persist UI-only manual entry settings
 
-          Homey.set("tibber_token", tibberTokenElement.value, function (err) {
-            if (err) return Homey.alert(err);
-          });
+          if (tibberTokenElement) persistSetting('tibber_token', tibberTokenElement.value, { trimString: true });
 
           // Save costs & consumption
-          (function() {
-            const gf = parseFloat(gridFeeElement.value);
-            if (!isNaN(gf) && gf >= 0) {
-              Homey.set("grid_fee_per_kwh", gf, function (err) { if (err) return Homey.alert(err); });
-            } else if (gridFeeElement.value === "") {
-              Homey.set("grid_fee_per_kwh", 0, function (err) { if (err) return Homey.alert(err); });
-            } else {
-              return Homey.alert('Invalid grid fee. Must be a non-negative number.');
-            }
-          })();
-
-
-
-          Homey.set("min_temp", parseFloat(minTempElement.value), function (err) {
-            if (err) return Homey.alert(err);
-          });
-
-          Homey.set("max_temp", parseFloat(maxTempElement.value), function (err) {
-            if (err) return Homey.alert(err);
-          });
-
-          const tempStepMax = parseFloat(tempStepMaxElement.value);
-          if (!isNaN(tempStepMax) && (tempStepMax === 0.5 || tempStepMax === 1.0)) {
-            Homey.set("temp_step_max", tempStepMax, function (err) {
-              if (err) return Homey.alert(err);
-            });
-          } else if (tempStepMaxElement.value) {
-            Homey.alert('Invalid temperature step value. Must be 0.5 or 1.0 degrees.');
-            return;
+          if (gridFeeElement) {
+            (function() {
+              const gf = parseFloat(gridFeeElement.value);
+              if (!isNaN(gf) && gf >= 0) {
+                Homey.set("grid_fee_per_kwh", gf, function (err) { if (err) console.error('Error saving grid_fee_per_kwh:', err); });
+              } else if (gridFeeElement.value === "") {
+                Homey.set("grid_fee_per_kwh", 0, function (err) { if (err) console.error('Error saving grid_fee_per_kwh:', err); });
+              } else {
+                return Homey.alert('Invalid grid fee. Must be a non-negative number.');
+              }
+            })();
           }
 
-          Homey.set("log_level", parseInt(logLevelElement.value), function (err) {
-            if (err) return Homey.alert(err);
-          });
-
-          Homey.set("notify_on_success", notifyOnSuccessElement.checked, function (err) {
-            if (err) return Homey.alert(err);
-          });
-
-          // Save currency code (optional)
-          const code = (currencyCodeElement.value || '').trim();
-          if (code) {
-            const normalized = code.toUpperCase();
-            if (/^[A-Z]{3}$/.test(normalized)) {
-              Homey.set("currency", normalized, function (err) {
-                if (err) return Homey.alert(err);
+          if (tempStepMaxElement) {
+            const tempStepMax = parseFloat(tempStepMaxElement.value);
+            if (!isNaN(tempStepMax) && (tempStepMax === 0.5 || tempStepMax === 1.0)) {
+              Homey.set("temp_step_max", tempStepMax, function (err) {
+                if (err) console.error('Error saving temp_step_max:', err);
               });
-            } else {
-              Homey.alert('Invalid currency code. Use a 3-letter ISO code like NOK, SEK, EUR.');
+            } else if (tempStepMaxElement.value) {
+              Homey.alert('Invalid temperature step value. Must be 0.5 or 1.0 degrees.');
               return;
             }
-          } else {
-            // Clear custom currency if input empty
-            Homey.set("currency", '', function (err) {
-              if (err) return Homey.alert(err);
+          }
+
+          if (logLevelElement) {
+            Homey.set("log_level", parseInt(logLevelElement.value), function (err) {
+              if (err) console.error('Error saving log_level:', err);
             });
           }
 
-          Homey.set("use_weather_data", useWeatherDataElement.checked, function (err) {
-            if (err) return Homey.alert(err);
-          });
+          if (notifyOnSuccessElement) {
+            Homey.set("notify_on_success", notifyOnSuccessElement.checked, function (err) {
+              if (err) console.error('Error saving notify_on_success:', err);
+            });
+          }
+
+          if (timelineVerbosityElement) {
+            Homey.set("timeline_verbosity", timelineVerbosityElement.value, function (err) {
+              if (err) console.error('Error saving timeline_verbosity:', err);
+            });
+          }
+
+          // Save currency code (optional)
+          if (currencyCodeElement) {
+            const code = (currencyCodeElement.value || '').trim();
+            if (code) {
+              const normalized = code.toUpperCase();
+              if (/^[A-Z]{3}$/.test(normalized)) {
+                persistSetting('currency', normalized);
+              } else {
+                Homey.alert('Invalid currency code. Use a 3-letter ISO code like NOK, SEK, EUR.');
+                return;
+              }
+            } else {
+              // Clear custom currency if input empty
+              persistSetting('currency', null);
+            }
+          }
+
+          if (useWeatherDataElement) {
+            Homey.set("use_weather_data", useWeatherDataElement.checked, function (err) {
+              if (err) console.error('Error saving use_weather_data:', err);
+            });
+          }
 
           // Save location settings
-          const latitude = parseFloat(latitudeElement.value);
-          const longitude = parseFloat(longitudeElement.value);
-
-          if (!isNaN(latitude) && latitude >= -90 && latitude <= 90) {
-            Homey.set("latitude", latitude, function (err) {
-              if (err) return Homey.alert(err);
-            });
-          } else if (latitudeElement.value) {
-            Homey.alert('Invalid latitude value. Must be between -90 and 90.');
-            return;
+          if (latitudeElement) {
+            const latitude = parseFloat(latitudeElement.value);
+            if (!isNaN(latitude) && latitude >= -90 && latitude <= 90) {
+              Homey.set("latitude", latitude, function (err) {
+                if (err) console.error('Error saving latitude:', err);
+              });
+            } else if (latitudeElement.value) {
+              Homey.alert('Invalid latitude value. Must be between -90 and 90.');
+              return;
+            }
           }
 
-          if (!isNaN(longitude) && longitude >= -180 && longitude <= 180) {
-            Homey.set("longitude", longitude, function (err) {
-              if (err) return Homey.alert(err);
-            });
-          } else if (longitudeElement.value) {
-            Homey.alert('Invalid longitude value. Must be between -180 and 180.');
-            return;
+          if (longitudeElement) {
+            const longitude = parseFloat(longitudeElement.value);
+            if (!isNaN(longitude) && longitude >= -180 && longitude <= 180) {
+              Homey.set("longitude", longitude, function (err) {
+                if (err) console.error('Error saving longitude:', err);
+              });
+            } else if (longitudeElement.value) {
+              Homey.alert('Invalid longitude value. Must be between -180 and 180.');
+              return;
+            }
           }
 
           // Save comfort profile settings
-          const dayStartHour = parseInt(dayStartHourElement.value);
-          if (!isNaN(dayStartHour) && dayStartHour >= 0 && dayStartHour <= 23) {
-            Homey.set("day_start_hour", dayStartHour, function (err) {
-              if (err) return Homey.alert(err);
-            });
+          if (dayStartHourElement) {
+            const dayStartHour = parseInt(dayStartHourElement.value);
+            if (!isNaN(dayStartHour) && dayStartHour >= 0 && dayStartHour <= 23) {
+              Homey.set("day_start_hour", dayStartHour, function (err) {
+                if (err) console.error('Error saving day_start_hour:', err);
+              });
+            }
           }
 
-          const dayEndHour = parseInt(dayEndHourElement.value);
-          if (!isNaN(dayEndHour) && dayEndHour >= 0 && dayEndHour <= 23) {
-            Homey.set("day_end_hour", dayEndHour, function (err) {
-              if (err) return Homey.alert(err);
-            });
+          if (dayEndHourElement) {
+            const dayEndHour = parseInt(dayEndHourElement.value);
+            if (!isNaN(dayEndHour) && dayEndHour >= 0 && dayEndHour <= 23) {
+              Homey.set("day_end_hour", dayEndHour, function (err) {
+                if (err) console.error('Error saving day_end_hour:', err);
+              });
+            }
           }
 
-          const nightTempReduction = parseFloat(nightTempReductionElement.value);
-          if (!isNaN(nightTempReduction) && nightTempReduction >= 0 && nightTempReduction <= 5) {
-            Homey.set("night_temp_reduction", nightTempReduction, function (err) {
-              if (err) return Homey.alert(err);
-            });
+          if (nightTempReductionElement) {
+            const nightTempReduction = parseFloat(nightTempReductionElement.value);
+            if (!isNaN(nightTempReduction) && nightTempReduction >= 0 && nightTempReduction <= 5) {
+              Homey.set("night_temp_reduction", nightTempReduction, function (err) {
+                if (err) console.error('Error saving night_temp_reduction:', err);
+              });
+            }
           }
 
-          const preHeatHours = parseFloat(preHeatHoursElement.value);
-          if (!isNaN(preHeatHours) && preHeatHours >= 0 && preHeatHours <= 3) {
-            Homey.set("pre_heat_hours", preHeatHours, function (err) {
-              if (err) return Homey.alert(err);
-            });
+          if (preHeatHoursElement) {
+            const preHeatHours = parseFloat(preHeatHoursElement.value);
+            if (!isNaN(preHeatHours) && preHeatHours >= 0 && preHeatHours <= 3) {
+              Homey.set("pre_heat_hours", preHeatHours, function (err) {
+                if (err) console.error('Error saving pre_heat_hours:', err);
+              });
+            }
           }
 
           // Save time zone settings
-          const timeZoneOffset = parseFloat(timeZoneOffsetElement.value);
-          if (!isNaN(timeZoneOffset) && timeZoneOffset >= -12 && timeZoneOffset <= 14) {
-            Homey.set("time_zone_offset", timeZoneOffset, function (err) {
-              if (err) return Homey.alert(err);
+          if (timeZoneOffsetElement) {
+            const timeZoneOffset = parseFloat(timeZoneOffsetElement.value);
+            if (!isNaN(timeZoneOffset) && timeZoneOffset >= -12 && timeZoneOffset <= 14) {
+              Homey.set("time_zone_offset", timeZoneOffset, function (err) {
+                if (err) console.error('Error saving time_zone_offset:', err);
+              });
+            }
+          }
+
+          if (useDstElement) {
+            Homey.set("use_dst", useDstElement.checked, function (err) {
+              if (err) console.error('Error saving use_dst:', err);
             });
           }
 
-          Homey.set("use_dst", useDstElement.checked, function (err) {
-            if (err) return Homey.alert(err);
-          });
+          if (timeZoneNameElement) {
+            const tzName = (timeZoneNameElement.value || '').trim();
+            Homey.set("time_zone_name", tzName || null, function (err) {
+              if (err) console.error('Error saving time_zone_name:', err);
+            });
+          }
 
           // Save COP settings
-          const copWeight = parseFloat(copWeightElement.value);
-          if (!isNaN(copWeight) && copWeight >= 0.0 && copWeight <= 1.0) {
-            Homey.set("cop_weight", copWeight, function (err) {
-              if (err) return Homey.alert(err);
-            });
-          } else if (copWeightElement.value) {
-            Homey.alert('Invalid COP weight value. Must be between 0.0 and 1.0.');
-            return;
+          if (copWeightElement) {
+            const copWeight = parseFloat(copWeightElement.value);
+            if (!isNaN(copWeight) && copWeight >= 0.0 && copWeight <= 1.0) {
+              Homey.set("cop_weight", copWeight, function (err) {
+                if (err) console.error('Error saving cop_weight:', err);
+              });
+            } else if (copWeightElement.value) {
+              Homey.alert('Invalid COP weight value. Must be between 0.0 and 1.0.');
+              return;
+            }
           }
 
-          Homey.set("auto_seasonal_mode", autoSeasonalModeElement.checked, function (err) {
-            if (err) return Homey.alert(err);
-          });
+          if (autoSeasonalModeElement) {
+            Homey.set("auto_seasonal_mode", autoSeasonalModeElement.checked, function (err) {
+              if (err) console.error('Error saving auto_seasonal_mode:', err);
+            });
+          }
 
-          Homey.set("summer_mode", summerModeElement.checked, function (err) {
-            if (err) return Homey.alert(err);
-          });
+          if (summerModeElement) {
+            Homey.set("summer_mode", summerModeElement.checked, function (err) {
+              if (err) console.error('Error saving summer_mode:', err);
+            });
+          }
 
-          // Save Engine settings
-          Homey.set("use_engine", useEngineElement.checked, function (err) { if (err) return Homey.alert(err); });
-          const deadband = parseFloat(deadbandElement.value);
-          if (!isNaN(deadband) && deadband >= 0.1 && deadband <= 2.0) {
-            Homey.set("deadband_c", deadband, function (err) { if (err) return Homey.alert(err); });
-          } else if (deadbandElement.value) { Homey.alert('Invalid Deadband. 0.1–2.0°C'); return; }
+          if (deadbandElement) {
+            const deadband = parseFloat(deadbandElement.value);
+            if (!isNaN(deadband) && deadband >= 0.1 && deadband <= 2.0) {
+              Homey.set("deadband_c", deadband, function (err) { if (err) console.error('Error saving deadband_c:', err); });
+            } else if (deadbandElement.value) { Homey.alert('Invalid Deadband. 0.1–2.0°C'); return; }
+          }
 
-          const minChange = parseInt(minChangeMinutesElement.value);
-          if (!isNaN(minChange) && minChange >= 5 && minChange <= 180) {
-            Homey.set("min_setpoint_change_minutes", minChange, function (err) { if (err) return Homey.alert(err); });
-          } else if (minChangeMinutesElement.value) { Homey.alert('Invalid Min Setpoint Interval. 5–180 min'); return; }
+          if (minChangeMinutesElement) {
+            const minChange = parseInt(minChangeMinutesElement.value);
+            if (!isNaN(minChange) && minChange >= 5 && minChange <= 180) {
+              Homey.set("min_setpoint_change_minutes", minChange, function (err) { if (err) console.error('Error saving min_setpoint_change_minutes:', err); });
+            } else if (minChangeMinutesElement.value) { Homey.alert('Invalid Min Setpoint Interval. 5–180 min'); return; }
+          }
 
-          const extremeMin = parseFloat(extremeMinElement.value);
-          if (!isNaN(extremeMin) && extremeMin >= 16 && extremeMin <= 23) {
-            Homey.set("extreme_weather_min_temp", extremeMin, function (err) { if (err) return Homey.alert(err); });
-          } else if (extremeMinElement.value) { Homey.alert('Invalid Extreme Cold Min. 16–23°C'); return; }
+          if (extremeMinElement) {
+            const extremeMin = parseFloat(extremeMinElement.value);
+            if (!isNaN(extremeMin) && extremeMin >= 16 && extremeMin <= 23) {
+              Homey.set("extreme_weather_min_temp", extremeMin, function (err) { if (err) console.error('Error saving extreme_weather_min_temp:', err); });
+            } else if (extremeMinElement.value) { Homey.alert('Invalid Extreme Cold Min. 16–23°C'); return; }
+          }
 
-          Homey.set("occupied", occupiedElement.checked, function (err) { if (err) return Homey.alert(err); });
+          if (occupiedElement) {
+            Homey.set("occupied", occupiedElement.checked, function (err) { if (err) console.error('Error saving occupied:', err); });
+          }
 
-          const clo = parseFloat(comfortLowerOccElement.value);
-          const cuo = parseFloat(comfortUpperOccElement.value);
-          if (!isNaN(clo) && !isNaN(cuo) && clo >= 18 && clo <= 23 && cuo >= 19 && cuo <= 24 && clo < cuo) {
-            Homey.set("comfort_lower_occupied", clo, function (err) { if (err) return Homey.alert(err); });
-            Homey.set("comfort_upper_occupied", cuo, function (err) { if (err) return Homey.alert(err); });
-          } else if (comfortLowerOccElement.value || comfortUpperOccElement.value) { Homey.alert('Invalid Occupied band. Lower 18–23, Upper 19–24, Lower < Upper'); return; }
+          if (comfortLowerOccElement && comfortUpperOccElement) {
+            const clo = parseFloat(comfortLowerOccElement.value);
+            const cuo = parseFloat(comfortUpperOccElement.value);
+            if (!isNaN(clo) && !isNaN(cuo) && clo >= 18 && clo <= 23 && cuo >= 19 && cuo <= 24 && clo < cuo) {
+              Homey.set("comfort_lower_occupied", clo, function (err) { if (err) console.error('Error saving comfort_lower_occupied:', err); });
+              Homey.set("comfort_upper_occupied", cuo, function (err) { if (err) console.error('Error saving comfort_upper_occupied:', err); });
+            } else if (comfortLowerOccElement.value || comfortUpperOccElement.value) { Homey.alert('Invalid Occupied band. Lower 18–23, Upper 19–24, Lower < Upper'); return; }
+          }
 
-          const cla = parseFloat(comfortLowerAwayElement.value);
-          const cua = parseFloat(comfortUpperAwayElement.value);
-          if (!isNaN(cla) && !isNaN(cua) && cla >= 17 && cla <= 22 && cua >= 18 && cua <= 23 && cla < cua) {
-            Homey.set("comfort_lower_away", cla, function (err) { if (err) return Homey.alert(err); });
-            Homey.set("comfort_upper_away", cua, function (err) { if (err) return Homey.alert(err); });
-          } else if (comfortLowerAwayElement.value || comfortUpperAwayElement.value) { Homey.alert('Invalid Away band. Lower 17–22, Upper 18–23, Lower < Upper'); return; }
+          if (comfortLowerAwayElement && comfortUpperAwayElement) {
+            const cla = parseFloat(comfortLowerAwayElement.value);
+            const cua = parseFloat(comfortUpperAwayElement.value);
+            if (!isNaN(cla) && !isNaN(cua) && cla >= 17 && cla <= 22 && cua >= 18 && cua <= 23 && cla < cua) {
+              Homey.set("comfort_lower_away", cla, function (err) { if (err) console.error('Error saving comfort_lower_away:', err); });
+              Homey.set("comfort_upper_away", cua, function (err) { if (err) console.error('Error saving comfort_upper_away:', err); });
+            } else if (comfortLowerAwayElement.value || comfortUpperAwayElement.value) { Homey.alert('Invalid Away band. Lower 17–22, Upper 18–23, Lower < Upper'); return; }
+          }
 
-          Homey.set("preheat_enable", preheatEnableElement.checked, function (err) { if (err) return Homey.alert(err); });
-          const horizon = parseInt(preheatHorizonElement.value);
-          if (!isNaN(horizon) && horizon >= 6 && horizon <= 36) {
-            Homey.set("preheat_horizon_hours", horizon, function (err) { if (err) return Homey.alert(err); });
-          } else if (preheatHorizonElement.value) { Homey.alert('Invalid horizon. 6–36h'); return; }
-          const pct = parseFloat(preheatPercentileElement.value);
-          if (!isNaN(pct) && pct >= 0.05 && pct <= 0.5) {
-            Homey.set("preheat_cheap_percentile", pct, function (err) { if (err) return Homey.alert(err); });
-          } else if (preheatPercentileElement.value) { Homey.alert('Invalid cheap percentile. 0.05–0.5'); return; }
+          if (preheatEnableElement) {
+            Homey.set("preheat_enable", preheatEnableElement.checked, function (err) { if (err) console.error('Error saving preheat_enable:', err); });
+          }
+          
+          if (preheatHorizonElement) {
+            const horizon = parseInt(preheatHorizonElement.value);
+            if (!isNaN(horizon) && horizon >= 6 && horizon <= 36) {
+              Homey.set("preheat_horizon_hours", horizon, function (err) { if (err) console.error('Error saving preheat_horizon_hours:', err); });
+            } else if (preheatHorizonElement.value) { Homey.alert('Invalid horizon. 6–36h'); return; }
+          }
+          
+          if (preheatPercentileElement) {
+            const pct = parseFloat(preheatPercentileElement.value);
+            if (!isNaN(pct) && pct >= 0.05 && pct <= 0.5) {
+              Homey.set("preheat_cheap_percentile", pct, function (err) { if (err) console.error('Error saving preheat_cheap_percentile:', err); });
+            } else if (preheatPercentileElement.value) { Homey.alert('Invalid cheap percentile. 0.05–0.5'); return; }
+          }
 
           // Save hot water tank settings
-          Homey.set("enable_tank_control", enableTankControlElement.checked, function (err) {
-            if (err) return Homey.alert(err);
-          });
-
-          const minTankTemp = parseFloat(minTankTempElement.value);
-          if (!isNaN(minTankTemp) && minTankTemp >= 30 && minTankTemp <= 45 && minTankTemp === Math.round(minTankTemp)) {
-            Homey.set("min_tank_temp", minTankTemp, function (err) {
-              if (err) return Homey.alert(err);
+          if (enableTankControlElement) {
+            Homey.set("enable_tank_control", enableTankControlElement.checked, function (err) {
+              if (err) console.error('Error saving enable_tank_control:', err);
             });
-          } else if (minTankTempElement.value) {
-            Homey.alert('Invalid minimum tank temperature value. Must be a whole number between 30 and 45.');
-            return;
           }
 
-          const maxTankTemp = parseFloat(maxTankTempElement.value);
-          if (!isNaN(maxTankTemp) && maxTankTemp >= 40 && maxTankTemp <= 60 && maxTankTemp === Math.round(maxTankTemp)) {
-            Homey.set("max_tank_temp", maxTankTemp, function (err) {
-              if (err) return Homey.alert(err);
-            });
-          } else if (maxTankTempElement.value) {
-            Homey.alert('Invalid maximum tank temperature value. Must be a whole number between 40 and 60.');
-            return;
+          let minTankTemp = NaN;
+          if (minTankTempElement) {
+            minTankTemp = parseFloat(minTankTempElement.value);
+            if (!isNaN(minTankTemp) && minTankTemp >= 30 && minTankTemp <= 45 && minTankTemp === Math.round(minTankTemp)) {
+              Homey.set("min_tank_temp", minTankTemp, function (err) {
+                if (err) console.error('Error saving min_tank_temp:', err);
+              });
+            } else if (minTankTempElement.value) {
+              Homey.alert('Invalid minimum tank temperature value. Must be a whole number between 30 and 45.');
+              return;
+            }
+          }
+
+          let maxTankTemp = NaN;
+          if (maxTankTempElement) {
+            maxTankTemp = parseFloat(maxTankTempElement.value);
+            if (!isNaN(maxTankTemp) && maxTankTemp >= 40 && maxTankTemp <= 60 && maxTankTemp === Math.round(maxTankTemp)) {
+              Homey.set("max_tank_temp", maxTankTemp, function (err) {
+                if (err) console.error('Error saving max_tank_temp:', err);
+              });
+            } else if (maxTankTempElement.value) {
+              Homey.alert('Invalid maximum tank temperature value. Must be a whole number between 40 and 60.');
+              return;
+            }
           }
 
           // Validate min < max for tank temperature
-          if (minTankTemp >= maxTankTemp) {
+          if (!isNaN(minTankTemp) && !isNaN(maxTankTemp) && minTankTemp >= maxTankTemp) {
             Homey.alert('Minimum tank temperature must be less than maximum tank temperature.');
             return;
           }
 
-          const tankTempStep = parseFloat(tankTempStepElement.value);
-          if (!isNaN(tankTempStep) && tankTempStep >= 1.0 && tankTempStep <= 5.0 && tankTempStep === Math.round(tankTempStep)) {
-            Homey.set("tank_temp_step", tankTempStep, function (err) {
-              if (err) return Homey.alert(err);
-            });
-          } else if (tankTempStepElement.value) {
-            Homey.alert('Invalid tank temperature step value. Must be a whole number between 1 and 5 degrees.');
-            return;
+          if (tankTempStepElement) {
+            const tankTempStep = parseFloat(tankTempStepElement.value);
+            if (!isNaN(tankTempStep) && tankTempStep >= 1.0 && tankTempStep <= 5.0 && tankTempStep === Math.round(tankTempStep)) {
+              Homey.set("tank_temp_step", tankTempStep, function (err) {
+                if (err) console.error('Error saving tank_temp_step:', err);
+              });
+            } else if (tankTempStepElement.value) {
+              Homey.alert('Invalid tank temperature step value. Must be a whole number between 1 and 5 degrees.');
+              return;
+            }
           }
           
           // Removed: persistence for unused hot water pattern settings
 
           // Save Zone2 settings
-          Homey.set("enable_zone2", enableZone2Element.checked, function (err) {
-            if (err) return Homey.alert(err);
-          });
-
-          const minTempZone2 = parseFloat(minTempZone2Element.value);
-          if (!isNaN(minTempZone2) && minTempZone2 >= 16 && minTempZone2 <= 22) {
-            Homey.set("min_temp_zone2", minTempZone2, function (err) {
-              if (err) return Homey.alert(err);
+          if (enableZone2Element) {
+            Homey.set("enable_zone2", enableZone2Element.checked, function (err) {
+              if (err) console.error('Error saving enable_zone2:', err);
             });
-          } else if (minTempZone2Element.value) {
-            Homey.alert('Invalid minimum Zone2 temperature value. Must be between 16 and 22.');
-            return;
           }
 
-          const maxTempZone2 = parseFloat(maxTempZone2Element.value);
-          if (!isNaN(maxTempZone2) && maxTempZone2 >= 20 && maxTempZone2 <= 26) {
-            Homey.set("max_temp_zone2", maxTempZone2, function (err) {
-              if (err) return Homey.alert(err);
-            });
-          } else if (maxTempZone2Element.value) {
-            Homey.alert('Invalid maximum Zone2 temperature value. Must be between 20 and 26.');
-            return;
+          let minTempZone2 = NaN;
+          if (minTempZone2Element) {
+            minTempZone2 = parseFloat(minTempZone2Element.value);
+            if (!isNaN(minTempZone2) && minTempZone2 >= 16 && minTempZone2 <= 22) {
+              Homey.set("min_temp_zone2", minTempZone2, function (err) {
+                if (err) console.error('Error saving min_temp_zone2:', err);
+              });
+            } else if (minTempZone2Element.value) {
+              Homey.alert('Invalid minimum Zone2 temperature value. Must be between 16 and 22.');
+              return;
+            }
+          }
+
+          let maxTempZone2 = NaN;
+          if (maxTempZone2Element) {
+            maxTempZone2 = parseFloat(maxTempZone2Element.value);
+            if (!isNaN(maxTempZone2) && maxTempZone2 >= 20 && maxTempZone2 <= 26) {
+              Homey.set("max_temp_zone2", maxTempZone2, function (err) {
+                if (err) console.error('Error saving max_temp_zone2:', err);
+              });
+            } else if (maxTempZone2Element.value) {
+              Homey.alert('Invalid maximum Zone2 temperature value. Must be between 20 and 26.');
+              return;
+            }
           }
 
           // Validate min < max for Zone2 temperature
-          if (minTempZone2 >= maxTempZone2) {
+          if (!isNaN(minTempZone2) && !isNaN(maxTempZone2) && minTempZone2 >= maxTempZone2) {
             Homey.alert('Minimum Zone2 temperature must be less than maximum Zone2 temperature.');
             return;
           }
 
-          const tempStepZone2 = parseFloat(tempStepZone2Element.value);
-          if (!isNaN(tempStepZone2) && tempStepZone2 >= 0.1 && tempStepZone2 <= 2.0) {
-            Homey.set("temp_step_zone2", tempStepZone2, function (err) {
-              if (err) return Homey.alert(err);
-            });
-          } else if (tempStepZone2Element.value) {
-            Homey.alert('Invalid Zone2 temperature step value. Must be between 0.1 and 2.0.');
-            return;
+          if (tempStepZone2Element) {
+            const tempStepZone2 = parseFloat(tempStepZone2Element.value);
+            if (!isNaN(tempStepZone2) && tempStepZone2 >= 0.1 && tempStepZone2 <= 2.0) {
+              Homey.set("temp_step_zone2", tempStepZone2, function (err) {
+                if (err) console.error('Error saving temp_step_zone2:', err);
+              });
+            } else if (tempStepZone2Element.value) {
+              Homey.alert('Invalid Zone2 temperature step value. Must be between 0.1 and 2.0.');
+              return;
+            }
           }
 
           // Show success message
@@ -2140,21 +3330,23 @@
           
           // Validate settings and start cron jobs if everything is ready
           Homey.api('GET', '/validateAndStartCron', {}, function(err, result) {
+            console.log('validateAndStartCron response:', { err, result });
             if (err) {
               console.error('Error validating settings:', err);
-              if (saveStatus) saveStatus.textContent = 'Settings saved, but validation failed';
-              Homey.alert('Settings saved successfully!');
+              if (saveStatus) saveStatus.textContent = 'Settings saved, but validation failed: ' + (err.message || err);
+              // Don't show alert for API errors
             } else if (result && result.success) {
               if (result.cronRunning) {
                 if (saveStatus) saveStatus.textContent = 'Settings saved, optimization running ✅';
-                Homey.alert('Settings saved successfully! Optimization is now running.');
+                // Success status is shown in the page, no need for popup
               } else {
                 if (saveStatus) saveStatus.textContent = 'Settings saved ⚠️ ' + (result.message || 'Please complete required settings');
-                Homey.alert('Settings saved! ' + (result.message || 'Please complete all required settings to start optimization.'));
+                // Status is shown in the page, no need for popup
               }
             } else {
+              console.error('Unexpected validateAndStartCron result:', result);
               if (saveStatus) saveStatus.textContent = 'Settings saved, validation failed';
-              Homey.alert('Settings saved successfully!');
+              // Don't show alert for validation failures
             }
           });
         });

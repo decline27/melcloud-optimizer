@@ -1,6 +1,7 @@
 import Homey from 'homey';
 import { BaseApiService } from '../../src/services/base-api-service';
 import { MelCloudApi } from '../../src/services/melcloud-api';
+import { HotWaterService } from '../../src/services/hot-water/hot-water-service';
 import { ErrorHandler } from '../../src/util/error-handler';
 import { HomeyLogger, LogLevel } from '../../src/util/logger';
 import { MelCloudDevice } from '../../src/types';
@@ -32,6 +33,7 @@ module.exports = class BoilerDevice extends Homey.Device {
   private hasZone2: boolean = false;
   private zone2Checked: boolean = false;
   private energyBasedZone2Check: boolean = false;
+  private hotWaterService?: HotWaterService;
   
   // Power command debouncing properties (Task 1.1)
   private powerCommandDebounce?: NodeJS.Timeout;
@@ -123,6 +125,9 @@ module.exports = class BoilerDevice extends Homey.Device {
 
     // Set up initial capability listeners (Zone 1 and common capabilities)
     this.setupInitialCapabilityListeners();
+    
+    // Set up settings listener for occupied state
+    this.setupSettingsListener();
 
     // Start data fetching (Zone 2 check and setup will happen here)
     await this.startDataFetching();
@@ -151,7 +156,9 @@ module.exports = class BoilerDevice extends Homey.Device {
       'heating_cop',
       'hotwater_cop',
       'alarm_generic.offline',
-      'holiday_mode'
+      'holiday_mode',
+      'legionella_now',
+      'occupied'
     ];
 
     // Zone 2 capabilities - added conditionally
@@ -175,6 +182,12 @@ module.exports = class BoilerDevice extends Homey.Device {
             await this.setCapabilityValue(capability, 0);
           } else if (capability === 'hotwater_cop') {
             await this.setCapabilityValue(capability, 0);
+          } else if (capability === 'occupied') {
+            // Initialize occupied capability with settings value
+            const occupiedSetting = this.homey.settings.get('occupied');
+            const initialValue = occupiedSetting !== null && occupiedSetting !== undefined ? !!occupiedSetting : true;
+            await this.setCapabilityValue(capability, initialValue);
+            this.logger.log(`Initialized occupied capability with value: ${initialValue}`);
           }
         } catch (error) {
           this.logger.error(`Failed to add capability ${capability}:`, error);
@@ -435,6 +448,20 @@ module.exports = class BoilerDevice extends Homey.Device {
       }
     });
 
+    // Home/Away (occupied) state capability
+    this.registerCapabilityListener('occupied', async (value: boolean) => {
+      this.logger.log(`Home/Away state changed to ${value ? 'Home (Occupied)' : 'Away'}`);
+      try {
+        // Update the Homey settings
+        this.homey.settings.set('occupied', value);
+        this.logger.log(`Settings updated: occupied = ${value}`);
+        return value;
+      } catch (error) {
+        this.logger.error('Error setting occupied state:', error);
+        throw error;
+      }
+    });
+
     // Listen for on/off changes (with debouncing - Task 1.1)
     this.registerCapabilityListener('onoff', async (value: boolean) => {
       this.logger.log(`Device power changed to ${value ? 'on' : 'off'}`);
@@ -595,6 +622,28 @@ module.exports = class BoilerDevice extends Homey.Device {
   }
 
   /**
+   * Setup settings listener for occupied state
+   */
+  private setupSettingsListener() {
+    // Listen for changes to the 'occupied' setting and sync with capability
+    this.homey.settings.on('set', (key: string) => {
+      if (key === 'occupied') {
+        const newValue = this.homey.settings.get('occupied');
+        const boolValue = !!newValue;
+        
+        this.logger.log(`Settings 'occupied' changed to: ${boolValue}`);
+        
+        // Update the capability value to match the setting
+        if (this.hasCapability('occupied')) {
+          this.setCapabilityValue('occupied', boolValue).catch((error) => {
+            this.logger.error('Error syncing occupied capability with setting:', error);
+          });
+        }
+      }
+    });
+  }
+
+  /**
    * Execute power command with tracking for debouncing (Task 1.1) and fast polling trigger (Task 2.1)
    */
   private async executePowerCommand(value: boolean): Promise<boolean> {
@@ -682,6 +731,9 @@ module.exports = class BoilerDevice extends Homey.Device {
       // Update capabilities based on device state
       await this.updateCapabilities(deviceState);
 
+      // Feed the hot water learning model using fresh device telemetry
+      await this.collectHotWaterUsage(deviceState);
+
       // Mark device as available if it was unavailable
       if (!this.getAvailable()) {
         await this.setAvailable();
@@ -691,6 +743,47 @@ module.exports = class BoilerDevice extends Homey.Device {
     } catch (error) {
       this.logger.error('Failed to fetch device data:', error);
       this.setWarning('Failed to fetch data from MELCloud');
+    }
+  }
+
+  /**
+   * Collect hot water usage data using the shared Hot Water Service
+   */
+  private async collectHotWaterUsage(deviceState: MelCloudDevice) {
+    try {
+      const service = this.getHotWaterService();
+      if (!service || typeof service.collectData !== 'function') {
+        return;
+      }
+
+      await service.collectData(deviceState);
+    } catch (error) {
+      this.logger.error('Failed to collect hot water usage data during polling:', error);
+    }
+  }
+
+  /**
+   * Get (or lazily initialize) the Hot Water Service instance
+   */
+  private getHotWaterService(): HotWaterService | null {
+    if (this.hotWaterService) {
+      return this.hotWaterService;
+    }
+
+    const homeyWithService = this.homey as any;
+    if (homeyWithService.hotWaterService && typeof homeyWithService.hotWaterService.collectData === 'function') {
+      this.hotWaterService = homeyWithService.hotWaterService as HotWaterService;
+      return this.hotWaterService;
+    }
+
+    try {
+      const service = new HotWaterService(this.homey as any);
+      homeyWithService.hotWaterService = service;
+      this.hotWaterService = service;
+      return this.hotWaterService;
+    } catch (error) {
+      this.logger.error('Failed to initialize Hot Water Service for polling:', error);
+      return null;
     }
   }
 

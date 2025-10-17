@@ -35,7 +35,7 @@ describe('TimelineHelper - HOURLY_OPTIMIZATION_RESULT composition', () => {
     );
 
     expect(ok).toBe(true);
-    expect(lastBody).toContain('from 20°C to 19°C');
+    expect(lastBody).toContain('Zone1: 20°C → 19°C');
   });
 
   test('falls back to notifications API when timeline API fails', async () => {
@@ -98,8 +98,8 @@ describe('TimelineHelper - HOURLY_OPTIMIZATION_RESULT composition', () => {
     );
 
     expect(ok).toBe(true);
-    expect(lastBody).toContain('from 21°C to 22°C');
-    expect(lastBody).toContain('Hot water tank: 47.5°C to 49°C');
+    expect(lastBody).toContain('Zone1: 21°C → 22°C');
+    expect(lastBody).toContain('Tank 47.5°C → 49°C');
     // Zone2 is not included by TypeScript TimelineHelper (only in JS wrapper)
   });
 
@@ -117,7 +117,8 @@ describe('TimelineHelper - HOURLY_OPTIMIZATION_RESULT composition', () => {
 
     expect(ok).toBe(true);
     expect(lastBody).toContain('Projected daily savings:');
-    expect(lastBody).toMatch(/\$1\.23|US\$\s?1\.23/); // locale differences allowed
+    expect(lastBody).toContain('1.23 USD/day'); // New format: amount currency/day
+    expect(lastBody).not.toContain('Hourly Optimization Completed:'); // Should not duplicate title
   });
 
   test('uses hourly savings x24 when dailySavings missing', async () => {

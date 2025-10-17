@@ -174,9 +174,11 @@ export abstract class BaseApiService {
         
         if (attempt <= maxRetries) {
           const rateLimitedError = lastError instanceof RateLimitError ? lastError : null;
-          const retryDelay = rateLimitedError
+          const baseDelay = rateLimitedError
             ? (rateLimitedError.retryAfterMs ?? initialDelay * Math.pow(2, attempt - 1))
             : initialDelay * Math.pow(2, attempt - 1);
+          const jitterMultiplier = rateLimitedError ? 1 : (0.8 + Math.random() * 0.4);
+          const retryDelay = Math.max(0, Math.round(baseDelay * jitterMultiplier));
 
           this.logger.warn(`API call failed, retrying in ${retryDelay}ms (attempt ${attempt}/${maxRetries})`, {
             error: lastError.message,

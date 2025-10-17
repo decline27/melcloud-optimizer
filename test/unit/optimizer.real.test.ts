@@ -58,6 +58,10 @@ describe('Optimizer', () => {
     mockHomey = {
       settings: {
         get: jest.fn().mockImplementation((key: string) => {
+          if (key === 'comfort_lower_occupied') return 18;
+          if (key === 'comfort_upper_occupied') return 22;
+          if (key === 'comfort_lower_away') return 17;
+          if (key === 'comfort_upper_away') return 21;
           if (key === 'k_factor') return 0.3;
           if (key === 'cop_weight') return 0.3;
           if (key === 'auto_seasonal_mode') return true;
@@ -140,7 +144,7 @@ describe('Optimizer', () => {
     it('should initialize with default values', () => {
       expect(optimizer).toBeDefined();
       expect((optimizer as any).melCloud).toBe(mockMelCloud);
-      expect((optimizer as any).tibber).toBe(mockTibber);
+      expect((optimizer as any).priceProvider).toBe(mockTibber);
       expect((optimizer as any).deviceId).toBe(deviceId);
       expect((optimizer as any).buildingId).toBe(buildingId);
       expect((optimizer as any).logger).toBe(mockLogger);

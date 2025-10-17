@@ -1,4 +1,4 @@
-import { Logger } from '../util/logger';
+import { Logger, createFallbackLogger } from '../util/logger';
 import { TibberPriceInfo, PricePoint } from '../types';
 import { ErrorHandler, AppError, ErrorCategory } from '../util/error-handler';
 import { BaseApiService, RateLimitError } from './base-api-service';
@@ -24,8 +24,11 @@ export class TibberApi extends BaseApiService {
    * @param logger Logger instance
    */
   constructor(token: string, logger?: Logger) {
+    // Ensure we have a valid logger - use fallback if none provided
+    const safeLogger = logger || (global.logger as Logger) || createFallbackLogger('Tibber');
+    
     // Call the parent constructor with service name and logger
-    super('Tibber', logger || (global.logger as Logger), {
+    super('Tibber', safeLogger, {
       failureThreshold: 3,
       resetTimeout: 60000, // 1 minute
       halfOpenSuccessThreshold: 1,
@@ -45,9 +48,15 @@ export class TibberApi extends BaseApiService {
    * @param timeZoneOffset Timezone offset in hours
    * @param useDST Whether to use daylight saving time
    */
-  public updateTimeZoneSettings(timeZoneOffset: number, useDST: boolean): void {
-    this.timeZoneHelper.updateSettings(timeZoneOffset, useDST);
-    this.logger.info(`Tibber API timezone settings updated: offset=${timeZoneOffset}, DST=${useDST}`);
+  public updateTimeZoneSettings(timeZoneOffset: number, useDST: boolean, timeZoneName?: string): void {
+    this.timeZoneHelper.updateSettings(
+      timeZoneOffset,
+      useDST,
+      typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined
+    );
+    this.logger.info(
+      `Tibber API timezone settings updated: offset=${timeZoneOffset}, DST=${useDST}, name=${timeZoneName || 'n/a'}`
+    );
   }
 
   /**

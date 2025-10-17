@@ -104,7 +104,46 @@
   "13.4.4": {
     "en": "Bug fix"
   },
+  "13.4.5": {
+    "en": "New pris api for all EU markets you dont need to have tibber as provider"
+  },
   "13.5.0": {
     "en": "Bug fix"
+  },
+  "14.0.0": {
+    "en": "New pris api for all EU markets you don"
+  },
+  "14.0.1": {
+    "en": "new price provider"
+  },
+  "14.0.2": {
+    "en": "Better first time instalment"
+  },
+  "14.0.3": {
+    "en": "Bug fixes"
+  },
+  "14.0.4": {
+    "en": "Price optimasation"
+  },
+  "14.0.5": {
+    "en": "Bug fix"
+  },
+  "14.0.6": {
+    "en": "Improved the optimasation"
+  },
+  "14.0.7": {
+    "en": "Savings calculation fix"
+  },
+  "14.0.8": {
+    "en": "Bug fix"
+  },
+  "14.0.9": {
+    "en": "Bug fix"
+  },
+  "14.0.10": {
+    "en": "Home away flow added"
+  },
+  "14.0.11": {
+    "en": "New flowcards"
   }
 }

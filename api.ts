@@ -2,7 +2,7 @@ import * as https from 'https';
 import type { CronJob } from 'cron';
 import { TimelineEventType, TimelineHelperWrapper } from './timeline-helper-wrapper';
 import { MelCloudApi as MelCloudService } from './src/services/melcloud-api';
-import { TibberApi as TibberService } from './src/services/tibber-api';
+import type { PriceProvider } from './src/types';
 import type { Optimizer } from './src/services/optimizer';
 import { DeviceInfo, TibberPriceInfo } from './src/types';
 import type { ServiceState, HistoricalData } from './src/orchestration/service-manager';
@@ -13,6 +13,7 @@ import {
   getServiceState,
   getServiceStateSnapshot,
   initializeServices as ensureServicesInitialized,
+  refreshPriceProvider,
   resetServiceState,
   setHistoricalData as setOrchestratorHistoricalData,
   updateOptimizerSettings as orchestratorUpdateSettings,
@@ -646,14 +647,21 @@ function recordOptimizationEntry(
       ? (optimizationResult as { comfort?: number }).comfort
       : null;
 
+    const indoorTemp = typeof optimizationResult.indoorTemp === 'number'
+      ? optimizationResult.indoorTemp
+      : null;
+    const outdoorTemp = typeof optimizationResult.outdoorTemp === 'number'
+      ? optimizationResult.outdoorTemp
+      : null;
+
     const entry = {
       timestamp,
       action: optimizationResult?.action ?? 'unknown',
       reason: optimizationResult?.reason ?? '',
       targetTemp,
       targetOriginal,
-      indoorTemp: null,
-      outdoorTemp: null,
+      indoorTemp,
+      outdoorTemp,
       priceNow,
       savings: Number.isFinite(savingsValue) ? Number(savingsValue.toFixed(4)) : (optimizationResult?.savings ?? 0),
       comfort,
@@ -681,7 +689,7 @@ function requireMelCloud(): MelCloudService {
   return melCloud;
 }
 
-function requireTibber(): TibberService {
+function requireTibber(): PriceProvider {
   if (!tibber) {
     throw new Error('Tibber service not initialized');
   }
@@ -718,6 +726,12 @@ async function initializeServices(homey: HomeyLike): Promise<void> {
   historicalData = state.historicalData;
 }
 
+async function updatePriceProvider(homey: HomeyLike): Promise<void> {
+  await ensureServicesInitialized(homey);
+  const provider = refreshPriceProvider(homey);
+  tibber = provider;
+}
+
 // Function to update optimizer settings from Homey settings
 // This is exported so it can be called from the app.ts file
 async function refreshOptimizerSettings(homey: HomeyLike): Promise<void> {
@@ -733,29 +747,34 @@ async function refreshOptimizerSettings(homey: HomeyLike): Promise<void> {
  * @param timeZoneOffset Timezone offset in hours
  * @param useDST Whether to use daylight saving time
  */
-async function updateAllServiceTimezones(homey: HomeyLike, timeZoneOffset: number, useDST: boolean): Promise<void> {
+async function updateAllServiceTimezones(
+  homey: HomeyLike,
+  timeZoneOffset: number,
+  useDST: boolean,
+  timeZoneName?: string | null
+): Promise<void> {
   const state = getServiceState();
   
   // Update MelCloud API service timezone
   if (state.melCloud && typeof state.melCloud.updateTimeZoneSettings === 'function') {
-    state.melCloud.updateTimeZoneSettings(timeZoneOffset, useDST);
-    homey.app.log('Updated MelCloud API timezone settings');
+    state.melCloud.updateTimeZoneSettings(timeZoneOffset, useDST, timeZoneName ?? undefined);
+    homey.app.log(`Updated MelCloud API timezone settings (${timeZoneName || `offset ${timeZoneOffset}`})`);
   }
   
   // Update Tibber API service timezone
   if (state.tibber && typeof state.tibber.updateTimeZoneSettings === 'function') {
-    state.tibber.updateTimeZoneSettings(timeZoneOffset, useDST);
-    homey.app.log('Updated Tibber API timezone settings');
+    state.tibber.updateTimeZoneSettings(timeZoneOffset, useDST, timeZoneName ?? undefined);
+    homey.app.log(`Updated Tibber API timezone settings (${timeZoneName || `offset ${timeZoneOffset}`})`);
   }
   
   // Update Hot Water Service timezone if available
   const hotWaterService = getHotWaterService(homey);
   if (hotWaterService && typeof (hotWaterService as any).updateTimeZoneSettings === 'function') {
-    (hotWaterService as any).updateTimeZoneSettings(timeZoneOffset, useDST);
-    homey.app.log('Updated Hot Water Service timezone settings');
+    (hotWaterService as any).updateTimeZoneSettings(timeZoneOffset, useDST, timeZoneName ?? undefined);
+    homey.app.log(`Updated Hot Water Service timezone settings (${timeZoneName || `offset ${timeZoneOffset}`})`);
   }
   
-  homey.app.log(`All services updated with timezone: offset=${timeZoneOffset}, DST=${useDST}`);
+  homey.app.log(`All services updated with timezone: offset=${timeZoneOffset}, DST=${useDST}, name=${timeZoneName || 'n/a'}`);
 }
 
 const apiHandlers: ApiHandlers = {
@@ -990,10 +1009,16 @@ const apiHandlers: ApiHandlers = {
 
       try {
         const enableBaselineComparison = homey.settings.get('enable_baseline_comparison') !== false;
+        homey.app.log(`Baseline comparison enabled: ${enableBaselineComparison}`);
+        
         if (enableBaselineComparison) {
           const activeOptimizer = requireOptimizer();
           const enhancedCalculator = activeOptimizer.getEnhancedSavingsCalculator();
-          if (enhancedCalculator?.hasBaselineCapability && enhancedCalculator.hasBaselineCapability()) {
+          const hasCapability = enhancedCalculator?.hasBaselineCapability && enhancedCalculator.hasBaselineCapability();
+          
+          homey.app.log(`Enhanced calculator available: ${!!enhancedCalculator}, has baseline capability: ${hasCapability}`);
+          
+          if (hasCapability) {
             
             // Calculate baseline daily savings for current conditions
             const optimizationHistory = homey.settings.get('optimization_history') || [];
@@ -1002,34 +1027,62 @@ const apiHandlers: ApiHandlers = {
             );
 
             try {
+              // Get better estimates for baseline calculation
+              const currentHour = new Date().getHours();
+              const avgDailyConsumption = 8.0; // Reasonable estimate for typical heat pump daily consumption
+              const avgDailyCost = today > 0 ? (today * 24) : 15.0; // Scale from actual or use reasonable estimate
+              
               const baselineResult = await activeOptimizer.calculateEnhancedDailySavingsWithBaseline(
                 0, // Use 0 for summary calculation 
                 todayOptimizations,
-                5.0, // Assume 5 kWh daily consumption as baseline
-                20.0, // Assume 20 SEK daily cost as baseline
+                avgDailyConsumption,
+                avgDailyCost,
                 true
               );
 
-              if (baselineResult?.baselineComparison && baselineResult.baselineComparison.baselineSavings > 5) {
+              if (baselineResult?.baselineComparison) {
                 const dailyBaselineSavings = baselineResult.baselineComparison.baselineSavings;
                 
-                // Scale baseline savings to different time periods
-                enhancedSummary = {
-                  today: Math.max(today, dailyBaselineSavings),
-                  yesterday: Math.max(yesterday, dailyBaselineSavings),
-                  weekToDate: Math.max(weekToDate, dailyBaselineSavings * 7),
-                  last7Days: Math.max(last7Days, dailyBaselineSavings * 7),
-                  monthToDate: Math.max(monthToDate, dailyBaselineSavings * Math.max(1, todayDate.getDate())),
-                  last30Days: Math.max(last30Days, dailyBaselineSavings * 30),
-                  ...(allTime !== undefined ? { allTime: Math.max(allTime, dailyBaselineSavings * 30) } : {})
-                };
+                homey.app.log(`Baseline calculation result: savings=${dailyBaselineSavings.toFixed(2)}, confidence=${(baselineResult.baselineComparison.confidenceLevel * 100).toFixed(1)}%`);
+                
+                if (dailyBaselineSavings > 0) {
+                  // For display purposes: use baseline savings to show benefit vs manual operation
+                  // This replaces the historical accumulation with theoretical baseline comparison
+                  enhancedSummary = {
+                    today: dailyBaselineSavings,
+                    yesterday: dailyBaselineSavings, // Same daily potential applies to yesterday
+                    weekToDate: dailyBaselineSavings * Math.max(1, todayDate.getDay() || 7),
+                    last7Days: dailyBaselineSavings * 7,
+                    monthToDate: dailyBaselineSavings * Math.max(1, todayDate.getDate()),
+                    last30Days: dailyBaselineSavings * 30,
+                    ...(allTime !== undefined ? { allTime: dailyBaselineSavings * 30 } : {})
+                  };
 
-                homey.app.log(`Settings enhanced with baseline savings: daily=${dailyBaselineSavings.toFixed(2)} SEK/day (vs manual operation)`);
+                  homey.app.log(`Settings displaying baseline savings: daily=${dailyBaselineSavings.toFixed(2)} SEK/day (vs manual operation)`);
+                  
+                  // Add metadata to indicate baseline savings are being displayed
+                  (enhancedSummary as any).isBaselineDisplay = true;
+                  (enhancedSummary as any).baselineInfo = {
+                    dailySavings: dailyBaselineSavings,
+                    confidence: baselineResult.baselineComparison.confidenceLevel,
+                    method: baselineResult.baselineComparison.method,
+                    description: 'vs manual operation'
+                  };
+                } else {
+                  homey.app.log('Baseline savings calculation returned zero or negative value, using historical data instead');
+                }
+              } else {
+                homey.app.log('No baseline comparison data available, using historical savings data');
               }
             } catch (baselineErr: any) {
               homey.app.error('Error calculating baseline savings for settings:', baselineErr.message || String(baselineErr));
+              homey.app.log('Falling back to historical savings data due to baseline calculation error');
             }
+          } else {
+            homey.app.log('Enhanced calculator does not have baseline capability, using historical savings');
           }
+        } else {
+          homey.app.log('Baseline comparison disabled in settings, using historical savings');
         }
       } catch (enhancedErr: any) {
         homey.app.error('Error calculating enhanced savings for settings:', enhancedErr.message || String(enhancedErr));
@@ -1092,6 +1145,8 @@ const apiHandlers: ApiHandlers = {
         historyDays: normalized.length,
         currencyCode,
         timestamp: new Date().toISOString(),
+        isBaselineDisplay: (enhancedSummary as any).isBaselineDisplay || false,
+        baselineInfo: (enhancedSummary as any).baselineInfo || null,
         series: {
           last30: seriesLast30,
         }
@@ -1682,9 +1737,15 @@ const apiHandlers: ApiHandlers = {
             } catch (_: any) {}
           }
           if (typeof computedSavings === 'number' && !Number.isNaN(computedSavings)) {
-            // Clamp to positive-only for history persistence
+            // Keep both positive and negative savings for proper net accumulation
+            // This fixes the issue where only positive individual savings were being added to daily totals
             computedSavings = Number((computedSavings || 0).toFixed(4));
-            const toPersist = computedSavings > 0 ? computedSavings : 0;
+            const toPersist = computedSavings; // Allow negative savings to be accumulated
+            
+            // Log for debugging savings accumulation
+            if (computedSavings !== 0) {
+              homey.app.log(`Savings accumulation: ${computedSavings > 0 ? '+' : ''}${computedSavings.toFixed(4)} SEK (individual optimization)`);
+            }
             const tzOffset = parseInt(homey.settings.get('time_zone_offset'));
             const useDST = !!homey.settings.get('use_dst');
             const now = new Date();
@@ -1720,11 +1781,12 @@ const apiHandlers: ApiHandlers = {
               todayEntry.currency = todayEntry.currency || currencyCode;
               if (todayEntry.decimals === undefined) todayEntry.decimals = decimals;
               const nextMinor = Number(todayEntry.totalMinor || 0) + toMinor(toPersist);
-              // Ensure we never store a negative daily total
-              todayEntry.totalMinor = Math.max(0, nextMinor);
+              // Store the actual net total (can be negative), but ensure display never shows negative
+              todayEntry.totalMinor = nextMinor;
             } else {
               const nextTotal = Number(((Number(todayEntry.total || 0)) + toPersist).toFixed(4));
-              todayEntry.total = nextTotal < 0 ? 0 : nextTotal;
+              // Store the actual net total (can be negative), but ensure display never shows negative
+              todayEntry.total = nextTotal;
             }
             // Keep last 30 days only
             arr.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
@@ -2037,8 +2099,24 @@ const apiHandlers: ApiHandlers = {
         // Import the cron library
         const { CronJob } = require('cron');
 
+        const resolveCronTimezone = (): string => {
+          try {
+            const tzName = homey.settings.get('time_zone_name');
+            if (typeof tzName === 'string' && tzName.trim().length > 0) {
+              return tzName.trim();
+            }
+          } catch (err) {
+            homey.app.warn?.('Failed to read time_zone_name setting, falling back to default', err);
+          }
+          if (typeof process !== 'undefined' && typeof process.env === 'object' && process.env.TZ) {
+            return String(process.env.TZ);
+          }
+          return 'Europe/Stockholm';
+        };
+        const cronTimeZone = resolveCronTimezone();
+
         // Create hourly job - runs at minute 5 of every hour
-        homey.app.log('Creating hourly cron job with pattern: 0 5 * * * *');
+        homey.app.log(`Creating hourly cron job with pattern: 0 5 * * * * (tz: ${cronTimeZone})`);
         const hourlyJob = new CronJob('0 5 * * * *', async () => {
           // Log the trigger
           const currentTime = new Date().toISOString();
@@ -2056,10 +2134,10 @@ const apiHandlers: ApiHandlers = {
           } catch (err: any) {
             homey.app.error('Error in hourly cron job', err);
           }
-        });
+        }, null, false, cronTimeZone);
 
         // Create weekly job - runs at 2:05 AM on Sundays
-        homey.app.log('Creating weekly cron job with pattern: 0 5 2 * * 0');
+        homey.app.log(`Creating weekly cron job with pattern: 0 5 2 * * 0 (tz: ${cronTimeZone})`);
         const weeklyJob = new CronJob('0 5 2 * * 0', async () => {
           // Log the trigger
           const currentTime = new Date().toISOString();
@@ -2077,7 +2155,7 @@ const apiHandlers: ApiHandlers = {
           } catch (err: any) {
             homey.app.error('Error in weekly cron job', err);
           }
-        });
+        }, null, false, cronTimeZone);
 
         // Start the cron jobs
         homey.app.log('Starting hourly cron job...');
@@ -2756,13 +2834,13 @@ const apiHandlers: ApiHandlers = {
         }
       }
 
-      // Clean up Tibber API  
+      // Clean up price provider
       if (global.tibber && typeof global.tibber.cleanup === 'function') {
         try {
           global.tibber.cleanup();
-          homey.app.log('Tibber API resources cleaned up');
+          homey.app.log('Price provider resources cleaned up');
         } catch (tibberError: any) {
-          homey.app.error('Error cleaning up Tibber API:', tibberError);
+          homey.app.error('Error cleaning up price provider:', tibberError);
         }
       }
 
@@ -2871,12 +2949,18 @@ const apiHandlers: ApiHandlers = {
         const melcloudPass = homey.settings.get('melcloud_pass');
         const tibberToken = homey.settings.get('tibber_token');
         const deviceId = homey.settings.get('device_id');
+        const priceDataSource = homey.settings.get('price_data_source') || 'entsoe';
         
         // Check for missing required settings
         const missingSettings = [];
         if (!melcloudUser) missingSettings.push('MELCloud email');
         if (!melcloudPass) missingSettings.push('MELCloud password');
-        if (!tibberToken) missingSettings.push('Tibber API token');
+        
+        // Only require Tibber token if Tibber is selected as price source
+        if (priceDataSource === 'tibber' && !tibberToken) {
+          missingSettings.push('Tibber API token');
+        }
+        
         if (!deviceId) missingSettings.push('Device ID');
         
         const isValid = missingSettings.length === 0;
@@ -2928,10 +3012,12 @@ const apiHandlers: ApiHandlers = {
 const exportedApi = apiHandlers as typeof apiHandlers & { 
   __test?: Record<string, unknown>;
   updateAllServiceTimezones?: typeof updateAllServiceTimezones;
+  updatePriceProvider?: typeof updatePriceProvider;
 };
 
 // Add the timezone update function to exports
 exportedApi.updateAllServiceTimezones = updateAllServiceTimezones;
+exportedApi.updatePriceProvider = updatePriceProvider;
 
 module.exports = exportedApi;
 

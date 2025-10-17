@@ -23,9 +23,16 @@ describe('EnhancedSavingsCalculator', () => {
     const logger = makeLogger();
     const calc = new EnhancedSavingsCalculator(logger);
 
-    const now = new Date();
+    // Use fixed times to ensure reliable test behavior
+    const currentHour = 10; // Fixed at 10 AM
+    const optimizationHour = 8; // Optimization was at 8 AM (2 hours ago)
+    
+    // Create optimization timestamp for today at 8 AM
+    const today = new Date();
+    today.setHours(optimizationHour, 0, 0, 0);
+    
     const opt: OptimizationData = {
-      timestamp: new Date(now.getTime() - 60 * 60 * 1000).toISOString(),
+      timestamp: today.toISOString(),
       savings: 0.2,
       targetTemp: 20,
       targetOriginal: 21,
@@ -33,7 +40,7 @@ describe('EnhancedSavingsCalculator', () => {
       priceAvg: 1.1
     };
 
-    const result = calc.calculateEnhancedDailySavings(0.1, [opt], now.getHours());
+    const result = calc.calculateEnhancedDailySavings(0.1, [opt], currentHour);
 
     expect(result.method).toBe('weighted_projection');
     expect(result.dailySavings).toBeGreaterThanOrEqual(0.1);
@@ -44,14 +51,21 @@ describe('EnhancedSavingsCalculator', () => {
     const logger = makeLogger();
     const calc = new EnhancedSavingsCalculator(logger);
 
-    const now = new Date();
-    const baseHour = now.getHours();
+    // Use fixed times to ensure reliable test behavior
+    const currentHour = 12; // Fixed at 12 PM (noon)
+    const today = new Date();
 
     const ops: OptimizationData[] = [];
-    for (let i = 3; i > 0; i--) {
+    // Create 3 optimizations at hours 8, 9, and 10 (all earlier than current hour 12)
+    const optimizationHours = [8, 9, 10];
+    
+    for (let i = 0; i < optimizationHours.length; i++) {
+      const optimizationTime = new Date(today);
+      optimizationTime.setHours(optimizationHours[i], 0, 0, 0);
+      
       ops.push({
-        timestamp: new Date(now.getTime() - i * 60 * 60 * 1000).toISOString(),
-        savings: 0.05 * i,
+        timestamp: optimizationTime.toISOString(),
+        savings: 0.05 * (i + 1),
         targetTemp: 20 - i * 0.1,
         targetOriginal: 21,
         priceNow: 1,
@@ -59,7 +73,7 @@ describe('EnhancedSavingsCalculator', () => {
       });
     }
 
-    const result = calc.calculateEnhancedDailySavings(0.1, ops, baseHour);
+    const result = calc.calculateEnhancedDailySavings(0.1, ops, currentHour);
 
     expect(result.method).toBe('enhanced_with_compounding');
     expect(result.compoundedSavings).toBeGreaterThan(0);

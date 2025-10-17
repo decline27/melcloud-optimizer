@@ -133,7 +133,7 @@ export class EnhancedSavingsCalculator {
   calculateEnhancedDailySavingsWithBaseline(
     currentHourSavings: number,
     historicalOptimizations: OptimizationData[] = [],
-    currentHour: number = new Date().getHours(),
+    currentHour: number,
     futurePriceFactors?: number[],
     baselineOptions?: {
       actualConsumptionKWh?: number;
@@ -201,7 +201,7 @@ export class EnhancedSavingsCalculator {
   calculateEnhancedDailySavings(
     currentHourSavings: number,
     historicalOptimizations: OptimizationData[] = [],
-    currentHour: number = new Date().getHours(),
+    currentHour: number,
     futurePriceFactors?: number[] // optional multipliers for each remaining hour vs current price
   ): SavingsCalculationResult {
     try {

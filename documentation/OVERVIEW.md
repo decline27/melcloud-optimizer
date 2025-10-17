@@ -79,6 +79,17 @@ graph TB
     THERMAL --> MEMORY
 ```
 
+### Operational defaults & runbook snippets
+
+- **Central setpoint guardrails**: every change runs through `optimization/setpoint-constraints.ts`, enforcing the device band, 0.5 °C steps, a 30 minute dwell, and duplicate suppression before MELCloud writes are attempted.
+- **Cost vs comfort tuning**: the optimizer still balances price percentile against comfort bands. Raising the occupied upper bound or shortening the dwell improves savings but can increase perceived swings—review the structured log stream (`optimizer.run.*`) to see how often deltas are being trimmed.
+- **Structured diagnostics**: optimization passes now emit JSON logs with correlation ids (`optimizer.run.start`, `constraints.zone1.*`, `optimizer.setpoint.*`). Tail the Homey app log or attached syslog to trace input → decision → MELCloud latency.
+- **Common error recovery**:
+  - `Price fetch failed; holding last setpoint` – ENTSO-E/Tibber outage. Verify credentials, or temporarily switch to Tibber fallback; the app auto-holds until fresh data arrives.
+  - `Setpoint change lockout` or `duplicate target` – indicates the dwell filter is active. Adjust `min_setpoint_change_minutes` in settings only if the compressor manufacturer allows shorter cycles.
+  - MELCloud 401/403 – the retry logic now backs off with jitter. Check credentials and device availability; the optimizer will resume once MELCloud accepts writes.
+- **Timezone & DST**: cron jobs are restarted with the configured `time_zone_name` (default `Europe/Stockholm`), preventing double-runs on autumn DST and missed hours in spring.
+
 ### Data Flow Sequence
 
 ```mermaid

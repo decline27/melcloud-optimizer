@@ -1,8 +1,11 @@
 import WeatherApi from '../../weather';
 import { MelCloudApi } from '../services/melcloud-api';
 import { TibberApi } from '../services/tibber-api';
+import { EntsoePriceService } from '../services/entsoe-price-service';
 import { Optimizer } from '../services/optimizer';
 import { COPHelper } from '../services/cop-helper';
+import type { PriceProvider } from '../types';
+import { DefaultComfortConfig } from '../config/comfort-defaults';
 
 export interface HomeyLikeSettings {
   get(key: string): any;
@@ -28,7 +31,7 @@ export interface HistoricalData {
 
 export interface ServiceState {
   melCloud: MelCloudApi | null;
-  tibber: TibberApi | null;
+  tibber: PriceProvider | null;
   optimizer: Optimizer | null;
   weather: WeatherApi | null;
   historicalData: HistoricalData;
@@ -38,6 +41,54 @@ const createEmptyHistoricalData = (): HistoricalData => ({
   optimizations: [],
   lastCalibration: null
 });
+
+// Default settings are now provided directly in the HTML form fields
+
+/**
+ * Initialize K factor with default value if not set
+ * K factor is auto-calibrated by weekly jobs, but needs a starting value
+ */
+function initializeKFactor(homey: HomeyLike): void {
+  const currentKFactor = homey.settings.get('initial_k');
+  if (currentKFactor === null || currentKFactor === undefined || currentKFactor === 0) {
+    homey.settings.set('initial_k', 0.3);
+    homey.app.log?.('Initialized K factor (initial_k) with default value: 0.3 (will be auto-calibrated by weekly jobs)');
+  }
+}
+
+function selectPriceProvider(
+  homey: HomeyLike,
+  priceSource: 'tibber' | 'entsoe',
+  tibberToken: string | null,
+  timeZoneOffset: number,
+  useDST: boolean,
+  timeZoneName?: string | null,
+  appLogger?: any
+): PriceProvider | null {
+  if (priceSource === 'tibber') {
+    if (tibberToken) {
+      const tibberLogger = (appLogger && typeof appLogger.api === 'function') ? appLogger : undefined;
+      const tibberApi = new TibberApi(tibberToken, tibberLogger);
+      tibberApi.updateTimeZoneSettings(
+        timeZoneOffset,
+        useDST,
+        typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined
+      );
+      homey.app.log?.('Tibber price provider initialized');
+      return tibberApi;
+    }
+    homey.app.warn?.('Tibber selected as price source but token not configured. Falling back to ENTSO-E.');
+  }
+
+  try {
+    const entsoeService = new EntsoePriceService(homey as any);
+    homey.app.log?.('ENTSO-E price provider initialized');
+    return entsoeService;
+  } catch (error) {
+    homey.app.error?.('Failed to initialize ENTSO-E price provider:', error);
+    return null;
+  }
+}
 
 const serviceState: ServiceState = {
   melCloud: null,
@@ -58,6 +109,8 @@ export function resetServiceState(): void {
   serviceState.weather = null;
   serviceState.historicalData = createEmptyHistoricalData();
 }
+
+// Default settings removed - now provided directly in HTML form
 
 export function applyServiceOverrides(overrides: Partial<ServiceState>): void {
   if (Object.prototype.hasOwnProperty.call(overrides, 'melCloud')) {
@@ -161,18 +214,27 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
     (global as any).logger = appLogger;
   }
 
+  // Default settings are now provided directly in the HTML form
+  // Initialize K factor with default value (gets auto-calibrated by weekly jobs)
+  initializeKFactor(homey);
+
   loadHistoricalData(homey);
 
   const melcloudUser = homey.settings.get('melcloud_user') || homey.settings.get('melcloudUser');
   const melcloudPass = homey.settings.get('melcloud_pass') || homey.settings.get('melcloudPass');
   const tibberToken = homey.settings.get('tibber_token') || homey.settings.get('tibberToken');
-  const deviceId = homey.settings.get('device_id') || homey.settings.get('deviceId') || 'Boiler';
+  let deviceId = homey.settings.get('device_id') || homey.settings.get('deviceId') || 'Boiler';
   let buildingIdRaw = homey.settings.get('building_id') || homey.settings.get('buildingId') || '456';
   const useWeatherData = homey.settings.get('use_weather_data') !== false;
+  const priceSourceSetting = (homey.settings.get('price_data_source') || 'entsoe') as string;
+  const priceSource = typeof priceSourceSetting === 'string' && priceSourceSetting.toLowerCase() === 'entsoe'
+    ? 'entsoe'
+    : 'tibber';
   
   // Get timezone settings for all services
   const timeZoneOffset = homey.settings.get('time_zone_offset') || 2;
   const useDST = homey.settings.get('use_dst') || false;
+  const timeZoneName = homey.settings.get('time_zone_name');
 
   if (!melcloudUser || !melcloudPass) {
     throw new Error('MELCloud credentials are required. Please configure them in the settings.');
@@ -182,7 +244,7 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
   if (!Number.isFinite(parsedBuildingId)) {
     buildingIdRaw = '456';
   }
-  const buildingId = Number.isFinite(parsedBuildingId) ? parsedBuildingId : 456;
+  let buildingId = Number.isFinite(parsedBuildingId) ? parsedBuildingId : 456;
 
   homey.app.log(`Using device ID: ${deviceId}`);
   homey.app.log(`Using building ID: ${buildingId}`);
@@ -190,17 +252,24 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
   homey.app.log('Initializing services with settings:');
   homey.app.log('- MELCloud User:', melcloudUser ? '✓ Set' : '✗ Not set');
   homey.app.log('- MELCloud Pass:', melcloudPass ? '✓ Set' : '✗ Not set');
-  homey.app.log('- Tibber Token:', tibberToken ? '✓ Set' : '✗ Not set');
+  homey.app.log('- Price source:', priceSource === 'entsoe' ? 'ENTSO-E day-ahead' : 'Tibber API');
+  const tibberTokenStatus = tibberToken ? '✓ Set' : '✗ Not set';
+  homey.app.log(`- Tibber Token: ${tibberTokenStatus}${priceSource === 'entsoe' ? ' (not used)' : ''}`);
   homey.app.log('- Device ID:', deviceId, '(Will be resolved after login)');
   homey.app.log('- Building ID:', buildingId, '(Will be resolved after login)');
   homey.app.log('- Weather Data:', useWeatherData ? '✓ Enabled' : '✗ Disabled');
   homey.app.log('- Timezone Offset:', timeZoneOffset, 'hours');
+  homey.app.log('- Timezone Name:', timeZoneName || 'n/a');
   homey.app.log('- DST Enabled:', useDST ? '✓ Yes' : '✗ No');
 
   const melCloudLogger = (appLogger && typeof appLogger.api === 'function') ? appLogger : undefined;
   const melCloud = new MelCloudApi(melCloudLogger);
   // Set timezone settings after construction
-  melCloud.updateTimeZoneSettings(timeZoneOffset, useDST);
+  melCloud.updateTimeZoneSettings(
+    timeZoneOffset,
+    useDST,
+    typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined
+  );
   await melCloud.login(melcloudUser, melcloudPass);
   serviceState.melCloud = melCloud;
   (global as any).melCloud = melCloud;
@@ -214,30 +283,86 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
       homey.app.log(`Device: ${device.name} (ID: ${device.id}, Building ID: ${device.buildingId})`);
     });
     homey.app.log('=============================');
-    const exists = devices.some((device: any) => (
-      device.id?.toString() === deviceId.toString() ||
-      String(device.name || '').toLowerCase() === deviceId.toLowerCase()
-    ));
-    if (!exists && devices[0]) {
-      const fallback = devices[0];
-      homey.app.log(`WARNING: Configured device ID "${deviceId}" not found. Using ${fallback.name} (ID: ${fallback.id}).`);
+    
+    // Automatic device ID resolution for initial setup
+    let resolvedDeviceId = deviceId;
+    let resolvedBuildingId = buildingId;
+    let deviceResolved = false;
+    
+    // Check if we need to resolve device IDs (placeholder values or invalid numeric IDs)
+    const needsResolution = (
+      deviceId === 'Boiler' || // Default placeholder
+      buildingId === 456 || // Default placeholder
+      !devices.some((device: any) => device.id?.toString() === deviceId.toString()) // Device ID doesn't exist
+    );
+    
+    if (needsResolution) {
+      // Try to find device by name match first
+      let targetDevice = devices.find((device: any) => 
+        String(device.name || '').toLowerCase() === deviceId.toLowerCase()
+      );
+      
+      // If no name match, try by numeric ID
+      if (!targetDevice) {
+        targetDevice = devices.find((device: any) => 
+          device.id?.toString() === deviceId.toString()
+        );
+      }
+      
+      // If still no match, use the first available device
+      if (!targetDevice && devices.length > 0) {
+        targetDevice = devices[0];
+        homey.app.log(`WARNING: Configured device ID "${deviceId}" not found. Auto-resolving to first available device.`);
+      }
+      
+      if (targetDevice) {
+        resolvedDeviceId = targetDevice.id.toString();
+        resolvedBuildingId = targetDevice.buildingId;
+        deviceResolved = true;
+        
+        // Update settings with resolved IDs
+        homey.settings.set('device_id', resolvedDeviceId);
+        homey.settings.set('building_id', resolvedBuildingId);
+        
+        homey.app.log(`🔄 AUTO-RESOLVED DEVICE IDs:`);
+        homey.app.log(`- Original: Device ID "${deviceId}", Building ID "${buildingId}"`);
+        homey.app.log(`- Resolved: Device ID "${resolvedDeviceId}", Building ID "${resolvedBuildingId}"`);
+        homey.app.log(`- Device Name: "${targetDevice.name}"`);
+        homey.app.log(`✅ Settings updated with resolved device IDs`);
+      }
+    } else {
+      // Verify that the configured device exists
+      const exists = devices.some((device: any) => (
+        device.id?.toString() === deviceId.toString() ||
+        String(device.name || '').toLowerCase() === deviceId.toLowerCase()
+      ));
+      if (!exists && devices[0]) {
+        const fallback = devices[0];
+        homey.app.log(`WARNING: Configured device ID "${deviceId}" not found. Consider using ${fallback.name} (ID: ${fallback.id}).`);
+      }
+    }
+    
+    // Update the variables for subsequent service initialization
+    if (deviceResolved) {
+      deviceId = resolvedDeviceId;
+      buildingId = resolvedBuildingId;
     }
   } else {
     homey.app.log('WARNING: No devices found in your MELCloud account.');
   }
 
-  if (tibberToken) {
-    const tibberLogger = (appLogger && typeof appLogger.api === 'function') ? appLogger : undefined;
-    const tibber = new TibberApi(tibberToken, tibberLogger);
-    // Set timezone settings after construction
-    tibber.updateTimeZoneSettings(timeZoneOffset, useDST);
-    serviceState.tibber = tibber;
-    (global as any).tibber = tibber;
-  } else {
-    homey.app.warn?.('Skipping Tibber initialization: token not configured');
-    serviceState.tibber = null;
-    (global as any).tibber = null;
-  }
+  const priceProvider = selectPriceProvider(
+    homey,
+    priceSource,
+    tibberToken || null,
+    timeZoneOffset,
+    useDST,
+    typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined,
+    appLogger
+  );
+
+  serviceState.tibber = priceProvider;
+  (global as any).tibber = priceProvider;
 
   if (useWeatherData) {
     try {
@@ -258,7 +383,7 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
 
   const optimizer = new Optimizer(
     melCloud,
-    tibber,
+    priceProvider,
     deviceId,
     buildingId,
     homey.app as any,
@@ -296,16 +421,88 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
   return serviceState;
 }
 
+export function refreshPriceProvider(homey: HomeyLike): PriceProvider | null {
+  const appLogger = (homey.app as any)?.logger;
+  const priceSourceSetting = (homey.settings.get('price_data_source') || 'tibber') as string;
+  const priceSource = typeof priceSourceSetting === 'string' && priceSourceSetting.toLowerCase() === 'entsoe'
+    ? 'entsoe'
+    : 'tibber';
+  const tibberToken = homey.settings.get('tibber_token') || homey.settings.get('tibberToken') || null;
+  const timeZoneOffset = homey.settings.get('time_zone_offset') || 2;
+  const useDST = homey.settings.get('use_dst') || false;
+  const timeZoneName = homey.settings.get('time_zone_name');
+
+  const priceProvider = selectPriceProvider(
+    homey,
+    priceSource,
+    tibberToken,
+    timeZoneOffset,
+    useDST,
+    typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined,
+    appLogger
+  );
+
+  serviceState.tibber = priceProvider;
+  (global as any).tibber = priceProvider;
+
+  if (serviceState.optimizer && typeof serviceState.optimizer.setPriceProvider === 'function') {
+    (serviceState.optimizer as any).setPriceProvider(priceProvider);
+  }
+
+  return priceProvider;
+}
+
 export async function updateOptimizerSettings(homey: HomeyLike): Promise<void> {
   const optimizer = serviceState.optimizer;
   if (!optimizer) {
     return;
   }
 
-  const minTemp = homey.settings.get('min_temp') || 18;
-  const maxTemp = homey.settings.get('max_temp') || 22;
-  const tempStep = homey.settings.get('temp_step_max') || 0.5;
-  const kFactor = homey.settings.get('initial_k') || 0.5;
+  const toNumber = (value: unknown): number | null => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  };
+
+  // Use user settings with fallback to defaults (don't mix them for min/max calculation)
+  const userComfortLowerOccupied = toNumber(homey.settings.get('comfort_lower_occupied'));
+  const userComfortLowerAway = toNumber(homey.settings.get('comfort_lower_away'));
+  const userComfortUpperOccupied = toNumber(homey.settings.get('comfort_upper_occupied'));
+  const userComfortUpperAway = toNumber(homey.settings.get('comfort_upper_away'));
+
+  // Use user settings if available, otherwise use defaults
+  const comfortLowerOccupied = userComfortLowerOccupied ?? DefaultComfortConfig.comfortOccupied.lowerC;
+  const comfortLowerAway = userComfortLowerAway ?? DefaultComfortConfig.comfortAway.lowerC;
+  const comfortUpperOccupied = userComfortUpperOccupied ?? DefaultComfortConfig.comfortOccupied.upperC;
+  const comfortUpperAway = userComfortUpperAway ?? DefaultComfortConfig.comfortAway.upperC;
+
+  // Check current occupancy state to select appropriate comfort band
+  const currentlyOccupied = homey.settings.get('occupied') !== false; // Default to true if not set
+  
+  const derivedMin = currentlyOccupied ? comfortLowerOccupied : comfortLowerAway;
+  let derivedMax = currentlyOccupied ? comfortUpperOccupied : comfortUpperAway;
+
+  if (derivedMax <= derivedMin) {
+    derivedMax = derivedMin + 1;
+  }
+
+  const minTemp = Math.max(16, Math.min(derivedMin, 26));
+  let maxTemp = Math.max(minTemp + 0.5, Math.min(derivedMax, 26));
+
+  // Debug comfort band resolution
+  homey.app.log('Comfort band resolution:');
+  homey.app.log('- User Occupied:', userComfortLowerOccupied ?? 'unset', '→', userComfortUpperOccupied ?? 'unset');
+  homey.app.log('- User Away:', userComfortLowerAway ?? 'unset', '→', userComfortUpperAway ?? 'unset');
+  homey.app.log('- Final Occupied:', comfortLowerOccupied, '→', comfortUpperOccupied);
+  homey.app.log('- Final Away:', comfortLowerAway, '→', comfortUpperAway);
+  homey.app.log('- Currently Occupied:', currentlyOccupied ? 'YES (Home)' : 'NO (Away)');
+  homey.app.log('- Selected Range:', derivedMin, '→', derivedMax, currentlyOccupied ? '(Occupied)' : '(Away)');
+
+  if (maxTemp - minTemp < 0.5) {
+    maxTemp = minTemp + 0.5;
+  }
+
+  const tempStep = toNumber(homey.settings.get('temp_step_max')) ?? 0.5;
+  const kFactor = toNumber(homey.settings.get('initial_k')) ?? 0.5;
 
   const enableZone2 = homey.settings.get('enable_zone2') === true;
   const minTempZone2 = homey.settings.get('min_temp_zone2') || 18;
@@ -318,8 +515,8 @@ export async function updateOptimizerSettings(homey: HomeyLike): Promise<void> {
   const tankTempStep = homey.settings.get('tank_temp_step') || 1.0;
 
   homey.app.log('Optimizer settings:');
-  homey.app.log('- Min Temp:', minTemp, '°C');
-  homey.app.log('- Max Temp:', maxTemp, '°C');
+  homey.app.log('- Derived Min Target:', minTemp, '°C');
+  homey.app.log('- Derived Max Target:', maxTemp, '°C');
   homey.app.log('- Temp Step:', tempStep, '°C (MELCloud supports 0.5°C increments)');
   homey.app.log('- K Factor:', kFactor);
 
@@ -348,9 +545,17 @@ export async function updateOptimizerSettings(homey: HomeyLike): Promise<void> {
   homey.app.log('- Auto Seasonal Mode:', autoSeasonalMode ? 'Enabled' : 'Disabled');
   homey.app.log('- Summer Mode:', summerMode ? 'Enabled' : 'Disabled');
 
+  // Load price threshold settings
+  const preheatCheapPercentile = toNumber(homey.settings.get('preheat_cheap_percentile')) ?? 0.25;
+
+  homey.app.log('Price threshold settings:');
+  homey.app.log('- Cheap Percentile:', preheatCheapPercentile, `(${(preheatCheapPercentile * 100).toFixed(1)}th percentile)`);
+
   optimizer.setTemperatureConstraints(minTemp, maxTemp, tempStep);
   optimizer.setZone2TemperatureConstraints(enableZone2, minTempZone2, maxTempZone2, tempStepZone2);
   optimizer.setTankTemperatureConstraints(enableTankControl, minTankTemp, maxTankTemp, tankTempStep);
   optimizer.setThermalModel(kFactor);
+  optimizer.refreshOccupancyFromSettings();
   optimizer.setCOPSettings(copWeight, autoSeasonalMode, summerMode);
+  optimizer.setPriceThresholds(preheatCheapPercentile);
 }

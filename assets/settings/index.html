@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ENTSO-E Price Settings</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      }
+
+      body {
+        margin: 0;
+        padding: 24px;
+        background: #f5f7fa;
+        color: #202431;
+      }
+
+      h1,
+      h2 {
+        margin: 0 0 12px;
+        font-weight: 600;
+      }
+
+      p {
+        margin: 0 0 12px;
+        line-height: 1.5;
+      }
+
+      header {
+        margin-bottom: 24px;
+      }
+
+      .card {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+        padding: 20px;
+        margin-bottom: 24px;
+      }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+
+      .controls input[type="search"],
+      .controls input[type="number"],
+      textarea {
+        flex: 1 1 220px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid #d0d7e2;
+        background: #fdfefe;
+        font-size: 14px;
+      }
+
+      textarea {
+        min-height: 180px;
+        resize: vertical;
+        font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+      }
+
+      button {
+        border: none;
+        border-radius: 8px;
+        padding: 10px 16px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        background: #1e88e5;
+        color: #fff;
+        transition: transform 0.1s ease, box-shadow 0.1s ease;
+      }
+
+      button.secondary {
+        background: #e2e8f0;
+        color: #1f2937;
+      }
+
+      button:active {
+        transform: translateY(1px);
+        box-shadow: none;
+      }
+
+      .zone-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 12px;
+      }
+
+      .zone-card {
+        border: 1px solid #dfe6f3;
+        border-radius: 10px;
+        padding: 12px;
+        background: #fbfdff;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .zone-card h3 {
+        margin: 0;
+        font-size: 16px;
+      }
+
+      .zone-card code {
+        background: rgba(30, 136, 229, 0.08);
+        padding: 2px 6px;
+        border-radius: 6px;
+        font-size: 13px;
+        word-break: break-all;
+      }
+
+      .status {
+        font-size: 13px;
+        color: #2563eb;
+        min-height: 18px;
+      }
+
+      .currency-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 14px;
+      }
+
+      @media (max-width: 640px) {
+        body {
+          padding: 16px;
+        }
+        .zone-list {
+          grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        }
+      }
+    </style>
+    <script
+      type="text/javascript"
+      src="/homey.js"
+      data-origin="settings"
+    ></script>
+  </head>
+  <body>
+    <header>
+      <h1>ENTSO-E Day-Ahead Prices</h1>
+      <p>Select your electricity price area, provide your API token and (optionally) enable SEK conversion. Changes are saved automatically.</p>
+    </header>
+
+    <main>
+      <section class="card">
+        <h2>Zone Selection</h2>
+        <p>Pick an ISO country code or a specific EIC. Clicking a zone stores it instantly as <code>entsoe_area_eic</code> for the app.</p>
+        <div class="controls">
+          <input id="search" type="search" placeholder="Search for SE3, Sweden, 10Y1001A1001A46L..." aria-label="Search price areas" />
+          <button id="detect" type="button">Detect Country</button>
+          <button id="download" type="button" class="secondary">Download Map JSON</button>
+        </div>
+        <div id="zoneList" class="zone-list" role="list"></div>
+        <div class="status" id="zoneStatus" role="status" aria-live="polite"></div>
+      </section>
+
+      <section class="card">
+        <h2>Currency Conversion</h2>
+        <p id="currencySummary">Prices are converted to your Homey currency automatically.</p>
+        <p class="status" id="fxRateInfo" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="card">
+        <h2>Custom Area Map</h2>
+        <p>Paste your customised <code>entsoe_area_map.json</code> below or reset to the bundled map. The map is stored in Homey settings.</p>
+        <textarea id="mapEditor" spellcheck="false" aria-label="ENTSO-E area map JSON"></textarea>
+        <div class="controls">
+          <button id="resetMap" type="button" class="secondary">Reset to bundled map</button>
+          <button id="saveMap" type="button">Save map JSON</button>
+          <span class="status" id="mapStatus" role="status" aria-live="polite"></span>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      (function () {
+        const isoLabels = {
+          SE: 'Sweden',
+          NO: 'Norway',
+          DK: 'Denmark',
+          FI: 'Finland',
+          DE: 'Germany',
+          FR: 'France',
+          NL: 'Netherlands',
+          BE: 'Belgium',
+          AT: 'Austria',
+          PL: 'Poland',
+          EE: 'Estonia',
+          LV: 'Latvia',
+          LT: 'Lithuania',
+          IE: 'Ireland',
+          GB: 'Great Britain',
+          PT: 'Portugal',
+          ES: 'Spain',
+          IT: 'Italy',
+          CH: 'Switzerland',
+          CZ: 'Czech Republic',
+          SK: 'Slovakia',
+          SI: 'Slovenia',
+          HU: 'Hungary',
+          RO: 'Romania',
+          BG: 'Bulgaria',
+          HR: 'Croatia',
+          GR: 'Greece',
+          RS: 'Serbia',
+          BA: 'Bosnia & Herzegovina',
+          ME: 'Montenegro',
+          MK: 'North Macedonia',
+          AL: 'Albania',
+          TR: 'Turkey'
+        };
+
+        const state = {
+          map: {},
+          bundledMap: {},
+          selectedEic: '',
+          currencyCode: 'EUR',
+          bridgeReady: false
+        };
+
+        const zoneListEl = document.getElementById('zoneList');
+        const zoneStatusEl = document.getElementById('zoneStatus');
+        const searchEl = document.getElementById('search');
+        const detectBtn = document.getElementById('detect');
+        const downloadBtn = document.getElementById('download');
+        const currencySummaryEl = document.getElementById('currencySummary');
+        const fxRateInfoEl = document.getElementById('fxRateInfo');
+        const mapEditorEl = document.getElementById('mapEditor');
+        const mapStatusEl = document.getElementById('mapStatus');
+        const resetMapBtn = document.getElementById('resetMap');
+        const saveMapBtn = document.getElementById('saveMap');
+
+        function sandboxAllowsDownloads() {
+          const frames = [];
+          try {
+            frames.push(window.frameElement || null);
+          } catch (error) {
+            frames.push(null);
+          }
+          try {
+            if (window.top && window.top !== window) {
+              frames.push(window.top.frameElement || null);
+            }
+          } catch (error) {
+            frames.push(null);
+          }
+
+          for (const frame of frames) {
+            if (!frame) {
+              continue;
+            }
+            const sandboxAttr = frame.getAttribute('sandbox');
+            if (!sandboxAttr) {
+              continue;
+            }
+            const tokens = sandboxAttr.split(/\s+/).filter(Boolean);
+            if (!tokens.includes('allow-downloads')) {
+              return false;
+            }
+          }
+          return true;
+        }
+
+        const downloadsSupported = sandboxAllowsDownloads();
+
+        const bridge = {
+          set(key, value) {
+            window.parent?.postMessage({ type: 'homey:setSetting', key, value }, '*');
+            if (window.Homey && typeof window.Homey.set === 'function') {
+              window.Homey.set(key, value, () => {});
+            }
+          },
+          get(key, callback) {
+            if (window.Homey && typeof window.Homey.get === 'function') {
+              window.Homey.get(key, callback);
+              return;
+            }
+            const handler = (event) => {
+              if (!event?.data || event.data.type !== 'homey:settingValue' || event.data.key !== key) {
+                return;
+              }
+              window.removeEventListener('message', handler);
+              callback(event.data.value);
+            };
+            window.addEventListener('message', handler);
+            window.parent?.postMessage({ type: 'homey:getSetting', key }, '*');
+          }
+        };
+
+        async function loadBundledMap() {
+          const response = await fetch('/app/com.melcloud.optimize/assets/entsoe_area_map.json', { cache: 'no-cache' });
+          if (!response.ok) {
+            throw new Error('Failed to load bundled entsoe_area_map.json');
+          }
+          state.bundledMap = await response.json();
+          if (!Object.keys(state.map).length) {
+            state.map = JSON.parse(JSON.stringify(state.bundledMap));
+          }
+        }
+
+        function renderZoneList(filterText = '') {
+          const query = filterText.trim().toLowerCase();
+          zoneListEl.innerHTML = '';
+
+          const entries = Object.entries(state.map)
+            .sort(([isoA], [isoB]) => isoA.localeCompare(isoB));
+
+          for (const [iso, eics] of entries) {
+            const label = isoLabels[iso] || iso;
+            for (const eic of eics) {
+              const display = `${iso} · ${label}`;
+              const haystack = `${iso} ${label} ${eic}`.toLowerCase();
+              if (query && !haystack.includes(query)) {
+                continue;
+              }
+              const card = document.createElement('article');
+              card.className = 'zone-card';
+              card.setAttribute('role', 'listitem');
+
+              const heading = document.createElement('h3');
+              heading.textContent = display;
+              card.appendChild(heading);
+
+              const codeEl = document.createElement('code');
+              codeEl.textContent = eic;
+              card.appendChild(codeEl);
+
+              const actionBtn = document.createElement('button');
+              actionBtn.type = 'button';
+              actionBtn.textContent = 'Use this zone';
+              actionBtn.addEventListener('click', () => selectZone(iso, eic, display));
+              card.appendChild(actionBtn);
+
+              if (state.selectedEic === eic) {
+                card.style.borderColor = '#1e88e5';
+                card.style.boxShadow = '0 0 0 1px rgba(30, 136, 229, 0.25)';
+              }
+
+              zoneListEl.appendChild(card);
+            }
+          }
+
+          if (!zoneListEl.children.length) {
+            const empty = document.createElement('p');
+            empty.textContent = 'No matches found. Try a different search term or reset the map.';
+            zoneListEl.appendChild(empty);
+          }
+        }
+
+        function notifyStatus(el, message) {
+          el.textContent = message;
+          if (!message) {
+            return;
+          }
+          setTimeout(() => {
+            if (el.textContent === message) {
+              el.textContent = '';
+            }
+          }, 4000);
+        }
+
+        function updateCurrencySummary() {
+          const code = (state.currencyCode || 'EUR').toUpperCase();
+          if (currencySummaryEl) {
+            currencySummaryEl.textContent =
+              code === 'EUR'
+                ? 'Prices are provided in EUR.'
+                : `Prices are automatically converted from EUR to ${code}.`;
+          }
+        }
+
+        function initCurrencyCode(callback) {
+          let resolved = false;
+          const apply = (raw) => {
+            if (resolved) {
+              return;
+            }
+            resolved = true;
+            if (typeof raw === 'string' && raw.trim()) {
+              state.currencyCode = raw.trim().toUpperCase();
+            } else {
+              state.currencyCode = 'EUR';
+            }
+            updateCurrencySummary();
+            if (typeof callback === 'function') {
+              callback();
+            }
+          };
+
+          bridge.get('currency_code', (value) => {
+            if (typeof value === 'string' && value.trim()) {
+              apply(value);
+            } else {
+              bridge.get('currency', (fallback) => {
+                apply(typeof fallback === 'string' && fallback.trim() ? fallback : 'EUR');
+              });
+            }
+          });
+        }
+
+        function selectZone(iso, eic, display = '') {
+          state.selectedEic = eic;
+          renderZoneList(searchEl.value || '');
+          bridge.set('entsoe_area_eic', eic);
+          const payload = { type: 'entsoe:zoneSelected', iso, eic, display };
+          let delivered = false;
+          if (window.parent && typeof window.parent.__entsoeZoneSelected === 'function') {
+            try {
+              window.parent.__entsoeZoneSelected(payload);
+              delivered = true;
+            } catch (error) {
+              delivered = false;
+            }
+          }
+          if (!delivered && window.parent && typeof window.parent.postMessage === 'function') {
+            window.parent.postMessage(payload, '*');
+          }
+          const friendly = display ? `${display} (${eic})` : eic;
+          notifyStatus(zoneStatusEl, `Saved ${friendly}. This zone is now active.`);
+        }
+
+        function detectCountry() {
+          const language = navigator.language || navigator.userLanguage || '';
+          const parts = language.split('-');
+          const iso = parts.length > 1 ? parts[1].toUpperCase() : parts[0]?.toUpperCase() || '';
+          if (!iso || !state.map[iso]) {
+            notifyStatus(zoneStatusEl, 'Could not detect a matching ENTSO-E zone for this locale.');
+            return;
+          }
+          const eic = state.map[iso][0];
+          const label = isoLabels[iso] || iso;
+          selectZone(iso, eic, `${iso} · ${label}`);
+        }
+
+        function downloadMap() {
+          const mapJson = JSON.stringify(state.map, null, 2);
+          const blob = new Blob([mapJson], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = 'entsoe_area_map.json';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+        }
+
+        function renderFxRateInfo() {
+          if (!fxRateInfoEl) {
+            return;
+          }
+
+          bridge.get('fx_rate_cache', (value) => {
+            if (!value) {
+              const code = (state.currencyCode || 'EUR').toUpperCase();
+              fxRateInfoEl.textContent = code === 'EUR'
+                ? 'ENTSO-E prices are already published in EUR.'
+                : 'Awaiting first automatic FX rate fetch.';
+              return;
+            }
+
+            let record = value;
+            if (typeof value === 'string') {
+              try {
+                record = JSON.parse(value);
+              } catch (error) {
+                console.warn('Failed to parse fx_rate_cache', error);
+                fxRateInfoEl.textContent = 'Stored FX rate could not be read.';
+                return;
+              }
+            }
+
+            if (!record || typeof record !== 'object') {
+              fxRateInfoEl.textContent = 'Stored FX rate could not be read.';
+              return;
+            }
+
+            const rate = Number(record.rate);
+            const currency = (record.currency || state.currencyCode || 'EUR').toUpperCase();
+            const fetchedAt = Number(record.fetchedAt || 0);
+            const source = record.source || 'auto';
+            const date = Number.isFinite(fetchedAt) && fetchedAt > 0
+              ? new Date(fetchedAt).toLocaleString()
+              : 'unknown time';
+
+            if (Number.isFinite(rate) && rate > 0) {
+              fxRateInfoEl.textContent = `Last rate: 1 EUR = ${rate.toFixed(6)} ${currency} (${source}, ${date})`;
+            } else {
+              fxRateInfoEl.textContent = 'No valid FX rate stored.';
+            }
+          });
+        }
+
+        function resetMap() {
+          state.map = JSON.parse(JSON.stringify(state.bundledMap));
+          mapEditorEl.value = JSON.stringify(state.map, null, 2);
+          renderZoneList(searchEl.value || '');
+          notifyStatus(mapStatusEl, 'Map reset to bundled version. Remember to click Save map JSON.');
+        }
+
+        function saveMap() {
+          try {
+            const parsed = JSON.parse(mapEditorEl.value);
+            state.map = parsed;
+            bridge.set('entsoe_area_map', JSON.stringify(parsed));
+            renderZoneList(searchEl.value || '');
+            notifyStatus(mapStatusEl, 'Saved custom entsoe_area_map JSON.');
+          } catch (error) {
+            console.error('Failed to parse map JSON', error);
+            notifyStatus(mapStatusEl, 'Invalid JSON – please fix formatting before saving.');
+          }
+        }
+
+        function hydrateFromSettings() {
+          bridge.get('entsoe_area_eic', (value) => {
+            if (typeof value === 'string' && value.trim()) {
+              state.selectedEic = value.trim();
+              renderZoneList(searchEl.value || '');
+            }
+          });
+          bridge.get('entsoe_area_map', (value) => {
+            if (!value) {
+              mapEditorEl.value = JSON.stringify(state.map, null, 2);
+              return;
+            }
+            try {
+              const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+              if (parsed && typeof parsed === 'object') {
+                state.map = parsed;
+                mapEditorEl.value = JSON.stringify(parsed, null, 2);
+                renderZoneList(searchEl.value || '');
+              }
+            } catch (error) {
+              console.warn('Stored entsoe_area_map is not valid JSON', error);
+              mapEditorEl.value = JSON.stringify(state.map, null, 2);
+            }
+          });
+          initCurrencyCode(() => {
+            renderFxRateInfo();
+          });
+        }
+
+        async function init() {
+          try {
+            await loadBundledMap();
+            mapEditorEl.value = JSON.stringify(state.map, null, 2);
+            renderZoneList();
+            hydrateFromSettings();
+          } catch (error) {
+            console.error(error);
+            notifyStatus(zoneStatusEl, 'Failed to load entsoe_area_map.json.');
+          }
+        }
+
+        searchEl.addEventListener('input', (event) => {
+          renderZoneList(event.target.value || '');
+        });
+        detectBtn.addEventListener('click', detectCountry);
+        if (downloadBtn) {
+          if (downloadsSupported) {
+            downloadBtn.addEventListener('click', downloadMap);
+          } else {
+            downloadBtn.disabled = true;
+            downloadBtn.classList.add('secondary');
+            downloadBtn.textContent = 'Download not available here';
+            downloadBtn.setAttribute('aria-disabled', 'true');
+            downloadBtn.title = 'Downloads are blocked in this Homey settings view.';
+          }
+        }
+        resetMapBtn.addEventListener('click', resetMap);
+        saveMapBtn.addEventListener('click', saveMap);
+
+        document.addEventListener('DOMContentLoaded', init);
+      })();
+    </script>
+  </body>
+</html>

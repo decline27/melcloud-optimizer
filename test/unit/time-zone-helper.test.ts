@@ -75,4 +75,22 @@ describe('TimeZoneHelper', () => {
 
     expect(tz.isInDSTperiod()).toBe(true);
   });
+
+  test('Europe/Stockholm offset jumps by one hour on DST transition', () => {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Europe/Stockholm',
+      timeZoneName: 'shortOffset',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    const beforeParts = formatter.formatToParts(new RealDate('2024-03-31T00:30:00Z'));
+    const afterParts = formatter.formatToParts(new RealDate('2024-03-31T02:30:00Z'));
+
+    const beforeTz = beforeParts.find(part => part.type === 'timeZoneName')?.value;
+    const afterTz = afterParts.find(part => part.type === 'timeZoneName')?.value;
+
+    expect(beforeTz).toBe('GMT+1');
+    expect(afterTz).toBe('GMT+2');
+  });
 });

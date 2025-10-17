@@ -62,13 +62,51 @@ describe('Optimizer', () => {
       ]
     });
 
+    // Create mock weather API
+    const mockWeatherApi = {
+      getCurrentWeather: jest.fn().mockResolvedValue({
+        temperature: 5.0,
+        windSpeed: 2.0,
+        humidity: 60,
+        cloudCover: 50,
+        precipitation: 0
+      })
+    };
+
+    // Create mock Homey
+    const mockHomey = {
+      id: 'test-app',
+      manifest: { version: '1.0.0' },
+      version: '1.0.0',
+      platform: 'test',
+      log: jest.fn(),
+      error: jest.fn(),
+      settings: {
+        get: jest.fn().mockImplementation((key) => {
+          if (key === 'comfort_lower_occupied') return 18;
+          if (key === 'comfort_upper_occupied') return 22;
+          if (key === 'comfort_lower_away') return 17;
+          if (key === 'comfort_upper_away') return 21;
+          if (key === 'cop_weight') return 0.3;
+          if (key === 'auto_seasonal_mode') return true;
+          if (key === 'summer_mode') return false;
+          return null;
+        }),
+        set: jest.fn(),
+        unset: jest.fn(),
+        on: jest.fn()
+      }
+    };
+
     // Create optimizer instance with minimal dependencies
     optimizer = new Optimizer(
       mockMelCloud,
       mockTibber,
       deviceId,
       buildingId,
-      mockLogger
+      mockLogger,
+      mockWeatherApi,
+      mockHomey
     );
   });
 
@@ -76,7 +114,7 @@ describe('Optimizer', () => {
     it('should initialize with default values', () => {
       expect(optimizer).toBeDefined();
       expect((optimizer as any).melCloud).toBe(mockMelCloud);
-      expect((optimizer as any).tibber).toBe(mockTibber);
+      expect((optimizer as any).priceProvider).toBe(mockTibber);
       expect((optimizer as any).deviceId).toBe(deviceId);
       expect((optimizer as any).buildingId).toBe(buildingId);
       expect((optimizer as any).logger).toBe(mockLogger);

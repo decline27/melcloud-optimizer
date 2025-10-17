@@ -178,7 +178,7 @@ describe('Thermal Model', () => {
         21.5, // current temp
         5.0,  // outdoor temp
         { temperature: 5.0, windSpeed: 3.0, humidity: 70, cloudCover: 80 },
-        { dayStart: 7, dayEnd: 23, nightTempReduction: 2, preHeatHours: 2 }
+        { dayStart: 6, dayEnd: 22, nightTempReduction: 2, preHeatHours: 1 } // Updated to match settings page defaults
       );
 
       expect(recommendation).toBeDefined();

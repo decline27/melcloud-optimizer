@@ -1,4 +1,5 @@
 import { App } from 'homey';
+import { fetchPrices } from './entsoe';
 import { COPHelper } from './services/cop-helper';
 import { TimelineHelper, TimelineEventType } from './util/timeline-helper';
 import { HomeyLogger, LogLevel, LogCategory } from './util/logger';
@@ -475,6 +476,11 @@ export default class HeatOptimizerApp extends App {
       this.logger.error('Failed to initialize Timeline Helper', error as Error);
     }
 
+    // Register ENTSO-E price fetch flow action
+    this.registerEntsoeFlowAction();
+
+    // Note: Device flow cards are registered in the driver, not here
+
     // Start cron jobs on init if settings are ready (safe re-init logic prevents duplicates)
     try {
       this.log('[App] Checking if cron jobs should be started on init…');
@@ -492,15 +498,63 @@ export default class HeatOptimizerApp extends App {
       } catch (error) {
         this.logger.error('Failed to start memory usage monitoring', error as Error);
       }
-    }
-
-    // Run initial data cleanup to optimize memory usage on startup
-    this.runInitialDataCleanup();
-
-    // Log app initialization complete
-    this.logger.info('MELCloud Optimizer App initialized successfully');
-    console.log('🚀 HeatOptimizerApp onInit() completed successfully');
   }
+
+  // Run initial data cleanup to optimize memory usage on startup
+  this.runInitialDataCleanup();
+
+  // Log app initialization complete
+  this.logger.info('MELCloud Optimizer App initialized successfully');
+  console.log('🚀 HeatOptimizerApp onInit() completed successfully');
+  }
+
+  private registerEntsoeFlowAction(): void {
+    try {
+      const flowManager = this.homey.flow;
+      if (!flowManager || typeof flowManager.getActionCard !== 'function') {
+        this.logger.warn('Homey flow manager is not available; ENTSO-E flow action not registered');
+        return;
+      }
+      const actionCard = flowManager.getActionCard('get_entsoe_prices');
+      actionCard.registerRunListener(async (args: { zone?: string }) => {
+        const zoneInput = typeof args?.zone === 'string' ? args.zone : undefined;
+        const now = new Date();
+        const startUtc = new Date(Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth(),
+          now.getUTCDate(),
+          now.getUTCHours(),
+          0,
+          0,
+          0
+        ));
+        const endUtc = new Date(startUtc.getTime() + 24 * 60 * 60 * 1000);
+
+        try {
+          const prices = await fetchPrices(
+            this.homey,
+            zoneInput,
+            startUtc.toISOString(),
+            endUtc.toISOString()
+          );
+          return {
+            prices_json: JSON.stringify(prices),
+          };
+        } catch (error) {
+          this.logger.error('Failed to fetch ENTSO-E prices via flow action', error as Error);
+          throw error;
+        }
+      });
+      this.logger.info('ENTSO-E flow action registered');
+    } catch (error) {
+      this.logger.error('Failed to register ENTSO-E flow action', error as Error);
+    }
+  }
+
+  /**
+   * Register device flow cards for custom capabilities
+   */
+
 
   /**
    * Initialize the centralized logger
@@ -525,7 +579,13 @@ export default class HeatOptimizerApp extends App {
     // Initialize Time Zone Helper with current settings
     const tzOffset = this.homey.settings.get('time_zone_offset') || 2;
     const useDST = this.homey.settings.get('use_dst') || false;
-    this.timeZoneHelper = new TimeZoneHelper(this.logger, Number(tzOffset), Boolean(useDST));
+    const timeZoneName = this.homey.settings.get('time_zone_name') || undefined;
+    this.timeZoneHelper = new TimeZoneHelper(
+      this.logger,
+      Number(tzOffset),
+      Boolean(useDST),
+      typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined
+    );
 
     // Log initialization
     this.log(`Centralized logger initialized with level: ${LogLevel[logLevel]}`);
@@ -537,17 +597,27 @@ export default class HeatOptimizerApp extends App {
   private async updateTimezoneSettings(): Promise<void> {
     const tzOffset = this.homey.settings.get('time_zone_offset') || 2;
     const useDST = this.homey.settings.get('use_dst') || false;
+    const timeZoneName = this.homey.settings.get('time_zone_name');
     
     // Update our own TimeZoneHelper
     if (this.timeZoneHelper) {
-      this.timeZoneHelper.updateSettings(Number(tzOffset), Boolean(useDST));
+      this.timeZoneHelper.updateSettings(
+        Number(tzOffset),
+        Boolean(useDST),
+        typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined
+      );
     }
     
     // Update services through API if available
     try {
       const api = require('../api.js');
       if (api.updateAllServiceTimezones) {
-        await api.updateAllServiceTimezones(this.homey, Number(tzOffset), Boolean(useDST));
+        await api.updateAllServiceTimezones(
+          this.homey,
+          Number(tzOffset),
+          Boolean(useDST),
+          typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined
+        );
       }
     } catch (error) {
       this.error('Failed to update service timezones via API:', error as Error);
@@ -591,15 +661,55 @@ export default class HeatOptimizerApp extends App {
       }
     }
     // If credentials changed, re-validate
+    else if (key === 'price_data_source') {
+      this.log('Price data source changed, refreshing price provider');
+      try {
+        const api = require('../api.js');
+        await api.updatePriceProvider(this.homey);
+        this.log('Price provider refreshed successfully');
+      } catch (error) {
+        this.error('Failed to refresh price provider after settings change:', error as Error);
+      }
+      this.validateSettings();
+    }
     else if (['melcloud_user', 'melcloud_pass', 'tibber_token', 'tibberToken'].includes(key)) {
       this.log(`Credential setting '${key}' changed, re-validating settings`);
       // Re-run validation on credential change
       this.validateSettings();
+      if (key === 'tibber_token') {
+        try {
+          const api = require('../api.js');
+          await api.updatePriceProvider(this.homey);
+          this.log('Price provider refreshed after tibber token change');
+        } catch (error) {
+          this.error('Failed to refresh price provider after Tibber token change:', error as Error);
+        }
+      }
     }
     // If temperature settings changed, re-validate
-    else if (['min_temp', 'max_temp', 'min_temp_zone2', 'max_temp_zone2', 'enable_zone2'].includes(key)) {
-      this.log(`Temperature setting '${key}' changed, re-validating settings`);
+    else if ([
+      'min_temp_zone2',
+      'max_temp_zone2',
+      'enable_zone2',
+      'comfort_lower_occupied',
+      'comfort_upper_occupied',
+      'comfort_lower_away',
+      'comfort_upper_away',
+      'occupied'
+    ].includes(key)) {
+      this.log(`Temperature/occupancy setting '${key}' changed, re-validating settings and updating optimizer`);
       this.validateSettings();
+      
+      // Update optimizer settings immediately for occupancy changes
+      if (key === 'occupied') {
+        try {
+          const api = require('../api.js');
+          await api.updateOptimizerSettings(this.homey);
+          this.log('Optimizer settings updated with new occupancy state');
+        } catch (error) {
+          this.error('Failed to update optimizer settings with new occupancy state:', error as Error);
+        }
+      }
     }
     // If COP settings changed, update the COP Helper
     else if (['cop_weight', 'auto_seasonal_mode', 'summer_mode'].includes(key)) {
@@ -615,7 +725,7 @@ export default class HeatOptimizerApp extends App {
       }
     }
     // If timezone settings changed, update all services
-    else if (['time_zone_offset', 'use_dst'].includes(key)) {
+    else if (['time_zone_offset', 'use_dst', 'time_zone_name'].includes(key)) {
       this.log(`Timezone setting '${key}' changed, updating all services`);
       
       try {
@@ -1190,24 +1300,34 @@ export default class HeatOptimizerApp extends App {
     const melcloudUser = this.homey.settings.get('melcloud_user');
     const melcloudPass = this.homey.settings.get('melcloud_pass');
     const tibberToken = this.homey.settings.get('tibber_token') || this.homey.settings.get('tibberToken');
+    const priceDataSource = this.homey.settings.get('price_data_source') || 'entsoe';
 
     if (!melcloudUser || !melcloudPass) {
       this.error('MELCloud credentials are missing');
       return false;
     }
 
-    if (!tibberToken) {
+    // Only require Tibber token if Tibber is selected as price source
+    if (priceDataSource === 'tibber' && !tibberToken) {
       this.error('Tibber API token is missing');
       return false;
     }
 
-    // Check temperature settings
-    const minTemp = this.homey.settings.get('min_temp');
-    const maxTemp = this.homey.settings.get('max_temp');
+    // Check comfort band settings when provided
+    const comfortLowerOccupied = Number(this.homey.settings.get('comfort_lower_occupied'));
+    const comfortUpperOccupied = Number(this.homey.settings.get('comfort_upper_occupied'));
+    if (Number.isFinite(comfortLowerOccupied) && Number.isFinite(comfortUpperOccupied)) {
+      if (comfortLowerOccupied >= comfortUpperOccupied) {
+        this.error('Occupied comfort lower bound must be less than the upper bound');
+        return false;
+      }
+    }
 
-    if (minTemp !== undefined && maxTemp !== undefined) {
-      if (minTemp >= maxTemp) {
-        this.error('Min temperature must be less than max temperature');
+    const comfortLowerAway = Number(this.homey.settings.get('comfort_lower_away'));
+    const comfortUpperAway = Number(this.homey.settings.get('comfort_upper_away'));
+    if (Number.isFinite(comfortLowerAway) && Number.isFinite(comfortUpperAway)) {
+      if (comfortLowerAway >= comfortUpperAway) {
+        this.error('Away comfort lower bound must be less than the upper bound');
         return false;
       }
     }

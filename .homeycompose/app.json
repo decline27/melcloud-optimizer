@@ -1,6 +1,6 @@
 {
   "id": "com.melcloud.optimize",
-  "version": "13.5.0",
+  "version": "14.0.11",
   "compatibility": ">=12.2.0",
   "sdk": 3,
   "platforms": [
@@ -130,12 +130,53 @@
       "getable": true,
       "setable": true,
       "uiComponent": "toggle"
+    },
+    "occupied": {
+      "type": "boolean",
+      "title": {
+        "en": "Home/Away State"
+      },
+      "getable": true,
+      "setable": true,
+      "uiComponent": "toggle"
     }
   },
   "flow": {
     "triggers": [],
     "conditions": [],
-    "actions": []
+    "actions": [
+      {
+        "id": "get_entsoe_prices",
+        "title": {
+          "en": "Fetch ENTSO-E day-ahead prices"
+        },
+        "hint": {
+          "en": "Returns hourly prices for the selected ENTSO-E price area."
+        },
+        "args": [
+          {
+            "name": "zone",
+            "type": "text",
+            "title": {
+              "en": "Zone (ISO or EIC)"
+            },
+            "placeholder": {
+              "en": "SE3 or 10YSE-3--------J"
+            }
+          }
+        ],
+        "tokens": [
+          {
+            "name": "prices_json",
+            "type": "string",
+            "title": {
+              "en": "Prices JSON"
+            },
+            "example": "[{\"ts_iso_utc\":\"2024-01-01T00:00:00.000Z\",\"price_eur_per_kwh\":0.12}]"
+          }
+        ]
+      }
+    ]
   },
   "api": {
     "getRunHourlyOptimizer": {
@@ -221,6 +262,18 @@
     "getHotWaterPatterns": {
       "method": "GET",
       "path": "/hot-water/patterns"
+    },
+    "validateAndStartCron": {
+      "method": "GET",
+      "path": "/validateAndStartCron"
+    },
+    "updateAllServiceTimezones": {
+      "method": "GET",
+      "path": "/updateAllServiceTimezones"
+    },
+    "updatePriceProvider": {
+      "method": "GET",
+      "path": "/updatePriceProvider"
     }
   }
 }
