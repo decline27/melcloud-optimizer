@@ -24,8 +24,11 @@ jobs:
   main:
     name: Update Homey App Version
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update Homey App Version
         uses: athombv/github-action-homey-app-version@master
