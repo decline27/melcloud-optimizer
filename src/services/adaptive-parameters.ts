@@ -15,6 +15,15 @@ export interface AdaptiveParameters {
   copEfficiencyBonusHigh: number;  // For excellent COP
   copEfficiencyBonusMedium: number; // For good COP
   
+  // Strategy thresholds (learned from outcome performance)
+  excellentCOPThreshold: number;    // Threshold for "excellent" COP performance (was hardcoded 0.8)
+  goodCOPThreshold: number;         // Threshold for "good" COP performance (was hardcoded 0.5)
+  minimumCOPThreshold: number;      // Minimum acceptable COP (was hardcoded 0.2)
+  veryChepMultiplier: number;      // Multiplier for "very cheap" price detection (was hardcoded 0.8)
+  preheatAggressiveness: number;    // Temperature boost aggressiveness (was hardcoded 2.0)
+  coastingReduction: number;        // Temperature reduction when coasting (was hardcoded 1.5)
+  boostIncrease: number;           // Temperature increase for boost mode (was hardcoded 0.5)
+  
   // Confidence in learned parameters (0-1)
   confidence: number;
   
@@ -28,13 +37,23 @@ export interface AdaptiveParameters {
 // Settings key for storing adaptive parameters
 const ADAPTIVE_PARAMETERS_SETTINGS_KEY = 'adaptive_business_parameters';
 
-// Default parameters (current hardcoded values)
+// Default parameters (current hardcoded values that will be adapted)
 const DEFAULT_PARAMETERS: AdaptiveParameters = {
   priceWeightSummer: 0.7,
   priceWeightWinter: 0.4,
   priceWeightTransition: 0.5,
   copEfficiencyBonusHigh: 0.3,
   copEfficiencyBonusMedium: 0.2,
+  
+  // Strategy thresholds (currently hardcoded in optimizer, will be learned)
+  excellentCOPThreshold: 0.8,      // Current hardcoded value in optimizer
+  goodCOPThreshold: 0.5,           // Current hardcoded value in optimizer
+  minimumCOPThreshold: 0.2,        // Current hardcoded value in optimizer
+  veryChepMultiplier: 0.8,        // Current hardcoded value (80% of cheap threshold)
+  preheatAggressiveness: 2.0,      // Current hardcoded value (2.0°C boost)
+  coastingReduction: 1.5,          // Current hardcoded value (1.5°C reduction)
+  boostIncrease: 0.5,             // Current hardcoded value (0.5°C increase)
+  
   confidence: 0,
   lastUpdated: new Date().toISOString(),
   learningCycles: 0
@@ -49,12 +68,30 @@ export class AdaptiveParametersLearner {
   
   /**
    * Load stored parameters from Homey settings
+   * Includes migration logic for new parameters
    */
   private loadStoredParameters(): AdaptiveParameters | null {
     try {
       const stored = this.homey.settings.get(ADAPTIVE_PARAMETERS_SETTINGS_KEY);
       if (stored) {
-        return JSON.parse(stored);
+        const parsed = JSON.parse(stored);
+        
+        // Migration: Add new parameters if they don't exist (for existing installations)
+        const migrated: AdaptiveParameters = {
+          ...DEFAULT_PARAMETERS, // Start with all defaults
+          ...parsed,              // Override with stored values
+        };
+        
+        // If migration occurred (new fields were added), save the migrated version
+        if (Object.keys(migrated).length > Object.keys(parsed).length) {
+          this.homey.log('Migrating adaptive parameters with new strategy thresholds');
+          setTimeout(() => {
+            this.parameters = migrated;
+            this.saveParameters();
+          }, 1000); // Delayed save to avoid constructor side effects
+        }
+        
+        return migrated;
       }
       return null;
     } catch (error) {
@@ -87,6 +124,16 @@ export class AdaptiveParametersLearner {
         priceWeightTransition: this.blendValue(this.parameters.priceWeightTransition, DEFAULT_PARAMETERS.priceWeightTransition, blendFactor),
         copEfficiencyBonusHigh: this.blendValue(this.parameters.copEfficiencyBonusHigh, DEFAULT_PARAMETERS.copEfficiencyBonusHigh, blendFactor),
         copEfficiencyBonusMedium: this.blendValue(this.parameters.copEfficiencyBonusMedium, DEFAULT_PARAMETERS.copEfficiencyBonusMedium, blendFactor),
+        
+        // Strategy thresholds with confidence blending
+        excellentCOPThreshold: this.blendValue(this.parameters.excellentCOPThreshold, DEFAULT_PARAMETERS.excellentCOPThreshold, blendFactor),
+        goodCOPThreshold: this.blendValue(this.parameters.goodCOPThreshold, DEFAULT_PARAMETERS.goodCOPThreshold, blendFactor),
+        minimumCOPThreshold: this.blendValue(this.parameters.minimumCOPThreshold, DEFAULT_PARAMETERS.minimumCOPThreshold, blendFactor),
+        veryChepMultiplier: this.blendValue(this.parameters.veryChepMultiplier, DEFAULT_PARAMETERS.veryChepMultiplier, blendFactor),
+        preheatAggressiveness: this.blendValue(this.parameters.preheatAggressiveness, DEFAULT_PARAMETERS.preheatAggressiveness, blendFactor),
+        coastingReduction: this.blendValue(this.parameters.coastingReduction, DEFAULT_PARAMETERS.coastingReduction, blendFactor),
+        boostIncrease: this.blendValue(this.parameters.boostIncrease, DEFAULT_PARAMETERS.boostIncrease, blendFactor),
+        
         confidence: this.parameters.confidence,
         lastUpdated: this.parameters.lastUpdated,
         learningCycles: this.parameters.learningCycles
@@ -139,8 +186,10 @@ export class AdaptiveParametersLearner {
     currentWeight = Math.max(0.2, Math.min(0.9, currentWeight));
     this.setPriceWeight(season, currentWeight);
     
-    // Learn COP efficiency adjustments
+    // Learn COP efficiency adjustments and thresholds
     if (typeof copPerformance === 'number' && copPerformance > 0) {
+      this.learnCOPThresholds(copPerformance, comfortSatisfied, goodSavings);
+      
       if (copPerformance > 4.0) {
         // Excellent COP: can afford slightly higher bonus
         this.parameters.copEfficiencyBonusHigh = Math.min(0.5, this.parameters.copEfficiencyBonusHigh * 1.01);
@@ -149,6 +198,9 @@ export class AdaptiveParametersLearner {
         this.parameters.copEfficiencyBonusHigh = Math.max(0.1, this.parameters.copEfficiencyBonusHigh * 0.99);
       }
     }
+    
+    // Learn strategy aggressiveness based on outcomes
+    this.learnStrategyAggressiveness(comfortSatisfied, goodSavings, actualSavings);
     
     // Update confidence (gradually increases with learning cycles)
     this.parameters.confidence = Math.min(1.0, this.parameters.learningCycles / 100); // Full confidence after 100 cycles
@@ -177,5 +229,90 @@ export class AdaptiveParametersLearner {
       case 'winter': this.parameters.priceWeightWinter = weight; break;
       case 'transition': this.parameters.priceWeightTransition = weight; break;
     }
+  }
+
+  /**
+   * Learn and adapt COP thresholds based on actual performance outcomes
+   * @param copPerformance Current COP performance
+   * @param comfortSatisfied Whether comfort was maintained
+   * @param goodSavings Whether good savings were achieved
+   */
+  private learnCOPThresholds(copPerformance: number, comfortSatisfied: boolean, goodSavings: boolean): void {
+    const learningRate = 0.001; // Very gradual learning to prevent oscillation
+    
+    // If we had good results with a COP below our "excellent" threshold, maybe we can lower it
+    if (comfortSatisfied && goodSavings && copPerformance < this.parameters.excellentCOPThreshold) {
+      // Gradually lower the excellent threshold if performance was good with lower COP
+      this.parameters.excellentCOPThreshold = Math.max(
+        0.3, // Never go below reasonable minimum
+        this.parameters.excellentCOPThreshold - learningRate
+      );
+    }
+    
+    // If we had poor results with COP above our thresholds, maybe we need to raise them
+    if (!comfortSatisfied || !goodSavings) {
+      if (copPerformance < this.parameters.goodCOPThreshold) {
+        // Poor performance with low COP - maybe raise the minimum threshold
+        this.parameters.minimumCOPThreshold = Math.min(
+          0.4, // Don't go too high
+          this.parameters.minimumCOPThreshold + learningRate
+        );
+      }
+    }
+    
+    // Ensure thresholds maintain logical order: excellent > good > minimum
+    this.parameters.goodCOPThreshold = Math.max(
+      this.parameters.minimumCOPThreshold + 0.1,
+      Math.min(this.parameters.excellentCOPThreshold - 0.1, this.parameters.goodCOPThreshold)
+    );
+  }
+
+  /**
+   * Learn and adapt strategy aggressiveness based on outcomes
+   * @param comfortSatisfied Whether comfort was maintained
+   * @param goodSavings Whether good savings were achieved
+   * @param actualSavings Actual savings amount
+   */
+  private learnStrategyAggressiveness(comfortSatisfied: boolean, goodSavings: boolean, actualSavings: number): void {
+    const learningRate = 0.002; // Very gradual learning
+    
+    if (!comfortSatisfied) {
+      // Comfort was violated - reduce aggressiveness
+      this.parameters.preheatAggressiveness = Math.max(0.5, this.parameters.preheatAggressiveness - learningRate * 5);
+      this.parameters.coastingReduction = Math.max(0.5, this.parameters.coastingReduction - learningRate * 3);
+      this.parameters.boostIncrease = Math.max(0.2, this.parameters.boostIncrease - learningRate * 2);
+      
+      // Be more conservative with price detection too
+      this.parameters.veryChepMultiplier = Math.min(0.95, this.parameters.veryChepMultiplier + learningRate);
+      
+    } else if (goodSavings && actualSavings > 0.5) { // Good savings (> 0.5 currency units)
+      // Good results - can be slightly more aggressive
+      this.parameters.preheatAggressiveness = Math.min(3.0, this.parameters.preheatAggressiveness + learningRate);
+      this.parameters.coastingReduction = Math.min(2.5, this.parameters.coastingReduction + learningRate);
+      
+      // Be more aggressive with price detection
+      this.parameters.veryChepMultiplier = Math.max(0.6, this.parameters.veryChepMultiplier - learningRate * 0.5);
+      
+    } else if (!goodSavings) {
+      // No savings despite actions - maybe be more aggressive to find opportunities
+      this.parameters.veryChepMultiplier = Math.max(0.6, this.parameters.veryChepMultiplier - learningRate);
+    }
+  }
+
+  /**
+   * Get strategy thresholds for use by optimizer
+   * Provides a convenient interface for the optimizer to get adaptive thresholds
+   */
+  public getStrategyThresholds() {
+    const params = this.getParameters();
+    return {
+      excellentCOPThreshold: params.excellentCOPThreshold,
+      goodCOPThreshold: params.goodCOPThreshold,
+      minimumCOPThreshold: params.minimumCOPThreshold,
+      veryChepMultiplier: params.veryChepMultiplier,
+      preheatAggressiveness: params.preheatAggressiveness,
+      coastingReduction: params.coastingReduction,
+      boostIncrease: params.boostIncrease
+    };
   }
 }

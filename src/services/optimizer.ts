@@ -211,6 +211,7 @@ export class Optimizer {
   private copWeight: number = 0.3;
   private autoSeasonalMode: boolean = true;
   private summerMode: boolean = false;
+  private preheatCheapPercentile: number = 0.25; // User-configurable cheap price threshold
   private enhancedSavingsCalculator: EnhancedSavingsCalculator;
   private lastEnergyData: RealEnergyData | null = null;
   private optimizationMetrics: OptimizationMetrics | null = null;
@@ -279,10 +280,17 @@ export class Optimizer {
         this.autoSeasonalMode = homey.settings.get('auto_seasonal_mode') !== false;
         this.summerMode = homey.settings.get('summer_mode') === true;
 
+        // Load price threshold settings
+        const preheatPercentile = Number(homey.settings.get('preheat_cheap_percentile'));
+        if (!Number.isNaN(preheatPercentile) && preheatPercentile >= 0.05 && preheatPercentile <= 0.5) {
+          this.preheatCheapPercentile = preheatPercentile;
+        }
+
         this.logger.log(`COP settings loaded - Weight: ${this.copWeight}, Auto Seasonal: ${this.autoSeasonalMode}, Summer Mode: ${this.summerMode}`);
+        this.logger.log(`Price threshold settings loaded - Cheap Percentile: ${this.preheatCheapPercentile} (${(this.preheatCheapPercentile * 100).toFixed(1)}th percentile)`);
         
         // Initialize TimeZoneHelper with user settings
-        const tzOffset = homey.settings.get('time_zone_offset') || 2;
+        const tzOffset = homey.settings.get('time_zone_offset') || 1; // Settings page default: UTC+01:00
         const useDST = homey.settings.get('use_dst') || false;
         const timeZoneName = homey.settings.get('time_zone_name');
         this.timeZoneHelper = new TimeZoneHelper(
@@ -668,10 +676,21 @@ export class Optimizer {
    * @returns Price level string
    */
   private calculatePriceLevel(percentile: number): string {
-    if (percentile <= 10) return 'VERY_CHEAP';
-    if (percentile <= 30) return 'CHEAP';
-    if (percentile <= 70) return 'NORMAL';
-    if (percentile <= 90) return 'EXPENSIVE';
+    // Use user-configurable cheap threshold (converted from 0-1 to 0-100 scale)
+    const cheapThreshold = this.preheatCheapPercentile * 100;
+    
+    // Get adaptive multiplier for "very cheap" detection (learned from outcomes)
+    const adaptiveThresholds = this.adaptiveParametersLearner?.getStrategyThresholds();
+    const veryChepMultiplier = adaptiveThresholds?.veryChepMultiplier || 0.4; // Fallback to 40%
+    
+    const veryChepThreshold = cheapThreshold * veryChepMultiplier; // Adaptive threshold
+    const expensiveThreshold = 100 - cheapThreshold; // Expensive mirrors cheap on upper end
+    const veryExpensiveThreshold = 100 - veryChepThreshold; // Very expensive mirrors very cheap
+    
+    if (percentile <= veryChepThreshold) return 'VERY_CHEAP';
+    if (percentile <= cheapThreshold) return 'CHEAP';
+    if (percentile <= expensiveThreshold) return 'NORMAL';
+    if (percentile <= veryExpensiveThreshold) return 'EXPENSIVE';
     return 'VERY_EXPENSIVE';
   }
 
@@ -707,11 +726,23 @@ export class Optimizer {
       const tempDelta = this.thermalMassModel.maxPreheatingTemp - currentTemp;
       const preheatingEnergy = tempDelta * this.thermalMassModel.thermalCapacity;
       
-      // Strategy decision logic
-      if (currentPricePercentile <= 0.2 && heatingEfficiency > 0.7 && tempDelta > 0.5) {
-        // Very cheap period + good COP + room for preheating = PREHEAT
+      // Get adaptive strategy thresholds (learned from outcomes, fallback to defaults)
+      const adaptiveThresholds = this.adaptiveParametersLearner?.getStrategyThresholds() || {
+        excellentCOPThreshold: 0.8,
+        goodCOPThreshold: 0.5,
+        minimumCOPThreshold: 0.2,
+        veryChepMultiplier: 0.8,
+        preheatAggressiveness: 2.0,
+        coastingReduction: 1.5,
+        boostIncrease: 0.5
+      };
+
+      // Strategy decision logic using adaptive thresholds
+      if (currentPricePercentile <= (this.preheatCheapPercentile * adaptiveThresholds.veryChepMultiplier) && 
+          heatingEfficiency > adaptiveThresholds.goodCOPThreshold && tempDelta > 0.5) {
+        // Very cheap period (adaptive multiplier of user's cheap threshold) + good COP + room for preheating = PREHEAT
         const preheatingTarget = Math.min(
-          targetTemp + (heatingEfficiency * 2.0), // More aggressive with higher COP
+          targetTemp + (heatingEfficiency * adaptiveThresholds.preheatAggressiveness), // Adaptive aggressiveness
           this.thermalMassModel.maxPreheatingTemp
         );
         
@@ -731,11 +762,12 @@ export class Optimizer {
           confidenceLevel: Math.min(heatingEfficiency + 0.2, 0.9)
         };
         
-      } else if (currentPricePercentile >= 0.8 && currentTemp > targetTemp - 0.5) {
-        // Very expensive period + above target = COAST
+      } else if (currentPricePercentile >= (1.0 - this.preheatCheapPercentile * adaptiveThresholds.veryChepMultiplier) && currentTemp > targetTemp - 0.5) {
+        // Very expensive period (adaptive mirror of cheap threshold) + above target = COAST
+        const coastBand = this.getCurrentComfortBand();
         const coastingTarget = Math.max(
-          targetTemp - 1.5,
-          this.minTemp
+          targetTemp - adaptiveThresholds.coastingReduction,
+          coastBand.minTemp
         );
         
         // Calculate how long we can coast based on thermal mass
@@ -759,9 +791,10 @@ export class Optimizer {
           confidenceLevel: 0.8
         };
         
-      } else if (currentPricePercentile <= 0.3 && heatingEfficiency > 0.8 && currentTemp < targetTemp - 1.0) {
-        // Cheap period + excellent COP + below target = BOOST
-        const boostTarget = Math.min(targetTemp + 0.5, this.maxTemp);
+      } else if (currentPricePercentile <= this.preheatCheapPercentile && heatingEfficiency > adaptiveThresholds.excellentCOPThreshold && currentTemp < targetTemp - 1.0) {
+        // Cheap period (user's threshold) + excellent COP + below target = BOOST
+        const boostBand = this.getCurrentComfortBand();
+        const boostTarget = Math.min(targetTemp + adaptiveThresholds.boostIncrease, boostBand.maxTemp);
         
         const estimatedSavings = this.calculateBoostValue(
           boostTarget,
@@ -1064,8 +1097,11 @@ export class Optimizer {
     const currentPrice = priceData[0]?.price || 0;
     const avgPrice = priceData.reduce((sum, p) => sum + p.price, 0) / priceData.length;
     
-    if (currentPrice < avgPrice * 0.7 && hotWaterCOP > 2.5) {
-      // Very cheap electricity + decent COP
+    // Convert user's cheap percentile to price ratio threshold (cheap percentile of 0.25 -> price ratio of ~0.75)
+    const priceRatioThreshold = 1.0 - (this.preheatCheapPercentile * 1.2); // Slightly more aggressive for hot water
+    
+    if (currentPrice < avgPrice * priceRatioThreshold && hotWaterCOP > 2.5) {
+      // Cheap electricity (based on user's threshold) + decent COP
       return 'heat_now';
     }
 
@@ -1131,6 +1167,27 @@ export class Optimizer {
     }
 
     this.logger.log(`COP settings updated - Weight: ${this.copWeight}, Auto Seasonal: ${this.autoSeasonalMode}, Summer Mode: ${this.summerMode}`);
+  }
+
+  /**
+   * Set price threshold settings
+   * @param preheatCheapPercentile Percentile threshold for considering prices "cheap" (0.05-0.5)
+   * @throws Error if validation fails
+   */
+  setPriceThresholds(preheatCheapPercentile: number): void {
+    // Validate input
+    this.preheatCheapPercentile = validateNumber(preheatCheapPercentile, 'preheatCheapPercentile', { min: 0.05, max: 0.5 });
+
+    // Save to Homey settings if available
+    if (this.homey) {
+      try {
+        this.homey.settings.set('preheat_cheap_percentile', this.preheatCheapPercentile);
+      } catch (error) {
+        this.logger.error('Failed to save price threshold settings to Homey settings:', error);
+      }
+    }
+
+    this.logger.log(`Price threshold settings updated - Cheap Percentile: ${this.preheatCheapPercentile} (${(this.preheatCheapPercentile * 100).toFixed(1)}th percentile)`);
   }
 
   /**
@@ -1316,9 +1373,10 @@ export class Optimizer {
       };
     }
 
-    // Cache frequently used values
-    const tempRange = this.maxTemp - this.minTemp;
-    const midTemp = (this.maxTemp + this.minTemp) / 2;
+    // Cache frequently used values - use user-configurable comfort bands instead of hardcoded values
+    const comfortBand = this.getCurrentComfortBand();
+    const tempRange = comfortBand.maxTemp - comfortBand.minTemp;
+    const midTemp = (comfortBand.maxTemp + comfortBand.minTemp) / 2;
 
     // Normalize price between 0 and 1
     const normalizedPrice = maxPrice === minPrice
@@ -1364,15 +1422,22 @@ export class Optimizer {
       // Price adjustment (inverted: low price = higher temp)
       const priceAdjustment = (0.5 - normalizedPrice) * tempRange * priceWeight;
       
-      // Efficiency-based comfort adjustment
+      // Get adaptive COP thresholds
+      const adaptiveThresholds = this.adaptiveParametersLearner?.getStrategyThresholds() || {
+        excellentCOPThreshold: 0.8,
+        goodCOPThreshold: 0.5,
+        minimumCOPThreshold: 0.2
+      };
+
+      // Efficiency-based comfort adjustment using adaptive thresholds
       let efficiencyAdjustment = 0;
-      if (heatingEfficiency > 0.8) {
+      if (heatingEfficiency > adaptiveThresholds.excellentCOPThreshold) {
         // Excellent heating COP: maintain comfort
         efficiencyAdjustment = adaptiveParams?.copEfficiencyBonusMedium || 0.2; // Learned or fallback
-      } else if (heatingEfficiency > 0.5) {
+      } else if (heatingEfficiency > adaptiveThresholds.goodCOPThreshold) {
         // Good heating COP: slight reduction
         efficiencyAdjustment = -0.1;
-      } else if (heatingEfficiency > 0.2) {
+      } else if (heatingEfficiency > adaptiveThresholds.minimumCOPThreshold) {
         // Poor heating COP: significant reduction
         efficiencyAdjustment = -0.5;
       } else {
@@ -1466,13 +1531,13 @@ export class Optimizer {
 
     // Improved COP-based hot water optimization
     if (hotWaterEfficiency > 0.8) {
-      // Excellent hot water COP (>80th percentile): More flexible timing
-      if (currentPercentile <= 0.4) { // Current price in cheapest 40%
+      // Excellent hot water COP (>80th percentile): More flexible timing  
+      if (currentPercentile <= (this.preheatCheapPercentile * 1.6)) { // User's cheap threshold * 1.6 for hot water flexibility
         return {
           action: 'heat_now',
           reason: `Excellent hot water COP (${hotWaterCOP.toFixed(2)}, ${(hotWaterEfficiency * 100).toFixed(0)}th percentile) + reasonable electricity price (${(currentPercentile * 100).toFixed(0)}th percentile)`
         };
-      } else if (currentPercentile >= 0.8) { // Current price in most expensive 20%
+      } else if (currentPercentile >= (1.0 - this.preheatCheapPercentile * 0.8)) { // Mirror of cheap threshold
         const nextCheapHour = cheapestHours[0];
         return {
           action: 'delay',
@@ -1633,12 +1698,12 @@ export class Optimizer {
       // Use thermal learning model if available
       if (this.useThermalLearning && this.thermalModelService) {
         try {
-          // Get comfort profile from user settings
+          // Get comfort profile from user settings (using settings page defaults)
           const comfortProfile = {
-            dayStart: Number(this.homey?.settings.get('day_start_hour')) || 7,
-            dayEnd: Number(this.homey?.settings.get('day_end_hour')) || 23,
+            dayStart: Number(this.homey?.settings.get('day_start_hour')) || 6,     // Settings page default: value="6"
+            dayEnd: Number(this.homey?.settings.get('day_end_hour')) || 22,        // Settings page default: value="22"
             nightTempReduction: Number(this.homey?.settings.get('night_temp_reduction')) || 2,
-            preHeatHours: Number(this.homey?.settings.get('pre_heat_hours')) || 2
+            preHeatHours: Number(this.homey?.settings.get('pre_heat_hours')) || 1  // Settings page default: value="1"
           };
 
           // Get thermal model recommendation
@@ -1703,8 +1768,9 @@ export class Optimizer {
         }
       }
 
-      // Apply constraints
-      newTarget = Math.max(this.minTemp, Math.min(this.maxTemp, newTarget));
+      // Apply constraints - use user-configurable comfort bands
+      const constraints = this.getCurrentComfortBand();
+      newTarget = Math.max(constraints.minTemp, Math.min(constraints.maxTemp, newTarget));
 
       // Apply step constraint (don't change by more than tempStep)
       const maxChange = this.tempStep;
@@ -1991,16 +2057,18 @@ export class Optimizer {
         hasExpensive: planningBiasResult.hasExpensive
       });
 
+      // Use user-configurable comfort bands for constraints
+      const constraintsBand = this.getCurrentComfortBand();
       const safeCurrentTarget = Number.isFinite(currentTarget as number)
         ? (currentTarget as number)
         : Number.isFinite(currentTemp as number)
           ? (currentTemp as number)
-          : this.minTemp;
+          : constraintsBand.minTemp;
       const zone1ConstraintsInitial = applySetpointConstraints({
         proposedC: targetTemp,
         currentTargetC: safeCurrentTarget,
-        minC: this.minTemp,
-        maxC: this.maxTemp,
+        minC: constraintsBand.minTemp,
+        maxC: constraintsBand.maxTemp,
         stepC: this.tempStep,
         deadbandC: this.deadband,
         minChangeMinutes: this.minSetpointChangeMinutes,
@@ -2129,11 +2197,12 @@ export class Optimizer {
 
       // Reapply constraints after any secondary adjustments (e.g., thermal strategy)
       let expectedDelta = 0;
+      const finalConstraintsBand = this.getCurrentComfortBand();
       const zone1FinalConstraints = applySetpointConstraints({
         proposedC: targetTemp,
         currentTargetC: safeCurrentTarget,
-        minC: this.minTemp,
-        maxC: this.maxTemp,
+        minC: finalConstraintsBand.minTemp,
+        maxC: finalConstraintsBand.maxTemp,
         stepC: this.tempStep,
         deadbandC: this.deadband,
         minChangeMinutes: this.minSetpointChangeMinutes,
@@ -2636,11 +2705,12 @@ export class Optimizer {
       const err = (error instanceof Error) ? error : new Error(String(error as any));
       this.logger.error('Enhanced optimization failed', err);
       const message = err.message;
+      const errorBand = this.getCurrentComfortBand();
       return {
         success: false,
         action: 'no_change',
-        fromTemp: this.minTemp,
-        toTemp: this.minTemp,
+        fromTemp: errorBand.minTemp,
+        toTemp: errorBand.minTemp,
         reason: `Enhanced optimization failed: ${message}`,
         priceData: {
           current: 0,
@@ -2650,11 +2720,12 @@ export class Optimizer {
         }
       };
     }
+    const fallbackBand = this.getCurrentComfortBand();
     return {
       success: false,
       action: 'no_change',
-      fromTemp: this.minTemp,
-      toTemp: this.minTemp,
+      fromTemp: fallbackBand.minTemp,
+      toTemp: fallbackBand.minTemp,
       reason: 'Enhanced optimization exited unexpectedly',
       priceData: {
         current: 0,

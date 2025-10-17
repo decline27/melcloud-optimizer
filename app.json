@@ -167,26 +167,28 @@
       {
         "id": "set_occupied",
         "title": {
-          "en": "Set home/away state"
+          "en": "Set home/away state to [[occupied_state]]"
         },
         "titleFormatted": {
-          "en": "Set home/away state to [[occupied]]"
+          "en": "Set home/away state to [[occupied_state]]"
         },
         "hint": {
-          "en": "Switch between home (occupied) and away modes for different comfort settings and optimization strategies."
+          "en": "Set whether someone is home or away"
         },
         "args": [
           {
-            "name": "occupied",
+            "type": "device",
+            "name": "device",
+            "filter": "driver_id=boiler"
+          },
+          {
+            "name": "occupied_state",
             "type": "dropdown",
-            "title": {
-              "en": "State"
-            },
             "values": [
               {
                 "id": "true",
                 "label": {
-                  "en": "Home (Occupied)"
+                  "en": "Home"
                 }
               },
               {
@@ -196,6 +198,216 @@
                 }
               }
             ]
+          }
+        ]
+      },
+      {
+        "id": "set_holiday_mode",
+        "title": {
+          "en": "[[holiday_state]] holiday mode"
+        },
+        "titleFormatted": {
+          "en": "[[holiday_state]] holiday mode"
+        },
+        "hint": {
+          "en": "Enable or disable holiday mode"
+        },
+        "args": [
+          {
+            "type": "device",
+            "name": "device",
+            "filter": "driver_id=boiler"
+          },
+          {
+            "name": "holiday_state",
+            "type": "dropdown",
+            "values": [
+              {
+                "id": "true",
+                "label": {
+                  "en": "Enable"
+                }
+              },
+              {
+                "id": "false",
+                "label": {
+                  "en": "Disable"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "set_legionella_now",
+        "title": {
+          "en": "[[legionella_action]] legionella cycle"
+        },
+        "titleFormatted": {
+          "en": "[[legionella_action]] legionella cycle"
+        },
+        "hint": {
+          "en": "Start or stop a legionella prevention cycle"
+        },
+        "args": [
+          {
+            "type": "device",
+            "name": "device",
+            "filter": "driver_id=boiler"
+          },
+          {
+            "name": "legionella_action",
+            "type": "dropdown",
+            "values": [
+              {
+                "id": "true",
+                "label": {
+                  "en": "Start"
+                }
+              },
+              {
+                "id": "false",
+                "label": {
+                  "en": "Stop"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "triggers": [
+      {
+        "id": "occupied_changed",
+        "title": {
+          "en": "Home/away state changed"
+        },
+        "hint": {
+          "en": "Triggers when the home/away state changes"
+        },
+        "tokens": [
+          {
+            "name": "occupied",
+            "type": "boolean",
+            "title": {
+              "en": "Is home"
+            },
+            "example": {
+              "en": "true"
+            }
+          }
+        ],
+        "args": [
+          {
+            "type": "device",
+            "name": "device",
+            "filter": "driver_id=boiler"
+          }
+        ]
+      },
+      {
+        "id": "holiday_mode_changed",
+        "title": {
+          "en": "Holiday mode changed"
+        },
+        "hint": {
+          "en": "Triggers when holiday mode is enabled or disabled"
+        },
+        "tokens": [
+          {
+            "name": "holiday_mode",
+            "type": "boolean",
+            "title": {
+              "en": "Holiday mode enabled"
+            },
+            "example": {
+              "en": "true"
+            }
+          }
+        ],
+        "args": [
+          {
+            "type": "device",
+            "name": "device",
+            "filter": "driver_id=boiler"
+          }
+        ]
+      },
+      {
+        "id": "legionella_now_changed",
+        "title": {
+          "en": "Legionella cycle changed"
+        },
+        "hint": {
+          "en": "Triggers when a legionella prevention cycle starts or stops"
+        },
+        "tokens": [
+          {
+            "name": "legionella_now",
+            "type": "boolean",
+            "title": {
+              "en": "Legionella cycle running"
+            },
+            "example": {
+              "en": "true"
+            }
+          }
+        ],
+        "args": [
+          {
+            "type": "device",
+            "name": "device",
+            "filter": "driver_id=boiler"
+          }
+        ]
+      }
+    ],
+    "conditions": [
+      {
+        "id": "occupied_is_true",
+        "title": {
+          "en": "Someone is !{{home|away}}"
+        },
+        "hint": {
+          "en": "Check whether someone is currently home or away"
+        },
+        "args": [
+          {
+            "type": "device",
+            "name": "device",
+            "filter": "driver_id=boiler"
+          }
+        ]
+      },
+      {
+        "id": "holiday_mode_is_true",
+        "title": {
+          "en": "Holiday mode is !{{enabled|disabled}}"
+        },
+        "hint": {
+          "en": "Check whether holiday mode is currently enabled or disabled"
+        },
+        "args": [
+          {
+            "type": "device",
+            "name": "device",
+            "filter": "driver_id=boiler"
+          }
+        ]
+      },
+      {
+        "id": "legionella_now_is_true",
+        "title": {
+          "en": "Legionella cycle is !{{running|stopped}}"
+        },
+        "hint": {
+          "en": "Check whether a legionella prevention cycle is currently running"
+        },
+        "args": [
+          {
+            "type": "device",
+            "name": "device",
+            "filter": "driver_id=boiler"
           }
         ]
       }
@@ -235,7 +447,8 @@
         "hotwater_cop",
         "alarm_generic.offline",
         "holiday_mode",
-        "legionella_now"
+        "legionella_now",
+        "occupied"
       ],
       "capabilitiesOptions": {
         "measure_temperature": {
@@ -711,6 +924,15 @@
       "type": "boolean",
       "title": {
         "en": "Start Legionella Cycle"
+      },
+      "getable": true,
+      "setable": true,
+      "uiComponent": "toggle"
+    },
+    "occupied": {
+      "type": "boolean",
+      "title": {
+        "en": "Home/Away State"
       },
       "getable": true,
       "setable": true,

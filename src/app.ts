@@ -479,6 +479,8 @@ export default class HeatOptimizerApp extends App {
     // Register ENTSO-E price fetch flow action
     this.registerEntsoeFlowAction();
 
+    // Note: Device flow cards are registered in the driver, not here
+
     // Start cron jobs on init if settings are ready (safe re-init logic prevents duplicates)
     try {
       this.log('[App] Checking if cron jobs should be started on init…');
@@ -547,42 +549,12 @@ export default class HeatOptimizerApp extends App {
     } catch (error) {
       this.logger.error('Failed to register ENTSO-E flow action', error as Error);
     }
-
-    // Register home/away flow action
-    try {
-      const setOccupiedCard = this.homey.flow?.getActionCard('set_occupied');
-      if (setOccupiedCard) {
-        setOccupiedCard.registerRunListener(async (args: { occupied?: string }) => {
-          const occupied = args?.occupied === 'true';
-          this.homey.settings.set('occupied', occupied);
-          
-          this.logger.info(`Home/Away state changed via flow: ${occupied ? 'Home (Occupied)' : 'Away'}`);
-          
-          // Notify timeline
-          if (this.timelineHelper) {
-            try {
-              await this.timelineHelper.addTimelineEntry(
-                TimelineEventType.CUSTOM,
-                { 
-                  title: '🏠 Home/Away Mode Changed',
-                  message: `Switched to ${occupied ? 'Home (Occupied)' : 'Away'} mode`,
-                  occupied 
-                },
-                false // Don't create notification
-              );
-            } catch (timelineError) {
-              this.logger.warn('Failed to add timeline entry for occupancy change', timelineError as Error);
-            }
-          }
-          
-          return Promise.resolve(true);
-        });
-        this.logger.info('Home/Away flow action registered');
-      }
-    } catch (error) {
-      this.logger.error('Failed to register Home/Away flow action', error as Error);
-    }
   }
+
+  /**
+   * Register device flow cards for custom capabilities
+   */
+
 
   /**
    * Initialize the centralized logger
@@ -722,10 +694,22 @@ export default class HeatOptimizerApp extends App {
       'comfort_lower_occupied',
       'comfort_upper_occupied',
       'comfort_lower_away',
-      'comfort_upper_away'
+      'comfort_upper_away',
+      'occupied'
     ].includes(key)) {
-      this.log(`Temperature setting '${key}' changed, re-validating settings`);
+      this.log(`Temperature/occupancy setting '${key}' changed, re-validating settings and updating optimizer`);
       this.validateSettings();
+      
+      // Update optimizer settings immediately for occupancy changes
+      if (key === 'occupied') {
+        try {
+          const api = require('../api.js');
+          await api.updateOptimizerSettings(this.homey);
+          this.log('Optimizer settings updated with new occupancy state');
+        } catch (error) {
+          this.error('Failed to update optimizer settings with new occupancy state:', error as Error);
+        }
+      }
     }
     // If COP settings changed, update the COP Helper
     else if (['cop_weight', 'auto_seasonal_mode', 'summer_mode'].includes(key)) {

@@ -159,6 +159,10 @@ export interface HomeyApp {
   };
   flow?: {
     runFlowCardAction(options: { uri: string; args: any }): Promise<any>;
+    getActionCard(id: string): any;
+    getConditionCard(id: string): any;
+    getTriggerCard(id: string): any;
+    getDeviceTriggerCard(id: string): any;
   };
   // Internationalization and localization
   i18n?: {

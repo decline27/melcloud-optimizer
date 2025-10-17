@@ -1,0 +1,13 @@
+{
+  "type": "boolean",
+  "title": {
+    "en": "Home/Away State"
+  },
+  "desc": {
+    "en": "Indicates whether someone is home (true) or away (false)"  
+  },
+  "getable": true,
+  "setable": true,
+  "uiComponent": "toggle",
+  "insights": true
+}

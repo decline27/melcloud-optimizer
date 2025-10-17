@@ -165,10 +165,10 @@ describe('ThermalModelService', () => {
         precipitation: 0
       };
       const comfortProfile = {
-        dayStart: 7,
-        dayEnd: 23,
+        dayStart: 6,   // Updated to match settings page default
+        dayEnd: 22,    // Updated to match settings page default
         nightTempReduction: 2,
-        preHeatHours: 2
+        preHeatHours: 1  // Updated to match settings page default
       };
 
       const recommendation = thermalModelService.getHeatingRecommendation(
@@ -213,10 +213,10 @@ describe('ThermalModelService', () => {
         precipitation: 0
       };
       const comfortProfile = {
-        dayStart: 7,
-        dayEnd: 23,
+        dayStart: 6,   // Updated to match settings page default
+        dayEnd: 22,    // Updated to match settings page default
         nightTempReduction: 2,
-        preHeatHours: 2
+        preHeatHours: 1  // Updated to match settings page default
       };
 
       const recommendation = thermalModelService.getHeatingRecommendation(
@@ -252,10 +252,10 @@ describe('ThermalModelService', () => {
         precipitation: 0
       };
       const comfortProfile = {
-        dayStart: 7,
-        dayEnd: 23,
+        dayStart: 6,   // Updated to match settings page default
+        dayEnd: 22,    // Updated to match settings page default
         nightTempReduction: 2,
-        preHeatHours: 2
+        preHeatHours: 1  // Updated to match settings page default
       };
 
       const recommendation = thermalModelService.getHeatingRecommendation(

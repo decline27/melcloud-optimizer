@@ -237,7 +237,7 @@ describe('HeatOptimizerApp focused coverage tests', () => {
       if (key === 'melcloud_pass') return 'password';
       if (key === 'tibber_token') return 'token';
       if (key === 'device_id') return '123';
-      if (key === 'time_zone_offset') return 2;
+      if (key === 'time_zone_offset') return 1; // Updated to match settings page default (UTC+01:00)
       if (key === 'use_dst') return true;
       return undefined;
     });

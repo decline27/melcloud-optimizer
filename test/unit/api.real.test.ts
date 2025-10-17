@@ -93,6 +93,7 @@ describe('api.js — real module tests using __test helpers', () => {
       setTankTemperatureConstraints: jest.fn(),
       setThermalModel: jest.fn(),
       setCOPSettings: jest.fn(),
+      setPriceThresholds: jest.fn(),
       refreshOccupancyFromSettings: jest.fn(),
       thermalModel: { K: 0.5 },
       thermalModelService: { getMemoryUsage: jest.fn().mockReturnValue({}) }
@@ -118,6 +119,7 @@ describe('api.js — real module tests using __test helpers', () => {
       setTankTemperatureConstraints: jest.fn(),
       setThermalModel: jest.fn(),
       setCOPSettings: jest.fn(),
+      setPriceThresholds: jest.fn(),
       refreshOccupancyFromSettings: jest.fn(),
       thermalModel: { K: 0.5 }
     };

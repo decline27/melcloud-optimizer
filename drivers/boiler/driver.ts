@@ -31,6 +31,12 @@ module.exports = class BoilerDriver extends Homey.Driver {
       this.logger.error('Failed to initialize MELCloud API:', error);
     }
 
+    // Register device flow cards
+    this.registerDeviceFlowCards();
+
+    // Sync app settings to device capabilities on startup
+    this.syncAppSettingsToDevices();
+
     // Initialize optimization cron jobs
     this.initializeCronJobs();
   }
@@ -84,6 +90,8 @@ module.exports = class BoilerDriver extends Homey.Driver {
       return 'Europe/Oslo';
     }
   }
+
+
 
   /**
    * Initialize cron jobs for optimization scheduling
@@ -356,6 +364,121 @@ module.exports = class BoilerDriver extends Homey.Driver {
     } catch (error) {
       this.logger.error('Failed to fetch MELCloud devices:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Register device flow cards
+   * Device flow cards must be registered in the driver, not the app
+   */
+  private registerDeviceFlowCards(): void {
+    try {
+      const flowManager = (this.homey as any).flow;
+      if (!flowManager) {
+        this.logger.warn('Homey flow manager is not available; device flow cards not registered');
+        return;
+      }
+
+      // Register device action cards
+      const setOccupiedAction = flowManager.getActionCard('set_occupied');
+      setOccupiedAction.registerRunListener(async (args: any, state: any) => {
+        const device = args.device;
+        const occupied = args.occupied_state === 'true';
+        
+        // Update device capability
+        await device.setCapabilityValue('occupied', occupied);
+        
+        // Also update app-level setting so it syncs with settings page and optimizer
+        try {
+          const app = (this.homey as any).app;
+          if (app && app.homey && app.homey.settings) {
+            app.homey.settings.set('occupied', occupied);
+            this.logger.info(`Updated both device capability and app setting: occupied = ${occupied}`);
+          } else {
+            this.logger.warn('Could not access app settings to sync occupied state');
+          }
+        } catch (error) {
+          this.logger.error('Failed to sync occupied state to app settings:', error);
+        }
+        
+        return true;
+      });
+
+      const setHolidayModeAction = flowManager.getActionCard('set_holiday_mode');
+      setHolidayModeAction.registerRunListener(async (args: any, state: any) => {
+        const device = args.device;
+        const holidayMode = args.holiday_state === 'true';
+        await device.setCapabilityValue('holiday_mode', holidayMode);
+        return true;
+      });
+
+      const setLegionellaNowAction = flowManager.getActionCard('set_legionella_now');
+      setLegionellaNowAction.registerRunListener(async (args: any, state: any) => {
+        const device = args.device;
+        const legionellaNow = args.legionella_action === 'true';
+        await device.setCapabilityValue('legionella_now', legionellaNow);
+        return true;
+      });
+
+      // Register device condition cards
+      const occupiedCondition = flowManager.getConditionCard('occupied_is_true');
+      occupiedCondition.registerRunListener(async (args: any, state: any) => {
+        const device = args.device;
+        return await device.getCapabilityValue('occupied') === true;
+      });
+
+      const holidayModeCondition = flowManager.getConditionCard('holiday_mode_is_true');
+      holidayModeCondition.registerRunListener(async (args: any, state: any) => {
+        const device = args.device;
+        return await device.getCapabilityValue('holiday_mode') === true;
+      });
+
+      const legionellaNowCondition = flowManager.getConditionCard('legionella_now_is_true');
+      legionellaNowCondition.registerRunListener(async (args: any, state: any) => {
+        const device = args.device;
+        return await device.getCapabilityValue('legionella_now') === true;
+      });
+
+      this.logger.info('Device flow cards registered successfully');
+    } catch (error) {
+      this.logger.error('Failed to register device flow cards', error as Error);
+    }
+  }
+
+  /**
+   * Sync app-level settings to device capabilities on startup
+   * This ensures device capabilities reflect the current app settings
+   */
+  private async syncAppSettingsToDevices(): Promise<void> {
+    try {
+      const app = (this.homey as any).app;
+      if (!app || !app.homey || !app.homey.settings) {
+        this.logger.warn('Cannot access app settings for synchronization');
+        return;
+      }
+
+      // Get current app setting for occupied
+      const occupiedSetting = app.homey.settings.get('occupied');
+      const occupied = occupiedSetting !== false; // Default to true if not set
+
+      // Update all devices with this driver
+      const devices = (this as any).getDevices();
+      for (const device of devices) {
+        try {
+          // Only update if the current device capability differs from app setting
+          const currentOccupied = await device.getCapabilityValue('occupied');
+          if (currentOccupied !== occupied) {
+            await device.setCapabilityValue('occupied', occupied);
+            this.logger.info(`Synced device ${device.getName()} occupied capability: ${occupied}`);
+          }
+        } catch (error) {
+          this.logger.error(`Failed to sync occupied capability for device ${device.getName()}:`, error);
+        }
+      }
+
+      this.logger.info(`Synchronized occupied setting (${occupied}) to ${devices.length} device(s)`);
+    } catch (error) {
+      this.logger.error('Failed to sync app settings to devices:', error);
     }
   }
 

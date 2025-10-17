@@ -475,11 +475,11 @@ export async function updateOptimizerSettings(homey: HomeyLike): Promise<void> {
   const comfortUpperOccupied = userComfortUpperOccupied ?? DefaultComfortConfig.comfortOccupied.upperC;
   const comfortUpperAway = userComfortUpperAway ?? DefaultComfortConfig.comfortAway.upperC;
 
-  const comfortLowerCandidates = [comfortLowerOccupied, comfortLowerAway];
-  const comfortUpperCandidates = [comfortUpperOccupied, comfortUpperAway];
-
-  const derivedMin = Math.min(...comfortLowerCandidates);
-  let derivedMax = Math.max(...comfortUpperCandidates);
+  // Check current occupancy state to select appropriate comfort band
+  const currentlyOccupied = homey.settings.get('occupied') !== false; // Default to true if not set
+  
+  const derivedMin = currentlyOccupied ? comfortLowerOccupied : comfortLowerAway;
+  let derivedMax = currentlyOccupied ? comfortUpperOccupied : comfortUpperAway;
 
   if (derivedMax <= derivedMin) {
     derivedMax = derivedMin + 1;
@@ -494,7 +494,8 @@ export async function updateOptimizerSettings(homey: HomeyLike): Promise<void> {
   homey.app.log('- User Away:', userComfortLowerAway ?? 'unset', '→', userComfortUpperAway ?? 'unset');
   homey.app.log('- Final Occupied:', comfortLowerOccupied, '→', comfortUpperOccupied);
   homey.app.log('- Final Away:', comfortLowerAway, '→', comfortUpperAway);
-  homey.app.log('- Derived Range:', derivedMin, '→', derivedMax);
+  homey.app.log('- Currently Occupied:', currentlyOccupied ? 'YES (Home)' : 'NO (Away)');
+  homey.app.log('- Selected Range:', derivedMin, '→', derivedMax, currentlyOccupied ? '(Occupied)' : '(Away)');
 
   if (maxTemp - minTemp < 0.5) {
     maxTemp = minTemp + 0.5;
@@ -544,10 +545,17 @@ export async function updateOptimizerSettings(homey: HomeyLike): Promise<void> {
   homey.app.log('- Auto Seasonal Mode:', autoSeasonalMode ? 'Enabled' : 'Disabled');
   homey.app.log('- Summer Mode:', summerMode ? 'Enabled' : 'Disabled');
 
+  // Load price threshold settings
+  const preheatCheapPercentile = toNumber(homey.settings.get('preheat_cheap_percentile')) ?? 0.25;
+
+  homey.app.log('Price threshold settings:');
+  homey.app.log('- Cheap Percentile:', preheatCheapPercentile, `(${(preheatCheapPercentile * 100).toFixed(1)}th percentile)`);
+
   optimizer.setTemperatureConstraints(minTemp, maxTemp, tempStep);
   optimizer.setZone2TemperatureConstraints(enableZone2, minTempZone2, maxTempZone2, tempStepZone2);
   optimizer.setTankTemperatureConstraints(enableTankControl, minTankTemp, maxTankTemp, tankTempStep);
   optimizer.setThermalModel(kFactor);
   optimizer.refreshOccupancyFromSettings();
   optimizer.setCOPSettings(copWeight, autoSeasonalMode, summerMode);
+  optimizer.setPriceThresholds(preheatCheapPercentile);
 }
