@@ -17,6 +17,8 @@ This is a **Homey SDK 3.0 TypeScript app** that optimizes Mitsubishi Electric he
 - **Optimization Engine**: `src/services/optimizer.ts` (decision logic)
 - **Thermal Modeling**: `src/services/thermal-model.ts` (house heat loss modeling)
 - **COP Tracking**: `src/services/cop-helper.ts` (efficiency monitoring)
+- **Hot Water Optimization**: `src/services/hot-water/` (usage learning & scheduling)
+- **Planning Utilities**: `src/services/planning-utils.ts` (bias computation & thermal response tuning)
 
 ### Configuration
 - **Settings UI**: `settings/index.html` (user configuration interface)
@@ -28,19 +30,21 @@ This is a **Homey SDK 3.0 TypeScript app** that optimizes Mitsubishi Electric he
 This system is NOT a static rule-based optimizer. It features sophisticated machine learning capabilities:
 
 #### Thermal Learning (`src/services/thermal-model/`)
-- **ThermalModelService**: Updates house thermal characteristics every 6 hours using real MELCloud data
-- **ThermalAnalyzer**: Calculates house-specific parameters (heating/cooling rates, outdoor temp impact, wind effects, thermal mass)
-- **Continuous Learning**: Uses 80% new data + 20% historical for stability, learning from actual house behavior
+- **Data pipeline**: `ThermalDataCollector` persists detailed + aggregated samples in Homey settings (`thermal_model_data`, `thermal_model_aggregated_data`) with 30-day retention and automatic trimming when the 500KB quota is approached.
+- **ThermalModelService**: Schedules 6-hour model refreshes and 12-hour cleanup cycles, logging memory impact and invoking analysis after each cleanup.
+- **ThermalAnalyzer**: Sorts data chronologically to derive heating/cooling rates, outdoor and wind impact, and thermal mass with 80/20 blending between new observations and prior characteristics.
+- **Predictive APIs**: Provides `getOptimalPreheatingTime`, `getHeatingRecommendation`, and forecast helpers that fall back to safe defaults until `modelConfidence` passes 0.2–0.3.
 
 #### Adaptive Parameter Learning (`src/services/adaptive-parameters.ts`)
-- **Seasonal Price Sensitivity**: Adjusts price weight factors based on actual savings performance
-- **COP Efficiency Bonuses**: Learns optimal efficiency thresholds from real heat pump performance
-- **Dynamic Strategy Adaptation**: Modifies optimization parameters based on measured outcomes
+- **Seasonal Price Sensitivity**: Learns `priceWeightSummer|Winter|Transition` from savings vs comfort trade-offs per season, keeping them within 0.2–0.9 bounds.
+- **Strategy Thresholds**: Evolves COP thresholds, `veryChepMultiplier`, and temperature adjustments (`preheatAggressiveness`, `coastingReduction`, `boostIncrease`) using gradual learning rates and confidence-weighted blending with defaults.
+- **Outcome Feedback Loop**: `learnFromOutcome` consumes savings, comfort violations, and COP to nudge parameters and increments `learningCycles`; `getParameters` blends with defaults until confidence ≥ 0.3 (≈30 cycles).
+- **Persistence & Migration**: Stores JSON in `adaptive_business_parameters` with automatic migration when new fields ship.
 
 #### Hot Water Usage Learning
-- **Pattern Recognition**: Learns household hot water usage patterns over time
-- **Demand Prediction**: Anticipates hot water needs based on historical usage
-- **Efficiency Optimization**: Adapts heating schedules to actual consumption patterns
+- **Data Collection**: `HotWaterDataCollector` samples every 5 minutes, de-duplicates with incremental energy deltas, aggregates old data, and keeps <500KB across `hot_water_usage_data` + aggregated settings.
+- **Pattern Recognition**: `HotWaterAnalyzer` requires ≥12 points, blends new vs old profiles, and tracks confidence (0–100) to weight hourly/day-of-week predictions.
+- **Scheduling Service**: `HotWaterService` applies timezone-aware timestamps, triggers analysis every 6 hours, and exposes usage predictions to optimizer scheduling plus price-aware tank target suggestions.
 
 #### Impact on "Hardcoded" Values
 Many apparent "hardcoded" thresholds in the optimizer are actually **decision boundaries operating on learned, house-specific parameters**:
@@ -50,6 +54,19 @@ Many apparent "hardcoded" thresholds in the optimizer are actually **decision bo
 - Safety margins adjust based on learned thermal mass and response times
 
 **Key Insight**: The system combines user-configurable price sensitivity (e.g., `preheat_cheap_percentile`) with sophisticated ML adaptation. "Hardcoded" values are often decision logic operating on learned, house-specific data rather than fixed assumptions.
+
+### Optimization Workflow Highlights
+- **Thermal Mass Model**: `Optimizer` bootstraps `thermalMassModel` from recent MELCloud energy history and refines strategy decisions (preheat/coast/boost) with adaptive thresholds from `AdaptiveParametersLearner`.
+- **Price Classification**: `calculatePriceLevel` multiplies user `preheat_cheap_percentile` with the learned `veryChepMultiplier` to qualify "very cheap/expensive" windows for orchestration.
+- **Outcome Learning Loop**: After each cycle, `learnFromOptimizationOutcome` feeds seasonal results back into `AdaptiveParametersLearner`, raising confidence until full trust after ~100 cycles.
+- **Planning Utilities**: `computePlanningBias` and `updateThermalResponse` temper forecast bias and thermal response based on observed vs expected deltas, avoiding oscillation.
+
+### Data Persistence & Settings
+- **Adaptive Parameters**: Stored under `adaptive_business_parameters`; confidence blending ensures unstable models fallback to defaults.
+- **Thermal Model**: Characteristics live in `thermal_model_characteristics`; raw + aggregated samples reside in `thermal_model_data` and `thermal_model_aggregated_data` with auto cleanup and memory watchdogs.
+- **Hot Water**: Usage data (`hot_water_usage_data`, `hot_water_usage_aggregated_data`) and patterns (`hot_water_usage_patterns`) persist across restarts.
+- **COP Metrics**: Snapshot history retained via `cop_snapshots_daily|weekly|monthly`, supporting seasonal COP normalization in the optimizer.
+- **User Settings Influence**: Comfort bands, cheap percentile, timezone offsets, device IDs, and price source all come from `homey.settings`—the optimizer never hardcodes these values.
 
 ## Development Guidelines
 
