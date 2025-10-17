@@ -1,3 +1,39 @@
+# MELCloud Optimizer (current)
+
+This repository contains the MELCloud Heat Pump Optimizer Homey app.
+
+This README has been simplified. Detailed documentation and historical notes were archived to reduce top-level clutter.
+
+Where to find things:
+- Full documentation: `documentation/`
+- Archived historical documents: `documentation/archived/` (moved from the repository root)
+- Source code: `src/`, `optimization/`, `services/`, `drivers/`
+
+Quick links
+- API and app entry: `src/app.ts`, `src/api.ts`
+- Optimization engine: `optimization/engine.ts`
+- ENTSO-E support: `src/entsoe.ts` and `assets/entsoe_area_map.json`
+- Settings UI: `assets/settings/` and `settings/index.html`
+
+Development
+
+Prerequisites: Node.js >=16, npm
+
+Install:
+
+    npm install
+
+Build:
+
+    npm run build
+
+Run tests:
+
+    npm run test:unit
+
+If you need the older, detailed markdown files they are preserved in `documentation/archived/`.
+
+If you want me to further trim or reorganize docs (e.g., generate an index of archived files or extract summaries into `documentation/`), tell me which direction to take.
 MELCloud Optimizer - Energy And Cost Savings Focus
 
 This document describes how the Homey app optimizes Mitsubishi Electric air-to-water units that are controlled through MELCloud. The goal is to combine reliable comfort with measurable reductions in electricity cost.

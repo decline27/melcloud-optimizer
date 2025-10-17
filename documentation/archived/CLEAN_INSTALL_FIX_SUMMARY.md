@@ -13,11 +13,6 @@ I conducted a comprehensive analysis of the MELCloud Optimizer app's clean insta
 ## Key Findings
 
 ### ✅ What Already Worked Well
-- **Excellent default values** in the HTML settings form (ENTSO-E selected, SE3 zone, EUR currency, sensible thermal settings)
-- **Engine configuration defaults** are well-designed
-- **Driver gracefully handles** missing settings without crashing
-- **Settings persist** across app updates correctly
-- **Comprehensive European pricing defaults** for consumer markup
 
 ### 🚨 Critical Bug Found and Fixed
 **Problem**: The `validateSettings()` method in `src/app.ts` had a bug where it always required a Tibber token, even when ENTSO-E was selected as the price source (which is the default).
@@ -53,10 +48,6 @@ if (priceDataSource === 'tibber' && !tibberToken) {
 **File**: `test/unit/clean-install.test.ts`
 
 Created thorough tests covering:
-- ✅ Clean install with ENTSO-E (default) - should work with just MELCloud credentials
-- ✅ Clean install with Tibber - should require Tibber token
-- ✅ Missing MELCloud credentials - should fail regardless of price source  
-- ✅ Legacy compatibility - handles undefined price_data_source correctly
 
 All tests **PASS** ✅
 
@@ -64,11 +55,6 @@ All tests **PASS** ✅
 **File**: `CLEAN_INSTALL_ASSESSMENT.md`
 
 Comprehensive documentation covering:
-- Complete list of default settings
-- Required vs optional configuration
-- Remaining minor issues
-- User experience assessment
-- Ship-readiness checklist
 
 ## Current App Status
 
@@ -76,14 +62,8 @@ Comprehensive documentation covering:
 The app can now be shipped to new users with **minimal configuration required**:
 
 **Required Settings (User Must Configure)**:
-- MELCloud email address
-- MELCloud password
 
 **Everything Else Has Sensible Defaults**:
-- Price source: ENTSO-E (works without Tibber token)
-- ENTSO-E zone: SE3 (Sweden)
-- All thermal and comfort settings
-- Currency and pricing markup
 
 ### 🔧 Minor Remaining Issues
 1. **Service initialization** could be more graceful when MELCloud credentials are missing
@@ -111,3 +91,5 @@ All 5 tests PASSED ✅
 3. **Optional: Configure additional settings** → Enhanced functionality
 
 The remaining issues are UX improvements rather than blockers.
+This document has been archived and moved to `documentation/archived/CLEAN_INSTALL_FIX_SUMMARY.md`.
+Refer to that file for the full investigation summary and fixes.

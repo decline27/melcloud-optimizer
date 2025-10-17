@@ -1,7 +1,5 @@
-# Fixed Baseline Calculation Implementation Summary
-
-## Overview
-Successfully implemented a comprehensive fixed baseline calculation system that compares optimized heat pump operation against traditional "manual" thermostat operation without requiring user configuration.
+This document has been archived and moved to `documentation/archived/BASELINE_IMPLEMENTATION_SUMMARY.md`.
+Refer to that file for the full implementation summary.
 
 ## What Was Implemented
 
