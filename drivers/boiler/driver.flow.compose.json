@@ -109,6 +109,9 @@
         {
           "name": "occupied_state",
           "type": "dropdown",
+          "title": {
+            "en": "State"
+          },
           "values": [
             {
               "id": "true",
@@ -141,6 +144,9 @@
         {
           "name": "holiday_state",
           "type": "dropdown",
+          "title": {
+            "en": "Action"
+          },
           "values": [
             {
               "id": "true",
@@ -173,6 +179,9 @@
         {
           "name": "legionella_action",
           "type": "dropdown",
+          "title": {
+            "en": "Action"
+          },
           "values": [
             {
               "id": "true",
