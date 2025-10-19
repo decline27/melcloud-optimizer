@@ -18,6 +18,10 @@ env.json
 .env.local
 .env.*.local
 
+# Data dump files (can be large)
+*_data_for_visualization.json
+API_MIGRATION_TEMPERATURE_FIX.md
+
 # Testing and coverage
 coverage/
 coverage-unit/

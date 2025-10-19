@@ -401,6 +401,7 @@ interface ApiHandlers {
   getTibberStatus(context: ApiHandlerContext): Promise<ConnectionStatusResponse>;
   runSystemHealthCheck(context: ApiHandlerContext): Promise<SystemHealthCheckResult>;
   getMemoryUsage(context: ApiHandlerContext): Promise<GetMemoryUsageResponse>;
+  getAllStoredData(context: ApiHandlerContext): Promise<ApiResult<{ data: any; message: string }>>;
   runThermalDataCleanup(context: ApiHandlerContext): Promise<RunThermalDataCleanupResponse>;
   internalCleanup(context: ApiHandlerContext): Promise<InternalCleanupResponse>;
   validateAndStartCron(context: ApiHandlerContext): Promise<ValidateAndStartCronResponse>;
@@ -2765,6 +2766,165 @@ const apiHandlers: ApiHandlers = {
     } catch (err: any) {
       console.error('Error in getMemoryUsage:', err);
       return { success: false, error: err.message };
+    }
+  },
+
+  getAllStoredData: async ({ homey }: ApiHandlerContext) => {
+    try {
+      console.log('API method getAllStoredData called');
+      homey.app.log('API method getAllStoredData called');
+
+      const data: any = {
+        metadata: {
+          timestamp: new Date().toISOString(),
+          appVersion: 'unknown' // Will be set by app if available
+        },
+        configuration: {},
+        thermalModelData: {},
+        hotWaterData: {},
+        copData: {},
+        adaptiveParameters: {},
+        optimizationHistory: {},
+        memoryUsage: {},
+        errors: []
+      };
+
+      // Collect configuration settings
+      try {
+        const configKeys = [
+          'melcloud_user', 'building_id', 'device_id', 'time_zone_name', 'time_zone_offset', 'use_dst',
+          'comfort_lower_home', 'comfort_upper_home', 'comfort_lower_away', 'comfort_upper_away',
+          'occupied', 'holiday_mode', 'price_data_source', 'tibber_api_token', 'entsoe_area_eic',
+          'preheat_cheap_percentile', 'currency_code', 'enable_consumer_markup', 'consumer_markup_config',
+          'cop_weight', 'auto_seasonal_mode', 'summer_mode', 'initial_k', 'enable_baseline_comparison'
+        ];
+
+        for (const key of configKeys) {
+          const value = homey.settings.get(key);
+          if (value !== null && value !== undefined) {
+            // Mask sensitive data
+            if (key === 'melcloud_pass' || key === 'tibber_api_token') {
+              data.configuration[key] = value ? '[MASKED]' : null;
+            } else {
+              data.configuration[key] = value;
+            }
+          }
+        }
+      } catch (error: any) {
+        data.errors.push(`Configuration collection error: ${error.message}`);
+      }
+
+      // Collect thermal model data
+      try {
+        const thermalModelData = homey.settings.get('thermal_model_data');
+        const thermalModelAggregatedData = homey.settings.get('thermal_model_aggregated_data');
+        const thermalCharacteristics = homey.settings.get('thermal_characteristics');
+
+        data.thermalModelData = {
+          rawData: thermalModelData || null,
+          aggregatedData: thermalModelAggregatedData || null,
+          characteristics: thermalCharacteristics || null,
+          dataPointCount: Array.isArray(thermalModelData) ? thermalModelData.length : 0,
+          aggregatedDataPointCount: Array.isArray(thermalModelAggregatedData) ? thermalModelAggregatedData.length : 0
+        };
+      } catch (error: any) {
+        data.errors.push(`Thermal model data collection error: ${error.message}`);
+      }
+
+      // Collect hot water data
+      try {
+        const hotWaterUsageData = homey.settings.get('hot_water_usage_data');
+        const hotWaterAggregatedData = homey.settings.get('hot_water_usage_aggregated_data');
+        const hotWaterPatterns = homey.settings.get('hot_water_usage_patterns');
+
+        data.hotWaterData = {
+          usageData: hotWaterUsageData || null,
+          aggregatedData: hotWaterAggregatedData || null,
+          patterns: hotWaterPatterns || null,
+          usageDataPointCount: Array.isArray(hotWaterUsageData) ? hotWaterUsageData.length : 0,
+          aggregatedDataPointCount: Array.isArray(hotWaterAggregatedData) ? hotWaterAggregatedData.length : 0
+        };
+      } catch (error: any) {
+        data.errors.push(`Hot water data collection error: ${error.message}`);
+      }
+
+      // Collect COP data
+      try {
+        const copDaily = homey.settings.get('cop_snapshots_daily');
+        const copWeekly = homey.settings.get('cop_snapshots_weekly');
+        const copMonthly = homey.settings.get('cop_snapshots_monthly');
+
+        data.copData = {
+          daily: copDaily || [],
+          weekly: copWeekly || [],
+          monthly: copMonthly || [],
+          dailyCount: Array.isArray(copDaily) ? copDaily.length : 0,
+          weeklyCount: Array.isArray(copWeekly) ? copWeekly.length : 0,
+          monthlyCount: Array.isArray(copMonthly) ? copMonthly.length : 0
+        };
+      } catch (error: any) {
+        data.errors.push(`COP data collection error: ${error.message}`);
+      }
+
+      // Collect adaptive parameters
+      try {
+        const adaptiveParams = homey.settings.get('adaptive_business_parameters');
+        
+        data.adaptiveParameters = {
+          parameters: adaptiveParams || null,
+          hasData: !!adaptiveParams
+        };
+      } catch (error: any) {
+        data.errors.push(`Adaptive parameters collection error: ${error.message}`);
+      }
+
+      // Collect optimization history
+      try {
+        const optimizationHistory = homey.settings.get('optimization_history');
+        const orchestratorMetrics = homey.settings.get('orchestrator_metrics');
+
+        data.optimizationHistory = {
+          history: optimizationHistory || [],
+          metrics: orchestratorMetrics || null,
+          historyCount: Array.isArray(optimizationHistory) ? optimizationHistory.length : 0
+        };
+      } catch (error: any) {
+        data.errors.push(`Optimization history collection error: ${error.message}`);
+      }
+
+      // Collect memory usage
+      try {
+        const memoryResult = await apiHandlers.getMemoryUsage({ homey });
+        data.memoryUsage = memoryResult.success ? {
+          processMemory: memoryResult.processMemory,
+          thermalModelMemory: memoryResult.thermalModelMemory,
+          timestamp: memoryResult.timestamp
+        } : { error: memoryResult.message };
+      } catch (error: any) {
+        data.errors.push(`Memory usage collection error: ${error.message}`);
+      }
+
+      // Add data size estimation
+      try {
+        const dataString = JSON.stringify(data);
+        data.metadata.dataSizeBytes = dataString.length;
+        data.metadata.dataSizeKB = Math.round(dataString.length / 1024 * 100) / 100;
+      } catch (error: any) {
+        data.errors.push(`Data size calculation error: ${error.message}`);
+      }
+
+      return {
+        success: true,
+        data,
+        message: 'Data dump collected successfully'
+      };
+    } catch (err: any) {
+      console.error('Error in getAllStoredData:', err);
+      homey.app.error('Error collecting stored data:', err);
+      return {
+        success: false,
+        message: `Error collecting stored data: ${err.message}`
+      };
     }
   },
 

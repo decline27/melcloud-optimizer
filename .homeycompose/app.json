@@ -235,6 +235,10 @@
       "method": "GET",
       "path": "/getMemoryUsage"
     },
+    "getAllStoredData": {
+      "method": "GET",
+      "path": "/getAllStoredData"
+    },
     "runThermalDataCleanup": {
       "method": "GET",
       "path": "/runThermalDataCleanup"

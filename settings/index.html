@@ -56,6 +56,126 @@
         opacity: 0.6;
         pointer-events: none;
       }
+
+      /* Data dump styling */
+      .data-dump-header {
+        margin-bottom: 20px;
+        padding: 15px;
+        background: #e8f4f8;
+        border-radius: 6px;
+        border-left: 4px solid #007acc;
+      }
+      
+      .data-section {
+        margin: 10px 0;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
+      
+      .data-section summary {
+        padding: 10px 15px;
+        background: #f8f9fa;
+        cursor: pointer;
+        font-weight: 600;
+        border-radius: 4px 4px 0 0;
+      }
+      
+      .data-section[open] summary {
+        border-bottom: 1px solid #ddd;
+        border-radius: 4px 4px 0 0;
+      }
+      
+      .data-section > div {
+        padding: 15px;
+      }
+      
+      .data-table, .config-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 10px 0;
+        font-size: 14px;
+      }
+      
+      .data-table th,
+      .data-table td,
+      .config-table th,
+      .config-table td {
+        padding: 8px 12px;
+        text-align: left;
+        border-bottom: 1px solid #eee;
+      }
+      
+      .data-table th,
+      .config-table th {
+        background: #f8f9fa;
+        font-weight: 600;
+        border-bottom: 2px solid #dee2e6;
+      }
+      
+      .config-table .key {
+        font-weight: 600;
+        background: #f8f9fa;
+        width: 30%;
+        vertical-align: top;
+      }
+      
+      .config-table .value {
+        font-family: monospace;
+        word-break: break-word;
+      }
+      
+      .no-data {
+        color: #666;
+        font-style: italic;
+        padding: 20px;
+        text-align: center;
+        background: #f8f9fa;
+        border-radius: 4px;
+        margin: 10px 0;
+      }
+      
+      .error {
+        color: #d32f2f;
+        background: #ffebee;
+        padding: 10px;
+        border-radius: 4px;
+        border-left: 4px solid #d32f2f;
+        margin: 10px 0;
+      }
+      
+      .error-section {
+        border: 1px solid #f5c6cb;
+        background: #f8d7da;
+        border-radius: 4px;
+        margin: 10px 0;
+      }
+      
+      .error-section summary {
+        background: #f5c6cb;
+        color: #721c24;
+        padding: 10px 15px;
+        cursor: pointer;
+        font-weight: 600;
+      }
+      
+      .error-section ul {
+        margin: 15px;
+        padding-left: 20px;
+      }
+      
+      .error-section li {
+        color: #721c24;
+        margin: 5px 0;
+      }
+      
+      pre {
+        background: #f8f9fa;
+        padding: 10px;
+        border-radius: 4px;
+        overflow-x: auto;
+        font-size: 12px;
+        border: 1px solid #e9ecef;
+      }
     </style>
   </head>
   <body>
@@ -691,6 +811,21 @@
           <div id="memory_stats_content" style="background-color: #f5f5f5; padding: 10px; border-radius: 5px; font-family: monospace; white-space: pre-wrap;"></div>
         </div>
         <p id="memory_result" class="result-message"></p>
+      </div>
+    </details>
+
+    <details class="homey-form-fieldset">
+      <summary class="homey-form-legend">Tools: Data Dump</summary>
+      <div class="homey-form-group">
+        <p class="homey-form-helper">View all stored app data including thermal model data, hot water patterns, COP snapshots, adaptive parameters, and configuration settings.</p>
+        <div class="button-container">
+          <button id="generate_data_dump" class="homey-button" onclick="generateDataDump()">Generate Data Dump</button>
+          <button id="copy_data_dump" class="homey-button" onclick="copyDataDump()" disabled>Copy Data</button>
+        </div>
+        <div id="data_dump_panel" style="margin-top: 15px; display: none;">
+          <div id="data_dump_content" style="background-color: #f9f9f9; padding: 15px; border-radius: 5px; max-height: 600px; overflow-y: auto; border: 1px solid #ddd;"></div>
+        </div>
+        <p id="data_dump_result" class="result-message"></p>
       </div>
     </details>
 
@@ -1378,6 +1513,412 @@
         );
       }
 
+      // Function to generate data dump
+      function generateDataDump() {
+        console.log('Generate data dump button clicked');
+
+        // Disable button and show loading state
+        document.getElementById('generate_data_dump').disabled = true;
+        document.getElementById('copy_data_dump').disabled = true;
+        document.getElementById('data_dump_result').textContent = "Collecting data dump...";
+
+        // Call the API
+        HomeyInstance.api('GET', '/getAllStoredData', {}, function(err, result) {
+          if (err) {
+            console.error('Error calling /getAllStoredData:', err);
+            document.getElementById('generate_data_dump').disabled = false;
+            document.getElementById('data_dump_result').textContent = "Error: " + err.message;
+            return HomeyInstance.alert(err.message);
+          }
+
+          console.log('/getAllStoredData called successfully:', result);
+
+          // Store the raw data globally for copying
+          window.dataDumpData = result;
+
+          if (result.success) {
+            // Format and display the data dump
+            const formattedHtml = formatDataDump(result);
+            
+            // Show the data dump panel
+            document.getElementById('data_dump_panel').style.display = 'block';
+            document.getElementById('data_dump_content').innerHTML = formattedHtml;
+
+            // Enable copy button
+            document.getElementById('copy_data_dump').disabled = false;
+            
+            // Show success message
+            document.getElementById('data_dump_result').textContent = "Data dump generated successfully.";
+          } else {
+            document.getElementById('data_dump_result').textContent = "Error generating data dump: " + result.message;
+            document.getElementById('data_dump_panel').style.display = 'none';
+          }
+
+          // Enable the button
+          document.getElementById('generate_data_dump').disabled = false;
+        });
+      }
+
+      // Function to copy data dump to clipboard
+      function copyDataDump() {
+        if (!window.dataDumpData) {
+          document.getElementById('data_dump_result').textContent = "No data to copy. Generate data dump first.";
+          return;
+        }
+
+        try {
+          // Create a formatted text version for clipboard
+          const textData = JSON.stringify(window.dataDumpData.data, null, 2);
+          
+          // Use the Clipboard API if available
+          if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(textData).then(() => {
+              document.getElementById('data_dump_result').textContent = "Data copied to clipboard successfully.";
+            }).catch(err => {
+              console.error('Failed to copy to clipboard:', err);
+              fallbackCopyTextToClipboard(textData);
+            });
+          } else {
+            fallbackCopyTextToClipboard(textData);
+          }
+        } catch (error) {
+          console.error('Error copying data:', error);
+          document.getElementById('data_dump_result').textContent = "Error copying data: " + error.message;
+        }
+      }
+
+      // Fallback copy function for older browsers
+      function fallbackCopyTextToClipboard(text) {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.top = "0";
+        textArea.style.left = "0";
+        textArea.style.position = "fixed";
+        textArea.style.opacity = "0";
+
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+
+        try {
+          const successful = document.execCommand('copy');
+          if (successful) {
+            document.getElementById('data_dump_result').textContent = "Data copied to clipboard successfully.";
+          } else {
+            document.getElementById('data_dump_result').textContent = "Failed to copy data to clipboard.";
+          }
+        } catch (err) {
+          console.error('Fallback: Oops, unable to copy', err);
+          document.getElementById('data_dump_result').textContent = "Unable to copy data to clipboard.";
+        }
+
+        document.body.removeChild(textArea);
+      }
+
+      // Data formatting functions (embedded in HTML since we can't import modules)
+      function formatDataDump(dumpData) {
+        if (!dumpData || !dumpData.success) {
+          return `<div class="error">Error loading data: ${dumpData?.message || 'Unknown error'}</div>`;
+        }
+
+        const data = dumpData.data;
+        let html = '';
+
+        // Header with metadata
+        html += '<div class="data-dump-header">';
+        html += '<h3>MELCloud Optimizer Data Dump</h3>';
+        html += `<p><strong>Generated:</strong> ${formatTimestamp(data.metadata?.timestamp || new Date())}</p>`;
+        html += `<p><strong>App Version:</strong> ${data.metadata?.appVersion || 'Unknown'}</p>`;
+        if (data.metadata?.dataSizeKB) {
+          html += `<p><strong>Data Size:</strong> ${data.metadata.dataSizeKB} KB</p>`;
+        }
+        html += '</div>';
+
+        // Errors section
+        if (data.errors && data.errors.length > 0) {
+          html += '<details class="error-section"><summary>⚠️ Collection Errors</summary>';
+          html += '<ul>';
+          data.errors.forEach(error => {
+            html += `<li>${escapeHtml(error)}</li>`;
+          });
+          html += '</ul></details>';
+        }
+
+        // Configuration section
+        html += '<details class="data-section"><summary>📋 Configuration Settings</summary>';
+        html += createKeyValueDisplay(data.configuration || {});
+        html += '</details>';
+
+        // Thermal model data
+        html += '<details class="data-section"><summary>🌡️ Thermal Model Data</summary>';
+        html += formatThermalDataSection(data.thermalModelData);
+        html += '</details>';
+
+        // Hot water data
+        html += '<details class="data-section"><summary>🚿 Hot Water Data</summary>';
+        html += formatHotWaterDataSection(data.hotWaterData);
+        html += '</details>';
+
+        // COP data
+        html += '<details class="data-section"><summary>⚡ COP Performance Data</summary>';
+        html += formatCOPDataSection(data.copData);
+        html += '</details>';
+
+        // Adaptive parameters
+        html += '<details class="data-section"><summary>🧠 Adaptive Parameters</summary>';
+        if (data.adaptiveParameters && data.adaptiveParameters.hasData) {
+          html += createKeyValueDisplay(data.adaptiveParameters.parameters);
+        } else {
+          html += '<p class="no-data">No adaptive parameters data available</p>';
+        }
+        html += '</details>';
+
+        // Optimization history
+        html += '<details class="data-section"><summary>📊 Optimization History</summary>';
+        html += formatOptimizationHistorySection(data.optimizationHistory);
+        html += '</details>';
+
+        // Memory usage
+        html += '<details class="data-section"><summary>💾 Memory Usage</summary>';
+        if (data.memoryUsage && !data.memoryUsage.error) {
+          html += '<h4>Process Memory</h4>';
+          if (data.memoryUsage.processMemory) {
+            html += createKeyValueDisplay(data.memoryUsage.processMemory);
+          }
+          if (data.memoryUsage.thermalModelMemory) {
+            html += '<h4>Thermal Model Memory</h4>';
+            html += createKeyValueDisplay(data.memoryUsage.thermalModelMemory);
+          }
+        } else {
+          html += `<p class="error">Memory usage error: ${data.memoryUsage?.error || 'Unknown error'}</p>`;
+        }
+        html += '</details>';
+
+        return html;
+      }
+
+      // Helper formatting functions
+      function formatTimestamp(timestamp) {
+        try {
+          const date = new Date(timestamp);
+          return date.toLocaleString();
+        } catch {
+          return String(timestamp);
+        }
+      }
+
+      function formatNumber(value, decimals = 2) {
+        if (typeof value !== 'number' || isNaN(value)) {
+          return 'N/A';
+        }
+        return value.toFixed(decimals);
+      }
+
+      function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+      }
+
+      function createKeyValueDisplay(data) {
+        if (!data || typeof data !== 'object') {
+          return '<p class="no-data">No configuration data available</p>';
+        }
+
+        const keys = Object.keys(data);
+        if (keys.length === 0) {
+          return '<p class="no-data">No configuration settings found</p>';
+        }
+
+        let html = '<table class="config-table">';
+        keys.forEach(key => {
+          let value = data[key];
+          
+          // Format the value
+          if (value === null || value === undefined) {
+            value = '<em>Not set</em>';
+          } else if (typeof value === 'boolean') {
+            value = value ? '✓ Yes' : '✗ No';
+          } else if (typeof value === 'object') {
+            value = '<pre>' + escapeHtml(JSON.stringify(value, null, 2)) + '</pre>';
+          } else {
+            value = escapeHtml(String(value));
+          }
+
+          html += `<tr><td class="key">${escapeHtml(key)}</td><td class="value">${value}</td></tr>`;
+        });
+        html += '</table>';
+
+        return html;
+      }
+
+      function createTable(data, headers) {
+        if (!Array.isArray(data) || data.length === 0) {
+          return '<p class="no-data">No data available</p>';
+        }
+
+        // If headers not provided, use keys from first object
+        if (!headers && data[0] && typeof data[0] === 'object') {
+          headers = Object.keys(data[0]);
+        }
+
+        if (!headers || headers.length === 0) {
+          return '<p class="no-data">No valid data structure</p>';
+        }
+
+        let html = '<table class="data-table">';
+        
+        // Header row
+        html += '<thead><tr>';
+        headers.forEach(header => {
+          html += `<th>${escapeHtml(header)}</th>`;
+        });
+        html += '</tr></thead>';
+
+        // Data rows
+        html += '<tbody>';
+        data.slice(0, 50).forEach(row => { // Limit to 50 rows for performance
+          html += '<tr>';
+          headers.forEach(header => {
+            let value = row[header];
+            
+            // Format common value types
+            if (value === null || value === undefined) {
+              value = 'N/A';
+            } else if (typeof value === 'number') {
+              value = formatNumber(value);
+            } else if (typeof value === 'string' && (header.includes('time') || header.includes('date') || header === 'timestamp')) {
+              value = formatTimestamp(value);
+            } else if (typeof value === 'object') {
+              value = JSON.stringify(value, null, 2);
+            }
+            
+            html += `<td>${escapeHtml(String(value))}</td>`;
+          });
+          html += '</tr>';
+        });
+        html += '</tbody></table>';
+
+        if (data.length > 50) {
+          html += `<p class="no-data">Showing first 50 of ${data.length} total rows</p>`;
+        }
+
+        return html;
+      }
+
+      function formatThermalDataSection(thermalData) {
+        if (!thermalData) {
+          return '<p class="no-data">No thermal model data available</p>';
+        }
+
+        let html = '';
+        
+        // Characteristics
+        if (thermalData.characteristics) {
+          html += '<h4>Thermal Characteristics</h4>';
+          html += createKeyValueDisplay(thermalData.characteristics);
+        }
+
+        // Data point counts
+        html += '<h4>Data Point Summary</h4>';
+        html += `<p>Raw data points: <strong>${thermalData.dataPointCount || 0}</strong></p>`;
+        html += `<p>Aggregated data points: <strong>${thermalData.aggregatedDataPointCount || 0}</strong></p>`;
+
+        // Recent raw data sample
+        if (thermalData.rawData && Array.isArray(thermalData.rawData) && thermalData.rawData.length > 0) {
+          html += '<h4>Recent Raw Data (Last 10 points)</h4>';
+          const recentData = thermalData.rawData.slice(-10);
+          html += createTable(recentData);
+        }
+
+        return html;
+      }
+
+      function formatHotWaterDataSection(hotWaterData) {
+        if (!hotWaterData) {
+          return '<p class="no-data">No hot water data available</p>';
+        }
+
+        let html = '';
+
+        // Usage patterns
+        if (hotWaterData.patterns) {
+          html += '<h4>Usage Patterns</h4>';
+          html += createKeyValueDisplay(hotWaterData.patterns);
+        }
+
+        // Data point counts
+        html += '<h4>Data Point Summary</h4>';
+        html += `<p>Usage data points: <strong>${hotWaterData.usageDataPointCount || 0}</strong></p>`;
+        html += `<p>Aggregated data points: <strong>${hotWaterData.aggregatedDataPointCount || 0}</strong></p>`;
+
+        // Recent usage data sample
+        if (hotWaterData.usageData && Array.isArray(hotWaterData.usageData) && hotWaterData.usageData.length > 0) {
+          html += '<h4>Recent Usage Data (Last 10 points)</h4>';
+          const recentData = hotWaterData.usageData.slice(-10);
+          html += createTable(recentData);
+        }
+
+        return html;
+      }
+
+      function formatCOPDataSection(copData) {
+        if (!copData) {
+          return '<p class="no-data">No COP data available</p>';
+        }
+
+        let html = '';
+
+        // COP summary
+        html += '<h4>COP Snapshot Summary</h4>';
+        html += `<p>Daily snapshots: <strong>${copData.dailyCount || 0}</strong></p>`;
+        html += `<p>Weekly snapshots: <strong>${copData.weeklyCount || 0}</strong></p>`;
+        html += `<p>Monthly snapshots: <strong>${copData.monthlyCount || 0}</strong></p>`;
+
+        // Recent daily COP data
+        if (copData.daily && Array.isArray(copData.daily) && copData.daily.length > 0) {
+          html += '<h4>Recent Daily COP Data (Last 10 days)</h4>';
+          const recentDaily = copData.daily.slice(-10);
+          html += createTable(recentDaily);
+        }
+
+        // Recent weekly COP data
+        if (copData.weekly && Array.isArray(copData.weekly) && copData.weekly.length > 0) {
+          html += '<h4>Recent Weekly COP Data (Last 5 weeks)</h4>';
+          const recentWeekly = copData.weekly.slice(-5);
+          html += createTable(recentWeekly);
+        }
+
+        return html;
+      }
+
+      function formatOptimizationHistorySection(historyData) {
+        if (!historyData) {
+          return '<p class="no-data">No optimization history available</p>';
+        }
+
+        let html = '';
+
+        // Metrics summary
+        if (historyData.metrics) {
+          html += '<h4>Optimization Metrics</h4>';
+          html += createKeyValueDisplay(historyData.metrics);
+        }
+
+        // History summary
+        html += '<h4>Optimization History Summary</h4>';
+        html += `<p>Total optimization records: <strong>${historyData.historyCount || 0}</strong></p>`;
+
+        // Recent optimization history
+        if (historyData.history && Array.isArray(historyData.history) && historyData.history.length > 0) {
+          html += '<h4>Recent Optimizations (Last 20)</h4>';
+          const recentHistory = historyData.history.slice(-20);
+          html += createTable(recentHistory);
+        }
+
+        return html;
+      }
+
       function onHomeyReady(Homey) {
         console.log('onHomeyReady called - Settings page initialized');
 
@@ -1583,14 +2124,19 @@
 
         // Check for migration opportunity and show notice
         function checkMigrationOpportunity() {
-          const currentTimezone = load('time_zone_name');
-          const currentOffset = load('time_zone_offset');
-          
-          if (!currentTimezone && currentOffset !== null) {
-            // User has manual settings but no IANA timezone
-            if (migrationNoticeElement) {
-              migrationNoticeElement.style.display = 'block';
-            }
+          if (HomeyInstance) {
+            HomeyInstance.get('time_zone_name', (err, currentTimezone) => {
+              if (!err) {
+                HomeyInstance.get('time_zone_offset', (err2, currentOffset) => {
+                  if (!err2 && !currentTimezone && currentOffset !== null) {
+                    // User has manual settings but no IANA timezone
+                    if (migrationNoticeElement) {
+                      migrationNoticeElement.style.display = 'block';
+                    }
+                  }
+                });
+              }
+            });
           }
         }
 
