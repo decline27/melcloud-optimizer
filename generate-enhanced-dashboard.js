@@ -1151,21 +1151,413 @@ class MELCloudEnhancedDashboard {
             });
         }
 
-        // Add more chart functions...
-        function createMonthlyTrendsChart() { console.log('Creating monthly trends chart...'); }
-        function createPriceLevelsChart() { console.log('Creating price levels chart...'); }
-        function createPriceOptimizationChart() { console.log('Creating price optimization chart...'); }
-        function createPriceSavingsChart() { console.log('Creating price savings chart...'); }
-        function createTempRangesChart() { console.log('Creating temp ranges chart...'); }
-        function createTemperatureCorrelationChart() { console.log('Creating temperature correlation chart...'); }
-        function createComfortAnalysisChart() { console.log('Creating comfort analysis chart...'); }
-        function createHourlyPatternsChart() { console.log('Creating hourly patterns chart...'); }
-        function createWeekdayPatternsChart() { console.log('Creating weekday patterns chart...'); }
-        function createSeasonalChart() { console.log('Creating seasonal chart...'); }
-        function createHotWaterHourlyChart() { console.log('Creating hot water hourly chart...'); }
-        function createHotWaterTempChart() { console.log('Creating hot water temp chart...'); }
-        function createOptimizationEffectivenessChart() { console.log('Creating optimization effectiveness chart...'); }
-        function createEfficiencyMetricsChart() { console.log('Creating efficiency metrics chart...'); }
+        function createMonthlyTrendsChart() {
+            const ctx = document.getElementById('monthlyTrendsChart').getContext('2d');
+            const monthlyData = data.monthlyAggregations || [];
+            
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: monthlyData.map(m => m.month),
+                    datasets: [
+                        {
+                            label: 'Monthly Savings (SEK)',
+                            data: monthlyData.map(m => m.totalSavings),
+                            backgroundColor: '#4CAF50',
+                            yAxisID: 'savings'
+                        },
+                        {
+                            label: 'Temperature Adjustments',
+                            data: monthlyData.map(m => m.tempAdjustments),
+                            backgroundColor: '#2196F3',
+                            yAxisID: 'adjustments'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        savings: { type: 'linear', display: true, position: 'left' },
+                        adjustments: { type: 'linear', display: true, position: 'right' }
+                    }
+                }
+            });
+        }
+
+        function createPriceLevelsChart() {
+            const ctx = document.getElementById('priceLevelsChart').getContext('2d');
+            const priceLevels = data.analytics.priceLevels || {};
+            
+            new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(priceLevels),
+                    datasets: [{
+                        data: Object.values(priceLevels),
+                        backgroundColor: ['#4CAF50', '#FFC107', '#FF9800', '#F44336', '#9C27B0']
+                    }]
+                },
+                options: { responsive: true }
+            });
+        }
+
+        function createPriceOptimizationChart() {
+            const ctx = document.getElementById('priceOptimizationChart').getContext('2d');
+            const priceAnalysis = data.priceAnalysis || {};
+            const priceLevels = priceAnalysis.priceLevels || {};
+            
+            const labels = Object.keys(priceLevels);
+            const optimizationRates = labels.map(level => (priceLevels[level].optimizationRate || 0) * 100);
+            
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Optimization Rate (%)',
+                        data: optimizationRates,
+                        backgroundColor: '#2196F3'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: { 
+                            beginAtZero: true,
+                            max: 100,
+                            title: { display: true, text: 'Optimization Rate (%)' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function createPriceSavingsChart() {
+            const ctx = document.getElementById('priceSavingsChart').getContext('2d');
+            const dailyData = data.dailyAggregations || [];
+            
+            new Chart(ctx, {
+                type: 'scatter',
+                data: {
+                    datasets: [{
+                        label: 'Price vs Savings',
+                        data: dailyData.map(d => ({
+                            x: d.avgPrice,
+                            y: d.totalSavings
+                        })),
+                        backgroundColor: '#FF6B6B'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: { title: { display: true, text: 'Average Price (SEK/kWh)' } },
+                        y: { title: { display: true, text: 'Daily Savings (SEK)' } }
+                    }
+                }
+            });
+        }
+
+        function createTempRangesChart() {
+            const ctx = document.getElementById('tempRangesChart').getContext('2d');
+            const weatherAnalysis = data.weatherAnalysis || {};
+            const tempRanges = weatherAnalysis.tempRanges || {};
+            
+            const labels = Object.keys(tempRanges);
+            const optimizationRates = labels.map(range => (tempRanges[range].adjustments / tempRanges[range].count * 100) || 0);
+            
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Optimization Rate (%)',
+                        data: optimizationRates,
+                        backgroundColor: '#4ECDC4'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: { 
+                            beginAtZero: true,
+                            title: { display: true, text: 'Optimization Rate (%)' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function createTemperatureCorrelationChart() {
+            const ctx = document.getElementById('temperatureCorrelationChart').getContext('2d');
+            const recentData = data.timeSeries.slice(-168); // Last week
+            
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: recentData.map((d, i) => i), // Use indices for x-axis
+                    datasets: [
+                        {
+                            label: 'Indoor Temperature (°C)',
+                            data: recentData.map(d => d.indoorTemp),
+                            borderColor: '#FF6B6B',
+                            backgroundColor: 'rgba(255, 107, 107, 0.1)',
+                            yAxisID: 'temp'
+                        },
+                        {
+                            label: 'Outdoor Temperature (°C)',
+                            data: recentData.map(d => d.outdoorTemp),
+                            borderColor: '#4ECDC4',
+                            backgroundColor: 'rgba(78, 205, 196, 0.1)',
+                            yAxisID: 'temp'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        temp: { 
+                            type: 'linear', 
+                            display: true, 
+                            title: { display: true, text: 'Temperature (°C)' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function createComfortAnalysisChart() {
+            const ctx = document.getElementById('comfortAnalysisChart').getContext('2d');
+            const dailyData = data.dailyAggregations || [];
+            
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: dailyData.map(d => d.date),
+                    datasets: [
+                        {
+                            label: 'Comfort Gap (°C)',
+                            data: dailyData.map(d => d.comfortGap || 0),
+                            borderColor: '#FF9800',
+                            backgroundColor: 'rgba(255, 152, 0, 0.1)'
+                        },
+                        {
+                            label: 'Average Target Temp (°C)',
+                            data: dailyData.map(d => d.avgTargetTemp),
+                            borderColor: '#9C27B0',
+                            backgroundColor: 'rgba(156, 39, 176, 0.1)'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: { title: { display: true, text: 'Temperature (°C)' } }
+                    }
+                }
+            });
+        }
+
+        function createHourlyPatternsChart() {
+            const ctx = document.getElementById('hourlyPatternsChart').getContext('2d');
+            const hourlyPatterns = data.hourlyPatterns || [];
+            
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: hourlyPatterns.map(h => \`\${h.hour}:00\`),
+                    datasets: [
+                        {
+                            label: 'Optimization Rate (%)',
+                            data: hourlyPatterns.map(h => h.optimizationRate * 100),
+                            borderColor: '#2196F3',
+                            backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                            yAxisID: 'rate'
+                        },
+                        {
+                            label: 'Average Savings (SEK)',
+                            data: hourlyPatterns.map(h => h.avgSavings),
+                            borderColor: '#4CAF50',
+                            backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                            yAxisID: 'savings'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        rate: { type: 'linear', display: true, position: 'left', max: 100 },
+                        savings: { type: 'linear', display: true, position: 'right' }
+                    }
+                }
+            });
+        }
+
+        function createWeekdayPatternsChart() {
+            const ctx = document.getElementById('weekdayPatternsChart').getContext('2d');
+            const weekdayPatterns = data.analytics.weekdayPatterns || {};
+            
+            const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+            const adjustments = weekdays.map(day => weekdayPatterns[day]?.adjustments || 0);
+            const totals = weekdays.map(day => weekdayPatterns[day]?.count || 1);
+            const rates = adjustments.map((adj, i) => (adj / totals[i]) * 100);
+            
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: weekdays,
+                    datasets: [{
+                        label: 'Optimization Rate (%)',
+                        data: rates,
+                        backgroundColor: '#673AB7'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: { 
+                            beginAtZero: true,
+                            title: { display: true, text: 'Optimization Rate (%)' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function createSeasonalChart() {
+            const ctx = document.getElementById('seasonalChart').getContext('2d');
+            const seasonalAnalysis = data.seasonalAnalysis || {};
+            
+            const seasons = ['winter', 'spring', 'summer', 'autumn'];
+            const seasonLabels = ['Winter', 'Spring', 'Summer', 'Autumn'];
+            const optimizations = seasons.map(season => seasonalAnalysis[season]?.optimizations || 0);
+            const totalSavings = seasons.map(season => seasonalAnalysis[season]?.totalSavings || 0);
+            
+            new Chart(ctx, {
+                type: 'radar',
+                data: {
+                    labels: seasonLabels,
+                    datasets: [
+                        {
+                            label: 'Optimizations',
+                            data: optimizations,
+                            borderColor: '#FF6B6B',
+                            backgroundColor: 'rgba(255, 107, 107, 0.2)'
+                        },
+                        {
+                            label: 'Total Savings (SEK)',
+                            data: totalSavings,
+                            borderColor: '#4CAF50',
+                            backgroundColor: 'rgba(76, 175, 80, 0.2)'
+                        }
+                    ]
+                },
+                options: { responsive: true }
+            });
+        }
+
+        function createHotWaterHourlyChart() {
+            const ctx = document.getElementById('hotWaterHourlyChart').getContext('2d');
+            const hotWaterAnalysis = data.hotWaterAnalysis || {};
+            const hourlyPattern = hotWaterAnalysis.hourlyPattern || Array(24).fill(0);
+            
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: Array.from({length: 24}, (_, i) => \`\${i}:00\`),
+                    datasets: [{
+                        label: 'Hot Water Changes',
+                        data: hourlyPattern,
+                        backgroundColor: '#00BCD4'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: { 
+                            beginAtZero: true,
+                            title: { display: true, text: 'Number of Changes' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function createHotWaterTempChart() {
+            const ctx = document.getElementById('hotWaterTempChart').getContext('2d');
+            const hotWaterData = data.timeSeries.filter(d => d.hotWaterChanged);
+            
+            new Chart(ctx, {
+                type: 'scatter',
+                data: {
+                    datasets: [{
+                        label: 'Temperature Change',
+                        data: hotWaterData.map((d, i) => ({
+                            x: i,
+                            y: (d.hotWaterToTemp || 0) - (d.hotWaterFromTemp || 0)
+                        })),
+                        backgroundColor: '#FF9800'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: { title: { display: true, text: 'Hot Water Event' } },
+                        y: { title: { display: true, text: 'Temperature Increase (°C)' } }
+                    }
+                }
+            });
+        }
+
+        function createOptimizationEffectivenessChart() {
+            const ctx = document.getElementById('optimizationEffectivenessChart').getContext('2d');
+            const dailyData = data.dailyAggregations || [];
+            
+            const effectiveness = dailyData.map(d => {
+                const adjustments = d.tempAdjustments || 1;
+                return (d.totalSavings || 0) / adjustments;
+            });
+            
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: dailyData.map(d => d.date),
+                    datasets: [{
+                        label: 'Savings per Adjustment (SEK)',
+                        data: effectiveness,
+                        borderColor: '#8BC34A',
+                        backgroundColor: 'rgba(139, 195, 74, 0.1)'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: { title: { display: true, text: 'SEK per Adjustment' } }
+                    }
+                }
+            });
+        }
+
+        function createEfficiencyMetricsChart() {
+            const ctx = document.getElementById('efficiencyMetricsChart').getContext('2d');
+            const efficiencyMetrics = data.analytics.efficiencyMetrics || {};
+            
+            new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Heating Efficiency', 'Optimization Effectiveness', 'Temperature Delta'],
+                    datasets: [{
+                        data: [
+                            efficiencyMetrics.heatingEfficiency || 0,
+                            efficiencyMetrics.optimizationEffectiveness || 0,
+                            efficiencyMetrics.avgTemperatureDelta || 0
+                        ],
+                        backgroundColor: ['#E91E63', '#9C27B0', '#673AB7']
+                    }]
+                },
+                options: { responsive: true }
+            });
+        }
 
         // Initialize dashboard
         document.addEventListener('DOMContentLoaded', function() {
