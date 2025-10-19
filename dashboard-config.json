@@ -1,0 +1,24 @@
+{
+  "description": "MELCloud Dashboard Generator Configuration",
+  "homey": {
+    "ip": "",
+    "port": 80,
+    "appId": "com.melcloud.optimize",
+    "apiEndpoint": "/api/app/com.melcloud.optimize/getAllStoredData"
+  },
+  "server": {
+    "port": 8080,
+    "autoOpen": true
+  },
+  "output": {
+    "directory": "./dashboard-output",
+    "dataFile": "melcloud-data.json",
+    "dashboardFile": "dashboard.html",
+    "backupRawData": true
+  },
+  "features": {
+    "autoRefresh": false,
+    "refreshIntervalMinutes": 15,
+    "includeDebugData": false
+  }
+}
