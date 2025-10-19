@@ -1,0 +1,29 @@
+{
+  "server": {
+    "port": 8080,
+    "autoOpenBrowser": true
+  },
+  "data": {
+    "retentionDays": 365,
+    "maxBackups": 30,
+    "deduplicationWindowHours": 2,
+    "compressionEnabled": true
+  },
+  "dashboard": {
+    "theme": "default",
+    "refreshInterval": 300000,
+    "showAdvancedMetrics": true,
+    "enableExport": true
+  },
+  "collection": {
+    "automaticMerge": true,
+    "validateOnMerge": true,
+    "createBackupOnMerge": true,
+    "logLevel": "info"
+  },
+  "alerts": {
+    "enableDataQualityAlerts": true,
+    "enableStorageAlerts": true,
+    "maxDataGapHours": 6
+  }
+}
