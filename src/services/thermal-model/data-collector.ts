@@ -16,9 +16,9 @@ const THERMAL_DATA_SETTINGS_KEY = 'thermal_model_data';
 // Settings key for aggregated historical data
 const AGGREGATED_DATA_SETTINGS_KEY = 'thermal_model_aggregated_data';
 // Maximum number of data points to keep in memory
-const DEFAULT_MAX_DATA_POINTS = 2016; // ~2 weeks of data at 10-minute intervals
+const DEFAULT_MAX_DATA_POINTS = 5000; // ~35 days of data at 10-minute intervals (increased from 2016)
 // Maximum age of data points in days
-const MAX_DATA_AGE_DAYS = 30;
+const MAX_DATA_AGE_DAYS = 60; // Increased from 30 to keep more historical data
 // Maximum size of data to store in settings (bytes)
 const MAX_SETTINGS_DATA_SIZE = 500000; // ~500KB
 
@@ -315,8 +315,8 @@ export class ThermalDataCollector {
         return;
       }
 
-      // Keep the most recent 7 days of data at full resolution
-      const sevenDaysAgo = DateTime.now().minus({ days: 7 });
+      // Keep the most recent 30 days of data at full resolution instead of just 7 days
+      const thirtyDaysAgo = DateTime.now().minus({ days: 30 });
 
       // Split data into recent (keep as is) and older (to be aggregated)
       const recentData: ThermalDataPoint[] = [];
@@ -324,7 +324,7 @@ export class ThermalDataCollector {
 
       this.dataPoints.forEach(point => {
         const pointDate = DateTime.fromISO(point.timestamp);
-        if (pointDate >= sevenDaysAgo) {
+        if (pointDate >= thirtyDaysAgo) {
           recentData.push(point);
         } else {
           olderData.push(point);

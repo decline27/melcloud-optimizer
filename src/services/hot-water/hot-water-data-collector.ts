@@ -15,9 +15,9 @@ const HOT_WATER_DATA_SETTINGS_KEY = 'hot_water_usage_data';
 // Settings key for aggregated historical data
 const HOT_WATER_AGGREGATED_DATA_SETTINGS_KEY = 'hot_water_usage_aggregated_data';
 // Maximum number of data points to keep in memory
-const DEFAULT_MAX_DATA_POINTS = 2016; // ~7 days of data at 5-minute intervals
+const DEFAULT_MAX_DATA_POINTS = 5000; // ~17 days of data at 5-minute intervals (increased from 2016)
 // Maximum age of data points in days
-const MAX_DATA_AGE_DAYS = 30;
+const MAX_DATA_AGE_DAYS = 60; // Increased from 30 to keep more historical data
 // Maximum size of data to store in settings (bytes)
 const MAX_SETTINGS_DATA_SIZE = 500000; // ~500KB
 
@@ -208,10 +208,10 @@ export class HotWaterDataCollector {
     try {
       // If we have too many data points, first try to aggregate older data
       if (this.dataPoints.length > this.maxDataPoints) {
-        // Keep the most recent 7 days of data at full resolution
-        const sevenDaysAgo = DateTime.now().minus({ days: 7 }).toMillis();
-        const recentData = this.dataPoints.filter(dp => new Date(dp.timestamp).getTime() >= sevenDaysAgo);
-        const olderData = this.dataPoints.filter(dp => new Date(dp.timestamp).getTime() < sevenDaysAgo);
+        // Keep the most recent 30 days of data at full resolution instead of just 7 days
+        const thirtyDaysAgo = DateTime.now().minus({ days: 30 }).toMillis();
+        const recentData = this.dataPoints.filter(dp => new Date(dp.timestamp).getTime() >= thirtyDaysAgo);
+        const olderData = this.dataPoints.filter(dp => new Date(dp.timestamp).getTime() < thirtyDaysAgo);
 
         if (olderData.length > 0) {
           this.homey.log(`Aggregating ${olderData.length} older hot water usage data points`);

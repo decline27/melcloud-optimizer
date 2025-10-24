@@ -681,7 +681,7 @@ class MELCloudManualDashboard {
 
         function createTemperatureChart(data) {
             const ctx = document.getElementById('temperatureChart').getContext('2d');
-            const recentData = data.timeSeries.slice(-168); // Last week
+            const recentData = data.timeSeries; // Show all available data instead of limiting to last week
             
             new Chart(ctx, {
                 type: 'line',

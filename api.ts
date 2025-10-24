@@ -673,7 +673,8 @@ function recordOptimizationEntry(
     };
 
     historicalData.optimizations.push(entry);
-    if (historicalData.optimizations.length > 168) {
+    // Keep 30 days of optimization decisions (720 entries) instead of just 7 days (168)
+    if (historicalData.optimizations.length > 720) {
       historicalData.optimizations.shift();
     }
 

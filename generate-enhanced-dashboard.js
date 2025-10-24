@@ -1290,7 +1290,7 @@ class MELCloudEnhancedDashboard {
 
         function createTemperatureCorrelationChart() {
             const ctx = document.getElementById('temperatureCorrelationChart').getContext('2d');
-            const recentData = data.timeSeries.slice(-168); // Last week
+            const recentData = data.timeSeries; // Show all available data instead of limiting to last week
             
             new Chart(ctx, {
                 type: 'line',
