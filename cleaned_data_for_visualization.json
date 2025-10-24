@@ -1,0 +1,162 @@
+{
+  "metadata": {
+    "timestamp": "2025-10-19T14:54:27.941Z",
+    "dataSizeKB": 619.74,
+    "timeRange": "2025-10-12 to 2025-10-19",
+    "timezone": "Europe/Stockholm"
+  },
+  
+  "systemConfiguration": {
+    "priceSource": "tibber",
+    "comfortRange": {
+      "lower_away": 20,
+      "upper_away": 21
+    },
+    "cheapPricePercentile": 0.25,
+    "consumerMarkupEnabled": true
+  },
+  
+  "optimizationSummary": {
+    "totalDecisions": 168,
+    "timespan": "7 days",
+    "actionTypes": {
+      "temperature_adjusted": "~30%",
+      "no_change": "~70%"
+    },
+    "priceResponseActive": true,
+    "weatherIntegrationActive": true
+  },
+  
+  "sampleOptimizationDecisions": [
+    {
+      "timestamp": "2025-10-12T20:00:10.469Z",
+      "action": "temperature_adjusted",
+      "reason": "Transition mode: Combined COP efficiency 51%, adapting to both heating and hot water needs",
+      "targetTemp": 23,
+      "originalTarget": 21.5,
+      "indoorTemp": 23,
+      "outdoorTemp": 10,
+      "priceLevel": "NORMAL",
+      "priceNow": 0.5685,
+      "savings": 0.0197,
+      "weather": {
+        "temperature": 11.2,
+        "symbol": "partlycloudy_night",
+        "adjustment": "stable weather"
+      }
+    },
+    {
+      "timestamp": "2025-10-12T22:00:10.424Z", 
+      "action": "no_change",
+      "targetTemp": 23,
+      "priceLevel": "CHEAP",
+      "priceNow": 0.5032,
+      "savings": 0.0232,
+      "hotWaterAction": "increased from 46°C to 50°C due to cheap prices"
+    },
+    {
+      "timestamp": "2025-10-14T14:00:14.435Z",
+      "action": "temperature_adjusted", 
+      "reason": "Transition mode: Combined COP efficiency 48%",
+      "targetTemp": 22,
+      "originalTarget": 22.5,
+      "priceLevel": "EXPENSIVE",
+      "priceNow": 2.2531,
+      "savings": -0.1853,
+      "outdoorTemp": 13
+    }
+  ],
+  
+  "priceAnalysis": {
+    "recentPriceRange": {
+      "min": 0.104,
+      "max": 5.788,
+      "average": 1.66
+    },
+    "priceLevels": {
+      "CHEAP": "below 25th percentile",
+      "NORMAL": "25th-75th percentile", 
+      "EXPENSIVE": "above 75th percentile"
+    },
+    "currency": "SEK/kWh (with consumer markup)"
+  },
+  
+  "thermalLearning": {
+    "modelConfidence": "0% (early learning phase)",
+    "characteristics": {
+      "heatingRate": 0.5,
+      "coolingRate": 0.2,
+      "thermalMass": 0.7,
+      "outdoorTempImpact": 0.1
+    },
+    "kFactorCalibration": {
+      "current": 0.3,
+      "lastCalibration": "2025-10-19T01:00:00.180Z"
+    }
+  },
+  
+  "hotWaterOptimization": {
+    "learningConfidence": "100%",
+    "usagePatterns": {
+      "peakHours": [17, 18, 19, 20, 21, 22],
+      "lowUsageHours": [0, 1, 2, 3, 4, 5, 6]
+    },
+    "recentActivity": {
+      "tankTempRange": "25-53°C",
+      "targetAdjustments": "42-54°C based on price levels",
+      "energyProduced": "0-0.5 kWh increments",
+      "priceResponsive": true
+    }
+  },
+  
+  "adaptiveLearning": {
+    "learningCycles": 107,
+    "confidence": "100%",
+    "keyParameters": {
+      "priceWeightSummer": 0.7,
+      "priceWeightWinter": 0.4,
+      "priceWeightTransition": 0.9,
+      "veryChepMultiplier": 0.79,
+      "preheatAggressiveness": 2,
+      "coastingReduction": 1.5
+    }
+  },
+  
+  "performanceMetrics": {
+    "memoryUsage": {
+      "processMemoryMB": 86.73,
+      "heapUsedMB": 18.82
+    },
+    "dataVolume": {
+      "thermalDataPoints": 0,
+      "hotWaterDataPoints": "~1000+",
+      "optimizationDecisions": 168
+    }
+  },
+  
+  "timeSeriesPatterns": {
+    "heatingBehavior": {
+      "comfortRange": "20-23°C",
+      "responsiveToWeather": true,
+      "responsiveToPrices": true,
+      "antiCyclingProtection": true
+    },
+    "hotWaterBehavior": {
+      "baselineTemp": "42-46°C",
+      "cheapPriceBoost": "up to 54°C",
+      "expensivePriceReduction": "down to 42°C",
+      "usagePrediction": "learned patterns by hour/day"
+    }
+  },
+  
+  "keyInsights": [
+    "System actively responds to electricity price levels (CHEAP/NORMAL/EXPENSIVE)",
+    "Hot water optimization shows 100% learning confidence with established usage patterns",
+    "Thermal model still in early learning phase (0% confidence) but collecting data",
+    "Adaptive parameters have high confidence (100%) after 107 learning cycles",
+    "Price-responsive behavior: preheating during cheap periods, reducing during expensive",
+    "Weather integration provides stability adjustments",
+    "COP efficiency tracking influences heating decisions",
+    "7-day dataset shows consistent optimization patterns"
+  ]
+}

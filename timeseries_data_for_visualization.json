@@ -1,0 +1,159 @@
+{
+  "timeSeriesData": {
+    "optimizationDecisions": [
+      {
+        "timestamp": "2025-10-12T20:00:10.469Z",
+        "hour": 20,
+        "day": "2025-10-12",
+        "targetTemp": 23,
+        "indoorTemp": 23,
+        "outdoorTemp": 10,
+        "priceNow": 0.5685,
+        "priceLevel": "NORMAL",
+        "savings": 0.0197,
+        "action": "temperature_adjusted",
+        "hotWaterTemp": 46,
+        "hotWaterTarget": 46
+      },
+      {
+        "timestamp": "2025-10-12T22:00:10.424Z",
+        "hour": 22,
+        "day": "2025-10-12", 
+        "targetTemp": 23,
+        "indoorTemp": 22.5,
+        "outdoorTemp": 9,
+        "priceNow": 0.5032,
+        "priceLevel": "CHEAP",
+        "savings": 0.0232,
+        "action": "no_change",
+        "hotWaterTemp": 46,
+        "hotWaterTarget": 50
+      },
+      {
+        "timestamp": "2025-10-14T14:00:14.435Z",
+        "hour": 14,
+        "day": "2025-10-14",
+        "targetTemp": 22,
+        "indoorTemp": 23,
+        "outdoorTemp": 13,
+        "priceNow": 2.2531,
+        "priceLevel": "EXPENSIVE", 
+        "savings": -0.1853,
+        "action": "temperature_adjusted",
+        "hotWaterTemp": 48,
+        "hotWaterTarget": 48
+      },
+      {
+        "timestamp": "2025-10-16T08:00:14.435Z",
+        "hour": 8,
+        "day": "2025-10-16",
+        "targetTemp": 20,
+        "indoorTemp": 21.5,
+        "outdoorTemp": 11,
+        "priceNow": 1.7255,
+        "priceLevel": "EXPENSIVE",
+        "savings": -0.0655,
+        "action": "temperature_adjusted",
+        "hotWaterTemp": 48,
+        "hotWaterTarget": 42
+      }
+    ],
+    
+    "pricePatterns": {
+      "dailyPriceRanges": [
+        {"date": "2025-10-12", "min": 0.419, "max": 3.271, "avg": 0.999},
+        {"date": "2025-10-13", "min": 0.419, "max": 3.271, "avg": 1.663},
+        {"date": "2025-10-14", "min": 1.029, "max": 5.788, "avg": 2.121},
+        {"date": "2025-10-15", "min": 0.939, "max": 2.047, "avg": 1.380},
+        {"date": "2025-10-16", "min": 0.939, "max": 2.047, "avg": 1.380}
+      ],
+      
+      "hourlyPriceProfile": {
+        "description": "Typical price levels by hour showing peak/off-peak patterns",
+        "cheapHours": [0, 1, 2, 3, 4, 5, 22, 23],
+        "expensiveHours": [8, 9, 17, 18, 19, 20],
+        "normalHours": [6, 7, 10, 11, 12, 13, 14, 15, 16, 21]
+      }
+    },
+    
+    "temperaturePatterns": {
+      "indoorTemperatureRange": {"min": 20, "max": 23.5},
+      "outdoorTemperatureRange": {"min": 7, "max": 14.4},
+      "targetTemperatureRange": {"min": 20, "max": 23},
+      "comfortMaintained": true,
+      "weatherResponsive": true
+    },
+    
+    "hotWaterPatterns": {
+      "tankTemperatureRange": {"min": 25, "max": 53},
+      "targetTemperatureRange": {"min": 42, "max": 54},
+      "priceResponseBehavior": {
+        "cheapPrices": "Target 50-54°C (preheat)",
+        "expensivePrices": "Target 42-46°C (conserve)",
+        "normalPrices": "Target 46-48°C (maintain)"
+      },
+      "usagePatterns": {
+        "peakUsageHours": [18, 19, 20, 21],
+        "lowUsageHours": [0, 1, 2, 3, 4, 5, 6]
+      }
+    }
+  },
+  
+  "visualizationSuggestions": {
+    "charts": [
+      {
+        "type": "Time Series Line Chart",
+        "title": "Price Levels and Temperature Responses Over Time",
+        "xAxis": "timestamp",
+        "yAxes": ["priceNow", "targetTemp", "outdoorTemp"],
+        "colorCoding": "priceLevel (CHEAP=green, NORMAL=yellow, EXPENSIVE=red)"
+      },
+      {
+        "type": "Dual Y-Axis Chart", 
+        "title": "Hot Water Optimization vs Price Levels",
+        "xAxis": "hour of day",
+        "leftY": "hotWaterTarget temperature",
+        "rightY": "electricity price",
+        "insight": "Shows how hot water targets adjust based on price predictions"
+      },
+      {
+        "type": "Scatter Plot",
+        "title": "Savings vs Price Level",
+        "xAxis": "priceNow", 
+        "yAxis": "savings",
+        "colorCoding": "action type",
+        "insight": "Shows correlation between price levels and energy savings"
+      },
+      {
+        "type": "Heatmap",
+        "title": "Hot Water Usage Patterns",
+        "xAxis": "hour of day (0-23)",
+        "yAxis": "day of week",
+        "values": "usage intensity",
+        "insight": "Shows learned usage patterns driving optimization"
+      },
+      {
+        "type": "Bar Chart",
+        "title": "Daily Price Ranges and Average Savings",
+        "xAxis": "date",
+        "yAxis": "price range (min/max/avg) and total savings",
+        "insight": "Shows how daily price volatility affects optimization effectiveness"
+      }
+    ],
+    
+    "keyMetrics": [
+      "Total optimization decisions: 168 over 7 days",
+      "Price responsiveness: Active across CHEAP/NORMAL/EXPENSIVE levels", 
+      "Learning confidence: Hot water 100%, Thermal 0%, Adaptive 100%",
+      "Temperature comfort maintained: 20-23°C range",
+      "Hot water efficiency: Price-responsive 42-54°C targeting"
+    ]
+  },
+  
+  "dataQuality": {
+    "completeness": "High - 7 days of continuous data",
+    "frequency": "Hourly optimization decisions", 
+    "reliability": "Good - consistent data structure",
+    "learningStage": "Mixed - Hot water fully learned, thermal model still learning"
+  }
+}
