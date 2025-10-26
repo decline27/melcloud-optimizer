@@ -267,6 +267,10 @@
       "method": "GET",
       "path": "/validateAndStartCron"
     },
+    "getModelConfidence": {
+      "method": "GET",
+      "path": "/getModelConfidence"
+    },
     "updateAllServiceTimezones": {
       "method": "GET",
       "path": "/updateAllServiceTimezones"

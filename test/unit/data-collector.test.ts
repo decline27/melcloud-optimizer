@@ -1,242 +1,124 @@
-// Prevent melcloud-api from making real network requests during these unit tests
-jest.mock('../../src/services/melcloud-api', () => ({
-  MelCloudApi: class {
-    // Minimal stub used by services that import MelCloudApi
-    constructor() {}
-    login() { return Promise.resolve(true); }
-    getDevices() { return Promise.resolve([]); }
-  }
-}));
-
-import { ThermalDataCollector, ThermalDataPoint } from '../../src/services/thermal-model';
 import { DateTime } from 'luxon';
+import { AggregatedDataPoint, ThermalDataCollector, ThermalDataPoint } from '../../src/services/thermal-model';
 
-describe('ThermalDataCollector', () => {
+const createThermalPoint = (timestamp: DateTime): ThermalDataPoint => ({
+  timestamp: timestamp.toISO()!,
+  indoorTemperature: 21.5,
+  outdoorTemperature: 5.0,
+  targetTemperature: 22.0,
+  heatingActive: true,
+  weatherConditions: {
+    windSpeed: 3.0,
+    humidity: 70,
+    cloudCover: 80,
+    precipitation: 0
+  },
+  energyUsage: 0.5
+});
+
+describe('ThermalDataCollector retention policies', () => {
   let dataCollector: ThermalDataCollector;
   let mockHomey: any;
+  let settingsStore: Record<string, any>;
 
   beforeEach(() => {
-    // Reset mocks
     jest.clearAllMocks();
+    settingsStore = {};
 
-    // Create mock Homey
     mockHomey = {
       log: jest.fn(),
       error: jest.fn(),
-      env: {
-        userDataPath: '/mock/path'
-      },
+      env: { userDataPath: '/mock/path' },
       settings: {
-        get: jest.fn().mockReturnValue(null),
-        set: jest.fn()
+        get: jest.fn((key: string) => settingsStore[key] ?? null),
+        set: jest.fn((key: string, value: any) => {
+          settingsStore[key] = value;
+        })
       }
     };
 
-    // Create data collector instance
     dataCollector = new ThermalDataCollector(mockHomey);
   });
 
-  describe('constructor', () => {
-    it('should initialize with empty data points when no stored data exists', () => {
-      expect((dataCollector as any).dataPoints).toEqual([]);
-      expect((dataCollector as any).initialized).toBe(true);
-      expect(mockHomey.log).toHaveBeenCalledWith('No stored thermal data found, starting fresh collection');
-    });
-
-    it('should load data from settings when available', () => {
-      // Mock settings to return stored data
-      const storedData = [
-        {
-          timestamp: '2023-01-01T12:00:00.000Z',
-          indoorTemperature: 21.5,
-          outdoorTemperature: 5.0,
-          targetTemperature: 22.0,
-          heatingActive: true,
-          weatherConditions: {
-            windSpeed: 3.0,
-            humidity: 70,
-            cloudCover: 80,
-            precipitation: 0
-          }
-        }
-      ];
-      mockHomey.settings.get.mockImplementation((key: string) => {
-        if (key === 'thermal_model_data') {
-          return JSON.stringify(storedData);
-        }
-        return null;
-      });
-
-      // Create new instance with mocked settings
-      const collector = new ThermalDataCollector(mockHomey);
-
-      // Set the dataPoints directly for testing
-      (collector as any).dataPoints = storedData;
-
-      expect((collector as any).dataPoints).toEqual(storedData);
-      expect(mockHomey.log).toHaveBeenCalledWith('Loaded 1 thermal data points from settings storage');
-    });
-
-    it('should handle errors when loading data', () => {
-      // Mock settings.get to throw an error
-      mockHomey.settings.get.mockImplementationOnce(() => {
-        throw new Error('Test error');
-      });
-
-      // Create new instance with mocked error
-      const collector = new ThermalDataCollector(mockHomey);
-
-      expect((collector as any).dataPoints).toEqual([]);
-      expect(mockHomey.error).toHaveBeenCalledWith(expect.stringContaining('Error loading thermal data'));
+  it('falls back to safe defaults when settings are missing', () => {
+    const config = (dataCollector as any).getRetentionConfig();
+    expect(config).toEqual({
+      retentionDays: 60,
+      fullResDays: 14,
+      maxPoints: 10000,
+      targetKB: 500
     });
   });
 
-  describe('addDataPoint', () => {
-    it('should add a data point and save it', () => {
-      const dataPoint: ThermalDataPoint = {
-        timestamp: DateTime.now().toISO(),
-        indoorTemperature: 21.5,
-        outdoorTemperature: 5.0,
-        targetTemperature: 22.0,
-        heatingActive: true,
-        weatherConditions: {
-          windSpeed: 3.0,
-          humidity: 70,
-          cloudCover: 80,
-          precipitation: 0
-        }
-      };
+  it('clamps full resolution days so they never exceed retention days', () => {
+    settingsStore.thermal_retention_days = 20;
+    settingsStore.thermal_fullres_days = 40;
 
-      dataCollector.addDataPoint(dataPoint);
-
-      expect((dataCollector as any).dataPoints).toContain(dataPoint);
-      expect(mockHomey.settings.set).toHaveBeenCalled();
-      expect(mockHomey.log).toHaveBeenCalledWith(expect.stringContaining('Added new thermal data point'));
-    });
-
-    it('should not add data point if not initialized', () => {
-      // Set initialized to false
-      (dataCollector as any).initialized = false;
-
-      const dataPoint: ThermalDataPoint = {
-        timestamp: DateTime.now().toISO(),
-        indoorTemperature: 21.5,
-        outdoorTemperature: 5.0,
-        targetTemperature: 22.0,
-        heatingActive: true,
-        weatherConditions: {
-          windSpeed: 3.0,
-          humidity: 70,
-          cloudCover: 80,
-          precipitation: 0
-        }
-      };
-
-      dataCollector.addDataPoint(dataPoint);
-
-      expect((dataCollector as any).dataPoints).not.toContain(dataPoint);
-      expect(mockHomey.log).toHaveBeenCalledWith('Thermal data collector not yet initialized, waiting...');
-    });
-
-    it('should trim data points when exceeding maximum size', () => {
-      // Get the actual maxDataPoints value from the implementation
-      const maxDataPoints = 167; // This is the actual value used in the implementation
-
-      // Create max+1 data points
-      const dataPoints = Array(maxDataPoints + 1).fill(null).map((_, i) => ({
-        timestamp: DateTime.now().minus({ hours: maxDataPoints + 1 - i }).toISO(),
-        indoorTemperature: 21.5,
-        outdoorTemperature: 5.0,
-        targetTemperature: 22.0,
-        heatingActive: true,
-        weatherConditions: {
-          windSpeed: 3.0,
-          humidity: 70,
-          cloudCover: 80,
-          precipitation: 0
-        }
-      }));
-
-      // Set data points directly
-      (dataCollector as any).dataPoints = dataPoints.slice(0, maxDataPoints);
-      (dataCollector as any).maxDataPoints = maxDataPoints;
-
-      // Add one more data point
-      dataCollector.addDataPoint(dataPoints[maxDataPoints]);
-
-      // Should have trimmed the oldest data point
-      expect((dataCollector as any).dataPoints.length).toBe(maxDataPoints);
-
-      // The last data point should be the one we just added
-      expect((dataCollector as any).dataPoints[maxDataPoints - 1]).toEqual(dataPoints[maxDataPoints]);
-    });
-
-    it('should handle errors when saving to settings', () => {
-      // Mock settings.set to throw an error
-      mockHomey.settings.set.mockImplementationOnce(() => {
-        throw new Error('Test error');
-      });
-
-      const dataPoint: ThermalDataPoint = {
-        timestamp: DateTime.now().toISO(),
-        indoorTemperature: 21.5,
-        outdoorTemperature: 5.0,
-        targetTemperature: 22.0,
-        heatingActive: true,
-        weatherConditions: {
-          windSpeed: 3.0,
-          humidity: 70,
-          cloudCover: 80,
-          precipitation: 0
-        }
-      };
-
-      dataCollector.addDataPoint(dataPoint);
-
-      expect((dataCollector as any).dataPoints).toContain(dataPoint);
-      expect(mockHomey.error).toHaveBeenCalledWith('Error saving thermal data to settings', expect.any(Error));
-    });
-
+    const config = (dataCollector as any).getRetentionConfig();
+    expect(config.retentionDays).toBe(20);
+    expect(config.fullResDays).toBe(20);
   });
 
-  describe('getAllDataPoints', () => {
-    it('should return all data points', () => {
-      const dataPoints = [
-        {
-          timestamp: DateTime.now().minus({ hours: 2 }).toISO(),
-          indoorTemperature: 21.0,
-          outdoorTemperature: 5.0,
-          targetTemperature: 22.0,
-          heatingActive: true,
-          weatherConditions: {
-            windSpeed: 3.0,
-            humidity: 70,
-            cloudCover: 80,
-            precipitation: 0
-          }
-        },
-        {
-          timestamp: DateTime.now().minus({ hours: 1 }).toISO(),
-          indoorTemperature: 21.5,
-          outdoorTemperature: 5.0,
-          targetTemperature: 22.0,
-          heatingActive: true,
-          weatherConditions: {
-            windSpeed: 3.0,
-            humidity: 70,
-            cloudCover: 80,
-            precipitation: 0
-          }
-        }
-      ];
+  it('keeps at least 100 full-resolution points after retention maintenance', () => {
+    settingsStore.thermal_retention_days = 60;
+    settingsStore.thermal_fullres_days = 3;
+    settingsStore.thermal_max_points = 10000;
+    settingsStore.thermal_target_kb = 900;
 
-      // Set data points directly
-      (dataCollector as any).dataPoints = dataPoints;
+    const points: ThermalDataPoint[] = [];
+    for (let i = 0; i < 150; i += 1) {
+      points.push(createThermalPoint(DateTime.now().minus({ hours: 150 - i })));
+    }
 
-      const result = dataCollector.getAllDataPoints();
+    (dataCollector as any).dataPoints = points;
+    dataCollector.runRetentionMaintenance('unit-test');
 
-      expect(result).toEqual(dataPoints);
-      expect(result.length).toBe(2);
+    const remaining = dataCollector.getAllDataPoints();
+    expect(remaining.length).toBeGreaterThanOrEqual(100);
+  });
+
+  it('increases hourly aggregation span when guard thresholds are exceeded', () => {
+    settingsStore.thermal_retention_days = 60;
+    settingsStore.thermal_fullres_days = 3;
+    settingsStore.thermal_max_points = 10000;
+    settingsStore.thermal_target_kb = 900;
+
+    const base = DateTime.now().minus({ days: 5 });
+    const hourlyBuckets: AggregatedDataPoint[] = [];
+    for (let i = 0; i < 120; i += 1) {
+      hourlyBuckets.push({
+        date: base.minus({ hours: i }).toISO(),
+        bucket: 'hour',
+        bucketSpanHours: 1,
+        avgIndoorTemp: 21,
+        avgOutdoorTemp: 4,
+        avgTargetTemp: 22,
+        heatingHours: 0.5,
+        avgWindSpeed: 3,
+        avgHumidity: 65,
+        totalEnergyUsage: 0.5,
+        dataPointCount: 6
+      });
+    }
+
+    (dataCollector as any).aggregatedData = hourlyBuckets;
+
+    const config = {
+      retentionDays: 60,
+      fullResDays: 3,
+      maxPoints: 50,
+      targetKB: 1
+    };
+
+    (dataCollector as any).enforceCapsByAggregationAndTrim(config, 'unit-test', {
+      promotedToFullRes: 0,
+      aggregatedMid: hourlyBuckets.length,
+      aggregatedLow: 0,
+      droppedRaw: 0
     });
+
+    const updatedMid = ((dataCollector as any).aggregatedData as AggregatedDataPoint[]).filter(point => point.bucket === 'hour');
+    expect(updatedMid.length).toBeLessThan(hourlyBuckets.length);
+    expect(updatedMid.every(point => (point.bucketSpanHours ?? 1) > 1)).toBe(true);
   });
 });

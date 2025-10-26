@@ -150,17 +150,9 @@ export class ThermalModelService {
       const beforeStats = this.dataCollector.getMemoryUsage();
 
       // First, trigger data aggregation for older data points
-      // This will preserve the information in aggregated form while reducing memory usage
       this.homey.log('Running thermal data cleanup and aggregation...');
+      this.dataCollector.runRetentionMaintenance('scheduled-cleanup');
 
-      // The data collector now handles removing old data points and aggregating older data
-      // We don't need to manually filter by date anymore
-
-      // Trigger aggregation of older data
-      // This is now handled internally by the data collector
-      // which will aggregate data older than 7 days and keep only the last 30 days
-
-      // Get all data points (this will trigger removeOldDataPoints in the data collector)
       const dataPoints = this.dataCollector.getAllDataPoints();
 
       // Get data statistics for reporting

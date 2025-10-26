@@ -15,12 +15,36 @@ import * as path from 'path';
 const THERMAL_DATA_SETTINGS_KEY = 'thermal_model_data';
 // Settings key for aggregated historical data
 const AGGREGATED_DATA_SETTINGS_KEY = 'thermal_model_aggregated_data';
-// Maximum number of data points to keep in memory
-const DEFAULT_MAX_DATA_POINTS = 2016; // ~2 weeks of data at 10-minute intervals
-// Maximum age of data points in days
-const MAX_DATA_AGE_DAYS = 30;
-// Maximum size of data to store in settings (bytes)
+// Default retention settings (overridden by Homey settings)
+const DEFAULT_RETENTION_DAYS = 60;
+const MIN_RETENTION_DAYS = 14;
+const MAX_RETENTION_DAYS = 365;
+
+const DEFAULT_FULL_RES_DAYS = 14;
+const MIN_FULL_RES_DAYS = 3;
+
+const DEFAULT_MAX_POINTS = 10000;
+const MIN_MAX_POINTS = 2000;
+const MAX_MAX_POINTS = 20000;
+
+const DEFAULT_TARGET_KB = 500;
+const MIN_TARGET_KB = 300;
+const MAX_TARGET_KB = 900;
+
+const MIN_FULL_RES_POINTS = 100;
+const LOW_RES_BOUNDARY_DAYS = 30;
+
+// Maximum size of data to store in settings (bytes) - hard safety limit
 const MAX_SETTINGS_DATA_SIZE = 500000; // ~500KB
+
+type AggregationBucket = 'hour' | 'day' | '2day';
+
+interface RetentionConfig {
+  retentionDays: number;
+  fullResDays: number;
+  maxPoints: number;
+  targetKB: number;
+}
 
 export interface ThermalDataPoint {
   timestamp: string;
@@ -38,7 +62,9 @@ export interface ThermalDataPoint {
 }
 
 export interface AggregatedDataPoint {
-  date: string; // YYYY-MM-DD format
+  date: string; // bucket start timestamp (ISO string for hourly, ISO date for daily)
+  bucket: AggregationBucket;
+  bucketSpanHours?: number;
   avgIndoorTemp: number;
   avgOutdoorTemp: number;
   avgTargetTemp: number;
@@ -52,7 +78,7 @@ export interface AggregatedDataPoint {
 export class ThermalDataCollector {
   private dataPoints: ThermalDataPoint[] = [];
   private aggregatedData: AggregatedDataPoint[] = [];
-  private maxDataPoints: number = DEFAULT_MAX_DATA_POINTS;
+  private maxDataPoints: number = DEFAULT_MAX_POINTS;
   private initialized: boolean = false;
   private lastMemoryCheck: number = 0;
   private memoryWarningIssued: boolean = false;
@@ -69,6 +95,658 @@ export class ThermalDataCollector {
       homey.env.userDataPath = userDataPath;
     }
     this.loadStoredData();
+  }
+
+  private normalizeAggregatedEntry(entry: any): AggregatedDataPoint {
+    if (!entry || typeof entry !== 'object') {
+      const now = DateTime.now();
+      return {
+        date: now.toISO(),
+        bucket: 'day',
+        bucketSpanHours: 24,
+        avgIndoorTemp: 0,
+        avgOutdoorTemp: 0,
+        avgTargetTemp: 0,
+        heatingHours: 0,
+        avgWindSpeed: 0,
+        avgHumidity: 0,
+        totalEnergyUsage: undefined,
+        dataPointCount: 0
+      };
+    }
+
+    const dateValue = typeof entry.date === 'string' && entry.date.trim().length > 0
+      ? entry.date
+      : DateTime.now().toISO();
+
+    let bucket: AggregationBucket;
+    switch (entry.bucket) {
+      case 'hour':
+      case 'day':
+      case '2day':
+        bucket = entry.bucket;
+        break;
+      default:
+        bucket = 'day';
+    }
+
+    let bucketSpanHours: number | undefined = undefined;
+    if (typeof entry.bucketSpanHours === 'number' && !isNaN(entry.bucketSpanHours) && entry.bucketSpanHours > 0) {
+      bucketSpanHours = entry.bucketSpanHours;
+    } else {
+      bucketSpanHours = bucket === 'hour'
+        ? 1
+        : bucket === '2day'
+          ? 48
+          : 24;
+    }
+
+    return {
+      date: dateValue,
+      bucket,
+      bucketSpanHours,
+      avgIndoorTemp: Number(entry.avgIndoorTemp) || 0,
+      avgOutdoorTemp: Number(entry.avgOutdoorTemp) || 0,
+      avgTargetTemp: Number(entry.avgTargetTemp) || 0,
+      heatingHours: Number(entry.heatingHours) || 0,
+      avgWindSpeed: Number(entry.avgWindSpeed) || 0,
+      avgHumidity: Number(entry.avgHumidity) || 0,
+      totalEnergyUsage: typeof entry.totalEnergyUsage === 'number' ? entry.totalEnergyUsage : undefined,
+      dataPointCount: Number(entry.dataPointCount) || 0
+    };
+  }
+
+  private applyRetentionPolicy(trigger: string): void {
+    const config = this.getRetentionConfig();
+    this.maxDataPoints = config.maxPoints;
+
+    const summary = this.rebalanceTiers(config);
+    this.enforceCapsByAggregationAndTrim(config, trigger, summary);
+  }
+
+  private rebalanceTiers(config: RetentionConfig): {
+    promotedToFullRes: number;
+    aggregatedMid: number;
+    aggregatedLow: number;
+    droppedRaw: number;
+  } {
+    const now = DateTime.now();
+    const retentionCutoff = now.minus({ days: config.retentionDays });
+    const fullResCutoff = now.minus({ days: config.fullResDays });
+    const lowResBoundaryCutoff = now.minus({ days: Math.min(LOW_RES_BOUNDARY_DAYS, config.retentionDays) });
+
+    const newFullRes: ThermalDataPoint[] = [];
+    const midCandidates: ThermalDataPoint[] = [];
+    const lowCandidates: ThermalDataPoint[] = [];
+    let droppedRaw = 0;
+
+    for (const point of this.dataPoints) {
+      const pointDate = DateTime.fromISO(point.timestamp);
+      if (!pointDate.isValid) {
+        continue;
+      }
+
+      if (pointDate < retentionCutoff) {
+        droppedRaw += 1;
+        continue;
+      }
+
+      if (pointDate >= fullResCutoff) {
+        newFullRes.push(point);
+        continue;
+      }
+
+      if (pointDate >= lowResBoundaryCutoff) {
+        midCandidates.push(point);
+      } else {
+        lowCandidates.push(point);
+      }
+    }
+
+    const olderForPromotion = [...midCandidates, ...lowCandidates].sort((a, b) => {
+      return DateTime.fromISO(b.timestamp).toMillis() - DateTime.fromISO(a.timestamp).toMillis();
+    });
+
+    const promotedSet = new Set<ThermalDataPoint>();
+    while ((newFullRes.length + promotedSet.size) < MIN_FULL_RES_POINTS && olderForPromotion.length > 0) {
+      const promote = olderForPromotion.shift();
+      if (promote) {
+        promotedSet.add(promote);
+      }
+    }
+
+    const promotedToFullRes = promotedSet.size;
+
+    const finalFullRes = [...newFullRes, ...promotedSet].sort((a, b) => {
+      return DateTime.fromISO(a.timestamp).toMillis() - DateTime.fromISO(b.timestamp).toMillis();
+    });
+
+    const promotedFilter = (point: ThermalDataPoint) => !promotedSet.has(point);
+    const filteredMidCandidates = midCandidates.filter(promotedFilter);
+    const filteredLowCandidates = lowCandidates.filter(promotedFilter);
+
+    const midAggregates = filteredMidCandidates.length > 0
+      ? this.aggregateThermalPoints(filteredMidCandidates, 'hour', { hoursPerBucket: 1 })
+      : [];
+
+    if (midAggregates.length > 0) {
+      const midRangeEnd = Math.min(LOW_RES_BOUNDARY_DAYS, config.retentionDays);
+      this.homey.log(`ThermalRetention: applied hourly aggregation for ${config.fullResDays + 1}–${midRangeEnd} d (${midAggregates.length} buckets)`);
+    }
+
+    const lowAggregates = filteredLowCandidates.length > 0
+      ? this.aggregateThermalPoints(filteredLowCandidates, 'day')
+      : [];
+
+    if (lowAggregates.length > 0) {
+      this.homey.log(`ThermalRetention: applied daily aggregation for ${Math.max(config.fullResDays + 1, LOW_RES_BOUNDARY_DAYS + 1)}–${config.retentionDays} d (${lowAggregates.length} buckets)`);
+    }
+
+    this.dataPoints = finalFullRes;
+
+    this.aggregatedData = this.aggregatedData.filter(aggregate => {
+      const start = this.parseAggregatedStart(aggregate);
+      if (!start || !start.isValid) {
+        return false;
+      }
+
+      if (start < retentionCutoff) {
+        return false;
+      }
+
+      if (start >= fullResCutoff) {
+        return false;
+      }
+
+      return true;
+    });
+
+    this.mergeAggregatedPoints([...midAggregates, ...lowAggregates]);
+
+    return {
+      promotedToFullRes,
+      aggregatedMid: midAggregates.length,
+      aggregatedLow: lowAggregates.length,
+      droppedRaw
+    };
+  }
+
+  private mergeAggregatedPoints(points: AggregatedDataPoint[]): void {
+    if (!points || points.length === 0) {
+      return;
+    }
+
+    const map = new Map<string, AggregatedDataPoint>();
+    for (const existing of this.aggregatedData) {
+      map.set(this.getAggregatedKey(existing), existing);
+    }
+
+    for (const point of points) {
+      map.set(this.getAggregatedKey(point), point);
+    }
+
+    this.aggregatedData = Array.from(map.values()).sort((a, b) => {
+      return this.parseAggregatedStart(a).toMillis() - this.parseAggregatedStart(b).toMillis();
+    });
+  }
+
+  private getAggregatedKey(point: AggregatedDataPoint): string {
+    const span = point.bucketSpanHours ?? this.getDefaultBucketSpan(point.bucket);
+    return `${point.bucket}|${span}|${point.date}`;
+  }
+
+  private getDefaultBucketSpan(bucket: AggregationBucket): number {
+    if (bucket === 'hour') {
+      return 1;
+    }
+    if (bucket === '2day') {
+      return 48;
+    }
+    return 24;
+  }
+
+  private parseAggregatedStart(point: AggregatedDataPoint): DateTime {
+    if (!point?.date) {
+      return DateTime.invalid('missing-date');
+    }
+
+    let parsed = DateTime.fromISO(point.date);
+
+    if (!parsed.isValid && point.date.length === 10) {
+      parsed = DateTime.fromFormat(point.date, 'yyyy-MM-dd');
+    }
+
+    return parsed;
+  }
+
+  private floorToBucket(value: DateTime, bucket: AggregationBucket, spanHours: number = 1): DateTime {
+    const span = Math.max(1, spanHours);
+
+    if (bucket === 'hour') {
+      const spanMillis = span * 60 * 60 * 1000;
+      const floored = Math.floor(value.toUTC().toMillis() / spanMillis) * spanMillis;
+      return DateTime.fromMillis(floored, { zone: value.zone });
+    }
+
+    if (bucket === '2day') {
+      const spanMillis = 48 * 60 * 60 * 1000;
+      const floored = Math.floor(value.toUTC().toMillis() / spanMillis) * spanMillis;
+      return DateTime.fromMillis(floored, { zone: value.zone });
+    }
+
+    return value.startOf('day');
+  }
+
+  private makeAggregationKey(bucket: AggregationBucket, span: number, start: DateTime): string {
+    return `${bucket}|${span}|${start.toISO()}`;
+  }
+
+  private formatBucketDate(start: DateTime, bucket: AggregationBucket): string {
+    if (bucket === 'day') {
+      return (
+        start.toISODate() ||
+        start.toUTC().toISODate() ||
+        start.toUTC().toISO() ||
+        new Date().toISOString()
+      );
+    }
+
+    return (
+      start.toISO() ||
+      start.toUTC().toISO() ||
+      new Date().toISOString()
+    );
+  }
+
+  private aggregateThermalPoints(
+    points: ThermalDataPoint[],
+    bucket: AggregationBucket,
+    options: { hoursPerBucket?: number } = {}
+  ): AggregatedDataPoint[] {
+    if (!points || points.length === 0) {
+      return [];
+    }
+
+    const hoursPerBucket = bucket === 'hour'
+      ? Math.max(1, Math.floor(options.hoursPerBucket ?? 1))
+      : bucket === '2day'
+        ? 48
+        : 24;
+
+    const grouped = new Map<string, {
+      start: DateTime;
+      sumIndoor: number;
+      sumOutdoor: number;
+      sumTarget: number;
+      sumWind: number;
+      sumHumidity: number;
+      heatingCount: number;
+      count: number;
+      energySum: number;
+      hasEnergy: boolean;
+    }>();
+
+    for (const point of points) {
+      const timestamp = DateTime.fromISO(point.timestamp);
+      if (!timestamp.isValid) {
+        continue;
+      }
+
+      const bucketStart = this.floorToBucket(timestamp, bucket, hoursPerBucket);
+      const key = this.makeAggregationKey(bucket, hoursPerBucket, bucketStart);
+      let state = grouped.get(key);
+
+      if (!state) {
+        state = {
+          start: bucketStart,
+          sumIndoor: 0,
+          sumOutdoor: 0,
+          sumTarget: 0,
+          sumWind: 0,
+          sumHumidity: 0,
+          heatingCount: 0,
+          count: 0,
+          energySum: 0,
+          hasEnergy: false
+        };
+        grouped.set(key, state);
+      }
+
+      state.sumIndoor += point.indoorTemperature;
+      state.sumOutdoor += point.outdoorTemperature;
+      state.sumTarget += point.targetTemperature;
+      state.sumWind += point.weatherConditions?.windSpeed ?? 0;
+      state.sumHumidity += point.weatherConditions?.humidity ?? 0;
+      state.count += 1;
+
+      if (point.heatingActive) {
+        state.heatingCount += 1;
+      }
+
+      if (typeof point.energyUsage === 'number') {
+        state.energySum += point.energyUsage;
+        state.hasEnergy = true;
+      }
+    }
+
+    const bucketSpanHours = bucket === 'hour' ? hoursPerBucket : bucket === 'day' ? 24 : 48;
+
+    return Array.from(grouped.values()).map(state => {
+      const count = Math.max(1, state.count);
+      const heatingHours = (state.heatingCount / count) * bucketSpanHours;
+      const dateValue = this.formatBucketDate(state.start, bucket);
+
+      return {
+        date: dateValue,
+        bucket,
+        bucketSpanHours,
+        avgIndoorTemp: state.sumIndoor / count,
+        avgOutdoorTemp: state.sumOutdoor / count,
+        avgTargetTemp: state.sumTarget / count,
+        heatingHours,
+        avgWindSpeed: state.sumWind / count,
+        avgHumidity: state.sumHumidity / count,
+        totalEnergyUsage: state.hasEnergy ? state.energySum : undefined,
+        dataPointCount: count
+      };
+    }).sort((a, b) => this.parseAggregatedStart(a).toMillis() - this.parseAggregatedStart(b).toMillis());
+  }
+
+  private aggregateAggregatedPoints(
+    points: AggregatedDataPoint[],
+    bucket: AggregationBucket,
+    options: { hoursPerBucket?: number } = {}
+  ): AggregatedDataPoint[] {
+    if (!points || points.length === 0) {
+      return [];
+    }
+
+    const hoursPerBucket = bucket === 'hour'
+      ? Math.max(1, Math.floor(options.hoursPerBucket ?? 1))
+      : bucket === '2day'
+        ? 48
+        : 24;
+
+    const grouped = new Map<string, {
+      start: DateTime;
+      weight: number;
+      sumIndoor: number;
+      sumOutdoor: number;
+      sumTarget: number;
+      sumWind: number;
+      sumHumidity: number;
+      heatingHours: number;
+      energySum: number;
+      hasEnergy: boolean;
+    }>();
+
+    for (const point of points) {
+      const start = this.parseAggregatedStart(point);
+      if (!start.isValid) {
+        continue;
+      }
+
+      const bucketStart = this.floorToBucket(start, bucket, hoursPerBucket);
+      const key = this.makeAggregationKey(bucket, hoursPerBucket, bucketStart);
+      let state = grouped.get(key);
+
+      if (!state) {
+        state = {
+          start: bucketStart,
+          weight: 0,
+          sumIndoor: 0,
+          sumOutdoor: 0,
+          sumTarget: 0,
+          sumWind: 0,
+          sumHumidity: 0,
+          heatingHours: 0,
+          energySum: 0,
+          hasEnergy: false
+        };
+        grouped.set(key, state);
+      }
+
+      const weight = Math.max(1, point.dataPointCount || 1);
+
+      state.weight += weight;
+      state.sumIndoor += point.avgIndoorTemp * weight;
+      state.sumOutdoor += point.avgOutdoorTemp * weight;
+      state.sumTarget += point.avgTargetTemp * weight;
+      state.sumWind += point.avgWindSpeed * weight;
+      state.sumHumidity += point.avgHumidity * weight;
+      state.heatingHours += point.heatingHours;
+
+      if (typeof point.totalEnergyUsage === 'number') {
+        state.energySum += point.totalEnergyUsage;
+        state.hasEnergy = true;
+      }
+    }
+
+    const bucketSpanHours = bucket === 'hour' ? hoursPerBucket : bucket === 'day' ? 24 : 48;
+
+    return Array.from(grouped.values()).map(state => {
+      const weight = Math.max(1, state.weight);
+      const dateValue = this.formatBucketDate(state.start, bucket);
+
+      return {
+        date: dateValue,
+        bucket,
+        bucketSpanHours,
+        avgIndoorTemp: state.sumIndoor / weight,
+        avgOutdoorTemp: state.sumOutdoor / weight,
+        avgTargetTemp: state.sumTarget / weight,
+        heatingHours: state.heatingHours,
+        avgWindSpeed: state.sumWind / weight,
+        avgHumidity: state.sumHumidity / weight,
+        totalEnergyUsage: state.hasEnergy ? state.energySum : undefined,
+        dataPointCount: weight
+      };
+    }).sort((a, b) => this.parseAggregatedStart(a).toMillis() - this.parseAggregatedStart(b).toMillis());
+  }
+
+  private estimateSerializedKB(data: unknown): number {
+    try {
+      const json = JSON.stringify(data ?? []);
+      return Buffer.byteLength(json, 'utf8') / 1024;
+    } catch (error) {
+      this.homey.error(`ThermalRetention: failed to estimate size`, error);
+      return 0;
+    }
+  }
+
+  private computeRetentionMetrics(): {
+    rawCount: number;
+    aggregatedBucketCount: number;
+    aggregatedRepresentedPoints: number;
+    rawKB: number;
+    aggKB: number;
+    totalKB: number;
+    totalStoredEntries: number;
+  } {
+    const rawCount = this.dataPoints.length;
+    const aggregatedBucketCount = this.aggregatedData.length;
+    const aggregatedRepresentedPoints = this.aggregatedData.reduce((sum, point) => {
+      return sum + Math.max(1, point.dataPointCount || 0);
+    }, 0);
+
+    const rawKB = this.estimateSerializedKB(this.dataPoints);
+    const aggKB = this.estimateSerializedKB(this.aggregatedData);
+
+    return {
+      rawCount,
+      aggregatedBucketCount,
+      aggregatedRepresentedPoints,
+      rawKB,
+      aggKB,
+      totalKB: rawKB + aggKB,
+      totalStoredEntries: rawCount + aggregatedBucketCount
+    };
+  }
+
+  private enforceCapsByAggregationAndTrim(
+    config: RetentionConfig,
+    trigger: string,
+    summary: {
+      promotedToFullRes: number;
+      aggregatedMid: number;
+      aggregatedLow: number;
+      droppedRaw: number;
+    }
+  ): void {
+    let metrics = this.computeRetentionMetrics();
+
+    this.homey.log(
+      `ThermalRetention: sizes {rawKB=${metrics.rawKB.toFixed(1)}, aggKB=${metrics.aggKB.toFixed(1)}} points={${metrics.rawCount}, ${metrics.aggregatedBucketCount}}`
+    );
+
+    if (summary.droppedRaw > 0) {
+      this.homey.log(`ThermalRetention: dropped ${summary.droppedRaw} raw points beyond retention window`);
+    }
+    if (summary.promotedToFullRes > 0) {
+      this.homey.log(`ThermalRetention: promoted ${summary.promotedToFullRes} points to maintain full-resolution buffer`);
+    }
+
+    const targetKB = config.targetKB;
+    const maxPoints = config.maxPoints;
+
+    let midSpan = this.getCurrentMidSpan();
+
+    const needsGuard = () => metrics.totalKB > targetKB || metrics.totalStoredEntries > maxPoints;
+
+    let guardIteration = 0;
+
+    while (needsGuard()) {
+      guardIteration += 1;
+      if (guardIteration > 50) {
+        this.homey.error('ThermalRetention: guard loop exceeded 50 iterations, aborting to prevent infinite loop');
+        break;
+      }
+
+      const sizeReason = metrics.totalKB > targetKB ? 'size' : 'points';
+
+      const nextSpan = this.nextMidBucketSpan(midSpan);
+      if (nextSpan && this.reaggregateMidResolution(nextSpan)) {
+        midSpan = nextSpan;
+        metrics = this.computeRetentionMetrics();
+        continue;
+      }
+
+      if (this.compressLowResolution()) {
+        metrics = this.computeRetentionMetrics();
+        continue;
+      }
+
+      if (this.trimOldestAggregated(sizeReason)) {
+        metrics = this.computeRetentionMetrics();
+        continue;
+      }
+
+      // Nothing else to do; break to avoid endless loop
+      this.homey.error(
+        `ThermalRetention: unable to satisfy ${sizeReason} guard after aggregation adjustments (current size=${metrics.totalKB.toFixed(1)}KB, entries=${metrics.totalStoredEntries})`
+      );
+      break;
+    }
+
+    if (guardIteration > 0) {
+      metrics = this.computeRetentionMetrics();
+      this.homey.log(
+        `ThermalRetention: post-guard sizes {rawKB=${metrics.rawKB.toFixed(1)}, aggKB=${metrics.aggKB.toFixed(1)}} points={${metrics.rawCount}, ${metrics.aggregatedBucketCount}}`
+      );
+    }
+  }
+
+  private getCurrentMidSpan(): number {
+    const spans = this.aggregatedData
+      .filter(point => point.bucket === 'hour')
+      .map(point => point.bucketSpanHours ?? this.getDefaultBucketSpan('hour'));
+
+    if (spans.length === 0) {
+      return 1;
+    }
+
+    return Math.max(...spans);
+  }
+
+  private nextMidBucketSpan(current: number): number | null {
+    const allowedSpans = [1, 2, 3, 4, 6, 8, 12];
+    const index = allowedSpans.indexOf(current);
+
+    if (index === -1 || index === allowedSpans.length - 1) {
+      return null;
+    }
+
+    return allowedSpans[index + 1];
+  }
+
+  private reaggregateMidResolution(newSpan: number): boolean {
+    const midPoints = this.aggregatedData.filter(point => point.bucket === 'hour');
+    if (midPoints.length === 0) {
+      return false;
+    }
+
+    const reaggregated = this.aggregateAggregatedPoints(midPoints, 'hour', { hoursPerBucket: newSpan });
+    if (reaggregated.length === 0) {
+      return false;
+    }
+
+    this.removeAggregatedPoints(midPoints);
+    this.mergeAggregatedPoints(reaggregated);
+    this.homey.log(`ThermalRetention: increased mid-res bucket span to ${newSpan}h (reason: size guard)`);
+    return true;
+  }
+
+  private compressLowResolution(): boolean {
+    const lowPoints = this.aggregatedData.filter(point => point.bucket === 'day');
+    if (lowPoints.length === 0) {
+      return false;
+    }
+
+    const compressed = this.aggregateAggregatedPoints(lowPoints, '2day');
+    if (compressed.length === 0) {
+      return false;
+    }
+
+    this.removeAggregatedPoints(lowPoints);
+    this.mergeAggregatedPoints(compressed);
+    this.homey.log('ThermalRetention: applied 2-day aggregation for low-resolution window (reason: size guard)');
+    return true;
+  }
+
+  private trimOldestAggregated(reason: string): boolean {
+    if (this.aggregatedData.length === 0) {
+      return false;
+    }
+
+    const candidates = this.aggregatedData
+      .filter(point => point.bucket === '2day' || point.bucket === 'day')
+      .sort((a, b) => this.parseAggregatedStart(a).toMillis() - this.parseAggregatedStart(b).toMillis());
+
+    if (candidates.length === 0) {
+      return false;
+    }
+
+    const remove = candidates.shift();
+    if (!remove) {
+      return false;
+    }
+
+    this.removeAggregatedPoints([remove]);
+
+    const spanHours = remove.bucketSpanHours ?? this.getDefaultBucketSpan(remove.bucket);
+    const spanDays = Math.max(1, Math.round(spanHours / 24));
+
+    this.homey.log(`ThermalRetention: trimmed oldest ${spanDays} days (reason: ${reason})`);
+    return true;
+  }
+
+  private removeAggregatedPoints(points: AggregatedDataPoint[]): void {
+    if (!points || points.length === 0) {
+      return;
+    }
+
+    const keys = new Set(points.map(point => this.getAggregatedKey(point)));
+    this.aggregatedData = this.aggregatedData.filter(point => !keys.has(this.getAggregatedKey(point)));
   }
 
   /**
@@ -101,11 +779,16 @@ export class ThermalDataCollector {
 
       if (aggregatedData) {
         try {
-          this.aggregatedData = typeof aggregatedData === 'string'
+          const parsedAggregated = typeof aggregatedData === 'string'
             ? JSON.parse(aggregatedData)
             : Array.isArray(aggregatedData)
               ? aggregatedData
               : [];
+
+          this.aggregatedData = Array.isArray(parsedAggregated)
+            ? parsedAggregated.map((entry: any) => this.normalizeAggregatedEntry(entry))
+            : [];
+
           this.homey.log(`Loaded ${this.aggregatedData.length} aggregated data points from settings storage`);
         } catch (parseError) {
           this.homey.error(`Error parsing aggregated data from settings: ${parseError}`);
@@ -135,18 +818,64 @@ export class ThermalDataCollector {
    */
   private cleanupDataOnLoad(): void {
     try {
-      // Remove data points older than MAX_DATA_AGE_DAYS
-      this.removeOldDataPoints();
-
-      // Trim to maxDataPoints if still too large
-      if (this.dataPoints.length > this.maxDataPoints) {
-        const excessPoints = this.dataPoints.length - this.maxDataPoints;
-        this.dataPoints = this.dataPoints.slice(excessPoints);
-        this.homey.log(`Trimmed ${excessPoints} oldest thermal data points on load to maintain limit of ${this.maxDataPoints} entries`);
-      }
+      this.applyRetentionPolicy('initial-load');
     } catch (error) {
       this.homey.error(`Error cleaning up data on load: ${error}`);
     }
+  }
+
+  private getRetentionConfig(): RetentionConfig {
+    const retentionSetting = this.homey?.settings?.get('thermal_retention_days');
+    let retentionDays = typeof retentionSetting === 'number'
+      ? retentionSetting
+      : Number(retentionSetting);
+
+    if (retentionSetting === null || retentionSetting === undefined || Number.isNaN(retentionDays)) {
+      retentionDays = DEFAULT_RETENTION_DAYS;
+    }
+
+    retentionDays = Math.max(MIN_RETENTION_DAYS, Math.min(MAX_RETENTION_DAYS, retentionDays));
+
+    const fullResSetting = this.homey?.settings?.get('thermal_fullres_days');
+    let fullResDays = typeof fullResSetting === 'number'
+      ? fullResSetting
+      : Number(fullResSetting);
+
+    if (fullResSetting === null || fullResSetting === undefined || Number.isNaN(fullResDays)) {
+      fullResDays = DEFAULT_FULL_RES_DAYS;
+    }
+
+    fullResDays = Math.max(MIN_FULL_RES_DAYS, Math.min(60, fullResDays));
+    fullResDays = Math.min(fullResDays, retentionDays);
+
+    const maxPointsSetting = this.homey?.settings?.get('thermal_max_points');
+    let maxPoints = typeof maxPointsSetting === 'number'
+      ? maxPointsSetting
+      : Number(maxPointsSetting);
+
+    if (maxPointsSetting === null || maxPointsSetting === undefined || Number.isNaN(maxPoints)) {
+      maxPoints = DEFAULT_MAX_POINTS;
+    }
+
+    maxPoints = Math.max(MIN_MAX_POINTS, Math.min(MAX_MAX_POINTS, maxPoints));
+
+    const targetSetting = this.homey?.settings?.get('thermal_target_kb');
+    let targetKB = typeof targetSetting === 'number'
+      ? targetSetting
+      : Number(targetSetting);
+
+    if (targetSetting === null || targetSetting === undefined || Number.isNaN(targetKB)) {
+      targetKB = DEFAULT_TARGET_KB;
+    }
+
+    targetKB = Math.max(MIN_TARGET_KB, Math.min(MAX_TARGET_KB, targetKB));
+
+    return {
+      retentionDays,
+      fullResDays,
+      maxPoints,
+      targetKB
+    };
   }
 
   /**
@@ -202,28 +931,39 @@ export class ThermalDataCollector {
    */
   private reduceDataSize(): void {
     try {
-      // First try to aggregate older data
-      this.aggregateOlderData();
+      this.homey.error('ThermalRetention: reduceDataSize fallback engaged due to settings storage limit');
 
-      // If still too many points, keep only the most recent ones
-      if (this.dataPoints.length > 500) {
-        const reducedDataPoints = this.dataPoints.slice(-500); // Keep only the most recent 500 points
-        const originalCount = this.dataPoints.length;
-        this.dataPoints = reducedDataPoints;
+      // Re-apply retention policy aggressively
+      this.applyRetentionPolicy('hard-limit');
 
-        this.homey.log(`Reduced data points from ${originalCount} to ${this.dataPoints.length} due to size constraints`);
+      let dataString = JSON.stringify(this.dataPoints);
+      if (dataString.length > MAX_SETTINGS_DATA_SIZE) {
+        const keepCount = Math.max(
+          MIN_FULL_RES_POINTS,
+          Math.min(this.dataPoints.length, Math.floor(MAX_SETTINGS_DATA_SIZE / 200))
+        );
 
-        // Try to save the reduced dataset
-        try {
-          const dataString = JSON.stringify(this.dataPoints);
-          this.homey.settings.set(THERMAL_DATA_SETTINGS_KEY, dataString);
-          this.homey.log(`Saved reduced set of ${this.dataPoints.length} thermal data points to settings storage`);
-        } catch (fallbackError) {
-          this.homey.error(`Failed to save even reduced thermal data to settings`, fallbackError);
+        if (this.dataPoints.length > keepCount) {
+          const removed = this.dataPoints.length - keepCount;
+          this.dataPoints = this.dataPoints.slice(-keepCount);
+          this.homey.error(`ThermalRetention: force-trimmed ${removed} detailed points to respect storage limit`);
         }
+
+        dataString = JSON.stringify(this.dataPoints);
       }
+
+      this.homey.settings.set(THERMAL_DATA_SETTINGS_KEY, dataString);
+
+      let aggregatedString = JSON.stringify(this.aggregatedData);
+      if (aggregatedString.length > MAX_SETTINGS_DATA_SIZE) {
+        this.homey.error('ThermalRetention: aggregated data exceeded storage limit, clearing oldest buckets');
+        this.aggregatedData = [];
+        aggregatedString = '[]';
+      }
+
+      this.homey.settings.set(AGGREGATED_DATA_SETTINGS_KEY, aggregatedString);
     } catch (error) {
-      this.homey.error(`Error reducing data size: ${error}`);
+      this.homey.error(`ThermalRetention: reduceDataSize failed`, error);
     }
   }
 
@@ -253,7 +993,7 @@ export class ThermalDataCollector {
         if (usagePercentage > 80 && !this.memoryWarningIssued) {
           this.homey.error(`High memory usage detected: ${usagePercentage}%. Triggering data cleanup.`);
           this.memoryWarningIssued = true;
-          this.aggregateOlderData();
+          this.applyRetentionPolicy('memory-high');
         } else if (usagePercentage < 70) {
           // Reset warning flag when memory usage drops
           this.memoryWarningIssued = false;
@@ -267,138 +1007,11 @@ export class ThermalDataCollector {
   /**
    * Save thermal data to all storage methods
    */
-  private saveData(): void {
-    // Remove old data points first
-    this.removeOldDataPoints();
-
-    // Save to settings (primary storage that persists across reinstalls)
+  private saveData(reason: string = 'save'): void {
+    this.applyRetentionPolicy(reason);
     this.saveToSettings();
   }
 
-  /**
-   * Remove data points older than MAX_DATA_AGE_DAYS
-   * @returns Number of data points removed
-   */
-  private removeOldDataPoints(): number {
-    try {
-      const originalCount = this.dataPoints.length;
-
-      // Calculate cutoff date (MAX_DATA_AGE_DAYS ago)
-      const cutoffDate = DateTime.now().minus({ days: MAX_DATA_AGE_DAYS });
-
-      // Filter out data points older than the cutoff date
-      this.dataPoints = this.dataPoints.filter(point => {
-        const pointDate = DateTime.fromISO(point.timestamp);
-        return pointDate >= cutoffDate;
-      });
-
-      const removedCount = originalCount - this.dataPoints.length;
-
-      if (removedCount > 0) {
-        this.homey.log(`Removed ${removedCount} data points older than ${MAX_DATA_AGE_DAYS} days`);
-      }
-
-      return removedCount;
-    } catch (error) {
-      this.homey.error(`Error removing old data points: ${error}`);
-      return 0;
-    }
-  }
-
-  /**
-   * Aggregate older data to reduce memory usage while preserving historical patterns
-   */
-  private aggregateOlderData(): void {
-    try {
-      // Only aggregate if we have enough data points
-      if (this.dataPoints.length < 100) {
-        return;
-      }
-
-      // Keep the most recent 7 days of data at full resolution
-      const sevenDaysAgo = DateTime.now().minus({ days: 7 });
-
-      // Split data into recent (keep as is) and older (to be aggregated)
-      const recentData: ThermalDataPoint[] = [];
-      const olderData: ThermalDataPoint[] = [];
-
-      this.dataPoints.forEach(point => {
-        const pointDate = DateTime.fromISO(point.timestamp);
-        if (pointDate >= sevenDaysAgo) {
-          recentData.push(point);
-        } else {
-          olderData.push(point);
-        }
-      });
-
-      // If no older data, nothing to aggregate
-      if (olderData.length === 0) {
-        return;
-      }
-
-      this.homey.log(`Aggregating ${olderData.length} older data points`);
-
-      // Group older data by day
-      const dataByDay: Record<string, ThermalDataPoint[]> = {};
-
-      olderData.forEach(point => {
-        const date = DateTime.fromISO(point.timestamp).toFormat('yyyy-MM-dd');
-        if (!dataByDay[date]) {
-          dataByDay[date] = [];
-        }
-        dataByDay[date].push(point);
-      });
-
-      // Create daily aggregates
-      const newAggregates: AggregatedDataPoint[] = [];
-
-      Object.entries(dataByDay).forEach(([date, points]) => {
-        // Skip if we already have an aggregate for this date
-        if (this.aggregatedData.some(agg => agg.date === date)) {
-          return;
-        }
-
-        // Calculate averages
-        const avgIndoorTemp = points.reduce((sum, p) => sum + p.indoorTemperature, 0) / points.length;
-        const avgOutdoorTemp = points.reduce((sum, p) => sum + p.outdoorTemperature, 0) / points.length;
-        const avgTargetTemp = points.reduce((sum, p) => sum + p.targetTemperature, 0) / points.length;
-        const heatingHours = points.filter(p => p.heatingActive).length * (24 / points.length);
-        const avgWindSpeed = points.reduce((sum, p) => sum + p.weatherConditions.windSpeed, 0) / points.length;
-        const avgHumidity = points.reduce((sum, p) => sum + p.weatherConditions.humidity, 0) / points.length;
-
-        // Calculate total energy usage if available
-        let totalEnergyUsage: number | undefined = undefined;
-        if (points.some(p => p.energyUsage !== undefined)) {
-          totalEnergyUsage = points.reduce((sum, p) => sum + (p.energyUsage || 0), 0);
-        }
-
-        // Create aggregated data point
-        const aggregatedPoint: AggregatedDataPoint = {
-          date,
-          avgIndoorTemp,
-          avgOutdoorTemp,
-          avgTargetTemp,
-          heatingHours,
-          avgWindSpeed,
-          avgHumidity,
-          totalEnergyUsage,
-          dataPointCount: points.length
-        };
-
-        newAggregates.push(aggregatedPoint);
-      });
-
-      // Add new aggregates to existing ones
-      this.aggregatedData = [...this.aggregatedData, ...newAggregates];
-
-      // Update data points to only include recent data
-      this.dataPoints = recentData;
-
-      this.homey.log(`Aggregated ${olderData.length} older data points into ${newAggregates.length} daily aggregates. Kept ${recentData.length} recent points.`);
-    } catch (error) {
-      this.homey.error(`Error aggregating older data: ${error}`);
-    }
-  }
 
   /**
    * Add a new thermal data point
@@ -420,25 +1033,23 @@ export class ThermalDataCollector {
       // Add the new data point
       this.dataPoints.push(dataPoint);
 
-      // Trim the data set if it exceeds the maximum size
-      if (this.dataPoints.length > this.maxDataPoints) {
-        // Instead of just slicing, try to aggregate older data first
-        this.aggregateOlderData();
-
-        // If still too large, then slice
-        if (this.dataPoints.length > this.maxDataPoints) {
-          const excessPoints = this.dataPoints.length - this.maxDataPoints;
-          this.dataPoints = this.dataPoints.slice(excessPoints);
-          this.homey.log(`Trimmed ${excessPoints} oldest thermal data points to maintain limit of ${this.maxDataPoints} entries`);
-        }
-      }
-
       // Save the updated data
-      this.saveData();
+      this.saveData('add-data-point');
 
       this.homey.log(`Added new thermal data point. Total points: ${this.dataPoints.length}`);
     } catch (error) {
       this.homey.error('Error adding thermal data point:', error);
+    }
+  }
+
+  /**
+   * Explicitly run retention maintenance (used by scheduled cleanup tasks)
+   */
+  public runRetentionMaintenance(reason: string = 'manual'): void {
+    try {
+      this.saveData(reason);
+    } catch (error) {
+      this.homey.error('Error running retention maintenance:', error);
     }
   }
 
@@ -671,16 +1282,8 @@ export class ThermalDataCollector {
 
       // If current data exceeds the new maximum, trim it
       if (this.dataPoints.length > this.maxDataPoints) {
-        this.aggregateOlderData();
-
-        if (this.dataPoints.length > this.maxDataPoints) {
-          const excessPoints = this.dataPoints.length - this.maxDataPoints;
-          this.dataPoints = this.dataPoints.slice(excessPoints);
-          this.homey.log(`Trimmed ${excessPoints} oldest thermal data points to match new limit of ${this.maxDataPoints}`);
-        }
-
-        // Save the updated data
-        this.saveData();
+        this.applyRetentionPolicy('set-max-points');
+        this.saveToSettings();
       }
     } catch (error) {
       this.homey.error(`Error setting max data points: ${error}`);
@@ -702,7 +1305,7 @@ export class ThermalDataCollector {
         this.homey.log('Cleared detailed thermal data points (kept aggregated data)');
       }
 
-      this.saveData();
+      this.saveData('clear-data');
     } catch (error) {
       this.homey.error(`Error clearing data: ${error}`);
     }

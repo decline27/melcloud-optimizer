@@ -364,6 +364,27 @@ type RunThermalDataCleanupResponse = ApiResult<Record<string, unknown>>;
 
 type InternalCleanupResponse = ApiResult<{ message: string }>;
 
+type GetModelConfidenceResponse = ApiResult<{
+  thermalModel: {
+    confidence: number | null;
+    heatingRate: number | null;
+    coolingRate: number | null;
+    thermalMass: number | null;
+    lastUpdated: string | null;
+  };
+  adaptiveParameters: {
+    learningCycles: number | null;
+    confidence: number | null;
+    lastUpdated: string | null;
+  };
+  dataRetention: {
+    thermalRawPoints: number;
+    thermalAggPoints: number;
+    rawKB: number;
+    aggKB: number;
+  };
+}>;
+
 interface HotWaterServiceLike {
   resetPatterns(): void;
   clearData(clearAggregated: boolean): Promise<void>;
@@ -404,6 +425,7 @@ interface ApiHandlers {
   runThermalDataCleanup(context: ApiHandlerContext): Promise<RunThermalDataCleanupResponse>;
   internalCleanup(context: ApiHandlerContext): Promise<InternalCleanupResponse>;
   validateAndStartCron(context: ApiHandlerContext): Promise<ValidateAndStartCronResponse>;
+  getModelConfidence(context: ApiHandlerContext): Promise<GetModelConfidenceResponse>;
   'hot-water': HotWaterHandlers;
 }
 
@@ -3005,6 +3027,113 @@ const apiHandlers: ApiHandlers = {
       }
     } catch (err: any) {
       console.error('Error in validateAndStartCron:', err);
+      return { success: false, error: err.message };
+    }
+  },
+
+  getModelConfidence: async ({ homey }: ApiHandlerContext) => {
+    try {
+      console.log('API method getModelConfidence called');
+      homey.app.log('API method getModelConfidence called');
+
+      // Read thermal characteristics from settings
+      const thermalCharacteristicsKey = 'thermal_model_characteristics';
+      const thermalCharacteristicsRaw = homey.settings.get(thermalCharacteristicsKey);
+      let thermalModel = {
+        confidence: null as number | null,
+        heatingRate: null as number | null,
+        coolingRate: null as number | null,
+        thermalMass: null as number | null,
+        lastUpdated: null as string | null
+      };
+
+      if (thermalCharacteristicsRaw) {
+        try {
+          const parsed = typeof thermalCharacteristicsRaw === 'string' 
+            ? JSON.parse(thermalCharacteristicsRaw) 
+            : thermalCharacteristicsRaw;
+          
+          thermalModel = {
+            confidence: parsed.modelConfidence ?? null,
+            heatingRate: parsed.heatingRate ?? null,
+            coolingRate: parsed.coolingRate ?? null,
+            thermalMass: parsed.thermalMass ?? null,
+            lastUpdated: parsed.lastUpdated ?? null
+          };
+        } catch (parseErr) {
+          homey.app.error('Failed to parse thermal characteristics:', parseErr);
+        }
+      }
+
+      // Read adaptive parameters from settings
+      const adaptiveParametersKey = 'adaptive_business_parameters';
+      const adaptiveParametersRaw = homey.settings.get(adaptiveParametersKey);
+      let adaptiveParameters = {
+        learningCycles: null as number | null,
+        confidence: null as number | null,
+        lastUpdated: null as string | null
+      };
+
+      if (adaptiveParametersRaw) {
+        try {
+          const parsed = typeof adaptiveParametersRaw === 'string'
+            ? JSON.parse(adaptiveParametersRaw)
+            : adaptiveParametersRaw;
+          
+          adaptiveParameters = {
+            learningCycles: parsed.learningCycles ?? null,
+            confidence: parsed.confidence ?? null,
+            lastUpdated: parsed.lastUpdated ?? null
+          };
+        } catch (parseErr) {
+          homey.app.error('Failed to parse adaptive parameters:', parseErr);
+        }
+      }
+
+      // Read thermal model data for retention statistics
+      const thermalDataKey = 'thermal_model_data';
+      const thermalAggKey = 'thermal_model_aggregated_data';
+      const thermalDataRaw = homey.settings.get(thermalDataKey);
+      const thermalAggRaw = homey.settings.get(thermalAggKey);
+      
+      let dataRetention = {
+        thermalRawPoints: 0,
+        thermalAggPoints: 0,
+        rawKB: 0,
+        aggKB: 0
+      };
+
+      if (thermalDataRaw) {
+        try {
+          const dataStr = typeof thermalDataRaw === 'string' ? thermalDataRaw : JSON.stringify(thermalDataRaw);
+          const dataParsed = typeof thermalDataRaw === 'string' ? JSON.parse(thermalDataRaw) : thermalDataRaw;
+          dataRetention.thermalRawPoints = Array.isArray(dataParsed) ? dataParsed.length : 0;
+          dataRetention.rawKB = Math.round((dataStr.length / 1024) * 100) / 100;
+        } catch (parseErr) {
+          homey.app.error('Failed to parse thermal data:', parseErr);
+        }
+      }
+
+      if (thermalAggRaw) {
+        try {
+          const aggStr = typeof thermalAggRaw === 'string' ? thermalAggRaw : JSON.stringify(thermalAggRaw);
+          const aggParsed = typeof thermalAggRaw === 'string' ? JSON.parse(thermalAggRaw) : thermalAggRaw;
+          dataRetention.thermalAggPoints = Array.isArray(aggParsed) ? aggParsed.length : 0;
+          dataRetention.aggKB = Math.round((aggStr.length / 1024) * 100) / 100;
+        } catch (parseErr) {
+          homey.app.error('Failed to parse thermal aggregated data:', parseErr);
+        }
+      }
+
+      return {
+        success: true,
+        thermalModel,
+        adaptiveParameters,
+        dataRetention
+      };
+    } catch (err: any) {
+      console.error('Error in getModelConfidence:', err);
+      homey.app.error('Error in getModelConfidence:', err);
       return { success: false, error: err.message };
     }
   }

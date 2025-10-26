@@ -186,6 +186,79 @@
       </div>
     </details>
 
+    <details class="homey-form-fieldset" id="model_confidence_section">
+      <summary class="homey-form-legend">Live Model Confidence</summary>
+      <div class="homey-form-group">
+        <p class="homey-form-helper">Read-only snapshot of the thermal model's learning state.</p>
+      </div>
+      
+      <div class="homey-form-group" style="display: flex; justify-content: space-between; align-items: center;">
+        <span></span>
+        <button type="button" id="refresh_model_confidence" class="homey-button-secondary">Refresh</button>
+      </div>
+
+      <div id="model_confidence_loading" class="homey-form-group" style="display: none;">
+        <p class="homey-form-helper" style="font-style: italic;">Loading model confidence data...</p>
+      </div>
+
+      <div id="model_confidence_content">
+        <div class="homey-form-group" style="border: 1px solid #e0e0e0; border-radius: 6px; padding: 16px; background: #fafafa;">
+          <div style="margin-bottom: 12px;">
+            <span style="font-weight: 600;">Confidence:</span>
+            <span id="model_confidence_value" style="font-size: 1.1em; margin-left: 8px;" aria-live="polite">—</span>
+            <span id="model_confidence_status" style="margin-left: 8px; font-style: italic;">Learning…</span>
+          </div>
+
+          <div id="model_thermal_details" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid #e0e0e0;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.9em;">
+              <div id="heating_rate_row" style="display: none;">
+                <span>Heating rate:</span>
+                <span id="heating_rate_value" style="font-weight: 500; margin-left: 4px;">—</span>
+              </div>
+              <div id="cooling_rate_row" style="display: none;">
+                <span>Cooling rate:</span>
+                <span id="cooling_rate_value" style="font-weight: 500; margin-left: 4px;">—</span>
+              </div>
+              <div id="thermal_mass_row" style="display: none;">
+                <span>Thermal mass:</span>
+                <span id="thermal_mass_value" style="font-weight: 500; margin-left: 4px;">—</span>
+              </div>
+            </div>
+          </div>
+
+          <div id="model_learning_details" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid #e0e0e0;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.9em;">
+              <div id="last_calibration_row" style="display: none;">
+                <span>Last updated:</span>
+                <span id="last_calibration_value" style="font-weight: 500; margin-left: 4px;">—</span>
+              </div>
+              <div id="learning_cycles_row" style="display: none;">
+                <span>Learning cycles:</span>
+                <span id="learning_cycles_value" style="font-weight: 500; margin-left: 4px;">—</span>
+              </div>
+            </div>
+          </div>
+
+          <div id="model_retention_details" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid #e0e0e0;">
+            <div style="font-size: 0.85em; color: #666;">
+              <span>Data: </span>
+              <span id="thermal_raw_points">—</span> raw /
+              <span id="thermal_agg_points">—</span> agg •
+              <span id="thermal_total_kb">—</span> KB
+            </div>
+          </div>
+
+          <div id="model_empty_state" class="homey-form-helper" style="margin-top: 12px; font-style: italic; color: #666;">
+            Model builds confidence as your system runs normal heating cycles.
+          </div>
+
+          <div id="model_error_state" style="display: none; margin-top: 12px; color: #d32f2f; font-size: 0.9em;">
+            <span id="model_error_message">—</span>
+          </div>
+        </div>
+      </div>
+    </details>
+
     <details class="homey-form-fieldset">
       <summary class="homey-form-legend">Electricity Price Source</summary>
       <div class="homey-form-group">
@@ -1622,6 +1695,210 @@
 
         // Check migration opportunity on page load
         setTimeout(checkMigrationOpportunity, 500);
+
+        // ===== Model Confidence Section =====
+        const refreshModelConfidenceButton = document.getElementById('refresh_model_confidence');
+        const modelConfidenceLoading = document.getElementById('model_confidence_loading');
+        const modelConfidenceContent = document.getElementById('model_confidence_content');
+        const modelConfidenceValue = document.getElementById('model_confidence_value');
+        const modelConfidenceStatus = document.getElementById('model_confidence_status');
+        const heatingRateRow = document.getElementById('heating_rate_row');
+        const heatingRateValue = document.getElementById('heating_rate_value');
+        const coolingRateRow = document.getElementById('cooling_rate_row');
+        const coolingRateValue = document.getElementById('cooling_rate_value');
+        const thermalMassRow = document.getElementById('thermal_mass_row');
+        const thermalMassValue = document.getElementById('thermal_mass_value');
+        const modelThermalDetails = document.getElementById('model_thermal_details');
+        const lastCalibrationRow = document.getElementById('last_calibration_row');
+        const lastCalibrationValue = document.getElementById('last_calibration_value');
+        const learningCyclesRow = document.getElementById('learning_cycles_row');
+        const learningCyclesValue = document.getElementById('learning_cycles_value');
+        const modelLearningDetails = document.getElementById('model_learning_details');
+        const thermalRawPoints = document.getElementById('thermal_raw_points');
+        const thermalAggPoints = document.getElementById('thermal_agg_points');
+        const thermalTotalKb = document.getElementById('thermal_total_kb');
+        const modelRetentionDetails = document.getElementById('model_retention_details');
+        const modelEmptyState = document.getElementById('model_empty_state');
+        const modelErrorState = document.getElementById('model_error_state');
+        const modelErrorMessage = document.getElementById('model_error_message');
+
+        function getConfidenceStatus(pct) {
+          if (pct === null || pct === undefined) return 'Learning';
+          if (pct < 25) return 'Learning';
+          if (pct < 60) return 'Improving';
+          if (pct < 85) return 'Reliable';
+          return 'Highly reliable';
+        }
+
+        function fetchModelConfidence() {
+          if (!Homey || !Homey.api) {
+            console.error('Homey API not available');
+            return;
+          }
+
+          // Show loading state
+          if (refreshModelConfidenceButton) {
+            refreshModelConfidenceButton.disabled = true;
+            refreshModelConfidenceButton.textContent = 'Loading…';
+          }
+          if (modelConfidenceLoading) {
+            modelConfidenceLoading.style.display = 'block';
+          }
+          if (modelConfidenceContent) {
+            modelConfidenceContent.style.opacity = '0.5';
+          }
+
+          Homey.api('GET', '/getModelConfidence', {}, function(err, result) {
+            // Re-enable button
+            if (refreshModelConfidenceButton) {
+              refreshModelConfidenceButton.disabled = false;
+              refreshModelConfidenceButton.textContent = 'Refresh';
+            }
+            if (modelConfidenceLoading) {
+              modelConfidenceLoading.style.display = 'none';
+            }
+            if (modelConfidenceContent) {
+              modelConfidenceContent.style.opacity = '1';
+            }
+
+            if (err || !result || !result.success) {
+              console.error('Error fetching model confidence:', err || result);
+              if (modelErrorState && modelErrorMessage) {
+                modelErrorState.style.display = 'block';
+                modelErrorMessage.textContent = err ? err.message : (result?.error || 'Failed to load model confidence');
+              }
+              if (modelEmptyState) {
+                modelEmptyState.style.display = 'none';
+              }
+              return;
+            }
+
+            // Hide error state
+            if (modelErrorState) {
+              modelErrorState.style.display = 'none';
+            }
+
+            const data = result;
+            const thermalModel = data.thermalModel || {};
+            const adaptiveParams = data.adaptiveParameters || {};
+            const dataRetention = data.dataRetention || {};
+
+            // Update confidence display
+            const confidencePct = thermalModel.confidence !== null && thermalModel.confidence !== undefined
+              ? Math.round(thermalModel.confidence * 100)
+              : null;
+            const status = getConfidenceStatus(confidencePct);
+
+            if (modelConfidenceValue) {
+              modelConfidenceValue.textContent = confidencePct !== null ? confidencePct + '%' : '—';
+            }
+            if (modelConfidenceStatus) {
+              modelConfidenceStatus.textContent = status;
+            }
+
+            // Show/hide empty state
+            const hasData = confidencePct !== null || thermalModel.heatingRate !== null || 
+                           adaptiveParams.learningCycles !== null;
+            if (modelEmptyState) {
+              modelEmptyState.style.display = hasData ? 'none' : 'block';
+            }
+
+            // Update thermal details
+            let thermalDetailsVisible = false;
+            if (thermalModel.heatingRate !== null && thermalModel.heatingRate !== undefined) {
+              if (heatingRateRow && heatingRateValue) {
+                heatingRateRow.style.display = 'block';
+                heatingRateValue.textContent = thermalModel.heatingRate.toFixed(2) + ' °C/h';
+                thermalDetailsVisible = true;
+              }
+            } else if (heatingRateRow) {
+              heatingRateRow.style.display = 'none';
+            }
+
+            if (thermalModel.coolingRate !== null && thermalModel.coolingRate !== undefined) {
+              if (coolingRateRow && coolingRateValue) {
+                coolingRateRow.style.display = 'block';
+                coolingRateValue.textContent = thermalModel.coolingRate.toFixed(2) + ' °C/h';
+                thermalDetailsVisible = true;
+              }
+            } else if (coolingRateRow) {
+              coolingRateRow.style.display = 'none';
+            }
+
+            if (thermalModel.thermalMass !== null && thermalModel.thermalMass !== undefined) {
+              if (thermalMassRow && thermalMassValue) {
+                thermalMassRow.style.display = 'block';
+                thermalMassValue.textContent = thermalModel.thermalMass.toFixed(2);
+                thermalDetailsVisible = true;
+              }
+            } else if (thermalMassRow) {
+              thermalMassRow.style.display = 'none';
+            }
+
+            if (modelThermalDetails) {
+              modelThermalDetails.style.display = thermalDetailsVisible ? 'block' : 'none';
+            }
+
+            // Update learning details
+            let learningDetailsVisible = false;
+            if (thermalModel.lastUpdated) {
+              if (lastCalibrationRow && lastCalibrationValue) {
+                lastCalibrationRow.style.display = 'block';
+                try {
+                  const date = new Date(thermalModel.lastUpdated);
+                  lastCalibrationValue.textContent = date.toLocaleString();
+                } catch (e) {
+                  lastCalibrationValue.textContent = thermalModel.lastUpdated;
+                }
+                learningDetailsVisible = true;
+              }
+            } else if (lastCalibrationRow) {
+              lastCalibrationRow.style.display = 'none';
+            }
+
+            if (adaptiveParams.learningCycles !== null && adaptiveParams.learningCycles !== undefined) {
+              if (learningCyclesRow && learningCyclesValue) {
+                learningCyclesRow.style.display = 'block';
+                learningCyclesValue.textContent = adaptiveParams.learningCycles.toString();
+                learningDetailsVisible = true;
+              }
+            } else if (learningCyclesRow) {
+              learningCyclesRow.style.display = 'none';
+            }
+
+            if (modelLearningDetails) {
+              modelLearningDetails.style.display = learningDetailsVisible ? 'block' : 'none';
+            }
+
+            // Update retention details
+            const hasRetentionData = (dataRetention.thermalRawPoints > 0) || 
+                                    (dataRetention.thermalAggPoints > 0);
+            if (hasRetentionData && modelRetentionDetails) {
+              modelRetentionDetails.style.display = 'block';
+              if (thermalRawPoints) {
+                thermalRawPoints.textContent = dataRetention.thermalRawPoints || '0';
+              }
+              if (thermalAggPoints) {
+                thermalAggPoints.textContent = dataRetention.thermalAggPoints || '0';
+              }
+              if (thermalTotalKb) {
+                const totalKb = (dataRetention.rawKB || 0) + (dataRetention.aggKB || 0);
+                thermalTotalKb.textContent = totalKb.toFixed(2);
+              }
+            } else if (modelRetentionDetails) {
+              modelRetentionDetails.style.display = 'none';
+            }
+          });
+        }
+
+        // Attach refresh button handler
+        if (refreshModelConfidenceButton) {
+          refreshModelConfidenceButton.addEventListener('click', fetchModelConfidence);
+        }
+
+        // Fetch model confidence on page load
+        setTimeout(fetchModelConfidence, 1000);
+        // ===== End Model Confidence Section =====
 
         // Consumer markup elements (declared early to avoid initialization errors)
         const enableConsumerMarkupElement = document.getElementById("enable_consumer_markup");
