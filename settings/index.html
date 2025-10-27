@@ -267,6 +267,28 @@
             </ul>
           </div>
 
+          <!-- Savings Overview (read-only) -->
+          <div id="savings-overview" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e0e0e0;">
+            <div style="font-weight: 600; margin-bottom: 6px;">Savings Overview</div>
+            <div style="font-size: 0.9em;">
+              <div aria-live="polite" style="margin-bottom: 8px;">
+                <strong>Today:</strong> <span id="sv-today" style="font-weight: 500;">—</span>
+                <span id="sv-today-vs-baseline" style="color: #2e7d32; margin-left: 8px;">—</span>
+              </div>
+              <div aria-live="polite" style="margin-bottom: 8px;">
+                <strong>Last 7 days:</strong> <span id="sv-7d" style="font-weight: 500;">—</span>
+              </div>
+              <div aria-live="polite" style="margin-bottom: 8px;">
+                <strong>Projection:</strong> <span id="sv-proj" style="font-weight: 500;">—</span>
+                <span id="sv-monthly-proj" style="color: #666; margin-left: 8px; font-size: 0.9em;">—</span>
+              </div>
+              <div aria-live="polite" style="margin-bottom: 4px;">
+                <strong>Season mode:</strong> <span id="sv-season" style="font-weight: 500;">—</span>
+              </div>
+            </div>
+            <div id="sv-note" style="font-size: 0.85em; color: #666; margin-top: 6px;"></div>
+          </div>
+
           <div id="model_empty_state" class="homey-form-helper" style="margin-top: 12px; font-style: italic; color: #666;">
             Model builds confidence as your system runs normal heating cycles.
           </div>
@@ -1800,6 +1822,15 @@
           return "Learning";
         }
 
+        // Helper functions for Savings Overview
+        function fmtMoney(n, currencySymbol) {
+          if (n == null || isNaN(n)) return "—";
+          // use existing symbol if known, else plain
+          const s = (currencySymbol || "").trim();
+          const v = Math.round(n * 100) / 100;
+          return s ? `${v} ${s}` : `${v}`;
+        }
+
         function renderSystemLearningOverview(snapshot) {
           // DOM targets
           const elTemp  = document.querySelector('#slo-temp .value');
@@ -1901,6 +1932,121 @@
           }
           if (elHW) elHW.textContent = hwStatus;
           if (elHWDetail) elHWDetail.textContent = hwDetail;
+        }
+
+        function renderSavingsOverview(snapshot) {
+          // DOM targets
+          const elToday = document.getElementById('sv-today');
+          const elTodayVsBaseline = document.getElementById('sv-today-vs-baseline');
+          const el7d = document.getElementById('sv-7d');
+          const elProj = document.getElementById('sv-proj');
+          const elMonthlyProj = document.getElementById('sv-monthly-proj');
+          const elSeason = document.getElementById('sv-season');
+          const elNote = document.getElementById('sv-note');
+
+          // Get currency from snapshot
+          const currency = (snapshot && snapshot.priceData && snapshot.priceData.currencySymbol) || "SEK";
+
+          // Get savings data directly from snapshot
+          let today = null;
+          let todayVsBaseline = null;
+          let percentSaved = null;
+          let last7 = null;
+          let proj = null;
+          let monthlyProj = null;
+          let season = null;
+          let confidence = null;
+
+          if (snapshot && snapshot.savingsMetrics) {
+            today = snapshot.savingsMetrics.todaySavings;
+            last7 = snapshot.savingsMetrics.last7DaysSavings;
+            proj = snapshot.savingsMetrics.projectedDailySavings;
+          }
+
+          // Get baseline savings comparison data
+          if (snapshot && snapshot.baselineSavings) {
+            todayVsBaseline = snapshot.baselineSavings.todayVsBaseline;
+            percentSaved = snapshot.baselineSavings.percentageSaved;
+            confidence = snapshot.baselineSavings.confidence;
+            monthlyProj = snapshot.baselineSavings.projectedMonthly;
+          }
+
+          // Get seasonal mode
+          if (snapshot && snapshot.seasonalMode) {
+            season = snapshot.seasonalMode;
+          }
+
+          // Update display
+          if (elToday) {
+            elToday.textContent = fmtMoney(today, currency);
+          }
+
+          // Show baseline comparison if available with good confidence
+          if (elTodayVsBaseline) {
+            if (todayVsBaseline !== null && confidence !== null && confidence >= 0.2) {
+              const pct = percentSaved !== null ? percentSaved.toFixed(1) : '?';
+              elTodayVsBaseline.textContent = `(${pct}% cheaper than baseline)`;
+              elTodayVsBaseline.style.display = 'inline';
+            } else if (confidence !== null && confidence < 0.2) {
+              elTodayVsBaseline.textContent = '(learning baseline…)';
+              elTodayVsBaseline.style.display = 'inline';
+              elTodayVsBaseline.style.color = '#666';
+            } else {
+              elTodayVsBaseline.textContent = '';
+              elTodayVsBaseline.style.display = 'none';
+            }
+          }
+
+          if (el7d) {
+            el7d.textContent = fmtMoney(last7, currency);
+          }
+
+          if (elProj) {
+            elProj.textContent = fmtMoney(proj, currency);
+          }
+
+          // Show monthly projection if available
+          if (elMonthlyProj) {
+            if (monthlyProj !== null && confidence !== null && confidence >= 0.2) {
+              elMonthlyProj.textContent = `(~${fmtMoney(monthlyProj, currency)}/month)`;
+              elMonthlyProj.style.display = 'inline';
+            } else {
+              elMonthlyProj.textContent = '';
+              elMonthlyProj.style.display = 'none';
+            }
+          }
+
+          // Show season mode
+          if (elSeason) {
+            if (season) {
+              const seasonLabels = {
+                'winter': 'Winter',
+                'transition': 'Transition',
+                'summer': 'Summer'
+              };
+              elSeason.textContent = seasonLabels[season] || season;
+            } else {
+              elSeason.textContent = '—';
+            }
+          }
+
+          // Note/help
+          if (elNote) {
+            const parts = [];
+            if (today == null) parts.push("today's data");
+            if (last7 == null) parts.push("weekly history");
+            if (proj == null && monthlyProj == null) parts.push("projections");
+            
+            if (parts.length > 0) {
+              elNote.textContent = `Still building ${parts.join(", ")}.`;
+            } else if (confidence !== null && confidence < 0.2) {
+              elNote.textContent = 'Baseline model is learning your home\'s heating patterns for accurate comparison.';
+            } else if (confidence !== null && confidence >= 0.2 && todayVsBaseline !== null) {
+              elNote.textContent = 'Savings shown vs. traditional fixed-temperature thermostat operation.';
+            } else {
+              elNote.textContent = '';
+            }
+          }
         }
 
         function fetchModelConfidence() {
@@ -2064,6 +2210,9 @@
 
             // Update System Learning Overview
             renderSystemLearningOverview(data);
+            
+            // Update Savings Overview
+            renderSavingsOverview(data);
           });
         }
 

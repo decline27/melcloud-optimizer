@@ -383,6 +383,37 @@ type GetModelConfidenceResponse = ApiResult<{
     rawKB: number;
     aggKB: number;
   };
+  hotWaterPatterns: {
+    confidence: number | null;
+    hourlyUsagePattern: number[] | null;
+    lastUpdated: string | null;
+  };
+  savingsMetrics: {
+    totalSavings: number | null;
+    averageDailySavings: number | null;
+    todaySavings: number | null;
+    last7DaysSavings: number | null;
+    projectedDailySavings: number | null;
+  };
+  baselineSavings: {
+    todayVsBaseline: number;
+    percentageSaved: number;
+    confidence: number;
+    projectedMonthly: number;
+  } | null;
+  enhancedSavings: {
+    baselineSavings: number;
+    baselinePercentage: number;
+    projectedSavings: number;
+    confidence: number;
+    method: string;
+    breakdown: any;
+  } | null;
+  seasonalMode: string | null;
+  priceData: {
+    currencySymbol: string;
+    currency: string;
+  };
 }>;
 
 interface HotWaterServiceLike {
@@ -3150,14 +3181,37 @@ const apiHandlers: ApiHandlers = {
         }
       }
 
-      // Read orchestrator metrics for savings data
+      // Read orchestrator metrics and savings history
       const metricsKey = 'orchestrator_metrics';
       const metricsRaw = homey.settings.get(metricsKey);
+      const savingsHistoryRaw = homey.settings.get('savings_history');
+      const currency = homey.settings.get('currency_code') || homey.settings.get('currency') || 'SEK';
+      const currencySymbol = homey.settings.get('currency_symbol') || currency;
+      
       let savingsMetrics = {
         totalSavings: null as number | null,
-        averageDailySavings: null as number | null
+        averageDailySavings: null as number | null,
+        todaySavings: null as number | null,
+        last7DaysSavings: null as number | null,
+        projectedDailySavings: null as number | null
       };
+      
+      // Get currency decimals helper
+      const getCurrencyDecimals = (curr: string): number => {
+        const code = (curr || 'SEK').toUpperCase();
+        if (['JPY', 'KRW'].includes(code)) return 0;
+        if (['BHD', 'KWD', 'OMR'].includes(code)) return 3;
+        return 2;
+      };
+      
+      const minorToMajor = (minor: number, decimals: number): number => {
+        const divisor = Math.pow(10, decimals);
+        return minor / divisor;
+      };
+      
+      const decimals = getCurrencyDecimals(currency);
 
+      // Process orchestrator metrics
       if (metricsRaw) {
         try {
           const parsed = typeof metricsRaw === 'string'
@@ -3166,17 +3220,168 @@ const apiHandlers: ApiHandlers = {
           
           if (parsed.totalSavings !== undefined) {
             savingsMetrics.totalSavings = parsed.totalSavings;
-            // Calculate average daily savings if we have history
-            const history = parsed.savingsHistory || [];
-            if (history.length > 0) {
-              const sum = history.reduce((acc: number, val: number) => acc + val, 0);
-              savingsMetrics.averageDailySavings = sum / history.length;
-            }
+          }
+          
+          // Check for projected daily savings
+          if (parsed.projectedDailySavings !== undefined) {
+            savingsMetrics.projectedDailySavings = parsed.projectedDailySavings;
           }
         } catch (parseErr) {
           homey.app.error('Failed to parse savings metrics:', parseErr);
         }
       }
+      
+      // Process savings history for today and last 7 days
+      if (savingsHistoryRaw && Array.isArray(savingsHistoryRaw)) {
+        try {
+          const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD format
+          const todayDate = new Date(`${today}T00:00:00`);
+          const last7Cutoff = new Date(todayDate);
+          last7Cutoff.setDate(todayDate.getDate() - 6); // 7-day window including today
+          
+          // Calculate today's savings
+          const todayEntry = savingsHistoryRaw.find((h: any) => h.date === today);
+          if (todayEntry) {
+            if (todayEntry.totalMinor !== undefined) {
+              const entryDecimals = todayEntry.decimals ?? decimals;
+              savingsMetrics.todaySavings = minorToMajor(todayEntry.totalMinor, entryDecimals);
+            } else if (todayEntry.total !== undefined) {
+              savingsMetrics.todaySavings = Number(todayEntry.total);
+            }
+          }
+          
+          // Calculate last 7 days total
+          let last7TotalMinor = 0;
+          for (const entry of savingsHistoryRaw) {
+            if (entry && entry.date) {
+              const entryDate = new Date(`${entry.date}T00:00:00`);
+              if (entryDate >= last7Cutoff && entryDate <= todayDate) {
+                if (entry.totalMinor !== undefined) {
+                  last7TotalMinor += entry.totalMinor;
+                } else if (entry.total !== undefined) {
+                  // Legacy format - convert to minor
+                  const entryDecimals = entry.decimals ?? decimals;
+                  last7TotalMinor += Math.round(entry.total * Math.pow(10, entryDecimals));
+                }
+              }
+            }
+          }
+          
+          if (last7TotalMinor > 0) {
+            savingsMetrics.last7DaysSavings = minorToMajor(last7TotalMinor, decimals);
+          }
+          
+          // Calculate average daily savings from last 7 days
+          if (savingsMetrics.last7DaysSavings !== null) {
+            const daysWithData = savingsHistoryRaw.filter((h: any) => {
+              if (!h || !h.date) return false;
+              const entryDate = new Date(`${h.date}T00:00:00`);
+              return entryDate >= last7Cutoff && entryDate <= todayDate && (h.totalMinor > 0 || h.total > 0);
+            }).length;
+            
+            if (daysWithData > 0) {
+              savingsMetrics.averageDailySavings = savingsMetrics.last7DaysSavings / daysWithData;
+            }
+          }
+        } catch (parseErr) {
+          homey.app.error('Failed to parse savings history:', parseErr);
+        }
+      }
+      
+      // Calculate baseline savings comparison (read-only, UI display only)
+      let baselineSavings = null;
+      let enhancedSavings: any = null;
+      let seasonalMode: string | null = null;
+      
+      try {
+        // Get optimizer instance from service manager for read-only calculation
+        const serviceState = getServiceState();
+        const optimizer = serviceState?.optimizer;
+        
+        // Run baseline calculation if we have any savings data (even if negative)
+        // Also run if we have recent optimization data, even without savings history yet
+        const hasSavingsData = savingsMetrics.todaySavings !== null && Math.abs(savingsMetrics.todaySavings) > 0.001;
+        const hasRecentData = homey.settings.get('melcloud_historical_data')?.length > 0;
+        
+        if (optimizer && (hasSavingsData || hasRecentData)) {
+          // Get actual consumption estimate (use today's savings as proxy for cost delta)
+          // This is a read-only calculation, doesn't affect storage
+          const actualCost = hasSavingsData ? Math.abs(savingsMetrics.todaySavings!) : 5.0; // Default 5 SEK if no savings yet
+          const actualConsumptionKWh = actualCost / 1.5; // Rough estimate: ~1.5 SEK/kWh average
+          
+          // Get historical optimizations for context (read-only)
+          const historicalData = homey.settings.get('melcloud_historical_data');
+          let historicalOptimizations: any[] = [];
+          if (historicalData && Array.isArray(historicalData)) {
+            const today = new Date().toISOString().slice(0, 10);
+            historicalOptimizations = historicalData
+              .filter((h: any) => h && h.timestamp && h.timestamp.startsWith(today))
+              .slice(0, 24); // Max 24 hours
+          }
+          
+          // Calculate enhanced savings with baseline comparison (READ-ONLY)
+          const currentHourSavings = hasSavingsData ? savingsMetrics.todaySavings! : 0;
+          const result = await optimizer.calculateEnhancedDailySavingsWithBaseline(
+            currentHourSavings,
+            historicalOptimizations,
+            actualConsumptionKWh,
+            actualCost,
+            true // enable baseline
+          );
+          
+          if (result && result.baselineComparison) {
+            enhancedSavings = {
+              baselineSavings: result.baselineComparison.baselineSavings,
+              baselinePercentage: result.baselineComparison.baselinePercentage,
+              projectedSavings: result.projectedSavings,
+              confidence: result.baselineComparison.confidenceLevel,
+              method: result.baselineComparison.method,
+              breakdown: result.baselineComparison.breakdown
+            };
+            
+            baselineSavings = {
+              todayVsBaseline: result.baselineComparison.baselineSavings,
+              percentageSaved: result.baselineComparison.baselinePercentage,
+              confidence: result.baselineComparison.confidenceLevel,
+              projectedMonthly: result.projectedSavings * 30
+            };
+          }
+          
+          // Get seasonal mode (read-only)
+          const summerMode = homey.settings.get('summer_mode');
+          const autoSeasonalMode = homey.settings.get('auto_seasonal_mode');
+          if (autoSeasonalMode && serviceState?.weather) {
+            try {
+              const weather = await serviceState.weather.getCurrentWeather();
+              if (weather && weather.temperature !== undefined && weather.temperature !== null) {
+                const temp = weather.temperature;
+                if (temp > 15) {
+                  seasonalMode = 'summer';
+                } else if (temp > 5) {
+                  seasonalMode = 'transition';
+                } else {
+                  seasonalMode = 'winter';
+                }
+              }
+            } catch (weatherErr) {
+              homey.app.error('Error getting weather for seasonal mode:', weatherErr);
+            }
+          } else if (summerMode) {
+            seasonalMode = 'summer';
+          } else {
+            seasonalMode = 'winter'; // Default assumption
+          }
+        }
+      } catch (baselineErr) {
+        homey.app.error('Error calculating baseline savings (non-critical):', baselineErr);
+        // Continue without baseline data - graceful degradation
+      }
+      
+      // Build price data for currency context
+      const priceData = {
+        currencySymbol: currencySymbol,
+        currency: currency
+      };
 
       return {
         success: true,
@@ -3184,7 +3389,11 @@ const apiHandlers: ApiHandlers = {
         adaptiveParameters,
         dataRetention,
         hotWaterPatterns,
-        savingsMetrics
+        savingsMetrics,
+        baselineSavings,
+        enhancedSavings,
+        seasonalMode,
+        priceData
       };
     } catch (err: any) {
       console.error('Error in getModelConfidence:', err);
