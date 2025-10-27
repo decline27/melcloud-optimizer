@@ -248,6 +248,25 @@
             </div>
           </div>
 
+          <!-- System Learning Overview (read-only) -->
+          <div id="sys-learning-overview" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e0e0e0;">
+            <div style="font-weight: 600; margin-bottom: 6px;">System Learning Overview</div>
+            <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.9em;">
+              <li id="slo-temp" aria-live="polite" style="margin-bottom: 8px;">
+                <div>• Temperature model: <span class="value">Learning</span></div>
+                <div class="detail" style="font-size: 0.85em; color: #666; margin-left: 12px; margin-top: 2px;">—</div>
+              </li>
+              <li id="slo-price" aria-live="polite" style="margin-bottom: 8px;">
+                <div>• Price strategy: <span class="value">Learning</span></div>
+                <div class="detail" style="font-size: 0.85em; color: #666; margin-left: 12px; margin-top: 2px;">—</div>
+              </li>
+              <li id="slo-hw" aria-live="polite" style="margin-bottom: 4px;">
+                <div>• Hot water forecast: <span class="value">Learning</span></div>
+                <div class="detail" style="font-size: 0.85em; color: #666; margin-left: 12px; margin-top: 2px;">—</div>
+              </li>
+            </ul>
+          </div>
+
           <div id="model_empty_state" class="homey-form-helper" style="margin-top: 12px; font-style: italic; color: #666;">
             Model builds confidence as your system runs normal heating cycles.
           </div>
@@ -1730,6 +1749,160 @@
           return 'Highly reliable';
         }
 
+        // Helper functions for System Learning Overview
+        function toPct(n) {
+          if (n == null || isNaN(n)) return null;
+          const pct = Math.round(Math.max(0, Math.min(1, n)) * 100);
+          return pct; // 0..100
+        }
+
+        function statusFrom(pct) {
+          if (pct == null) return "Learning";
+          if (pct < 25) return "Learning";
+          if (pct < 60) return "Improving";
+          if (pct < 85) return "Reliable";
+          return "Highly reliable";
+        }
+
+        // Heuristic for price if only a weight (0..1) exists:
+        function priceStatusFromAdaptive(adaptive) {
+          // Prefer explicit confidence if available
+          if (adaptive && typeof adaptive.confidence === 'number') {
+            return statusFrom(toPct(adaptive.confidence));
+          }
+          // Fallback: use learningCycles as a rough proxy for maturity
+          if (adaptive && typeof adaptive.learningCycles === 'number') {
+            // Map learning cycles to a confidence-like score (rough heuristic)
+            // 0-10 cycles → 0-0.25, 10-50 cycles → 0.25-0.6, 50-100 cycles → 0.6-0.85, 100+ → 0.85-1.0
+            const cycles = adaptive.learningCycles;
+            let approxConfidence;
+            if (cycles < 10) {
+              approxConfidence = cycles / 40; // 0-0.25
+            } else if (cycles < 50) {
+              approxConfidence = 0.25 + ((cycles - 10) / 100); // 0.25-0.6
+            } else if (cycles < 100) {
+              approxConfidence = 0.6 + ((cycles - 50) / 200); // 0.6-0.85
+            } else {
+              approxConfidence = 0.85 + (Math.min(cycles - 100, 100) / 667); // 0.85-1.0
+            }
+            return statusFrom(toPct(approxConfidence));
+          }
+          return "Learning";
+        }
+
+        // Hot water patterns confidence (0..1 or 0..100) if available
+        function hotWaterStatusFromPatterns(patterns) {
+          if (patterns && typeof patterns.confidence === 'number') {
+            // Hot water confidence is stored as 0-100, not 0-1
+            const pct = patterns.confidence > 1 ? patterns.confidence : toPct(patterns.confidence);
+            return statusFrom(pct);
+          }
+          return "Learning";
+        }
+
+        function renderSystemLearningOverview(snapshot) {
+          // DOM targets
+          const elTemp  = document.querySelector('#slo-temp .value');
+          const elTempDetail = document.querySelector('#slo-temp .detail');
+          const elPrice = document.querySelector('#slo-price .value');
+          const elPriceDetail = document.querySelector('#slo-price .detail');
+          const elHW    = document.querySelector('#slo-hw .value');
+          const elHWDetail = document.querySelector('#slo-hw .detail');
+
+          // 1) Temperature model from thermalModel.confidence
+          let tempStatus = "Learning";
+          let tempDetail = "Collecting data...";
+          if (snapshot && snapshot.thermalModel && typeof snapshot.thermalModel.confidence === 'number') {
+            tempStatus = statusFrom(toPct(snapshot.thermalModel.confidence));
+          }
+          if (snapshot && snapshot.dataRetention) {
+            const totalPoints = (snapshot.dataRetention.thermalRawPoints || 0) + (snapshot.dataRetention.thermalAggPoints || 0);
+            const lastUpdated = snapshot.thermalModel?.lastUpdated;
+            
+            if (totalPoints > 0) {
+              // Have data points
+              const pointsText = `${totalPoints} data points`;
+              const updatedText = lastUpdated 
+                ? new Date(lastUpdated).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+                : 'Recently';
+              tempDetail = `${pointsText} • Last updated: ${updatedText}`;
+            } else if (lastUpdated) {
+              // No data points but have a last updated timestamp
+              const updatedText = new Date(lastUpdated).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+              tempDetail = `No samples yet • Model last run: ${updatedText}`;
+            }
+          }
+          if (elTemp) elTemp.textContent = tempStatus;
+          if (elTempDetail) elTempDetail.textContent = tempDetail;
+
+          // 2) Price strategy from adaptiveParameters
+          let priceStatus = "Learning";
+          let priceDetail = "No optimization runs yet";
+          if (snapshot && snapshot.adaptiveParameters) {
+            priceStatus = priceStatusFromAdaptive(snapshot.adaptiveParameters);
+            const cycles = snapshot.adaptiveParameters.learningCycles || 0;
+            const cyclesText = cycles > 0 ? `${cycles} learning cycles` : 'No cycles';
+            
+            // Add average savings if available
+            let savingsText = '';
+            if (snapshot.savingsMetrics && snapshot.savingsMetrics.averageDailySavings !== null) {
+              const avgSavings = snapshot.savingsMetrics.averageDailySavings;
+              const savingsPercent = avgSavings > 0 ? Math.round(avgSavings * 100) / 100 : 0;
+              savingsText = ` • Avg savings: ${savingsPercent.toFixed(1)}%`;
+            }
+            
+            priceDetail = `${cyclesText}${savingsText}`;
+          }
+          if (elPrice) elPrice.textContent = priceStatus;
+          if (elPriceDetail) elPriceDetail.textContent = priceDetail;
+
+          // 3) Hot water forecast from snapshot
+          let hwStatus = "Learning";
+          let hwDetail = "Collecting usage data";
+          if (snapshot && snapshot.hotWaterPatterns) {
+            hwStatus = hotWaterStatusFromPatterns(snapshot.hotWaterPatterns);
+            const confidence = snapshot.hotWaterPatterns.confidence;
+            const confidenceText = confidence !== null ? `${Math.round(confidence)}% confidence` : 'No confidence';
+            
+            // Identify peak hours from hourly pattern
+            let peakHoursText = '';
+            if (snapshot.hotWaterPatterns.hourlyUsagePattern && Array.isArray(snapshot.hotWaterPatterns.hourlyUsagePattern)) {
+              const pattern = snapshot.hotWaterPatterns.hourlyUsagePattern;
+              const avgUsage = pattern.reduce((sum, val) => sum + val, 0) / pattern.length;
+              const peakHours = pattern
+                .map((usage, hour) => ({ hour, usage }))
+                .filter(h => h.usage > avgUsage * 1.3) // 30% above average
+                .sort((a, b) => b.usage - a.usage)
+                .slice(0, 4) // Top 4 peak hours
+                .map(h => h.hour)
+                .sort((a, b) => a - b);
+              
+              if (peakHours.length > 0) {
+                // Group consecutive hours
+                const ranges = [];
+                let start = peakHours[0];
+                let end = peakHours[0];
+                for (let i = 1; i <= peakHours.length; i++) {
+                  if (i < peakHours.length && peakHours[i] === end + 1) {
+                    end = peakHours[i];
+                  } else {
+                    ranges.push(start === end ? `${start}` : `${start}-${end}`);
+                    if (i < peakHours.length) {
+                      start = peakHours[i];
+                      end = peakHours[i];
+                    }
+                  }
+                }
+                peakHoursText = ` • Peak hours: ${ranges.join(', ')}`;
+              }
+            }
+            
+            hwDetail = `${confidenceText}${peakHoursText}`;
+          }
+          if (elHW) elHW.textContent = hwStatus;
+          if (elHWDetail) elHWDetail.textContent = hwDetail;
+        }
+
         function fetchModelConfidence() {
           if (!Homey || !Homey.api) {
             console.error('Homey API not available');
@@ -1888,6 +2061,9 @@
             } else if (modelRetentionDetails) {
               modelRetentionDetails.style.display = 'none';
             }
+
+            // Update System Learning Overview
+            renderSystemLearningOverview(data);
           });
         }
 

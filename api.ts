@@ -3125,11 +3125,66 @@ const apiHandlers: ApiHandlers = {
         }
       }
 
+      // Read hot water usage patterns for learning overview
+      const hotWaterPatternsKey = 'hot_water_usage_patterns';
+      const hotWaterPatternsRaw = homey.settings.get(hotWaterPatternsKey);
+      let hotWaterPatterns = {
+        confidence: null as number | null,
+        hourlyUsagePattern: null as number[] | null,
+        lastUpdated: null as string | null
+      };
+
+      if (hotWaterPatternsRaw) {
+        try {
+          const parsed = typeof hotWaterPatternsRaw === 'string'
+            ? JSON.parse(hotWaterPatternsRaw)
+            : hotWaterPatternsRaw;
+          
+          hotWaterPatterns = {
+            confidence: parsed.confidence ?? null,
+            hourlyUsagePattern: parsed.hourlyUsagePattern ?? null,
+            lastUpdated: parsed.lastUpdated ?? null
+          };
+        } catch (parseErr) {
+          homey.app.error('Failed to parse hot water patterns:', parseErr);
+        }
+      }
+
+      // Read orchestrator metrics for savings data
+      const metricsKey = 'orchestrator_metrics';
+      const metricsRaw = homey.settings.get(metricsKey);
+      let savingsMetrics = {
+        totalSavings: null as number | null,
+        averageDailySavings: null as number | null
+      };
+
+      if (metricsRaw) {
+        try {
+          const parsed = typeof metricsRaw === 'string'
+            ? JSON.parse(metricsRaw)
+            : metricsRaw;
+          
+          if (parsed.totalSavings !== undefined) {
+            savingsMetrics.totalSavings = parsed.totalSavings;
+            // Calculate average daily savings if we have history
+            const history = parsed.savingsHistory || [];
+            if (history.length > 0) {
+              const sum = history.reduce((acc: number, val: number) => acc + val, 0);
+              savingsMetrics.averageDailySavings = sum / history.length;
+            }
+          }
+        } catch (parseErr) {
+          homey.app.error('Failed to parse savings metrics:', parseErr);
+        }
+      }
+
       return {
         success: true,
         thermalModel,
         adaptiveParameters,
-        dataRetention
+        dataRetention,
+        hotWaterPatterns,
+        savingsMetrics
       };
     } catch (err: any) {
       console.error('Error in getModelConfidence:', err);

@@ -1985,6 +1985,34 @@ export class Optimizer {
         avgPrice: avgPrice.toFixed(3)
       });
 
+      // Collect thermal data point for learning
+      if (this.useThermalLearning && this.thermalModelService) {
+        try {
+          const dataPoint = {
+            timestamp: new Date().toISOString(),
+            indoorTemperature: currentTemp ?? 20,
+            outdoorTemperature: outdoorTemp,
+            targetTemperature: currentTarget ?? 20,
+            heatingActive: !deviceState.IdleZone1,
+            weatherConditions: {
+              windSpeed: 0, // Will be filled if weather available
+              humidity: 0,
+              cloudCover: 0,
+              precipitation: 0
+            }
+          };
+          this.thermalModelService.collectDataPoint(dataPoint);
+          this.logger.log('Thermal data point collected', {
+            indoorTemp: dataPoint.indoorTemperature,
+            outdoorTemp: dataPoint.outdoorTemperature,
+            targetTemp: dataPoint.targetTemperature,
+            heatingActive: dataPoint.heatingActive
+          });
+        } catch (error) {
+          this.logger.error('Error collecting thermal data point:', error);
+        }
+      }
+
       // Use enhanced optimization with real energy data
       const optimizationResult = await this.calculateOptimalTemperatureWithRealData(
         currentPrice,

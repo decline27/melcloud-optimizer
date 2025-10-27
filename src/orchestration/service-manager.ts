@@ -155,8 +155,8 @@ export function getServiceStateSnapshot(): ServiceState {
 export function saveHistoricalData(homey: HomeyLike): boolean {
   try {
     if (homey && homey.settings) {
-      homey.app.log('Saving thermal model historical data to persistent storage');
-      homey.settings.set('thermal_model_data', serviceState.historicalData);
+      homey.app.log('Saving optimizer historical data to persistent storage');
+      homey.settings.set('optimizer_historical_data', serviceState.historicalData);
       homey.app.log(`Saved ${serviceState.historicalData.optimizations.length} optimization data points`);
       return true;
     }
@@ -175,9 +175,18 @@ export function saveHistoricalData(homey: HomeyLike): boolean {
 export function loadHistoricalData(homey: HomeyLike): boolean {
   try {
     if (homey && homey.settings) {
-      const savedData = homey.settings.get('thermal_model_data');
+      // Migration: Check if data exists in old location (thermal_model_data)
+      const oldData = homey.settings.get('thermal_model_data');
+      if (oldData && oldData.optimizations && Array.isArray(oldData.optimizations)) {
+        homey.app.log('Migrating optimizer data from thermal_model_data to optimizer_historical_data');
+        homey.settings.set('optimizer_historical_data', oldData);
+        // Don't delete old key yet - thermal collector might have valid data there
+        homey.app.log(`Migrated ${oldData.optimizations.length} optimization data points`);
+      }
+
+      const savedData = homey.settings.get('optimizer_historical_data');
       if (savedData) {
-        homey.app.log('Loading thermal model historical data from persistent storage');
+        homey.app.log('Loading optimizer historical data from persistent storage');
         if (savedData.optimizations && Array.isArray(savedData.optimizations)) {
           serviceState.historicalData = savedData;
           homey.app.log(`Loaded ${serviceState.historicalData.optimizations.length} optimization data points`);
@@ -187,9 +196,9 @@ export function loadHistoricalData(homey: HomeyLike): boolean {
           }
           return true;
         }
-        homey.app.log('Saved thermal model data has invalid format, using defaults');
+        homey.app.log('Saved optimizer data has invalid format, using defaults');
       } else {
-        homey.app.log('No saved thermal model data found, starting with empty dataset');
+        homey.app.log('No saved optimizer data found, starting with empty dataset');
       }
     }
     return false;
@@ -386,9 +395,9 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
     priceProvider,
     deviceId,
     buildingId,
-    homey.app as any,
-    serviceState.weather as any,
-    homey as any
+    homey.app as any, // logger
+    serviceState.weather as any, // weatherApi
+    homey as any // homey instance for thermal learning
   );
   serviceState.optimizer = optimizer;
   (global as any).optimizer = optimizer;
