@@ -231,25 +231,9 @@
       "method": "GET",
       "path": "/runSystemHealthCheck"
     },
-    "getMemoryUsage": {
-      "method": "GET",
-      "path": "/getMemoryUsage"
-    },
     "runThermalDataCleanup": {
       "method": "GET",
       "path": "/runThermalDataCleanup"
-    },
-    "getSavingsSummary": {
-      "method": "GET",
-      "path": "/getSavingsSummary"
-    },
-    "getLogSavingsSummaryClicked": {
-      "method": "GET",
-      "path": "/getLogSavingsSummaryClicked"
-    },
-    "getSavingsDebugState": {
-      "method": "GET",
-      "path": "/getSavingsDebugState"
     },
     "postHotWaterResetPatterns": {
       "method": "POST",

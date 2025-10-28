@@ -1,6 +1,4 @@
 import HeatOptimizerApp from './app';
-import { captureProcessMemory } from './util/memory';
-
 /**
  * API class for the MELCloud Optimizer app
  * This class handles all API requests from the settings page
@@ -28,45 +26,6 @@ export class Api {
     this.app.log('API method runWeeklyCalibration called');
     await this.app.runWeeklyCalibration();
     return { success: true, message: 'Weekly calibration completed' };
-  }
-
-  /**
-   * Get memory usage statistics
-   */
-  async getMemoryUsage() {
-    this.app.log('API method getMemoryUsage called');
-
-    try {
-      // Get the optimizer instance from the API
-      const api = require('../api.js');
-
-      const {
-        stats: processMemory,
-        source: processMemorySource,
-        fallbackReason: processMemoryFallbackReason
-      } = captureProcessMemory(this.app);
-
-      // Get thermal model memory usage if available
-      let thermalModelMemory = null;
-      if (api.optimizer && api.optimizer.thermalModelService) {
-        thermalModelMemory = api.optimizer.thermalModelService.getMemoryUsage();
-      }
-
-      return {
-        success: true,
-        processMemory,
-        processMemorySource,
-        processMemoryFallbackReason,
-        thermalModelMemory,
-        timestamp: new Date().toISOString()
-      };
-    } catch (error) {
-      this.app.error('Error getting memory usage:', error as Error);
-      return {
-        success: false,
-        message: `Error getting memory usage: ${error instanceof Error ? error.message : String(error)}`
-      };
-    }
   }
 
   /**

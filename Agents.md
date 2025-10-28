@@ -23,12 +23,17 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
 This Homey SDK 3 TypeScript app orchestrates Mitsubishi Electric heat pump scheduling by combining MELCloud telemetry, dynamic electricity pricing, weather forecasts, and learned thermal/usage models. The optimizer runs entirely on user-provided settings, persists learned parameters, and typically saves 5-30% on energy without compromising comfort.
 
+## Documentation Layout
+
+- Keep all project documentation files under the `documentation/` directory.
+- The top-level files `README.md`, `README.txt`, and `Agents.md` remain in the repository root for Homey and contributor visibility; do not relocate them.
+
 ## Architecture
 
 ### Entry Points
 - `index.ts` -> `src/app.ts`: main Homey app class; initializes logging, timeline helper, HotWaterService, flow actions, timezone propagation, and legacy migrations.
-- `api.ts`: API facade exposed to the Homey settings UI; coordinates service initialization, price-provider refresh, optimization triggers, and memory snapshots.
-- `src/api.ts`: thin wrapper the settings front-end calls to reach app methods (`runHourlyOptimizer`, `getMemoryUsage`, etc.).
+- `api.ts`: API facade exposed to the Homey settings UI; coordinates service initialization, price-provider refresh, and optimization triggers.
+- `src/api.ts`: thin wrapper the settings front-end calls to reach app methods (`runHourlyOptimizer`, `runThermalDataCleanup`, etc.).
 - `drivers/boiler/driver.ts`: device driver handling MELCloud API bootstrapping, cron-based hourly optimization / weekly calibration (using user timezone), capability sync, and device flow cards.
 
 ### Service Coordination
@@ -49,7 +54,6 @@ This Homey SDK 3 TypeScript app orchestrates Mitsubishi Electric heat pump sched
 - `src/util/logger.ts`: `HomeyLogger` centralizes log levels, timeline integration, prefixes, and category filtering.
 - `src/util/time-zone-helper.ts`: canonical timezone handling used by the app, optimizer, MELCloud, Tibber, and hot water services.
 - `src/util/timeline-helper.ts` & `timeline-helper-wrapper.ts`: standardized timeline entries with fallbacks to Flow and notifications.
-- `src/util/memory.ts`: process memory capture used by API health endpoints.
 - `src/util/validation.ts`, `src/util/error-handler.ts`, etc., for consistent validation and error reporting.
 
 ### Configuration Surface

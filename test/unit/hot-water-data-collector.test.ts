@@ -263,7 +263,7 @@ describe('HotWaterDataCollector', () => {
   test('setMaxDataPoints updates maximum data points limit', async () => {
     // Test minimum value enforcement
     await collector.setMaxDataPoints(50);
-    expect(homey.warn).toHaveBeenCalledWith('Maximum data points value 50 is too low, using minimum value of 100');
+    expect(homey.log).toHaveBeenCalledWith('Maximum data points value 50 is too low, using minimum value of 100');
 
     // Test with valid value
     await collector.setMaxDataPoints(200);

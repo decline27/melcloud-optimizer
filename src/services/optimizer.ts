@@ -2871,16 +2871,6 @@ export class Optimizer {
   }
 
   /**
-   * Retrieve in-memory footprint details from the thermal model service
-   */
-  public getThermalModelMemoryUsage(): ReturnType<ThermalModelService['getMemoryUsage']> | null {
-    if (!this.thermalModelService) {
-      return null;
-    }
-    return this.thermalModelService.getMemoryUsage();
-  }
-
-  /**
    * Force cleanup/aggregation in the thermal model service
    */
   public forceThermalDataCleanup(): ReturnType<ThermalModelService['forceDataCleanup']> | { success: false; message: string } {

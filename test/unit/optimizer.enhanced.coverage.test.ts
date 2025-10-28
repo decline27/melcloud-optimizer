@@ -96,8 +96,7 @@ describe('Optimizer hotwater & enhanced edge cases', () => {
     expect(projection).toBeGreaterThan(23);
   });
 
-  test('thermal model helpers return safe defaults when service unavailable', () => {
-    expect(optimizer.getThermalModelMemoryUsage()).toBeNull();
+  test('thermal model cleanup helper returns safe defaults when service unavailable', () => {
     expect(optimizer.forceThermalDataCleanup()).toEqual({ success: false, message: 'Thermal model service not initialized' });
   });
 });

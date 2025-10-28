@@ -93,17 +93,6 @@ describe('Api', () => {
     }, 5000); // 5 second timeout
   });
 
-  describe('getMemoryUsage', () => {
-    it('should return memory usage information', async () => {
-      const result = await api.getMemoryUsage();
-
-      expect((mockApp as any).log).toHaveBeenCalledWith('API method getMemoryUsage called');
-      expect(result.success).toBe(true);
-      expect(result.processMemory).toBeDefined();
-      expect(result.timestamp).toBeDefined();
-    }, 3000);
-  });
-
   describe('resetHotWaterPatterns', () => {
     it('should reset hot water patterns when service is available', async () => {
       const result = await api.resetHotWaterPatterns();

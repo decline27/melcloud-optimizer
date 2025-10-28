@@ -6,8 +6,6 @@ import type { PriceProvider } from './src/types';
 import type { Optimizer } from './src/services/optimizer';
 import { DeviceInfo, TibberPriceInfo } from './src/types';
 import type { ServiceState, HistoricalData } from './src/orchestration/service-manager';
-import { captureProcessMemory } from './src/util/memory';
-import type { ProcessMemoryStats, ProcessMemorySource } from './src/util/memory';
 import {
   applyServiceOverrides,
   getServiceState,
@@ -102,65 +100,6 @@ interface ApiError {
 }
 
 type ApiResult<T extends object = Record<string, unknown>> = ApiSuccess<T> | ApiError;
-
-interface SavingsDebugDump {
-  timestamp: string;
-  settings: {
-    grid_fee_per_kwh: number;
-    currency: string;
-    time_zone_offset: unknown;
-    use_dst: unknown;
-    log_level: unknown;
-  };
-  savings_history: {
-    length: number;
-    head: unknown[];
-    tail: unknown[];
-  };
-  optimizations_memory: {
-    length: number;
-    head: unknown[];
-    tail: unknown[];
-  };
-  tibber: Record<string, unknown> | null;
-  priceFactorsCount: number;
-  sampleProjectionFromLastHour: unknown;
-}
-
-type SavingsSummarySeriesEntry = {
-  date: string;
-  total: number;
-};
-
-interface SavingsHistoryEntry {
-  date: string;
-  total?: number;
-  totalMinor?: number;
-  decimals?: number;
-  currency?: string;
-  [key: string]: unknown;
-}
-
-interface SavingsSummaryStats {
-  today: number;
-  yesterday: number;
-  weekToDate: number;
-  last7Days: number;
-  monthToDate: number;
-  last30Days: number;
-  allTime?: number;
-}
-
-interface SavingsSummaryResponseData {
-  summary: SavingsSummaryStats;
-  todayDate: string;
-  historyDays: number;
-  currencyCode: string;
-  timestamp: string;
-  series: {
-    last30: SavingsSummarySeriesEntry[];
-  };
-}
 
 interface DeviceDropdownItem {
   id: string;
@@ -290,9 +229,6 @@ interface ThermalModelResponseData {
   dataPoints: ThermalModelDataPoint[];
 }
 
-type GetSavingsDebugStateResponse = ApiResult<{ dump: SavingsDebugDump }>;
-type GetSavingsSummaryResponse = ApiResult<SavingsSummaryResponseData>;
-type GetLogSavingsSummaryClickedResponse = ApiResult<{ timestamp: string }>;
 type UpdateOptimizerSettingsResponse = ApiResult<{ message: string }>;
 type GetDeviceListResponse = ApiResult<{ devices: DeviceDropdownItem[]; buildings: BuildingDropdownItem[] }>;
 type GetRunHourlyOptimizerResponse = ApiResult<{ message: string; data: HourlyOptimizationData; result: EnhancedOptimizationResult }>;
@@ -351,14 +287,6 @@ interface ConnectionStatusResponse {
   reconnected?: boolean;
   pricePoints?: number;
 }
-
-type GetMemoryUsageResponse = ApiResult<{
-  processMemory: ProcessMemoryStats;
-  processMemorySource: ProcessMemorySource;
-  processMemoryFallbackReason?: string;
-  thermalModelMemory: unknown;
-  timestamp: string;
-}>;
 
 type RunThermalDataCleanupResponse = ApiResult<Record<string, unknown>>;
 
@@ -434,9 +362,6 @@ interface HotWaterHandlers {
 
 interface ApiHandlers {
   updateOptimizerSettings(context: ApiHandlerContext): Promise<UpdateOptimizerSettingsResponse>;
-  getSavingsDebugState(context: ApiHandlerContext): Promise<GetSavingsDebugStateResponse>;
-  getSavingsSummary(context: ApiHandlerContext): Promise<GetSavingsSummaryResponse>;
-  getLogSavingsSummaryClicked(context: ApiHandlerContext): Promise<GetLogSavingsSummaryClickedResponse>;
   postHotWaterResetPatterns(context: ApiHandlerContext): Promise<HotWaterResponse>;
   postHotWaterClearData(context: ApiHandlerContext): Promise<HotWaterResponse>;
   getHotWaterPatterns(context: ApiHandlerContext): Promise<HotWaterResponse>;
@@ -452,7 +377,6 @@ interface ApiHandlers {
   getMelCloudStatus(context: ApiHandlerContext): Promise<ConnectionStatusResponse>;
   getTibberStatus(context: ApiHandlerContext): Promise<ConnectionStatusResponse>;
   runSystemHealthCheck(context: ApiHandlerContext): Promise<SystemHealthCheckResult>;
-  getMemoryUsage(context: ApiHandlerContext): Promise<GetMemoryUsageResponse>;
   runThermalDataCleanup(context: ApiHandlerContext): Promise<RunThermalDataCleanupResponse>;
   internalCleanup(context: ApiHandlerContext): Promise<InternalCleanupResponse>;
   validateAndStartCron(context: ApiHandlerContext): Promise<ValidateAndStartCronResponse>;
@@ -466,46 +390,6 @@ declare global {
   var hourlyJob: CronJob | null | undefined;
   // eslint-disable-next-line no-var
   var weeklyJob: CronJob | null | undefined;
-}
-
-/**
- * Helper function to pretty-print JSON data
- * @param {Object} data - The data to format
- * @param {string} [label] - Optional label for the output
- * @param {Object} [logger] - Logger object with log level
- * @param {number} [minLogLevel=0] - Minimum log level to print (0=DEBUG, 1=INFO, 2=WARN, 3=ERROR)
- * @returns {string} - Formatted string
- */
-function prettyPrintJson(
-  data: JsonValue,
-  label = '',
-  logger: LoggerLike | null = null,
-  minLogLevel = 0
-): string {
-  try {
-    // Check if we should print based on log level
-    // Only print detailed JSON if we're in development mode or debug log level
-    const logLevel = logger?.homey?.settings?.get('log_level') || 1; // Default to INFO level
-    const isDevelopment = process.env.HOMEY_APP_MODE === 'development' || process.env.NODE_ENV === 'development';
-
-    // Skip detailed output if we're in production and log level is higher than minLogLevel
-    if (!isDevelopment && logLevel > minLogLevel) {
-      return `[${label}] (Output suppressed in production mode with log level ${logLevel})`;
-    }
-
-    // Create a header with the label
-    const header = label ? `\n===== ${label} =====\n` : '\n';
-
-    // Format the JSON with indentation
-    const formatted = JSON.stringify(data, null, 2);
-
-    // Add some visual separation
-    const footer = '\n' + '='.repeat(40) + '\n';
-
-    return header + formatted + footer;
-  } catch (error: any) {
-    return `Error formatting JSON: ${error instanceof Error ? error.message : String(error)}`;
-  }
 }
 
 // Helper function for making HTTP requests with retry capability
@@ -831,408 +715,6 @@ async function updateAllServiceTimezones(
 }
 
 const apiHandlers: ApiHandlers = {
-  /**
-   * Dump savings-related in-memory state and settings for debugging.
-   * Logs a pretty-printed snapshot to the terminal and returns a compact JSON.
-   */
-  getSavingsDebugState: async ({ homey }: ApiHandlerContext) => {
-    try {
-      const settingsSnapshot = {
-        grid_fee_per_kwh: homey.settings.get('grid_fee_per_kwh') || 0,
-        currency: homey.settings.get('currency') || homey.settings.get('currency_code') || '',
-        time_zone_offset: homey.settings.get('time_zone_offset'),
-        use_dst: homey.settings.get('use_dst'),
-        log_level: homey.settings.get('log_level')
-      };
-
-      const hist = homey.settings.get('savings_history') || [];
-      const histLen = Array.isArray(hist) ? hist.length : 0;
-      const histHead = Array.isArray(hist) ? hist.slice(0, 3) : [];
-      const histTail = Array.isArray(hist) ? hist.slice(-3) : [];
-
-      // Optimization history from API memory (use module-scope variable, not global)
-      const optData = (typeof historicalData !== 'undefined' && historicalData)
-        ? historicalData
-        : { optimizations: [], lastCalibration: null };
-      const optLen = Array.isArray(optData.optimizations) ? optData.optimizations.length : 0;
-      const optHead = Array.isArray(optData.optimizations) ? optData.optimizations.slice(0, 3) : [];
-      const optTail = Array.isArray(optData.optimizations) ? optData.optimizations.slice(-3) : [];
-
-      // Current Tibber prices and effective price factors for projection
-      let priceSnapshot = null;
-      let factors = [];
-      try {
-        const gridFee = Number(settingsSnapshot.grid_fee_per_kwh) || 0;
-        const tibberService = requireTibber();
-        const pd = await tibberService.getPrices();
-        const now = new Date();
-        const currEff = (Number(pd.current?.price) || 0) + gridFee;
-        const up = Array.isArray(pd.prices) ? pd.prices.filter(p => new Date(p.time) > now).slice(0, 24) : [];
-        factors = currEff > 0 ? up.map(p => (((Number(p.price) || 0) + gridFee) / currEff)) : [];
-        priceSnapshot = {
-          current: pd.current,
-          upcomingCount: up.length,
-          currentEffective: currEff,
-          firstUpcoming: up[0] || null,
-          lastUpcoming: up[up.length - 1] || null
-        };
-      } catch (e: any) {
-        priceSnapshot = { error: e && e.message ? e.message : String(e) };
-      }
-
-      // Try a quick projection using the current optimizer hourlySavings=last opt.savings
-      let quickProjection = null;
-      try {
-        const lastOpt = optTail && optTail.length > 0 ? optTail[optTail.length - 1] : null;
-        const s = lastOpt && typeof lastOpt.savings === 'number' ? lastOpt.savings : 0;
-        const activeOptimizer = optimizer;
-        if (s && activeOptimizer && typeof activeOptimizer.calculateDailySavings === 'function') {
-          quickProjection = await activeOptimizer.calculateDailySavings(s, historicalData?.optimizations || []);
-        }
-      } catch (_: any) {}
-
-      const dump = {
-        timestamp: new Date().toISOString(),
-        settings: settingsSnapshot,
-        savings_history: { length: histLen, head: histHead, tail: histTail },
-        optimizations_memory: { length: optLen, head: optHead, tail: optTail },
-        tibber: priceSnapshot,
-        priceFactorsCount: factors.length,
-        sampleProjectionFromLastHour: quickProjection
-      };
-
-      // Pretty print to terminal using our helper (respects log level)
-      const pretty = prettyPrintJson(dump, 'SavingsDebugState', homey.app, 1);
-      homey.app.log(pretty);
-
-      return { success: true, dump };
-    } catch (err: any) {
-      homey.app.error('Error in getSavingsDebugState:', err);
-      return { success: false, error: err && err.message ? err.message : String(err) };
-    }
-  },
-  
-  /**
-   * Return a savings summary using persisted savings history in Homey settings.
-   * Computes today, last 7 days (incl. today), and last 30 days (rolling).
-   */
-  getSavingsSummary: async ({ homey }: ApiHandlerContext) => {
-    try {
-      // Log like other endpoints (both console and app logger)
-      console.log('API method getSavingsSummary called');
-      homey.app.log('API method getSavingsSummary called');
-
-      // Helper to get local date string YYYY-MM-DD using Homey time zone settings
-      const getLocalDateString = () => {
-        try {
-          const tzOffset = parseInt(homey.settings.get('time_zone_offset'));
-          const useDST = !!homey.settings.get('use_dst');
-          const now = new Date();
-          const local = new Date(now.getTime());
-          if (!isNaN(tzOffset)) local.setUTCHours(now.getUTCHours() + tzOffset);
-          // Simple EU DST approximation (same approach used elsewhere in this codebase)
-          if (useDST) {
-            const m = now.getUTCMonth();
-            if (m > 2 && m < 10) {
-              local.setUTCHours(local.getUTCHours() + 1);
-            }
-          }
-          // Use local getters after applying offset math above to match app.ts behavior
-          const y = local.getFullYear();
-          const mo = String(local.getMonth() + 1).padStart(2, '0');
-          const d = String(local.getDate()).padStart(2, '0');
-          return `${y}-${mo}-${d}`;
-        } catch (e: any) {
-          // Fallback to system date if anything goes wrong
-          const d = new Date();
-          const y = d.getFullYear();
-          const mo = String(d.getMonth() + 1).padStart(2, '0');
-          const dd = String(d.getDate()).padStart(2, '0');
-          return `${y}-${mo}-${dd}`;
-        }
-      };
-
-      const historyRaw = homey.settings.get('savings_history') as unknown;
-      const rawHistory = Array.isArray(historyRaw) ? historyRaw : [];
-      const normalized: SavingsHistoryEntry[] = Array.isArray(historyRaw)
-        ? historyRaw.filter((h): h is SavingsHistoryEntry => !!h && typeof h.date === 'string')
-        : [];
-      // Determine reference "today" date. Prefer the newest history date to avoid TZ drift.
-      const latestHistoryDate = normalized.length > 0
-        ? normalized
-          .map(h => h.date)
-          .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
-          .pop()
-        : undefined;
-
-      const todayStr = latestHistoryDate ?? getLocalDateString();
-
-      const todayDate = new Date(`${todayStr}T00:00:00`);
-      const last7Cutoff = new Date(todayDate);
-      last7Cutoff.setDate(todayDate.getDate() - 6);
-      const last30Cutoff = new Date(todayDate);
-      last30Cutoff.setDate(todayDate.getDate() - 29);
-      // Week-to-date (ISO week, Monday start)
-      const jsDay = todayDate.getDay(); // 0=Sun..6=Sat
-      const offsetToMonday = (jsDay + 6) % 7; // days since Monday
-      const startOfWeek = new Date(todayDate);
-      startOfWeek.setDate(todayDate.getDate() - offsetToMonday);
-      // Month-to-date: first day of current month
-      const startOfMonth = new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
-
-      // Helper for currency decimals
-      const defaultDecimalsForCurrency = (code: string | undefined): number => {
-        const decimalsMap: Record<string, number> = { JPY: 0, KWD: 3 };
-        const key = String(code || '').toUpperCase();
-        return decimalsMap[key] ?? 2;
-      };
-      // Convert an entry to major units, supporting legacy and new formats, clamped to >= 0
-      const getEntryTotalMajor = (entry: SavingsHistoryEntry | undefined): number => {
-        const h = entry;
-        if (!h) return 0;
-        let v;
-        if (h.total !== undefined) {
-          v = Number(h.total);
-        } else if (h.totalMinor !== undefined) {
-          const minor = Number(h.totalMinor);
-          const decimals = Number.isFinite(Number(h.decimals)) ? Number(h.decimals) : defaultDecimalsForCurrency(h.currency);
-          v = Number.isFinite(minor) ? minor / Math.pow(10, decimals) : 0;
-        } else {
-          v = 0;
-        }
-        v = Number.isFinite(v) ? v : 0;
-        return v < 0 ? 0 : v; // positive-only for summaries
-      };
-
-      const sumInWindow = (cutoff: Date): number => normalized
-        .filter(h => {
-          const d = new Date(`${h.date}T00:00:00`);
-          return d >= cutoff && d <= todayDate;
-        })
-        .reduce((sum, h) => sum + getEntryTotalMajor(h), 0);
-
-      const todayEntry = normalized.find(h => h.date === todayStr);
-      const today = Number(getEntryTotalMajor(todayEntry).toFixed(4));
-      // Yesterday
-      const yDate = new Date(todayDate); yDate.setDate(todayDate.getDate() - 1);
-      const yStr = `${yDate.getFullYear()}-${String(yDate.getMonth() + 1).padStart(2, '0')}-${String(yDate.getDate()).padStart(2, '0')}`;
-      const yesterday = Number(getEntryTotalMajor(normalized.find(h => h.date === yStr)).toFixed(4));
-      const last7Days = Number(sumInWindow(last7Cutoff).toFixed(4));
-      const last30Days = Number(sumInWindow(last30Cutoff).toFixed(4));
-      const weekToDate = Number(sumInWindow(startOfWeek).toFixed(4));
-      const monthToDate = Number(sumInWindow(startOfMonth).toFixed(4));
-
-      // Determine if history extends beyond 30 days
-      let allTime;
-      if (normalized.length > 0) {
-        const earliest = normalized
-          .map(h => h.date)
-          .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))[0];
-        if (earliest) {
-          const earliestDate = new Date(`${earliest}T00:00:00`);
-          if (earliestDate < last30Cutoff) {
-            const at = normalized.reduce((sum, h) => sum + getEntryTotalMajor(h), 0);
-            allTime = Number(at.toFixed(4));
-          }
-        }
-      }
-
-      // Build contiguous 30-day series for charting (fill missing as 0)
-      const seriesLast30 = [];
-      for (let i = 0; i < 30; i++) {
-        const d = new Date(last30Cutoff);
-        d.setDate(last30Cutoff.getDate() + i);
-        const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        const entry = normalized.find(h => h.date === ds);
-        seriesLast30.push({ date: ds, total: Number(getEntryTotalMajor(entry) || 0) });
-      }
-
-      const currencyCode = homey.settings.get('currency') || homey.settings.get('currency_code') || '';
-
-      // Enhanced savings with baseline comparison for settings display
-      let enhancedSummary = {
-        today,
-        yesterday,
-        weekToDate,
-        last7Days,
-        monthToDate,
-        last30Days,
-        ...(allTime !== undefined ? { allTime } : {})
-      };
-
-      try {
-        const enableBaselineComparison = homey.settings.get('enable_baseline_comparison') !== false;
-        homey.app.log(`Baseline comparison enabled: ${enableBaselineComparison}`);
-        
-        if (enableBaselineComparison) {
-          const activeOptimizer = requireOptimizer();
-          const enhancedCalculator = activeOptimizer.getEnhancedSavingsCalculator();
-          const hasCapability = enhancedCalculator?.hasBaselineCapability && enhancedCalculator.hasBaselineCapability();
-          
-          homey.app.log(`Enhanced calculator available: ${!!enhancedCalculator}, has baseline capability: ${hasCapability}`);
-          
-          if (hasCapability) {
-            
-            // Calculate baseline daily savings for current conditions
-            const optimizationHistory = homey.settings.get('optimization_history') || [];
-            const todayOptimizations = optimizationHistory.filter((opt: any) => 
-              opt.timestamp && opt.timestamp.startsWith(todayStr)
-            );
-
-            try {
-              // Get better estimates for baseline calculation
-              const currentHour = new Date().getHours();
-              const avgDailyConsumption = 8.0; // Reasonable estimate for typical heat pump daily consumption
-              const avgDailyCost = today > 0 ? (today * 24) : 15.0; // Scale from actual or use reasonable estimate
-              
-              const baselineResult = await activeOptimizer.calculateEnhancedDailySavingsWithBaseline(
-                0, // Use 0 for summary calculation 
-                todayOptimizations,
-                avgDailyConsumption,
-                avgDailyCost,
-                true
-              );
-
-              if (baselineResult?.baselineComparison) {
-                const dailyBaselineSavings = baselineResult.baselineComparison.baselineSavings;
-                
-                homey.app.log(`Baseline calculation result: savings=${dailyBaselineSavings.toFixed(2)}, confidence=${(baselineResult.baselineComparison.confidenceLevel * 100).toFixed(1)}%`);
-                
-                if (dailyBaselineSavings > 0) {
-                  // For display purposes: use baseline savings to show benefit vs manual operation
-                  // This replaces the historical accumulation with theoretical baseline comparison
-                  enhancedSummary = {
-                    today: dailyBaselineSavings,
-                    yesterday: dailyBaselineSavings, // Same daily potential applies to yesterday
-                    weekToDate: dailyBaselineSavings * Math.max(1, todayDate.getDay() || 7),
-                    last7Days: dailyBaselineSavings * 7,
-                    monthToDate: dailyBaselineSavings * Math.max(1, todayDate.getDate()),
-                    last30Days: dailyBaselineSavings * 30,
-                    ...(allTime !== undefined ? { allTime: dailyBaselineSavings * 30 } : {})
-                  };
-
-                  homey.app.log(`Settings displaying baseline savings: daily=${dailyBaselineSavings.toFixed(2)} SEK/day (vs manual operation)`);
-                  
-                  // Add metadata to indicate baseline savings are being displayed
-                  (enhancedSummary as any).isBaselineDisplay = true;
-                  (enhancedSummary as any).baselineInfo = {
-                    dailySavings: dailyBaselineSavings,
-                    confidence: baselineResult.baselineComparison.confidenceLevel,
-                    method: baselineResult.baselineComparison.method,
-                    description: 'vs manual operation'
-                  };
-                } else {
-                  homey.app.log('Baseline savings calculation returned zero or negative value, using historical data instead');
-                }
-              } else {
-                homey.app.log('No baseline comparison data available, using historical savings data');
-              }
-            } catch (baselineErr: any) {
-              homey.app.error('Error calculating baseline savings for settings:', baselineErr.message || String(baselineErr));
-              homey.app.log('Falling back to historical savings data due to baseline calculation error');
-            }
-          } else {
-            homey.app.log('Enhanced calculator does not have baseline capability, using historical savings');
-          }
-        } else {
-          homey.app.log('Baseline comparison disabled in settings, using historical savings');
-        }
-      } catch (enhancedErr: any) {
-        homey.app.error('Error calculating enhanced savings for settings:', enhancedErr.message || String(enhancedErr));
-      }
-
-      // Log brief summary for visibility
-      try {
-        homey.app.log(`Savings summary: today=${enhancedSummary.today.toFixed(2)}, last7=${enhancedSummary.last7Days.toFixed(2)}, mtd=${enhancedSummary.monthToDate.toFixed(2)}, last30=${enhancedSummary.last30Days.toFixed(2)}${enhancedSummary.allTime !== undefined ? ", allTime=" + enhancedSummary.allTime.toFixed(2) : ''}`);
-      } catch (_: any) {}
-
-      // Detailed debug info to help diagnose zeros
-      try {
-        const seriesSum = seriesLast30.reduce((s, n) => s + Number(n.total || 0), 0);
-        const debugInfo = {
-          settings: {
-            time_zone_offset: homey.settings.get('time_zone_offset'),
-            use_dst: homey.settings.get('use_dst'),
-            currency: currencyCode
-          },
-          history: {
-            rawLength: rawHistory.length,
-            normalizedLength: normalized.length,
-            sampleFirst: normalized.slice(0, 3),
-            sampleLast: normalized.slice(-3)
-          },
-          dates: {
-            todayStr,
-            last7Cutoff: `${last7Cutoff.getFullYear()}-${String(last7Cutoff.getMonth()+1).padStart(2,'0')}-${String(last7Cutoff.getDate()).padStart(2,'0')}`,
-            last30Cutoff: `${last30Cutoff.getFullYear()}-${String(last30Cutoff.getMonth()+1).padStart(2,'0')}-${String(last30Cutoff.getDate()).padStart(2,'0')}`,
-            startOfWeek: `${startOfWeek.getFullYear()}-${String(startOfWeek.getMonth()+1).padStart(2,'0')}-${String(startOfWeek.getDate()).padStart(2,'0')}`,
-            startOfMonth: `${startOfMonth.getFullYear()}-${String(startOfMonth.getMonth()+1).padStart(2,'0')}-${String(startOfMonth.getDate()).padStart(2,'0')}`
-          },
-          computed: {
-            today,
-            yesterday,
-            weekToDate,
-            last7Days,
-            monthToDate,
-            last30Days,
-            allTime: allTime !== undefined ? allTime : null
-          },
-          series: {
-            last30Count: seriesLast30.length,
-            last30Sum: seriesSum,
-            head: seriesLast30.slice(0, 3),
-            tail: seriesLast30.slice(-3)
-          }
-        };
-
-        const dump = prettyPrintJson(debugInfo, 'SavingsSummary Debug', homey.app, 1);
-        homey.app.log(dump);
-      } catch (e: any) {
-        homey.app.log('SavingsSummary debug logging failed:', e && e.message ? e.message : String(e));
-      }
-
-      return {
-        success: true,
-        summary: enhancedSummary,
-        todayDate: todayStr,
-        historyDays: normalized.length,
-        currencyCode,
-        timestamp: new Date().toISOString(),
-        isBaselineDisplay: (enhancedSummary as any).isBaselineDisplay || false,
-        baselineInfo: (enhancedSummary as any).baselineInfo || null,
-        series: {
-          last30: seriesLast30,
-        }
-      };
-    } catch (err: any) {
-      homey.app.error('Error in getSavingsSummary:', err);
-      return { success: false, error: err.message };
-    }
-  },
-
-  /**
-   * Log that the Settings "View Savings Summary" button was clicked.
-   */
-  getLogSavingsSummaryClicked: async ({ homey }: ApiHandlerContext) => {
-    try {
-      const ts = new Date().toISOString();
-      // Prefer centralized HomeyLogger if available
-      if (homey.app && homey.app.logger && typeof homey.app.logger.info === 'function') {
-        try {
-          homey.app.logger.info('SettingsEvent', { event: 'view_savings_summary', timestamp: ts });
-        } catch (e: any) {
-          homey.app.log(`[SETTINGS] View Savings Summary clicked at ${ts}`);
-        }
-      } else {
-        homey.app.log(`[SETTINGS] View Savings Summary clicked at ${ts}`);
-      }
-      return { success: true, timestamp: ts };
-    } catch (err: any) {
-      homey.app.error('Error in getLogSavingsSummaryClicked:', err);
-      return { success: false };
-    }
-  },
-
   // API endpoints for hot water functionality
   postHotWaterResetPatterns: async ({ homey }: ApiHandlerContext): Promise<HotWaterResponse> => {
     homey.app.log('API method postHotWaterResetPatterns called');
@@ -2776,48 +2258,6 @@ const apiHandlers: ApiHandlers = {
         issues: [`API error: ${err.message}`],
         recovered: false
       };
-    }
-  },
-
-  getMemoryUsage: async ({ homey }: ApiHandlerContext) => {
-    try {
-      console.log('API method getMemoryUsage called');
-      homey.app.log('API method getMemoryUsage called');
-
-      try {
-        // Initialize services if needed
-        await initializeServices(homey);
-
-        const {
-          stats: processMemory,
-          source: processMemorySource,
-          fallbackReason: processMemoryFallbackReason
-        } = captureProcessMemory(homey?.app);
-
-        // Get thermal model memory usage if available
-        let thermalModelMemory: unknown = null;
-        if (optimizer && typeof optimizer.getThermalModelMemoryUsage === 'function') {
-          thermalModelMemory = optimizer.getThermalModelMemoryUsage();
-        }
-
-        return {
-          success: true,
-          processMemory,
-          processMemorySource,
-          processMemoryFallbackReason,
-          thermalModelMemory,
-          timestamp: new Date().toISOString()
-        };
-      } catch (error: any) {
-        homey.app.error('Error getting memory usage:', error);
-        return {
-          success: false,
-          message: `Error getting memory usage: ${error.message}`
-        };
-      }
-    } catch (err: any) {
-      console.error('Error in getMemoryUsage:', err);
-      return { success: false, error: err.message };
     }
   },
 
