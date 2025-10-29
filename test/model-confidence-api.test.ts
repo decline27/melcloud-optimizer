@@ -68,6 +68,10 @@ describe('Model Confidence API', () => {
       expect(result.thermalModel.coolingRate).toBe(0.8);
       expect(result.thermalModel.thermalMass).toBe(0.65);
       expect(result.thermalModel.lastUpdated).toBe('2025-10-26T12:00:00Z');
+      expect(result.smartSavingsDisplay).toBeDefined();
+      expect(result.smartSavingsDisplay.today).toBeNull();
+      expect(result.smartSavingsDisplay.last7).toBeNull();
+      expect(result.smartSavingsDisplay.currency).toBeDefined();
     });
 
     it('should return adaptive parameters data', async () => {

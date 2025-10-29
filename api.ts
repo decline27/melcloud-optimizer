@@ -342,6 +342,15 @@ type GetModelConfidenceResponse = ApiResult<{
     currencySymbol: string;
     currency: string;
   };
+  smartSavingsDisplay: {
+    currency: string;
+    currencySymbol: string;
+    decimals: number;
+    today: number | null;
+    last7: number | null;
+    projection: number | null;
+    seasonMode: string | null;
+  };
 }>;
 
 interface HotWaterServiceLike {
@@ -1333,6 +1342,111 @@ const apiHandlers: ApiHandlers = {
                 : Number(todayEntry.total || 0).toFixed(4);
               homey.app.log(`Updated savings_history: +${toPersist.toFixed(4)} -> today ${todayMajor} (${todayStr}), size=${trimmed.length}`);
             } catch (_: any) {}
+
+            // Update display_savings_history (read-only estimates for UI)
+            try {
+              const enhancedCalculator = typeof activeOptimizer.getEnhancedSavingsCalculator === 'function'
+                ? activeOptimizer.getEnhancedSavingsCalculator()
+                : null;
+
+              if (enhancedCalculator && typeof enhancedCalculator.calculateEnhancedDailySavingsWithBaseline === 'function') {
+                const displayHistoryRaw = homey.settings.get('display_savings_history') || [];
+                const displayHistory = Array.isArray(displayHistoryRaw) ? displayHistoryRaw.slice() : [];
+
+                // Gather historical optimizations (today only preferred)
+                const historicalOptimizations = Array.isArray(historicalData?.optimizations)
+                  ? historicalData.optimizations.filter(opt => {
+                      if (!opt || !opt.timestamp) return false;
+                      return opt.timestamp.startsWith(todayStr);
+                    })
+                  : [];
+
+                // Estimate actual consumption and cost from metrics
+                const dailyConsumption = Number(result.energyMetrics?.dailyEnergyConsumption);
+                const gridFee = Number(homey.settings.get('grid_fee_per_kwh')) || 0;
+                const priceAverage = Number(result.priceData?.average);
+                const priceCurrent = Number(result.priceData?.current);
+                let pricePerKWh = Number.isFinite(priceAverage) && priceAverage > 0 ? priceAverage : undefined;
+                if (pricePerKWh === undefined && Number.isFinite(priceCurrent) && priceCurrent > 0) {
+                  pricePerKWh = priceCurrent;
+                }
+                if (pricePerKWh !== undefined && Number.isFinite(gridFee) && gridFee > 0) {
+                  pricePerKWh += gridFee;
+                } else if (pricePerKWh === undefined && Number.isFinite(gridFee) && gridFee > 0) {
+                  pricePerKWh = gridFee;
+                }
+
+                const actualConsumptionKWh = Number.isFinite(dailyConsumption) && dailyConsumption > 0 ? dailyConsumption : undefined;
+                let actualCost = actualConsumptionKWh !== undefined && pricePerKWh !== undefined
+                  ? actualConsumptionKWh * pricePerKWh
+                  : undefined;
+
+                if ((actualCost === undefined || Number.isNaN(actualCost)) && enhancedSavingsData?.baselineComparison?.breakdown?.actualCost !== undefined) {
+                  const fallbackCost = Number(enhancedSavingsData.baselineComparison.breakdown.actualCost);
+                  if (Number.isFinite(fallbackCost) && fallbackCost >= 0) {
+                    actualCost = fallbackCost;
+                  }
+                }
+
+                const baselineOptions: any = {
+                  enableBaseline: true,
+                  baselineConfig: {
+                    heatingSetpoint: 21,
+                    hotWaterSetpoint: 60,
+                    operatingProfile: 'always_on'
+                  }
+                };
+
+                if (actualConsumptionKWh !== undefined) baselineOptions.actualConsumptionKWh = actualConsumptionKWh;
+                if (actualCost !== undefined) baselineOptions.actualCost = actualCost;
+                if (pricePerKWh !== undefined) baselineOptions.pricePerKWh = pricePerKWh;
+
+                const currentHourLocal = local.getHours();
+                const baselineResult = enhancedCalculator.calculateEnhancedDailySavingsWithBaseline(
+                  Number.isFinite(computedSavings) ? Number(computedSavings) : 0,
+                  historicalOptimizations,
+                  currentHourLocal,
+                  undefined,
+                  baselineOptions
+                );
+
+                const comparison = baselineResult?.baselineComparison;
+                const baselineCostMajor = comparison?.breakdown && Number.isFinite(comparison.breakdown.baselineCost)
+                  ? Number(comparison.breakdown.baselineCost)
+                  : null;
+                const optimizedCostMajor = comparison?.breakdown && Number.isFinite(comparison.breakdown.actualCost)
+                  ? Number(comparison.breakdown.actualCost)
+                  : null;
+
+                if (baselineCostMajor !== null && optimizedCostMajor !== null) {
+                  const entryIndex = displayHistory.findIndex((item: any) => item && item.date === todayStr);
+                  const entry = entryIndex >= 0 ? { ...displayHistory[entryIndex] } : { date: todayStr };
+                  entry.currency = currencyCode;
+                  entry.decimals = decimals;
+                  entry.baselineMinor = toMinor(Math.max(0, baselineCostMajor));
+                  entry.optimizedMinor = toMinor(Math.max(0, optimizedCostMajor));
+                  const seasonModeValue = result.energyMetrics?.seasonalMode;
+                  if (seasonModeValue) entry.seasonMode = seasonModeValue;
+                  entry.updatedAt = new Date().toISOString();
+
+                  if (entryIndex >= 0) {
+                    displayHistory[entryIndex] = entry;
+                  } else {
+                    displayHistory.push(entry);
+                  }
+
+                  displayHistory.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+                  const trimmedDisplay = displayHistory.slice(Math.max(0, displayHistory.length - 30));
+                  homey.settings.set('display_savings_history', trimmedDisplay);
+
+                  try {
+                    homey.app.log(`Updated display_savings_history: baseline=${baselineCostMajor.toFixed(2)}, optimized=${optimizedCostMajor.toFixed(2)} (${todayStr})`);
+                  } catch (_: any) {}
+                }
+              }
+            } catch (displayErr: any) {
+              homey.app.error('Failed to update display_savings_history:', displayErr && displayErr.message ? displayErr.message : String(displayErr));
+            }
           } else {
             homey.app.log('No numeric savings value to persist for this optimization run.');
           }
@@ -2625,6 +2739,7 @@ const apiHandlers: ApiHandlers = {
       const metricsKey = 'orchestrator_metrics';
       const metricsRaw = homey.settings.get(metricsKey);
       const savingsHistoryRaw = homey.settings.get('savings_history');
+      const displaySavingsHistoryRaw = homey.settings.get('display_savings_history');
       const currency = homey.settings.get('currency_code') || homey.settings.get('currency') || 'SEK';
       const currencySymbol = homey.settings.get('currency_symbol') || currency;
       
@@ -2728,6 +2843,93 @@ const apiHandlers: ApiHandlers = {
         }
       }
       
+      const smartSavingsDisplay: {
+        currency: string;
+        currencySymbol: string;
+        decimals: number;
+        today: number | null;
+        last7: number | null;
+        projection: number | null;
+        seasonMode: string | null;
+      } = {
+        currency,
+        currencySymbol,
+        decimals,
+        today: null,
+        last7: null,
+        projection: null,
+        seasonMode: null
+      };
+
+      if (displaySavingsHistoryRaw && Array.isArray(displaySavingsHistoryRaw)) {
+        try {
+          const todayIso = new Date().toISOString().slice(0, 10);
+          const todayMidnight = new Date(`${todayIso}T00:00:00`);
+          const last7Cutoff = new Date(todayMidnight);
+          last7Cutoff.setDate(todayMidnight.getDate() - 6);
+
+          const entries = displaySavingsHistoryRaw
+            .filter((entry: any) => entry && typeof entry.date === 'string')
+            .slice()
+            .sort((a: any, b: any) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+          const todayEntry = entries.find((entry: any) => entry.date === todayIso);
+          if (todayEntry) {
+            const entryDecimals = todayEntry.decimals ?? decimals;
+            const baselineMinor = Number(todayEntry.baselineMinor);
+            const optimizedMinor = Number(todayEntry.optimizedMinor);
+            if (Number.isFinite(baselineMinor) && Number.isFinite(optimizedMinor)) {
+              const savingsMinor = Math.max(0, baselineMinor - optimizedMinor);
+              smartSavingsDisplay.today = Number(minorToMajor(savingsMinor, entryDecimals).toFixed(entryDecimals));
+            }
+            if (todayEntry.seasonMode && typeof todayEntry.seasonMode === 'string') {
+              smartSavingsDisplay.seasonMode = todayEntry.seasonMode;
+            }
+          }
+
+          let last7Total = 0;
+          let last7Days = 0;
+          for (const entry of entries) {
+            if (!entry || !entry.date) continue;
+            const entryDate = new Date(`${entry.date}T00:00:00`);
+            if (entryDate < last7Cutoff || entryDate > todayMidnight) continue;
+
+            const entryDecimals = entry.decimals ?? decimals;
+            const baselineMinor = Number(entry.baselineMinor);
+            const optimizedMinor = Number(entry.optimizedMinor);
+            if (!Number.isFinite(baselineMinor) || !Number.isFinite(optimizedMinor)) continue;
+
+            const savingsMinor = Math.max(0, baselineMinor - optimizedMinor);
+            const savingsMajor = minorToMajor(savingsMinor, entryDecimals);
+            last7Total += savingsMajor;
+            last7Days += 1;
+          }
+
+          if (last7Days > 0) {
+            smartSavingsDisplay.last7 = Number(last7Total.toFixed(decimals));
+            const avgDaily = last7Total / last7Days;
+            const projectionMonthly = avgDaily * 30;
+            if (!Number.isNaN(projectionMonthly)) {
+              smartSavingsDisplay.projection = Number(projectionMonthly.toFixed(decimals));
+            }
+          } else if (smartSavingsDisplay.today !== null) {
+            const projectionMonthly = smartSavingsDisplay.today * 30;
+            if (!Number.isNaN(projectionMonthly)) {
+              smartSavingsDisplay.projection = Number(projectionMonthly.toFixed(decimals));
+            }
+          }
+
+          if (!smartSavingsDisplay.seasonMode && entries.length > 0) {
+            const latest = entries[entries.length - 1];
+            if (latest?.seasonMode && typeof latest.seasonMode === 'string') {
+              smartSavingsDisplay.seasonMode = latest.seasonMode;
+            }
+          }
+        } catch (displayErr) {
+          homey.app.error('Failed to parse display savings history:', displayErr);
+        }
+      }
+      
       // Calculate baseline savings comparison (read-only, UI display only)
       let baselineSavings = null;
       let enhancedSavings: any = null;
@@ -2823,6 +3025,10 @@ const apiHandlers: ApiHandlers = {
         currency: currency
       };
 
+      if (!smartSavingsDisplay.seasonMode) {
+        smartSavingsDisplay.seasonMode = seasonalMode;
+      }
+
       return {
         success: true,
         thermalModel,
@@ -2833,7 +3039,8 @@ const apiHandlers: ApiHandlers = {
         baselineSavings,
         enhancedSavings,
         seasonalMode,
-        priceData
+        priceData,
+        smartSavingsDisplay
       };
     } catch (err: any) {
       console.error('Error in getModelConfidence:', err);
