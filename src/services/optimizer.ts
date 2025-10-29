@@ -974,6 +974,49 @@ export class Optimizer {
   }
 
   /**
+   * Refresh hot water usage pattern from the dedicated hot water service when available
+   * Provides ongoing updates beyond the initial historical seeding.
+   */
+  private refreshHotWaterUsagePattern(): void {
+    try {
+      const service = (this.homey as any)?.hotWaterService;
+      if (!service || typeof service.getUsageStatistics !== 'function') {
+        return;
+      }
+      const stats = service.getUsageStatistics(14);
+      const usageByHour: unknown = stats?.statistics?.usageByHourOfDay;
+      const dataPointCount: number = Number(stats?.statistics?.dataPointCount) || 0;
+
+      if (!Array.isArray(usageByHour) || usageByHour.length !== 24 || dataPointCount < 12) {
+        return;
+      }
+
+      const hourlyDemand = usageByHour.map((value: unknown) => Number(value) || 0);
+      const sortedDemand = [...hourlyDemand].sort((a, b) => b - a);
+      const thresholdIndex = Math.max(0, Math.floor(sortedDemand.length * 0.2) - 1);
+      const peakThreshold = sortedDemand[thresholdIndex] ?? 0;
+
+      const peakHours = hourlyDemand
+        .map((demand, hour) => ({ demand, hour }))
+        .filter(entry => entry.demand >= peakThreshold && entry.demand > 0)
+        .map(entry => entry.hour);
+
+      const maxDemand = Math.max(...hourlyDemand, 0);
+      const minimumBuffer = maxDemand > 0 ? maxDemand * 1.2 : this.hotWaterUsagePattern.minimumBuffer;
+
+      this.hotWaterUsagePattern = {
+        hourlyDemand,
+        peakHours: peakHours.length > 0 ? peakHours : this.hotWaterUsagePattern.peakHours,
+        minimumBuffer,
+        lastLearningUpdate: new Date(),
+        dataPoints: Math.max(dataPointCount, this.hotWaterUsagePattern.dataPoints)
+      };
+    } catch (error) {
+      this.logger.warn('Failed to refresh hot water usage pattern', error as Error);
+    }
+  }
+
+  /**
    * Optimize hot water scheduling based on usage patterns
    * @param currentHour Current hour (0-23)
    * @param priceData Next 24 hours price data
@@ -1248,9 +1291,11 @@ export class Optimizer {
       };
 
       this.lastEnergyData = safeEnergyData;
+      this.refreshHotWaterUsagePattern();
 
       // Calculate daily energy consumption (kWh/day averaged over the period)
-      const dailyEnergyConsumption = (heatingConsumed + hotWaterConsumed) / 7;
+      const sampledDays = Math.max(1, Number((energyData as any)?.SampledDays) || 1);
+      const dailyEnergyConsumption = (heatingConsumed + hotWaterConsumed) / sampledDays;
 
       // Calculate efficiency scores using adaptive COP normalization
       const heatingEfficiency = this.normalizeCOP(realHeatingCOP);
@@ -1330,7 +1375,7 @@ export class Optimizer {
         return {
           realHeatingCOP,
           realHotWaterCOP,
-          dailyEnergyConsumption: (heatingConsumed + hotWaterConsumed) / 7,
+          dailyEnergyConsumption: (heatingConsumed + hotWaterConsumed) / Math.max(1, Number((energyData as any).SampledDays) || 1),
           heatingEfficiency: Math.min(realHeatingCOP / 3, 1),
           hotWaterEfficiency: Math.min(realHotWaterCOP / 3, 1),
           seasonalMode: heatingConsumed < 1 ? 'summer' : 'winter',
@@ -1359,10 +1404,11 @@ export class Optimizer {
     minPrice: number,
     maxPrice: number,
     currentTemp: number,
-    outdoorTemp: number
+    outdoorTemp: number,
+    precomputedMetrics?: OptimizationMetrics | null
   ): Promise<{ targetTemp: number; reason: string; metrics?: OptimizationMetrics }> {
     // Get real energy metrics
-    const metrics = await this.getRealEnergyMetrics();
+    const metrics = precomputedMetrics ?? await this.getRealEnergyMetrics();
     
     if (!metrics) {
       // Fall back to basic optimization if no real data available
@@ -1502,12 +1548,12 @@ export class Optimizer {
    * @param priceData Full price data for scheduling
    * @returns Hot water optimization recommendation
    */
-  private async optimizeHotWaterScheduling(currentPrice: number, priceData: any): Promise<{
+  private async optimizeHotWaterScheduling(currentPrice: number, priceData: any, metricsOverride?: OptimizationMetrics | null): Promise<{
     action: 'heat_now' | 'delay' | 'maintain';
     reason: string;
     scheduledTime?: string;
   }> {
-    const metrics = await this.getRealEnergyMetrics();
+    const metrics = metricsOverride ?? await this.getRealEnergyMetrics();
     
     if (!metrics || !this.lastEnergyData) {
       return { action: 'maintain', reason: 'No real energy data available for hot water optimization' };
@@ -1912,8 +1958,17 @@ export class Optimizer {
       const avgPrice = priceData.prices.reduce((sum, p) => sum + p.price, 0) / priceData.prices.length;
       const minPrice = Math.min(...priceData.prices.map((p: any) => p.price));
       const maxPrice = Math.max(...priceData.prices.map((p: any) => p.price));
-      const pricePercentile = priceData.prices.length > 0
-        ? (priceData.prices.filter((p: any) => p.price <= currentPrice).length / priceData.prices.length) * 100
+      const referenceTs = priceData.current?.time ? new Date(priceData.current.time).getTime() : Date.now();
+      const cutoffMs = Number.isFinite(referenceTs) ? referenceTs + (24 * 60 * 60 * 1000) : null;
+      const percentileWindow = cutoffMs !== null
+        ? priceData.prices.filter((p: any) => {
+            const ts = Date.parse(p.time);
+            return Number.isFinite(ts) && ts <= cutoffMs;
+          })
+        : priceData.prices;
+      const percentileBase = percentileWindow.length > 0 ? percentileWindow : priceData.prices;
+      const pricePercentile = percentileBase.length > 0
+        ? (percentileBase.filter((p: any) => p.price <= currentPrice).length / percentileBase.length) * 100
         : 0;
       
       // Calculate price level based on percentile (works for both Tibber and ENTSO-E APIs)
@@ -2014,13 +2069,15 @@ export class Optimizer {
       }
 
       // Use enhanced optimization with real energy data
+      const cachedMetrics = await this.getRealEnergyMetrics();
       const optimizationResult = await this.calculateOptimalTemperatureWithRealData(
         currentPrice,
         avgPrice,
         minPrice,
         maxPrice,
         currentTemp || 20,
-        outdoorTemp
+        outdoorTemp,
+        cachedMetrics ?? undefined
       );
 
       let targetTemp = optimizationResult.targetTemp;
@@ -2185,7 +2242,7 @@ export class Optimizer {
           }
           
           // Use pattern-based hot water scheduling if we have usage data
-          if (this.hotWaterUsagePattern && this.hotWaterUsagePattern.dataPoints > 50) {
+          if (this.hotWaterUsagePattern && this.hotWaterUsagePattern.dataPoints >= 14) {
             const currentHour = this.timeZoneHelper.getLocalTime().hour;
             const hotWaterSchedule = this.optimizeHotWaterSchedulingByPattern(
               currentHour,
@@ -2207,12 +2264,20 @@ export class Optimizer {
             });
           } else {
             // Fallback to price/COP based optimization
-            const hotWaterOpt = await this.optimizeHotWaterScheduling(currentPrice, priceData);
+            const hotWaterOpt = await this.optimizeHotWaterScheduling(
+              currentPrice,
+              priceData,
+              optimizationResult.metrics ?? cachedMetrics ?? undefined
+            );
             hotWaterAction = hotWaterOpt;
           }
         } else {
           // Fallback to simple price/COP based optimization
-          const hotWaterOpt = await this.optimizeHotWaterScheduling(currentPrice, priceData);
+          const hotWaterOpt = await this.optimizeHotWaterScheduling(
+            currentPrice,
+            priceData,
+            optimizationResult.metrics ?? cachedMetrics ?? undefined
+          );
           hotWaterAction = hotWaterOpt;
         }
         
@@ -2669,6 +2734,29 @@ export class Optimizer {
 
         let savingsNumericNoChange = 0;
         try {
+          const baselineSetpointRaw = this.enhancedSavingsCalculator?.hasBaselineCapability()
+            ? this.enhancedSavingsCalculator.getDefaultBaselineConfig()?.heatingSetpoint
+            : undefined;
+          const baselineSetpoint = Number.isFinite(baselineSetpointRaw)
+            ? (baselineSetpointRaw as number)
+            : constraintsBand.maxTemp;
+          const clampedBaseline = Math.min(
+            constraintsBand.maxTemp,
+            Math.max(constraintsBand.minTemp, baselineSetpoint)
+          );
+          if (clampedBaseline > safeCurrentTarget + 1e-3) {
+            savingsNumericNoChange += await this.calculateRealHourlySavings(
+              clampedBaseline,
+              safeCurrentTarget,
+              currentPrice,
+              optimizationResult.metrics,
+              'zone1'
+            );
+          }
+        } catch (baselineErr) {
+          this.logger.warn('Failed to estimate baseline savings during hold', baselineErr as Error);
+        }
+        try {
           if (zone2Result && typeof zone2Result.fromTemp === 'number' && typeof zone2Result.toTemp === 'number') {
             savingsNumericNoChange += await this.calculateRealHourlySavings(
               zone2Result.fromTemp,
@@ -2816,8 +2904,8 @@ export class Optimizer {
     kind: 'zone1' | 'zone2' | 'tank' = 'zone1'
   ): Promise<number> {
     try {
-      const tempDiff = newTemp - oldTemp;
-      if (!isFinite(tempDiff) || tempDiff === 0 || !isFinite(currentPrice)) return 0;
+      const tempDelta = oldTemp - newTemp;
+      if (!isFinite(tempDelta) || tempDelta === 0 || !isFinite(currentPrice)) return 0;
 
       if (!metrics) {
         // Fallback to simple calculation if we don't have metrics
@@ -2840,8 +2928,8 @@ export class Optimizer {
       if (kind === 'zone2') perDegFactor *= 0.9;
       if (kind === 'tank') perDegFactor *= 0.5;
 
-      const dailyEnergyImpact = Math.abs(tempDiff) * perDegFactor * dailyConsumption; // kWh
-      const dailyCostImpact = dailyEnergyImpact * (tempDiff > 0 ? currentPrice : -currentPrice);
+      const dailyEnergyImpact = Math.abs(tempDelta) * perDegFactor * dailyConsumption; // kWh
+      const dailyCostImpact = dailyEnergyImpact * Math.sign(tempDelta) * currentPrice;
       const hourlyCostImpact = dailyCostImpact / 24;
       return Number.isFinite(hourlyCostImpact) ? hourlyCostImpact : 0;
     } catch {

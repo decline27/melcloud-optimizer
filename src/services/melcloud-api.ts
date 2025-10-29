@@ -1215,6 +1215,7 @@ export class MelCloudApi extends BaseApiService {
   coolingCOP?: number | null;
   averageCOP?: number | null;
     HasZone2?: boolean; // Include Zone 2 support flag from API
+    SampledDays?: number;
   }> {
     try {
       // Validate device ID - must be numeric
@@ -1246,19 +1247,37 @@ export class MelCloudApi extends BaseApiService {
       
       const toDate = today.toISOString().split('T')[0];
       const fromDate = oneWeekAgo.toISOString().split('T')[0];
+      let usedFromDate = fromDate;
+      let usedToDate = toDate;
       
       this.logger.info(`Trying energy data from ${fromDate} to ${toDate}`);
       
-      let energyData = await this.getEnergyData(deviceId, buildingId, fromDate, toDate);
+      let energyData = await this.getEnergyData(deviceId, buildingId, usedFromDate, usedToDate);
+      
+      const hasMeaningfulTotals = (data: any): boolean => {
+        if (!data) return false;
+        if (Array.isArray(data)) {
+          return data.some(entry => (entry?.TotalHeatingConsumed ?? 0) > 0 || (entry?.TotalHotWaterConsumed ?? 0) > 0);
+        }
+        const heating = Number((data as any).TotalHeatingConsumed ?? 0);
+        const hotWater = Number((data as any).TotalHotWaterConsumed ?? 0);
+        if (heating > 0 || hotWater > 0) {
+          return true;
+        }
+        const copArray = Array.isArray((data as any).CoP) ? (data as any).CoP : [];
+        return copArray.some((value: unknown) => typeof value === 'number' && value > 0);
+      };
       
       // If we don't get meaningful data, try yesterday
-      if (!energyData || (energyData.TotalHeatingConsumed === 0 && energyData.TotalHotWaterConsumed === 0)) {
+      if (!hasMeaningfulTotals(energyData)) {
         const yesterday = new Date(today);
         yesterday.setDate(today.getDate() - 1);
         const yesterdayDate = yesterday.toISOString().split('T')[0];
+        usedFromDate = yesterdayDate;
+        usedToDate = yesterdayDate;
         
         this.logger.info(`Trying yesterday's energy data: ${yesterdayDate}`);
-        energyData = await this.getEnergyData(deviceId, buildingId, yesterdayDate, yesterdayDate);
+        energyData = await this.getEnergyData(deviceId, buildingId, usedFromDate, usedToDate);
       }
       
       // Extract energy totals from the response
@@ -1315,6 +1334,27 @@ export class MelCloudApi extends BaseApiService {
       (result as any).hotWaterCOP = rounded(hotWaterCOP);
       (result as any).coolingCOP = rounded(coolingCOP);
       (result as any).averageCOP = averageCOP !== null && !Number.isNaN(averageCOP) ? Math.round(averageCOP * 100) / 100 : null;
+      
+      const effectiveDays = (() => {
+        const parseDate = (value: string): number => {
+          const ms = Date.parse(value);
+          return Number.isFinite(ms) ? ms : NaN;
+        };
+        if (Array.isArray(energyData) && energyData.length > 0) {
+          return energyData.length;
+        }
+        if (energyData && Array.isArray((energyData as any).Days)) {
+          return (energyData as any).Days.length || 1;
+        }
+        const fromMs = parseDate(usedFromDate);
+        const toMs = parseDate(usedToDate);
+        if (Number.isFinite(fromMs) && Number.isFinite(toMs)) {
+          const diffDays = Math.max(0, Math.round((toMs - fromMs) / (24 * 60 * 60 * 1000)));
+          return Math.max(1, diffDays || 1);
+        }
+        return 1;
+      })();
+      (result as any).SampledDays = effectiveDays;
 
       return result;
     } catch (error) {
@@ -1337,6 +1377,7 @@ export class MelCloudApi extends BaseApiService {
         hotWaterCOP: null,
         coolingCOP: null,
         averageCOP: null,
+        SampledDays: 1,
       };
     }
   }
