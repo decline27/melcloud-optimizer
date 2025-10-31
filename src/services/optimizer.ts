@@ -3039,6 +3039,10 @@ export class Optimizer {
   }> {
     this.logger.log('Starting weekly calibration');
 
+    const clampK = (value: number): number => Math.min(10, Math.max(0.1, value));
+    const clampS = (value: number): number => Math.min(1, Math.max(0.01, value));
+    const DEFAULT_S = 0.7;
+
     try {
       const previousK = this.thermalModel.K;
       const previousS = this.thermalModel.S;
@@ -3056,14 +3060,16 @@ export class Optimizer {
           // Update our simple K-factor based on the thermal model's characteristics
           // This maintains compatibility with the existing system
           const baseK = previousK;
-          const newK = confidence > 0.3
+          const rawK = confidence > 0.3
             ? (characteristics.heatingRate / 0.5) * baseK
             : baseK;
+          const newK = clampK(rawK);
 
           const thermalMass = characteristics.thermalMass;
-          const newS = (typeof thermalMass === 'number' && Number.isFinite(thermalMass))
+          const rawS = (typeof thermalMass === 'number' && Number.isFinite(thermalMass))
             ? thermalMass
-            : (typeof previousS === 'number' ? previousS : 0.1);
+            : (typeof previousS === 'number' ? previousS : (typeof this.thermalModel.S === 'number' ? this.thermalModel.S : DEFAULT_S));
+          const newS = clampS(rawS);
 
           // Update thermal model
           this.setThermalModel(newK, newS);
@@ -3100,8 +3106,11 @@ export class Optimizer {
 
       // Basic calibration (used as fallback or when thermal learning is disabled)
       const baseK = previousK;
-      const newK = baseK * (0.9 + Math.random() * 0.2);
-      const newS = typeof previousS === 'number' ? previousS : (this.thermalModel.S || 0.1);
+      const newK = clampK(baseK * (0.9 + Math.random() * 0.2));
+      const rawS = typeof previousS === 'number'
+        ? previousS
+        : (typeof this.thermalModel.S === 'number' ? this.thermalModel.S : DEFAULT_S);
+      const newS = clampS(rawS);
 
       // Update thermal model
       this.setThermalModel(newK, newS);
