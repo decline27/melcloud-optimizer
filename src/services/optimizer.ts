@@ -2218,6 +2218,7 @@ export class Optimizer {
 
       // Enhanced logging with real energy metrics
       const priceRange = Math.max(maxPrice - minPrice, 0.0001);
+      const priceNormalizedValue = Math.min(Math.max((currentPrice - minPrice) / priceRange, 0), 1);
       let duplicateTarget = this.lastIssuedSetpointC !== null &&
         Math.abs((this.lastIssuedSetpointC as number) - targetTemp) < 1e-4;
 
@@ -2228,7 +2229,7 @@ export class Optimizer {
         lockoutActive,
         duplicateTarget,
         adjustmentReason,
-        priceNormalized: ((currentPrice - minPrice) / priceRange).toFixed(2),
+        priceNormalized: priceNormalizedValue.toFixed(2),
         pricePercentile: `${pricePercentile.toFixed(0)}%`
       };
 
@@ -2370,6 +2371,10 @@ export class Optimizer {
       logData.thermalResponse = thermalResponse.toFixed(2);
 
       logDecision('optimizer.run.summary', logData);
+      this.logger.log(
+        `[ThermalModel] Adaptive interpretation: priceNormalized=${priceNormalizedValue.toFixed(2)}, percentile=${pricePercentile.toFixed(1)}% → '${priceLevel}' (thermal inertia thresholds).`,
+        { thresholds: priceClassification.thresholds }
+      );
       this.logger.log('Enhanced optimization result:', logData);
 
       // Handle secondary zone optimization (Zone2)
@@ -2503,6 +2508,11 @@ export class Optimizer {
               tankReason = `Tibber price level ${priceLevel}, maintaining mid-range tank temperature`;
             }
           }
+
+          this.logger.log(
+            `[HotWaterModel] Adaptive interpretation: percentile=${pricePercentile.toFixed(1)}% → '${priceLevel}' (learned hot water sensitivity thresholds).`,
+            { thresholds: priceClassification.thresholds }
+          );
 
           const tankDeadband = Math.max(0.2, this.tankTempStep / 2);
           const tankConstraints = applySetpointConstraints({
