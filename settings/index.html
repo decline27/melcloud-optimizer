@@ -56,6 +56,67 @@
         opacity: 0.6;
         pointer-events: none;
       }
+
+      .metric-row {
+        display: flex;
+        align-items: baseline;
+        gap: 0.25rem;
+        margin: 0.3rem 0;
+      }
+
+      .metric-label {
+        font-weight: 600;
+        margin-right: 0.25rem;
+      }
+
+      .tt-wrap {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+      }
+
+      .tt-btn {
+        margin-left: 0.25rem;
+        width: 16px;
+        height: 16px;
+        line-height: 16px;
+        font-size: 10px;
+        border: 1px solid #cbd5e1;
+        color: #475569;
+        border-radius: 9999px;
+        text-align: center;
+        background: #fff;
+        cursor: pointer;
+        padding: 0;
+      }
+
+      .tt-bubble {
+        position: absolute;
+        left: 50%;
+        bottom: 100%;
+        transform: translateX(-50%);
+        background: #111827;
+        color: #fff;
+        font-size: 12px;
+        white-space: pre-wrap;
+        padding: 0.35rem 0.5rem;
+        border-radius: 0.4rem;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+        margin-bottom: 0.35rem;
+        z-index: 50;
+        max-width: 280px;
+        display: none;
+      }
+
+      .tt-wrap[data-open="true"] .tt-bubble {
+        display: block;
+      }
+
+      @media (hover: hover) {
+        .tt-wrap:hover .tt-bubble {
+          display: block;
+        }
+      }
     </style>
   </head>
   <body>
@@ -204,7 +265,7 @@
       <div id="model_confidence_content">
         <div class="homey-form-group" style="border: 1px solid #e0e0e0; border-radius: 6px; padding: 16px; background: #fafafa;">
           <div style="margin-bottom: 12px;">
-            <span style="font-weight: 600;">Confidence:</span>
+            <span class="metric-label" style="font-weight: 600;" data-tooltip="How sure the optimizer is about its predictions. Increases as more data is collected.">Confidence:</span>
             <span id="model_confidence_value" style="font-size: 1.1em; margin-left: 8px;" aria-live="polite">—</span>
             <span id="model_confidence_status" style="margin-left: 8px; font-style: italic;">Learning…</span>
           </div>
@@ -212,15 +273,15 @@
           <div id="model_thermal_details" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid #e0e0e0;">
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.9em;">
               <div id="heating_rate_row" style="display: none;">
-                <span>Heating rate:</span>
+                <span class="metric-label" data-tooltip="How fast your home warms up when heating is active (°C per hour).">Heating rate:</span>
                 <span id="heating_rate_value" style="font-weight: 500; margin-left: 4px;">—</span>
               </div>
               <div id="cooling_rate_row" style="display: none;">
-                <span>Cooling rate:</span>
+                <span class="metric-label" data-tooltip="How fast your home cools down when heating is off (°C per hour).">Cooling rate:</span>
                 <span id="cooling_rate_value" style="font-weight: 500; margin-left: 4px;">—</span>
               </div>
               <div id="thermal_mass_row" style="display: none;">
-                <span>Thermal mass:</span>
+                <span class="metric-label" data-tooltip="How much heat your building stores. Higher = better heat retention and smoother control.">Thermal mass:</span>
                 <span id="thermal_mass_value" style="font-weight: 500; margin-left: 4px;">—</span>
               </div>
             </div>
@@ -233,7 +294,7 @@
                 <span id="last_calibration_value" style="font-weight: 500; margin-left: 4px;">—</span>
               </div>
               <div id="learning_cycles_row" style="display: none;">
-                <span>Learning cycles:</span>
+                <span class="metric-label" data-tooltip="Each hourly optimization run that teaches the system about your home.">Learning cycles:</span>
                 <span id="learning_cycles_value" style="font-weight: 500; margin-left: 4px;">—</span>
               </div>
             </div>
@@ -257,11 +318,11 @@
                 <div class="detail" style="font-size: 0.85em; color: #666; margin-left: 12px; margin-top: 2px;">—</div>
               </li>
               <li id="slo-price" aria-live="polite" style="margin-bottom: 8px;">
-                <div>• Price strategy: <span class="value">Learning</span></div>
+                <div>• <span class="metric-label" data-tooltip="Reliability of cheap/normal/expensive classification used in planning.">Price strategy:</span> <span class="value">Learning</span></div>
                 <div class="detail" style="font-size: 0.85em; color: #666; margin-left: 12px; margin-top: 2px;">—</div>
               </li>
               <li id="slo-hw" aria-live="polite" style="margin-bottom: 4px;">
-                <div>• Hot water forecast: <span class="value">Learning</span></div>
+                <div>• <span class="metric-label" data-tooltip="Confidence in your daily hot-water usage pattern.">Hot water forecast:</span> <span class="value">Learning</span></div>
                 <div class="detail" style="font-size: 0.85em; color: #666; margin-left: 12px; margin-top: 2px;">—</div>
               </li>
             </ul>
@@ -272,16 +333,16 @@
             <div style="font-weight: 600; margin-bottom: 6px;">Estimated Smart Savings (vs traditional heat pump)</div>
             <div style="font-size: 0.9em;">
               <div aria-live="polite" style="margin-bottom: 8px;">
-                <strong>Today:</strong> <span id="smart-savings-today" style="font-weight: 500;">—</span>
+                <strong class="metric-label" data-tooltip="Estimated savings today vs a traditional always-on heat pump.">Today:</strong> <span id="smart-savings-today" style="font-weight: 500;">—</span>
               </div>
               <div aria-live="polite" style="margin-bottom: 8px;">
-                <strong>Last 7 days:</strong> <span id="smart-savings-7d" style="font-weight: 500;">—</span>
+                <strong class="metric-label" data-tooltip="Estimated savings summed over the last 7 days.">Last 7 days:</strong> <span id="smart-savings-7d" style="font-weight: 500;">—</span>
               </div>
               <div aria-live="polite" style="margin-bottom: 8px;">
-                <strong>Projection:</strong> <span id="smart-savings-projection" style="font-weight: 500;">—</span>
+                <strong class="metric-label" data-tooltip="Projected monthly savings based on current patterns.">Projection:</strong> <span id="smart-savings-projection" style="font-weight: 500;">—</span>
               </div>
               <div aria-live="polite" style="margin-bottom: 4px;">
-                <strong>Season mode:</strong> <span id="smart-savings-season" style="font-weight: 500;">—</span>
+                <strong class="metric-label" data-tooltip="Current seasonal profile used to tune comfort vs efficiency.">Season mode:</strong> <span id="smart-savings-season" style="font-weight: 500;">—</span>
               </div>
             </div>
             <div id="smart-savings-chart-header" class="row" style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;">
@@ -3734,6 +3795,55 @@
           });
         }
       }
+    </script>
+    <script>
+      (function () {
+        function enhanceTooltips(root) {
+          const nodes = root.querySelectorAll('[data-tooltip]:not([data-tt-init])');
+          nodes.forEach(node => {
+            node.setAttribute('data-tt-init', '1');
+            const wrap = document.createElement('span');
+            wrap.className = 'tt-wrap';
+            if (node.parentNode) {
+              node.parentNode.insertBefore(wrap, node);
+            }
+            wrap.appendChild(node);
+
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'tt-btn';
+            btn.setAttribute('aria-label', 'Info');
+            btn.textContent = 'i';
+
+            const bubble = document.createElement('span');
+            bubble.className = 'tt-bubble';
+            bubble.setAttribute('role', 'tooltip');
+            bubble.textContent = node.getAttribute('data-tooltip') || '';
+
+            wrap.appendChild(btn);
+            wrap.appendChild(bubble);
+
+            btn.addEventListener('click', (event) => {
+              event.stopPropagation();
+              const isOpen = wrap.getAttribute('data-open') === 'true';
+              document.querySelectorAll('.tt-wrap[data-open="true"]').forEach(other => {
+                other.setAttribute('data-open', 'false');
+              });
+              wrap.setAttribute('data-open', isOpen ? 'false' : 'true');
+            });
+          });
+        }
+
+        document.addEventListener('click', () => {
+          document.querySelectorAll('.tt-wrap[data-open="true"]').forEach(wrap => {
+            wrap.setAttribute('data-open', 'false');
+          });
+        });
+
+        enhanceTooltips(document);
+
+        window.attachTooltips = () => enhanceTooltips(document);
+      })();
     </script>
   </body>
 </html>

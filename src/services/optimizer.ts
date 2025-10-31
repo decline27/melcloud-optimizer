@@ -19,6 +19,7 @@ import { TimeZoneHelper } from '../util/time-zone-helper';
 import { applySetpointConstraints } from '../util/setpoint-constraints';
 import { computePlanningBias, updateThermalResponse } from './planning-utils';
 import { AdaptiveParametersLearner } from './adaptive-parameters';
+import { classifyPriceUnified, resolvePriceThresholds } from './price-classifier';
 
 const DEFAULT_HOT_WATER_PEAK_HOURS = [6, 7, 8]; // Morning fallback window when usage data is flat
 
@@ -678,21 +679,16 @@ export class Optimizer {
    * @returns Price level string
    */
   private calculatePriceLevel(percentile: number): string {
-    // Use user-configurable cheap threshold (converted from 0-1 to 0-100 scale)
-    const cheapThreshold = this.preheatCheapPercentile * 100;
-    
-    // Get adaptive multiplier for "very cheap" detection (learned from outcomes)
     const adaptiveThresholds = this.adaptiveParametersLearner?.getStrategyThresholds();
-    const veryChepMultiplier = adaptiveThresholds?.veryChepMultiplier || 0.4; // Fallback to 40%
-    
-    const veryChepThreshold = cheapThreshold * veryChepMultiplier; // Adaptive threshold
-    const expensiveThreshold = 100 - cheapThreshold; // Expensive mirrors cheap on upper end
-    const veryExpensiveThreshold = 100 - veryChepThreshold; // Very expensive mirrors very cheap
-    
-    if (percentile <= veryChepThreshold) return 'VERY_CHEAP';
-    if (percentile <= cheapThreshold) return 'CHEAP';
-    if (percentile <= expensiveThreshold) return 'NORMAL';
-    if (percentile <= veryExpensiveThreshold) return 'EXPENSIVE';
+    const thresholds = resolvePriceThresholds({
+      cheapPercentile: this.preheatCheapPercentile,
+      veryCheapMultiplier: adaptiveThresholds?.veryChepMultiplier
+    });
+
+    if (percentile <= thresholds.veryCheap) return 'VERY_CHEAP';
+    if (percentile <= thresholds.cheap) return 'CHEAP';
+    if (percentile <= thresholds.expensive) return 'NORMAL';
+    if (percentile <= thresholds.veryExpensive) return 'EXPENSIVE';
     return 'VERY_EXPENSIVE';
   }
 
@@ -2008,12 +2004,13 @@ export class Optimizer {
       });
       const percentileWindow = percentileWindowCandidates.length > 0 ? percentileWindowCandidates : priceData.prices;
       const percentileBase = percentileWindow.length > 0 ? percentileWindow : priceData.prices;
-      const pricePercentile = percentileBase.length > 0
-        ? (percentileBase.filter((p: any) => p.price <= currentPrice).length / percentileBase.length) * 100
-        : 0;
-      
-      // Calculate price level based on percentile (works for both Tibber and ENTSO-E APIs)
-      const priceLevel: string = this.calculatePriceLevel(pricePercentile);
+      const adaptiveThresholds = this.adaptiveParametersLearner?.getStrategyThresholds();
+      const priceClassification = classifyPriceUnified(percentileBase, currentPrice, {
+        cheapPercentile: this.preheatCheapPercentile,
+        veryCheapMultiplier: adaptiveThresholds?.veryChepMultiplier
+      });
+      const pricePercentile = priceClassification.percentile;
+      const priceLevel: string = priceClassification.label;
       let nextHourPrice: number | undefined;
       try {
         const currentTs = priceData.current?.time ? new Date(priceData.current.time) : new Date();
