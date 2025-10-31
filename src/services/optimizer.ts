@@ -20,6 +20,8 @@ import { applySetpointConstraints } from '../util/setpoint-constraints';
 import { computePlanningBias, updateThermalResponse } from './planning-utils';
 import { AdaptiveParametersLearner } from './adaptive-parameters';
 
+const DEFAULT_HOT_WATER_PEAK_HOURS = [6, 7, 8]; // Morning fallback window when usage data is flat
+
 /**
  * Real energy data from MELCloud API
  */
@@ -708,11 +710,23 @@ export class Optimizer {
     targetTemp: number,
     currentPrice: number,
     futurePrices: any[],
-    copData: { heating: number; hotWater: number; outdoor: number }
+    copData: { heating: number; hotWater: number; outdoor: number },
+    referenceTimeMs?: number
   ): ThermalStrategy {
     try {
       // Find cheapest periods in next 24 hours
-      const next24h = futurePrices.slice(0, 24);
+      const nowMs = typeof referenceTimeMs === 'number' && Number.isFinite(referenceTimeMs)
+        ? referenceTimeMs
+        : Date.now();
+      const upcomingPrices = futurePrices.filter(pricePoint => {
+        const ts = Date.parse(pricePoint.time);
+        if (!Number.isFinite(ts)) {
+          return true;
+        }
+        return ts >= nowMs;
+      });
+      const next24hSource = upcomingPrices.length > 0 ? upcomingPrices : futurePrices;
+      const next24h = next24hSource.slice(0, 24);
       const sortedPrices = [...next24h].sort((a, b) => a.price - b.price);
       const cheapest6Hours = sortedPrices.slice(0, 6); // Top 6 cheapest hours
       
@@ -939,23 +953,23 @@ export class Optimizer {
         }
       }
 
-      // Identify peak hours (above 80th percentile)
-      const sortedDemand = [...hourlyDemand].sort((a, b) => b - a);
-      const peakThreshold = sortedDemand[Math.floor(sortedDemand.length * 0.2)];
-      
-      const peakHours = hourlyDemand
+      // Identify top 20% non-zero demand hours
+      const ranked = hourlyDemand
         .map((demand, hour) => ({ demand, hour }))
-        .filter(h => h.demand >= peakThreshold)
-        .map(h => h.hour);
-
+        .filter(({ demand }) => demand > 0)
+        .sort((a, b) => b.demand - a.demand);
+      const topCount = ranked.length > 0 ? Math.max(1, Math.round(ranked.length * 0.2)) : 0;
+      const peakHours = topCount > 0 ? ranked.slice(0, topCount).map(item => item.hour) : [];
+      const selectedPeakHours = peakHours.length > 0 ? peakHours : DEFAULT_HOT_WATER_PEAK_HOURS;
+    
       // Calculate minimum buffer (120% of peak demand)
       const maxDemand = Math.max(...hourlyDemand);
-      const minimumBuffer = maxDemand * 1.2;
-
+      const minimumBuffer = maxDemand > 0 ? maxDemand * 1.2 : (this.hotWaterUsagePattern?.minimumBuffer ?? 0);
+    
       // Update pattern
       this.hotWaterUsagePattern = {
         hourlyDemand,
-        peakHours,
+        peakHours: selectedPeakHours,
         minimumBuffer,
         lastLearningUpdate: new Date(),
         dataPoints: usageHistory.length
@@ -963,7 +977,7 @@ export class Optimizer {
 
       this.logger.log('Hot water usage pattern updated:', {
         dataPoints: usageHistory.length,
-        peakHours: peakHours.join(', '),
+        peakHours: selectedPeakHours.join(', '),
         maxDemand: maxDemand.toFixed(2),
         minimumBuffer: minimumBuffer.toFixed(2)
       });
@@ -992,21 +1006,24 @@ export class Optimizer {
       }
 
       const hourlyDemand = usageByHour.map((value: unknown) => Number(value) || 0);
-      const sortedDemand = [...hourlyDemand].sort((a, b) => b - a);
-      const thresholdIndex = Math.max(0, Math.floor(sortedDemand.length * 0.2) - 1);
-      const peakThreshold = sortedDemand[thresholdIndex] ?? 0;
-
-      const peakHours = hourlyDemand
+      const ranked = hourlyDemand
         .map((demand, hour) => ({ demand, hour }))
-        .filter(entry => entry.demand >= peakThreshold && entry.demand > 0)
-        .map(entry => entry.hour);
+        .filter(({ demand }) => demand > 0)
+        .sort((a, b) => b.demand - a.demand);
+      const topCount = ranked.length > 0 ? Math.max(1, Math.round(ranked.length * 0.2)) : 0;
+      const peakHoursRaw = topCount > 0 ? ranked.slice(0, topCount).map(entry => entry.hour) : [];
+      const previousPeakHours = Array.isArray(this.hotWaterUsagePattern?.peakHours)
+        ? this.hotWaterUsagePattern.peakHours
+        : [];
+      const fallbackPeakHours = previousPeakHours.length > 0 ? previousPeakHours : DEFAULT_HOT_WATER_PEAK_HOURS;
+      const peakHours = peakHoursRaw.length > 0 ? peakHoursRaw : fallbackPeakHours;
 
       const maxDemand = Math.max(...hourlyDemand, 0);
       const minimumBuffer = maxDemand > 0 ? maxDemand * 1.2 : this.hotWaterUsagePattern.minimumBuffer;
 
       this.hotWaterUsagePattern = {
         hourlyDemand,
-        peakHours: peakHours.length > 0 ? peakHours : this.hotWaterUsagePattern.peakHours,
+        peakHours,
         minimumBuffer,
         lastLearningUpdate: new Date(),
         dataPoints: Math.max(dataPointCount, this.hotWaterUsagePattern.dataPoints)
@@ -1026,10 +1043,22 @@ export class Optimizer {
   private optimizeHotWaterSchedulingByPattern(
     currentHour: number,
     priceData: any[],
-    hotWaterCOP: number
+    hotWaterCOP: number,
+    referenceTimeMs?: number
   ): HotWaterSchedule {
     try {
-      const next24h = priceData.slice(0, 24);
+      const nowMs = typeof referenceTimeMs === 'number' && Number.isFinite(referenceTimeMs)
+        ? referenceTimeMs
+        : Date.now();
+      const upcomingPrices = priceData.filter(pricePoint => {
+        const ts = Date.parse(pricePoint.time);
+        if (!Number.isFinite(ts)) {
+          return true;
+        }
+        return ts >= nowMs;
+      });
+      const priceWindow = upcomingPrices.length > 0 ? upcomingPrices : priceData;
+      const next24h = priceWindow.slice(0, 24);
       const schedulePoints: SchedulePoint[] = [];
 
       // For each peak demand hour, find optimal heating time
@@ -1564,7 +1593,16 @@ export class Optimizer {
     const dailyHotWaterConsumption = this.lastEnergyData.TotalHotWaterConsumed / 7; // kWh per day
 
     // Find cheapest hours in the next 24 hours
-    const prices = priceData.prices.slice(0, 24); // Next 24 hours
+    const referenceTimeMs = priceData.current?.time ? Date.parse(priceData.current.time) : NaN;
+    const nowMs = Number.isFinite(referenceTimeMs) ? referenceTimeMs : Date.now();
+    const upcomingPrices = priceData.prices.filter((pricePoint: any) => {
+      const ts = Date.parse(pricePoint.time);
+      if (!Number.isFinite(ts)) {
+        return true;
+      }
+      return ts >= nowMs;
+    });
+    const prices = (upcomingPrices.length > 0 ? upcomingPrices : priceData.prices).slice(0, 24); // Next 24 hours
     const sortedPrices = [...prices].sort((a: any, b: any) => a.price - b.price);
     const cheapestHours = sortedPrices.slice(0, 4); // Top 4 cheapest hours
 
@@ -1958,14 +1996,17 @@ export class Optimizer {
       const avgPrice = priceData.prices.reduce((sum, p) => sum + p.price, 0) / priceData.prices.length;
       const minPrice = Math.min(...priceData.prices.map((p: any) => p.price));
       const maxPrice = Math.max(...priceData.prices.map((p: any) => p.price));
-      const referenceTs = priceData.current?.time ? new Date(priceData.current.time).getTime() : Date.now();
-      const cutoffMs = Number.isFinite(referenceTs) ? referenceTs + (24 * 60 * 60 * 1000) : null;
-      const percentileWindow = cutoffMs !== null
-        ? priceData.prices.filter((p: any) => {
-            const ts = Date.parse(p.time);
-            return Number.isFinite(ts) && ts <= cutoffMs;
-          })
-        : priceData.prices;
+      const referenceTs = priceData.current?.time ? Date.parse(priceData.current.time) : NaN;
+      const windowStart = Number.isFinite(referenceTs) ? referenceTs : Date.now();
+      const windowEnd = windowStart + (24 * 60 * 60 * 1000);
+      const percentileWindowCandidates = priceData.prices.filter((p: any) => {
+        const ts = Date.parse(p.time);
+        if (!Number.isFinite(ts)) {
+          return true;
+        }
+        return ts >= windowStart && ts < windowEnd;
+      });
+      const percentileWindow = percentileWindowCandidates.length > 0 ? percentileWindowCandidates : priceData.prices;
       const percentileBase = percentileWindow.length > 0 ? percentileWindow : priceData.prices;
       const pricePercentile = percentileBase.length > 0
         ? (percentileBase.filter((p: any) => p.price <= currentPrice).length / percentileBase.length) * 100
@@ -1991,6 +2032,7 @@ export class Optimizer {
       }
       const priceForecast = (priceData as any)?.forecast || null;
       const planningReferenceTime = priceData.current?.time ? new Date(priceData.current.time) : new Date();
+      const planningReferenceTimeMs = planningReferenceTime.getTime();
 
       let thermalResponse = 1;
       let previousIndoorTemp: number | null = null;
@@ -2223,7 +2265,8 @@ export class Optimizer {
               heating: optimizationResult.metrics.realHeatingCOP,
               hotWater: optimizationResult.metrics.realHotWaterCOP,
               outdoor: outdoorTemp
-            }
+            },
+            planningReferenceTimeMs
           );
           
           // Apply thermal strategy to target temperature
@@ -2247,7 +2290,8 @@ export class Optimizer {
             const hotWaterSchedule = this.optimizeHotWaterSchedulingByPattern(
               currentHour,
               priceData.prices,
-              optimizationResult.metrics.realHotWaterCOP
+              optimizationResult.metrics.realHotWaterCOP,
+              planningReferenceTimeMs
             );
             
             hotWaterAction = {
@@ -2929,7 +2973,11 @@ export class Optimizer {
       if (kind === 'tank') perDegFactor *= 0.5;
 
       const dailyEnergyImpact = Math.abs(tempDelta) * perDegFactor * dailyConsumption; // kWh
-      const dailyCostImpact = dailyEnergyImpact * Math.sign(tempDelta) * currentPrice;
+      const gridFeeRaw = (this.homey as any)?.settings?.get?.('grid_fee_per_kwh');
+      const gridFeeValue = Number(gridFeeRaw);
+      const gridFee = Number.isFinite(gridFeeValue) ? gridFeeValue : 0;
+      const effectivePrice = (Number.isFinite(currentPrice) ? currentPrice : 0) + gridFee;
+      const dailyCostImpact = dailyEnergyImpact * Math.sign(tempDelta) * effectivePrice;
       const hourlyCostImpact = dailyCostImpact / 24;
       return Number.isFinite(hourlyCostImpact) ? hourlyCostImpact : 0;
     } catch {
