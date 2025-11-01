@@ -341,21 +341,33 @@ export class EnhancedSavingsCalculator {
       try {
         const characteristics = this.thermalModelService.getThermalCharacteristics();
         
-        // Use real thermal mass and model confidence
-        if (characteristics.modelConfidence > 0.3) {
-          // Thermal mass ranges from 0-1, scale it to provide reasonable bonus
-          const thermalMassMultiplier = characteristics.thermalMass * 0.15; // Max 15% instead of hardcoded 10%
-          const confidenceAdjusted = thermalMassMultiplier * characteristics.modelConfidence;
-          
-          this.safeDebug('Using real thermal characteristics for inertia calculation:', {
-            avgTempChange: avgTempChange.toFixed(2),
-            thermalMass: characteristics.thermalMass.toFixed(3),
-            modelConfidence: characteristics.modelConfidence.toFixed(3),
-            calculatedBonus: (avgTempChange * confidenceAdjusted).toFixed(4)
-          });
-          
-          return Math.min(avgTempChange * confidenceAdjusted, thermalMassMultiplier);
-        }
+        // Issue #6 fix: Use graduated blending instead of binary 0.3 cutoff
+        // Old: if (confidence > 0.3) use learned, else use 0.02 hardcoded
+        // New: Blend learned and default based on confidence level
+        // Rationale: Rewards early learning, provides smooth UX, no sudden jumps
+        
+        const confidence = Math.min(1, Math.max(0, characteristics.modelConfidence));
+        const thermalMassMultiplier = characteristics.thermalMass * 0.15; // Max 15%
+        
+        // Blend learned factor (based on thermal mass) with default factor (0.02)
+        // At confidence=0: pure default (0.02)
+        // At confidence=0.5: 50% learned + 50% default
+        // At confidence=1.0: pure learned (thermal mass * 0.15)
+        const learnedFactor = thermalMassMultiplier * confidence;
+        const defaultFactor = 0.02 * (1 - confidence);
+        const blendedMultiplier = learnedFactor + defaultFactor;
+        
+        this.safeDebug('Using blended thermal characteristics for inertia calculation:', {
+          avgTempChange: avgTempChange.toFixed(2),
+          thermalMass: characteristics.thermalMass.toFixed(3),
+          modelConfidence: confidence.toFixed(3),
+          blendedMultiplier: blendedMultiplier.toFixed(4),
+          calculatedBonus: (avgTempChange * blendedMultiplier).toFixed(4)
+        });
+        
+        // Cap the result, but use learned thermalMassMultiplier as ceiling when confidence is high
+        const maxCap = Math.max(0.1, thermalMassMultiplier);
+        return Math.min(avgTempChange * blendedMultiplier, maxCap);
       } catch (error) {
         this.safeError('Error getting thermal characteristics, using fallback:', error);
       }

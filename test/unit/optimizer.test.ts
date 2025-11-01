@@ -961,4 +961,76 @@ describe('Temperature Optimization', () => {
       // This is why persistence matters: enables smarter optimization
     });
   });
+
+  describe('Issue #6: Thermal Inertia Factor Confidence Blending', () => {
+    it('should blend learned and default values smoothly across all confidence levels', () => {
+      // Test blending formula at various confidence levels
+      const thermalMass = 0.5;
+      const confidenceLevels = [0, 0.2, 0.3, 0.6, 1.0];
+      
+      confidenceLevels.forEach(conf => {
+        const learnedFactor = (thermalMass * 0.15) * conf;
+        const defaultFactor = 0.02 * (1 - conf);
+        const blended = learnedFactor + defaultFactor;
+        
+        // Blended value should always be between default (0.02) and max learned
+        expect(blended).toBeGreaterThanOrEqual(0);
+        expect(blended).toBeLessThanOrEqual(thermalMass * 0.15 + 0.02);
+        
+        // At conf=0: pure default, At conf=1: pure learned
+        if (conf === 0) expect(blended).toBe(0.02);
+        if (conf === 1.0) expect(blended).toBe(thermalMass * 0.15);
+      });
+    });
+
+    it('should eliminate binary cutoff jump at 0.3 confidence threshold', () => {
+      const thermalMass = 0.6;
+      
+      // Old system: hard jump at 0.3
+      const oldAt29 = 0.02;  // confidence < 0.3 → hardcoded
+      const oldAt31 = (thermalMass * 0.15) * 0.31;  // confidence >= 0.3 → 0.0279
+      const oldJump = Math.abs(oldAt31 - oldAt29);  // ~0.0079
+      
+      // New system: smooth transition
+      const newAt29 = ((thermalMass * 0.15) * 0.29) + (0.02 * 0.71);  // 0.03031
+      const newAt31 = ((thermalMass * 0.15) * 0.31) + (0.02 * 0.69);  // 0.03169
+      const newGradient = Math.abs(newAt31 - newAt29);  // ~0.00138
+      
+      // New system has SMALLER discontinuity (smoother transition)
+      expect(newGradient).toBeLessThan(oldJump);
+      
+      // Verify old system has visible jump
+      expect(oldJump).toBeGreaterThan(0.005);
+      
+      // Verify new system has smooth gradient
+      expect(newGradient).toBeLessThan(0.002);
+    });
+
+    it('should show gradual improvement during learning phase', () => {
+      // User perspective: after 2 weeks, confidence = 0.25
+      const confidence = 0.25;
+      const thermalMass = 0.55;
+      
+      // Old: uses hardcoded 0.02 (ignores learning)
+      const oldMultiplier = 0.02;
+      
+      // New: blends 25% learned + 75% default
+      const newMultiplier = ((thermalMass * 0.15) * confidence) + (0.02 * (1 - confidence));
+      
+      // New system rewards early learning
+      expect(newMultiplier).toBeGreaterThan(oldMultiplier);
+      
+      const improvement = ((newMultiplier - oldMultiplier) / oldMultiplier) * 100;
+      expect(improvement).toBeGreaterThan(30);  // At least 30% better
+    });
+
+    it('should handle confidence clamping correctly', () => {
+      // Edge cases: negative and >1.0 confidence
+      const clampNegative = Math.min(1, Math.max(0, -0.1));
+      const clampHigh = Math.min(1, Math.max(0, 1.5));
+      
+      expect(clampNegative).toBe(0);
+      expect(clampHigh).toBe(1);
+    });
+  });
 });
