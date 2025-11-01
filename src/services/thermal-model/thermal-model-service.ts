@@ -140,6 +140,16 @@ export class ThermalModelService {
   }
 
   /**
+   * Force an immediate thermal model update (public method for external triggers)
+   * Issue #3 fix: Called after weekly calibration to persist learned confidence
+   * @returns The updated thermal characteristics
+   */
+  public forceModelUpdate(): ThermalCharacteristics {
+    this.homey.log('Forcing immediate thermal model update (external trigger)');
+    return this.updateThermalModel();
+  }
+
+  /**
    * Clean up old data to manage memory usage
    * This method now uses the data collector's aggregation functionality
    * to preserve historical patterns while reducing memory usage

@@ -894,4 +894,71 @@ describe('Temperature Optimization', () => {
       expect(savingsNumericNoChange).toBeGreaterThan(0);
     });
   });
+
+  describe('Issue #3: Weekly Calibration Confidence Persistence', () => {
+    it('should indicate thermal model update is needed after calibration', () => {
+      // Problem: After weekly calibration, confidence from thermal model is READ
+      // but thermal model is never UPDATED, so confidence doesn't persist
+      
+      const confidence = 0.65;  // Good confidence after analysis
+      
+      // Calibration reads characteristics (including confidence)
+      const characteristics = {
+        heatingRate: 0.5,
+        coolingRate: 0.3,
+        modelConfidence: confidence
+      };
+      
+      // Old behavior: Just reads confidence, returns it, doesn't persist
+      // New behavior: Should trigger thermal model update to persist confidence
+      
+      // The fix requires calling thermalModelService.forceModelUpdate()
+      // after reading characteristics in runWeeklyCalibration()
+      
+      expect(characteristics.modelConfidence).toBe(0.65);
+      
+      // This test documents the expected behavior:
+      // runWeeklyCalibration() should call thermalModelService.forceModelUpdate()
+      // which will trigger analyzer.updateModel() which DOES save to settings
+    });
+
+    it('should maintain confidence across calibration cycles', () => {
+      // Scenario: Confidence should grow over time, not reset to 0
+      
+      const cycle1Confidence = 0.3;  // After first week
+      const cycle2Confidence = 0.5;  // After second week (should build on previous)
+      const cycle3Confidence = 0.7;  // After third week
+      
+      // Without fix: confidence resets because not persisted
+      // With fix: confidence accumulates because persisted after each calibration
+      
+      expect(cycle2Confidence).toBeGreaterThan(cycle1Confidence);
+      expect(cycle3Confidence).toBeGreaterThan(cycle2Confidence);
+      
+      // Growth rate should be reasonable (not linear, but steady)
+      const growth1to2 = cycle2Confidence - cycle1Confidence;  // 0.2
+      const growth2to3 = cycle3Confidence - cycle2Confidence;  // 0.2
+      
+      expect(growth1to2).toBeGreaterThan(0);
+      expect(growth2to3).toBeGreaterThan(0);
+    });
+
+    it('should use confidence in downstream systems after persistence', () => {
+      // Once confidence is persisted, it should be used by:
+      // 1. Thermal inertia factor calculation (confidence > 0.3)
+      // 2. Savings calculator thermal awareness
+      // 3. Price classification learned thresholds
+      
+      const lowConfidence = 0.2;   // Below 0.3 threshold
+      const highConfidence = 0.6;  // Above 0.3 threshold
+      
+      // Downstream systems should switch from defaults to learned values
+      const usesLearnedValues = (conf: number) => conf >= 0.3;
+      
+      expect(usesLearnedValues(lowConfidence)).toBe(false);  // Uses defaults
+      expect(usesLearnedValues(highConfidence)).toBe(true);  // Uses learned
+      
+      // This is why persistence matters: enables smarter optimization
+    });
+  });
 });

@@ -3091,6 +3091,16 @@ export class Optimizer {
             `Thermal mass=${Number.isFinite(thermalMass) ? thermalMass.toFixed(2) : 'n/a'}`
           );
 
+          // Issue #3 fix: Force thermal model update to persist learned confidence
+          // Without this, confidence was read but not saved back to settings
+          // causing it to reset to 0 on next run (chicken-egg loop)
+          try {
+            this.thermalModelService.forceModelUpdate();
+            this.logger.log('Thermal model confidence persisted after calibration');
+          } catch (persistErr) {
+            this.logger.error('Failed to persist thermal model confidence', persistErr);
+          }
+
           // Return result
           return {
             oldK: previousK,
