@@ -369,7 +369,30 @@ git commit -m "fix: increase tank deadband to prevent oscillation (Issue #7)
 **Priority**: Third (most visible impact, moderate complexity)  
 **Risk**: Medium (changes accounting logic)  
 **Estimated Time**: 4-6 hours including testing  
-**Status**: ⏳ Pending
+**Status**: ✅ **COMPLETED** (2025-11-01)
+
+### ✅ Completion Summary
+**Commit**: `e3f2e8f`  
+**Branch**: `fix-optimizer-high-impact`  
+**Implementation Time**: ~2.5 hours (faster than estimated due to clear baseline choice)
+
+**Changes Made**:
+- Modified `src/services/optimizer.ts` lines 2791-2815
+- Removed optional baseline calculator dependency
+- Simplified to use `constraintsBand.maxTemp` directly as baseline
+- Changed threshold from 1e-3°C to 0.1°C
+- Added 5 comprehensive unit tests
+
+**Test Results**:
+- 20/20 tests PASS
+- Verified savings calculation with/without baseline calculator
+- Tested threshold behavior and edge cases
+
+**Validation Status**: ⏳ Monitoring phase (combined with Phases 1 & 2)
+
+---
+
+### Original Plan Details
 
 ### Why This Third?
 - High user visibility (fixes "negative savings" perception)

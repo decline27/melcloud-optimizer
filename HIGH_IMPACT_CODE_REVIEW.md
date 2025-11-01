@@ -29,6 +29,57 @@ Found **8 major bugs** and **7 high-impact optimization opportunities** that col
 **Complexity**: Medium  
 **Files**: `src/services/optimizer.ts:2671-2795`
 
+---
+
+## ✅ FIX COMPLETED: Issue #1 - Savings Accounting on No-Change Hours
+
+**Status**: FIXED ✓  
+**Date**: 2025-11-01  
+**Commit**: e3f2e8f  
+**Branch**: fix-optimizer-high-impact
+
+### Implementation Summary
+Simplified zone1 savings calculation to always use comfort band max as baseline, removing dependency on optional/fragile baseline calculator. Changed threshold from 1e-3°C (floating-point noise) to 0.1°C (meaningful temperature difference).
+
+### Changes Made
+1. **optimizer.ts** (lines 2791-2815):
+   - Removed: Optional baseline calculator dependency
+   - Simplified: Direct use of `constraintsBand.maxTemp` as baseline
+   - Fixed: Changed threshold from 1e-3°C to 0.1°C
+   - Removed: Unnecessary baseline clamping logic
+   - Added: Comprehensive explanatory comments
+
+2. **test/unit/optimizer.test.ts** (added 5 new tests):
+   - ✓ Calculate savings when holding below comfort max
+   - ✓ No savings when at comfort max
+   - ✓ Handle undefined baseline calculator
+   - ✓ Use 0.1°C threshold correctly
+   - ✓ Calculate zone1 savings without zone2/tank
+
+### Test Results
+- All 20 tests PASS (11 existing + 4 Issue #7 + 5 Issue #1)
+- TypeScript compilation: Clean ✓
+- Full app build: Successful ✓
+
+### Expected Impact
+- **+8-15% increase in reported savings** (accounting correction)
+- Fixes "optimizer not working" false perception
+- No actual behavior change (was already saving energy)
+- Removes fragile dependency on thermal model confidence
+
+### Validation Plan
+Watch for:
+- ✓ Non-zero savings values during "no_change" actions in logs
+- ✓ Total daily savings increase by ~10-15%
+- ✓ No change in temperature behavior
+- ✓ Comfort violations remain at same low level
+
+**Next Phase**: Issue #3 (Confidence persistence) or Issue #6 (Thermal inertia)
+
+---
+
+### Original Problem Details
+
 #### Problem
 When deadband, lockout, or duplicate target prevents a setpoint change, zone1 savings are **only credited if a baseline calculation succeeds** (line 2756). This path frequently fails silently because:
 - Baseline calculator is optional (`enhancedSavingsCalculator?.hasBaselineCapability()`)
