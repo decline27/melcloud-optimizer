@@ -108,6 +108,28 @@ export function applySetpointConstraints(input: SetpointConstraintsInput): Setpo
     }
   }
 
+  // Issue #2 fix: Check deadband BEFORE rounding to avoid stalemate
+  // where raw delta exceeds threshold but rounded delta doesn't
+  const rawDeltaC = constrained - current;
+  const changedBeforeRounding = Math.abs(rawDeltaC) >= Math.max(deadbandC, 0);
+  
+  if (!changedBeforeRounding) {
+    // Reject early if raw delta is below deadband - don't bother rounding
+    notes.push(`raw delta ${rawDeltaC.toFixed(2)}°C below deadband ${deadbandC}°C`);
+    const reason = notes.length > 0 ? notes.join(', ') : 'within constraints';
+    return {
+      constrainedC: current,
+      deltaC: 0,
+      changed: false,
+      lockoutActive: false,
+      clampApplied,
+      stepApplied: false,
+      rampLimited,
+      reason,
+      evaluatedAtMs
+    };
+  }
+
   const stepped = roundToStep(constrained, stepC);
   const stepApplied = Math.abs(stepped - constrained) > EPS;
   if (stepApplied) {
@@ -115,7 +137,8 @@ export function applySetpointConstraints(input: SetpointConstraintsInput): Setpo
   }
 
   const deltaC = stepped - current;
-  const changed = Math.abs(deltaC) >= Math.max(deadbandC, 0);
+  // Changed flag is already determined above (before rounding)
+  const changed = changedBeforeRounding;
 
   let lockoutActive = false;
   if (changed && typeof lastChangeMs === 'number' && lastChangeMs > 0 && minChangeMinutes > 0) {
