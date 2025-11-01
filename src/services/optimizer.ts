@@ -2514,7 +2514,11 @@ export class Optimizer {
             { thresholds: priceClassification.thresholds }
           );
 
-          const tankDeadband = Math.max(0.2, this.tankTempStep / 2);
+          // Issue #7 fix: Increase tank deadband to equal step size
+          // Old: max(0.2, step/2) = 0.5°C with 1.0°C step → too sensitive, causes oscillation
+          // New: max(0.5, step) = 1.0°C with 1.0°C step → prevents micro-adjustments
+          // Rationale: Tank adjustments should be meaningful (>= step size) to reduce cycling
+          const tankDeadband = Math.max(0.5, this.tankTempStep);
           const tankConstraints = applySetpointConstraints({
             proposedC: tankTarget,
             currentTargetC: currentTankTarget,

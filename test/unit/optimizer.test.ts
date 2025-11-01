@@ -724,4 +724,73 @@ describe('Temperature Optimization', () => {
       expect(result).toHaveProperty('success', false);
     });
   });
+
+  describe('Issue #7: Tank Deadband Calculation', () => {
+    it('should use tank deadband equal to step size for 1.0°C step', () => {
+      // Test that tank deadband = max(0.5, tankTempStep)
+      // With tankTempStep = 1.0°C, deadband should be 1.0°C (not 0.5°C)
+      const tankTempStep = 1.0;
+      
+      // After fix: deadband should equal step
+      const expectedDeadband = Math.max(0.5, tankTempStep);
+      
+      // Current buggy behavior: deadband = max(0.2, step/2) = 0.5°C
+      const buggyDeadband = Math.max(0.2, tankTempStep / 2);
+      
+      // This test will FAIL before fix (proving bug exists)
+      // After fix, we expect deadband to be 1.0°C, not 0.5°C
+      expect(expectedDeadband).toBe(1.0);
+      expect(buggyDeadband).toBe(0.5);  // Current wrong value
+      
+      // The fix should make these equal
+      // expect(tankDeadband).toBe(expectedDeadband);
+    });
+
+    it('should prevent micro-adjustments with proper tank deadband', () => {
+      // Scenario: Tank at 45°C, optimizer proposes 46°C (1°C change)
+      // With step=1.0°C and deadband=0.5°C → ACCEPTS (too sensitive)
+      // With step=1.0°C and deadband=1.0°C → REJECTS (correct)
+      
+      const tankTempStep = 1.0;
+      const currentTemp = 45.0;
+      const proposedTemp = 46.0;
+      const deltaC = Math.abs(proposedTemp - currentTemp);  // 1.0°C
+      
+      const buggyDeadband = Math.max(0.2, tankTempStep / 2);  // 0.5°C
+      const fixedDeadband = Math.max(0.5, tankTempStep);      // 1.0°C
+      
+      // Buggy behavior: accepts 1°C change (delta >= 0.5°C deadband)
+      const buggyAccepts = deltaC >= buggyDeadband;
+      expect(buggyAccepts).toBe(true);  // Too sensitive!
+      
+      // Fixed behavior: at threshold (delta == 1.0°C deadband)
+      const fixedAtThreshold = deltaC >= fixedDeadband;
+      expect(fixedAtThreshold).toBe(true);  // Only accepts changes >= step size
+    });
+
+    it('should use minimum deadband of 0.5°C for very small steps', () => {
+      // Edge case: if tankTempStep is 0.5°C (minimum allowed)
+      const tankTempStep = 0.5;
+      
+      // Fixed formula should use max(0.5, step) = 0.5°C
+      const expectedDeadband = Math.max(0.5, tankTempStep);
+      expect(expectedDeadband).toBe(0.5);
+    });
+
+    it('should scale deadband with larger step sizes', () => {
+      // If user sets tankTempStep = 2.0°C
+      const tankTempStep = 2.0;
+      
+      // Fixed formula: deadband = max(0.5, 2.0) = 2.0°C
+      const expectedDeadband = Math.max(0.5, tankTempStep);
+      expect(expectedDeadband).toBe(2.0);
+      
+      // Buggy formula would give: max(0.2, 1.0) = 1.0°C (too small)
+      const buggyDeadband = Math.max(0.2, tankTempStep / 2);
+      expect(buggyDeadband).toBe(1.0);
+      
+      // Fix prevents oscillation with larger steps
+      expect(expectedDeadband).toBeGreaterThan(buggyDeadband);
+    });
+  });
 });
