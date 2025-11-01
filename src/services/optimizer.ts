@@ -207,7 +207,7 @@ export class Optimizer {
   private enableTankControl: boolean = false;
   private minTankTemp: number = 40;
   private maxTankTemp: number = 50;
-  private tankTempStep: number = 1.0;
+  private tankTempStep: number = 0.5;
   private thermalModelService: ThermalModelService | null = null;
   private useThermalLearning: boolean = false;
   private copHelper: COPHelper | null = null;
@@ -2810,24 +2810,33 @@ export class Optimizer {
         } catch (baselineErr) {
           this.logger.warn('Failed to estimate baseline savings during hold', baselineErr as Error);
         }
+        // Issue #2 fix: Calculate baseline savings for zone2 and tank when holding below max
         try {
-          if (zone2Result && typeof zone2Result.fromTemp === 'number' && typeof zone2Result.toTemp === 'number') {
-            savingsNumericNoChange += await this.calculateRealHourlySavings(
-              zone2Result.fromTemp,
-              zone2Result.toTemp,
-              currentPrice,
-              optimizationResult.metrics,
-              'zone2'
-            );
+          if (zone2Result && this.enableZone2) {
+            const zone2CurrentTarget = zone2Result.toTemp; // Held setpoint
+            const zone2BaselineTarget = this.maxTempZone2;
+            if (zone2BaselineTarget > zone2CurrentTarget + 0.1) {
+              savingsNumericNoChange += await this.calculateRealHourlySavings(
+                zone2BaselineTarget,
+                zone2CurrentTarget,
+                currentPrice,
+                optimizationResult.metrics,
+                'zone2'
+              );
+            }
           }
-          if (tankResult && typeof tankResult.fromTemp === 'number' && typeof tankResult.toTemp === 'number') {
-            savingsNumericNoChange += await this.calculateRealHourlySavings(
-              tankResult.fromTemp,
-              tankResult.toTemp,
-              currentPrice,
-              optimizationResult.metrics,
-              'tank'
-            );
+          if (tankResult && this.enableTankControl) {
+            const tankCurrentTarget = tankResult.toTemp;
+            const tankBaselineTarget = this.maxTankTemp;
+            if (tankBaselineTarget > tankCurrentTarget + 0.5) {
+              savingsNumericNoChange += await this.calculateRealHourlySavings(
+                tankBaselineTarget,
+                tankCurrentTarget,
+                currentPrice,
+                optimizationResult.metrics,
+                'tank'
+              );
+            }
           }
         } catch (savingsErr) {
           this.logger.warn('Failed to calculate secondary savings contributions (no change path)', savingsErr as Error);
