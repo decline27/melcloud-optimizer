@@ -483,6 +483,54 @@ return Math.min(avgTempChange * blendedMultiplier, Math.max(0.1, thermalMassMult
 **Complexity**: Small  
 **Files**: `src/services/optimizer.ts:2486, 211`
 
+---
+
+## ✅ FIX COMPLETED: Issue #7 - Hot Water Tank Deadband
+
+**Status**: FIXED ✓  
+**Date**: 2025-11-01  
+**Commit**: 6206f4e  
+**Branch**: fix-optimizer-high-impact
+
+### Implementation Summary
+Changed tank deadband from `max(0.2, step/2)` to `max(0.5, step)` in `src/services/optimizer.ts` line 2517. This increases the deadband from 0.5°C to 1.0°C (with standard 1.0°C step), preventing micro-adjustments that caused excessive cycling.
+
+### Changes Made
+1. **optimizer.ts** (line 2517):
+   - Old: `const tankDeadband = Math.max(0.2, this.tankTempStep / 2);`
+   - New: `const tankDeadband = Math.max(0.5, this.tankTempStep);`
+   - Added explanatory comment about rationale
+
+2. **test/unit/optimizer.test.ts** (added 4 new tests):
+   - ✓ Standard case (1.0°C step → 1.0°C deadband)
+   - ✓ Micro-adjustment prevention
+   - ✓ Minimum deadband enforcement (0.5°C floor)
+   - ✓ Scaling with larger steps (2.0°C → 2.0°C)
+
+### Test Results
+- All 15 tests PASS (11 existing + 4 new)
+- TypeScript compilation: Clean ✓
+- Full app build: Successful ✓
+
+### Expected Impact
+- **30-50% reduction** in tank setpoint changes
+- Reduced thermal stress and compressor wear
+- +2-4% savings from avoiding partial reheat cycles
+- Extended equipment longevity
+
+### Validation Plan
+Watch for:
+- ✓ Fewer tank temperature changes in logs (~50% reduction)
+- ✓ Tank still responds to major price shifts (VERY_CHEAP/VERY_EXPENSIVE)
+- ✓ No hot water availability issues
+- ✓ Temperature stays within configured tank range
+
+**Next Phase**: Issue #1 (Savings undercounting) - highest impact fix
+
+---
+
+### Original Problem Details
+
 #### Problem
 - Tank step = 1.0°C (line 211 default)
 - Tank deadband = `Math.max(0.2, tankTempStep / 2)` = 0.5°C (line 2486)

@@ -261,7 +261,29 @@ git commit -m "fix: resolve deadband + step rounding stalemate (Issue #2)
 **Priority**: Second (small, independent change)  
 **Risk**: Low  
 **Estimated Time**: 1-2 hours including testing  
-**Status**: ⏳ Pending
+**Status**: ✅ **COMPLETED** (2025-11-01)
+
+### ✅ Completion Summary
+**Commit**: `6206f4e`  
+**Branch**: `fix-optimizer-high-impact`  
+**Implementation Time**: ~1 hour
+
+**Changes Made**:
+- Modified `src/services/optimizer.ts` line 2517
+- Changed formula from `max(0.2, step/2)` to `max(0.5, step)`
+- Added 4 comprehensive unit tests in `test/unit/optimizer.test.ts`
+- All tests PASS ✓
+- TypeScript builds cleanly ✓
+
+**Test Results**:
+- 15/15 tests PASS (11 existing + 4 new Issue #7 tests)
+- Verified deadband scaling with different step sizes
+
+**Validation Status**: ⏳ Monitoring phase (combined with Phase 1)
+
+---
+
+### Original Plan Details
 
 ### Why This Second?
 - Simple constant change
