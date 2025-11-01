@@ -2851,6 +2851,15 @@ const apiHandlers: ApiHandlers = {
         last7: number | null;
         projection: number | null;
         seasonMode: string | null;
+        history: Array<{
+          date: string;
+          valueMajor: number | null;
+          baselineMajor: number | null;
+          optimizedMajor: number | null;
+          seasonMode: string | null;
+          decimals: number;
+          updatedAt?: string;
+        }>;
       } = {
         currency,
         currencySymbol,
@@ -2858,7 +2867,8 @@ const apiHandlers: ApiHandlers = {
         today: null,
         last7: null,
         projection: null,
-        seasonMode: null
+        seasonMode: null,
+        history: []
       };
 
       if (displaySavingsHistoryRaw && Array.isArray(displaySavingsHistoryRaw)) {
@@ -2873,36 +2883,68 @@ const apiHandlers: ApiHandlers = {
             .slice()
             .sort((a: any, b: any) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
-          const todayEntry = entries.find((entry: any) => entry.date === todayIso);
-          if (todayEntry) {
-            const entryDecimals = todayEntry.decimals ?? decimals;
-            const baselineMinor = Number(todayEntry.baselineMinor);
-            const optimizedMinor = Number(todayEntry.optimizedMinor);
-            if (Number.isFinite(baselineMinor) && Number.isFinite(optimizedMinor)) {
-              const savingsMinor = Math.max(0, baselineMinor - optimizedMinor);
-              smartSavingsDisplay.today = Number(minorToMajor(savingsMinor, entryDecimals).toFixed(entryDecimals));
-            }
-            if (todayEntry.seasonMode && typeof todayEntry.seasonMode === 'string') {
-              smartSavingsDisplay.seasonMode = todayEntry.seasonMode;
-            }
-          }
+          const historyEntries: Array<{
+            date: string;
+            valueMajor: number | null;
+            baselineMajor: number | null;
+            optimizedMajor: number | null;
+            seasonMode: string | null;
+            decimals: number;
+            updatedAt?: string;
+          }> = [];
 
           let last7Total = 0;
           let last7Days = 0;
           for (const entry of entries) {
             if (!entry || !entry.date) continue;
             const entryDate = new Date(`${entry.date}T00:00:00`);
-            if (entryDate < last7Cutoff || entryDate > todayMidnight) continue;
-
             const entryDecimals = entry.decimals ?? decimals;
             const baselineMinor = Number(entry.baselineMinor);
             const optimizedMinor = Number(entry.optimizedMinor);
-            if (!Number.isFinite(baselineMinor) || !Number.isFinite(optimizedMinor)) continue;
+            let baselineMajor: number | null = null;
+            let optimizedMajor: number | null = null;
+            let valueMajor: number | null = null;
 
-            const savingsMinor = Math.max(0, baselineMinor - optimizedMinor);
-            const savingsMajor = minorToMajor(savingsMinor, entryDecimals);
-            last7Total += savingsMajor;
-            last7Days += 1;
+            if (Number.isFinite(baselineMinor) && Number.isFinite(optimizedMinor)) {
+              baselineMajor = Number(minorToMajor(Math.max(0, baselineMinor), entryDecimals).toFixed(entryDecimals));
+              optimizedMajor = Number(minorToMajor(Math.max(0, optimizedMinor), entryDecimals).toFixed(entryDecimals));
+              const savingsMinor = Math.max(0, baselineMinor - optimizedMinor);
+              valueMajor = Number(minorToMajor(savingsMinor, entryDecimals).toFixed(entryDecimals));
+            } else if (typeof entry.valueMajor === 'number') {
+              valueMajor = Number(entry.valueMajor);
+            } else if (typeof entry.value === 'number') {
+              valueMajor = Number(entry.value);
+            }
+
+            if (typeof valueMajor === 'number') {
+              historyEntries.push({
+                date: entry.date,
+                valueMajor,
+                baselineMajor,
+                optimizedMajor,
+                seasonMode: typeof entry.seasonMode === 'string' ? entry.seasonMode : null,
+                decimals: entryDecimals,
+                updatedAt: typeof entry.updatedAt === 'string' ? entry.updatedAt : undefined
+              });
+            }
+
+            if (entryDate < last7Cutoff || entryDate > todayMidnight) continue;
+            if (typeof valueMajor === 'number') {
+              last7Total += valueMajor;
+              last7Days += 1;
+            }
+          }
+
+          smartSavingsDisplay.history = historyEntries;
+
+          const todayHistory = historyEntries.find(entry => entry.date === todayIso);
+          if (todayHistory) {
+            if (typeof todayHistory.valueMajor === 'number') {
+              smartSavingsDisplay.today = todayHistory.valueMajor;
+            }
+            if (todayHistory.seasonMode) {
+              smartSavingsDisplay.seasonMode = todayHistory.seasonMode;
+            }
           }
 
           if (last7Days > 0) {
