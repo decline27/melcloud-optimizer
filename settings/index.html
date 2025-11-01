@@ -425,6 +425,12 @@
                   <span id="smart-savings-projection" style="font-weight: 500; color: #059669;">—</span>
                 </div>
               </div>
+              <div aria-live="polite" style="margin-bottom: 10px;">
+                <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
+                  <span class="metric-label" data-tooltip="Average electricity spot price per hour over the last 7 days (excluding grid fees and taxes). This is the actual wholesale price during the savings period. Shows current market average until 7 days of data is collected." style="font-weight: 600;">Avg spot price (7d):</span>
+                  <span id="smart-savings-avg-price" style="font-weight: 500; color: #0284c7;">—</span>
+                </div>
+              </div>
               <div aria-live="polite" style="margin-bottom: 8px;">
                 <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
                   <span class="metric-label" data-tooltip="Current seasonal profile used to tune comfort vs efficiency." style="font-weight: 600;">Season mode:</span>
@@ -1729,6 +1735,7 @@
           const el7d = document.getElementById('smart-savings-7d');
           const elProj = document.getElementById('smart-savings-projection');
           const elSeason = document.getElementById('smart-savings-season');
+          const elAvgPrice = document.getElementById('smart-savings-avg-price');
           const elNote = document.getElementById('smart-savings-note');
           const svg = document.getElementById('smart-savings-chart');
           const empty = document.getElementById('smart-savings-chart-empty');
@@ -1742,6 +1749,7 @@
           const mode = smart.seasonMode || snapshot?.seasonalMode || null;
           const currencySymbol = smart.currencySymbol || smart.currency || snapshot?.priceData?.currencySymbol || snapshot?.priceData?.currency || 'SEK';
           const decimals = typeof smart.decimals === 'number' ? smart.decimals : 2;
+          const avgPrice = snapshot?.averageSpotPrice ?? null;
 
           if (elToday) {
             elToday.textContent = todayMajor !== null
@@ -1759,6 +1767,26 @@
             elProj.textContent = projectionMajor !== null
               ? `~${fmtMoney(projectionMajor, currencySymbol, decimals)}/month`
               : '—';
+          }
+
+          if (elAvgPrice) {
+            if (avgPrice !== null && Number.isFinite(avgPrice) && avgPrice > 0) {
+              // Format the average price with appropriate decimals (usually 3-4 for spot prices)
+              const priceDecimals = avgPrice < 1 ? 4 : 3;
+              elAvgPrice.textContent = `${avgPrice.toFixed(priceDecimals)} ${currencySymbol}/kWh`;
+            } else {
+              // Show helpful message if no data yet
+              const dataPoints = snapshot?.priceDataPoints ?? 0;
+              if (dataPoints === 0) {
+                elAvgPrice.textContent = 'Collecting data...';
+                elAvgPrice.style.fontStyle = 'italic';
+                elAvgPrice.style.color = '#64748b';
+              } else {
+                elAvgPrice.textContent = '—';
+                elAvgPrice.style.fontStyle = 'normal';
+                elAvgPrice.style.color = '#0284c7';
+              }
+            }
           }
 
           if (elSeason) {

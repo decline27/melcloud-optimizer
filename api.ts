@@ -3067,9 +3067,130 @@ const apiHandlers: ApiHandlers = {
         currency: currency
       };
 
+      // Calculate average price from last 7 days of historical optimization data
+      let averageSpotPrice: number | null = null;
+      let priceDataPoints = 0;
+      try {
+        homey.app.log('[getModelConfidence] Starting average price calculation...');
+        // Read from the correct storage key used by the optimizer
+        const optimizerData = homey.settings.get('optimizer_historical_data');
+        const historicalData = optimizerData?.optimizations || null;
+        homey.app.log(`[getModelConfidence] Optimizer data exists: ${!!optimizerData}, optimizations array: ${Array.isArray(historicalData)}, length: ${Array.isArray(historicalData) ? historicalData.length : 'N/A'}`);
+        
+        // Log a sample of historical data entries for debugging
+        if (historicalData && Array.isArray(historicalData) && historicalData.length > 0) {
+          homey.app.log(`[getModelConfidence] Sample historical entries (first 3):`);
+          historicalData.slice(0, 3).forEach((entry: any, idx: number) => {
+            homey.app.log(`[getModelConfidence]   [${idx}] timestamp: ${entry?.timestamp || 'missing'}, priceNow: ${entry?.priceNow || 'missing'}, targetTemp: ${entry?.targetTemp || 'N/A'}`);
+          });
+          if (historicalData.length > 3) {
+            homey.app.log(`[getModelConfidence]   ... and ${historicalData.length - 3} more entries`);
+          }
+        }
+        
+        let needsFallback = false;
+        
+        if (historicalData && Array.isArray(historicalData) && historicalData.length > 0) {
+          const now = new Date();
+          const last7Days = new Date(now);
+          last7Days.setDate(now.getDate() - 7);
+          
+          homey.app.log(`[getModelConfidence] Date range: ${last7Days.toISOString()} to ${now.toISOString()}`);
+          
+          // Filter to last 7 days and extract valid prices
+          const recentEntries = historicalData.filter((entry: any) => {
+            if (!entry || !entry.timestamp) return false;
+            const entryDate = new Date(entry.timestamp);
+            return entryDate >= last7Days && entryDate <= now;
+          });
+          
+          homey.app.log(`[getModelConfidence] Recent entries in last 7 days: ${recentEntries.length}`);
+          
+          const recentPrices = recentEntries
+            .map((entry: any) => {
+              const price = Number(entry.priceNow);
+              if (!Number.isFinite(price) || price <= 0) {
+                homey.app.log(`[getModelConfidence] Invalid price in entry: ${JSON.stringify(entry).substring(0, 200)}`);
+              }
+              return price;
+            })
+            .filter((price: number) => Number.isFinite(price) && price > 0);
+          
+          priceDataPoints = recentPrices.length;
+          
+          homey.app.log(`[getModelConfidence] Valid price data points: ${priceDataPoints}`);
+          if (recentPrices.length > 0 && recentPrices.length <= 10) {
+            homey.app.log(`[getModelConfidence] Sample prices: ${recentPrices.slice(0, 5).map(p => p.toFixed(4)).join(', ')}`);
+          }
+          
+          if (recentPrices.length > 0) {
+            const sum = recentPrices.reduce((acc: number, price: number) => acc + price, 0);
+            averageSpotPrice = sum / recentPrices.length;
+            homey.app.log(`[getModelConfidence] ✅ Calculated 7-day average spot price: ${averageSpotPrice.toFixed(4)} ${currency}/kWh from ${priceDataPoints} data points`);
+          } else {
+            homey.app.log('[getModelConfidence] ⚠️ No valid price data in last 7 days, will try fallback');
+            needsFallback = true;
+          }
+        } else {
+          homey.app.log('[getModelConfidence] ❌ No historical data available, will try fallback');
+          needsFallback = true;
+        }
+        
+        // Try fallback if no historical data was usable
+        if (needsFallback) {
+          homey.app.log('[getModelConfidence] Attempting fallback to current prices...');
+          try {
+            const serviceState = getServiceState();
+            homey.app.log(`[getModelConfidence] Service state exists: ${!!serviceState}, tibber exists: ${!!serviceState?.tibber}`);
+            const priceProvider = serviceState?.tibber;
+            
+            if (priceProvider) {
+              homey.app.log('[getModelConfidence] Fetching current prices from provider...');
+              const priceInfo = await priceProvider.getPrices();
+              homey.app.log(`[getModelConfidence] Price info received, prices array length: ${Array.isArray(priceInfo?.prices) ? priceInfo.prices.length : 'N/A'}`);
+              
+              if (priceInfo && Array.isArray(priceInfo.prices) && priceInfo.prices.length > 0) {
+                const validPrices = priceInfo.prices
+                  .map((p: any) => Number(p.price))
+                  .filter((price: number) => Number.isFinite(price) && price > 0);
+                
+                homey.app.log(`[getModelConfidence] Valid current prices: ${validPrices.length}`);
+                
+                if (validPrices.length > 0) {
+                  const sum = validPrices.reduce((acc: number, price: number) => acc + price, 0);
+                  averageSpotPrice = sum / validPrices.length;
+                  priceDataPoints = validPrices.length;
+                  homey.app.log(`[getModelConfidence] ✅ Fallback successful: ${averageSpotPrice.toFixed(4)} ${currency}/kWh from ${priceDataPoints} current/future prices`);
+                } else {
+                  homey.app.log('[getModelConfidence] ❌ No valid prices in current data');
+                }
+              } else {
+                homey.app.log('[getModelConfidence] ❌ Price info empty or invalid');
+              }
+            } else {
+              homey.app.log('[getModelConfidence] ❌ No price provider available');
+            }
+          } catch (fallbackErr) {
+            homey.app.error('[getModelConfidence] ❌ Fallback price fetch failed:', fallbackErr);
+          }
+        }
+      } catch (priceErr) {
+        homey.app.error('[getModelConfidence] ❌ Error calculating average price:', priceErr);
+        // Continue without average price data - graceful degradation
+      }
+
       if (!smartSavingsDisplay.seasonMode) {
         smartSavingsDisplay.seasonMode = seasonalMode;
       }
+
+      homey.app.log(`[getModelConfidence] 📊 Final result summary:`);
+      homey.app.log(`[getModelConfidence]   - Currency: ${currency} (${currencySymbol})`);
+      homey.app.log(`[getModelConfidence]   - Average spot price: ${averageSpotPrice !== null ? averageSpotPrice.toFixed(4) : 'null'} ${currency}/kWh`);
+      homey.app.log(`[getModelConfidence]   - Price data points: ${priceDataPoints}`);
+      homey.app.log(`[getModelConfidence]   - Today's savings: ${smartSavingsDisplay.today !== null ? smartSavingsDisplay.today.toFixed(2) : 'null'}`);
+      homey.app.log(`[getModelConfidence]   - Last 7 days savings: ${smartSavingsDisplay.last7 !== null ? smartSavingsDisplay.last7.toFixed(2) : 'null'}`);
+      homey.app.log(`[getModelConfidence]   - Seasonal mode: ${smartSavingsDisplay.seasonMode || 'null'}`);
+      homey.app.log(`[getModelConfidence]   - Thermal confidence: ${thermalModel.confidence !== null ? (thermalModel.confidence * 100).toFixed(0) + '%' : 'null'}`);
 
       return {
         success: true,
@@ -3082,7 +3203,9 @@ const apiHandlers: ApiHandlers = {
         enhancedSavings,
         seasonalMode,
         priceData,
-        smartSavingsDisplay
+        smartSavingsDisplay,
+        averageSpotPrice,
+        priceDataPoints // Include for debugging/transparency
       };
     } catch (err: any) {
       console.error('Error in getModelConfidence:', err);
