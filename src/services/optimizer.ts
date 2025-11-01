@@ -2787,21 +2787,20 @@ export class Optimizer {
           reason: failureOrHoldReason
         });
 
+        // Issue #1 fix: Always calculate zone1 savings when holding below comfort max
+        // Old logic: relied on optional baseline calculator, often returned undefined
+        // New logic: Use comfort band maxTemp as consistent baseline
+        // Rationale: If optimizer holds at lower temp, that's energy/cost savings vs "dumb thermostat"
         let savingsNumericNoChange = 0;
         try {
-          const baselineSetpointRaw = this.enhancedSavingsCalculator?.hasBaselineCapability()
-            ? this.enhancedSavingsCalculator.getDefaultBaselineConfig()?.heatingSetpoint
-            : undefined;
-          const baselineSetpoint = Number.isFinite(baselineSetpointRaw)
-            ? (baselineSetpointRaw as number)
-            : constraintsBand.maxTemp;
-          const clampedBaseline = Math.min(
-            constraintsBand.maxTemp,
-            Math.max(constraintsBand.minTemp, baselineSetpoint)
-          );
-          if (clampedBaseline > safeCurrentTarget + 1e-3) {
+          // Use comfort band max as baseline (what a non-optimizing thermostat would target)
+          const baselineSetpoint = constraintsBand.maxTemp;
+          
+          // Credit savings if holding at least 0.1°C below baseline (meaningful difference)
+          // Changed from 1e-3 (0.001°C) to avoid floating-point sensitivity
+          if (baselineSetpoint > safeCurrentTarget + 0.1) {
             savingsNumericNoChange += await this.calculateRealHourlySavings(
-              clampedBaseline,
+              baselineSetpoint,
               safeCurrentTarget,
               currentPrice,
               optimizationResult.metrics,

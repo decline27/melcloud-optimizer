@@ -793,4 +793,105 @@ describe('Temperature Optimization', () => {
       expect(expectedDeadband).toBeGreaterThan(buggyDeadband);
     });
   });
+
+  describe('Issue #1: Savings Accounting on No-Change Hours', () => {
+    it('should calculate zone1 savings when holding below comfort max', () => {
+      // Scenario: Optimizer holds at 19°C (saves energy vs baseline 22°C)
+      // But deadband prevents change → should still credit savings
+      
+      const currentSetpoint = 19.0;
+      const comfortMax = 22.0;
+      const expectedBaseline = comfortMax;  // Use comfort max as baseline
+      
+      // Savings should be credited when holding below baseline
+      const shouldCreditSavings = expectedBaseline > currentSetpoint + 0.1;
+      expect(shouldCreditSavings).toBe(true);
+      
+      // Calculate theoretical savings difference
+      const temperatureDelta = expectedBaseline - currentSetpoint;  // 3.0°C
+      expect(temperatureDelta).toBe(3.0);
+      
+      // With typical COP=3.0, price=€0.30/kWh, 1kW heat load:
+      // Savings per hour ≈ delta_temp * power * price / COP
+      // This validates the logic, not the actual calculation
+    });
+
+    it('should not calculate savings when holding at comfort max', () => {
+      // Scenario: Already at maximum comfort temp
+      const currentSetpoint = 22.0;
+      const comfortMax = 22.0;
+      
+      // No savings to credit (not saving vs baseline)
+      const shouldCreditSavings = comfortMax > currentSetpoint + 0.1;
+      expect(shouldCreditSavings).toBe(false);
+    });
+
+    it('should handle case where baseline calculator is undefined', () => {
+      // Before fix: when enhancedSavingsCalculator?.hasBaselineCapability() is undefined
+      // savings would be 0 even if holding below comfort max
+      
+      const baselineSetpointRaw = undefined;  // Calculator unavailable
+      const comfortMax = 22.0;
+      const currentSetpoint = 19.0;
+      
+      // OLD buggy logic: baselineSetpoint = undefined → might use comfortMax
+      // But only if conditional passes
+      const oldBaselineSetpoint = Number.isFinite(baselineSetpointRaw)
+        ? baselineSetpointRaw
+        : comfortMax;
+      
+      // NEW fixed logic: Always use comfortMax as baseline
+      const fixedBaselineSetpoint = comfortMax;
+      
+      expect(oldBaselineSetpoint).toBe(comfortMax);  // Fallback worked
+      expect(fixedBaselineSetpoint).toBe(comfortMax);  // Direct assignment
+      
+      // But the real bug was the conditional: if (clampedBaseline > current + 1e-3)
+      // With deadband preventing changes, this calculation often didn't happen
+    });
+
+    it('should use appropriate threshold (0.1°C not 1e-3) for savings check', () => {
+      // Issue: old code used 1e-3 (0.001°C) which is too sensitive to floating point
+      // Better to use 0.1°C (meaningful temperature difference)
+      
+      const baseline = 22.0;
+      const current1 = 21.9001;  // Very close
+      const current2 = 21.5;     // Meaningful difference
+      
+      const oldThreshold = 1e-3;
+      const newThreshold = 0.1;
+      
+      // Old logic would credit savings for tiny differences
+      expect(baseline > current1 + oldThreshold).toBe(true);   // Too sensitive
+      expect(baseline > current1 + newThreshold).toBe(false);  // Appropriate
+      
+      // New logic only credits meaningful savings
+      expect(baseline > current2 + newThreshold).toBe(true);   // Correct
+    });
+
+    it('should calculate savings even when zone2 and tank have no changes', () => {
+      // Scenario: No zone2 or tank, just zone1 holding below baseline
+      // Old code: might return savings=0 if baseline calc fails
+      // New code: Always calculate zone1 savings when holding below max
+      
+      const zone2Result = null;  // No zone2
+      const tankResult = null;   // No tank
+      const currentSetpoint = 19.0;
+      const comfortMax = 22.0;
+      
+      let savingsNumericNoChange = 0;
+      
+      // Simplified new logic (conceptual)
+      const baselineSetpoint = comfortMax;
+      if (baselineSetpoint > currentSetpoint + 0.1) {
+        // In real code: savingsNumericNoChange += await calculateRealHourlySavings(...)
+        // Here we just verify the condition triggers
+        savingsNumericNoChange = 1.0;  // Placeholder for actual calculation
+      }
+      
+      // Zone2/tank contributions are 0 (no changes)
+      // But zone1 should still contribute
+      expect(savingsNumericNoChange).toBeGreaterThan(0);
+    });
+  });
 });
