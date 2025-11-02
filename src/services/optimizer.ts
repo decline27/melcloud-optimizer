@@ -22,6 +22,7 @@ import { AdaptiveParametersLearner } from './adaptive-parameters';
 import { classifyPriceUnified, resolvePriceThresholds } from './price-classifier';
 
 const DEFAULT_HOT_WATER_PEAK_HOURS = [6, 7, 8]; // Morning fallback window when usage data is flat
+const MIN_SAVINGS_FOR_LEARNING = 0.05; // Minimum savings (SEK-equivalent) to trigger learning on no-change path
 
 /**
  * Real energy data from MELCloud API
@@ -2841,6 +2842,19 @@ export class Optimizer {
         } catch (savingsErr) {
           this.logger.warn('Failed to calculate secondary savings contributions (no change path)', savingsErr as Error);
         }
+
+        // Learn from no-change outcome (adaptive parameter learning)
+        // Only learn if savings are meaningful and not during lockout
+        if (
+          Number.isFinite(savingsNumericNoChange) &&
+          savingsNumericNoChange >= MIN_SAVINGS_FOR_LEARNING &&
+          !lockoutActive
+        ) {
+          const currentCOP = optimizationResult?.metrics?.realHeatingCOP ?? optimizationResult?.metrics?.realHotWaterCOP ?? null;
+          this.learnFromOptimizationOutcome(savingsNumericNoChange, 0, currentCOP ?? undefined);
+          this.logger.log(`Learned from hold: savings=${savingsNumericNoChange.toFixed(3)}, COP=${currentCOP?.toFixed(2) ?? 'N/A'}`);
+        }
+
         updateThermalResponseIfPossible();
         return {
           success: true,

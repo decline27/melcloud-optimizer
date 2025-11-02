@@ -114,11 +114,11 @@ module.exports = class BoilerDriver extends Homey.Driver {
         userTimezone // Use user's timezone from settings
       );
 
-      // Weekly calibration (every Sunday at 2 AM)
+      // Daily calibration (every day at 00:05)
       this.weeklyJob = new CronJob(
-        '0 2 * * 0', // Every Sunday at 2 AM
+        '5 0 * * *', // Every day at 00:05
         async () => {
-          this.logger.log('⏰ Weekly calibration triggered by cron job');
+          this.logger.log('⏰ Daily calibration triggered by cron job');
           await this.runWeeklyCalibration();
         },
         null,

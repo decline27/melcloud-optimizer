@@ -1786,12 +1786,12 @@ const apiHandlers: ApiHandlers = {
           }
         }, null, false, cronTimeZone);
 
-        // Create weekly job - runs at 2:05 AM on Sundays
-        homey.app.log(`Creating weekly cron job with pattern: 0 5 2 * * 0 (tz: ${cronTimeZone})`);
-        const weeklyJob = new CronJob('0 5 2 * * 0', async () => {
+        // Create daily job - runs at 00:05 every day
+        homey.app.log(`Creating daily calibration cron job with pattern: 5 0 * * * (tz: ${cronTimeZone})`);
+        const weeklyJob = new CronJob('5 0 * * *', async () => {
           // Log the trigger
           const currentTime = new Date().toISOString();
-          homey.app.log('===== AUTOMATIC WEEKLY CRON JOB TRIGGERED =====');
+          homey.app.log('===== AUTOMATIC DAILY CALIBRATION CRON JOB TRIGGERED =====');
           homey.app.log(`Current time: ${currentTime}`);
 
           // Store the last run time in settings
@@ -1803,7 +1803,7 @@ const apiHandlers: ApiHandlers = {
           try {
             await apiHandlers.getRunWeeklyCalibration({ homey });
           } catch (err: any) {
-            homey.app.error('Error in weekly cron job', err);
+            homey.app.error('Error in daily calibration cron job', err);
           }
         }, null, false, cronTimeZone);
 
@@ -1812,9 +1812,9 @@ const apiHandlers: ApiHandlers = {
         hourlyJob.start();
         homey.app.log('Hourly cron job started');
 
-        homey.app.log('Starting weekly cron job...');
+        homey.app.log('Starting daily calibration cron job...');
         weeklyJob.start();
-        homey.app.log('Weekly cron job started');
+        homey.app.log('Daily calibration cron job started');
 
         // Store the jobs in settings for future reference
         homey.settings.set('cron_status', {

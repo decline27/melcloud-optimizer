@@ -406,4 +406,41 @@ describe('Optimizer Enhanced Tests', () => {
       expect(result).toHaveProperty('method', 'basic');
     });
   });
+
+  describe('Learning from no-change outcomes', () => {
+    it('should call learnFromOptimizationOutcome on no-change path with valid savings', () => {
+      // Set up adaptive parameters learner mock
+      const mockLearner = {
+        learnFromOutcome: jest.fn()
+      };
+      (optimizer as any).adaptiveParametersLearner = mockLearner;
+
+      // Spy on learnFromOptimizationOutcome
+      const learnSpy = jest.spyOn(optimizer, 'learnFromOptimizationOutcome');
+
+      // Call the public method directly
+      optimizer.learnFromOptimizationOutcome(0.10, 0, 3.5);
+
+      // Should have called the underlying learner
+      expect(learnSpy).toHaveBeenCalledWith(0.10, 0, 3.5);
+      expect(mockLearner.learnFromOutcome).toHaveBeenCalled();
+      
+      learnSpy.mockRestore();
+    });
+
+    it('should not learn when adaptive learner is not initialized', () => {
+      // Clear the adaptive parameters learner
+      (optimizer as any).adaptiveParametersLearner = null;
+
+      // Spy on internal logger to verify no errors
+      const logSpy = jest.spyOn(mockLogger, 'log');
+
+      // Call the public method
+      optimizer.learnFromOptimizationOutcome(0.10, 0, 3.5);
+
+      // Should return early without error
+      expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('error'));
+    });
+  });
 });
+
