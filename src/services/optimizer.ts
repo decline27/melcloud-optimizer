@@ -366,6 +366,24 @@ export class Optimizer {
 
         this.logger.log(`Hot water tank settings loaded - Enabled: ${this.enableTankControl}, Min: ${this.minTankTemp}°C, Max: ${this.maxTankTemp}°C, Step: ${this.tankTempStep}°C`);
 
+        // Load COP guards state from settings
+        const copGuards = homey.settings.get('cop_guards_v1');
+        if (copGuards && typeof copGuards === 'object') {
+          if (Array.isArray(copGuards.history)) {
+            this.copRange.history = copGuards.history.slice(-100); // Ensure max 100
+          }
+          if (typeof copGuards.minObserved === 'number') {
+            this.copRange.minObserved = copGuards.minObserved;
+          }
+          if (typeof copGuards.maxObserved === 'number') {
+            this.copRange.maxObserved = copGuards.maxObserved;
+          }
+          if (typeof copGuards.updateCount === 'number') {
+            this.copRange.updateCount = copGuards.updateCount;
+          }
+          this.logger.log(`COP guards restored - Range: ${this.copRange.minObserved.toFixed(2)}-${this.copRange.maxObserved.toFixed(2)}, ${this.copRange.history.length} samples`);
+        }
+
         // Load home/away state
         const occupiedSetting = homey.settings.get('occupied');
         this.occupied = occupiedSetting !== false; // Default to true if not set
@@ -635,33 +653,65 @@ export class Optimizer {
   }
 
   /**
-   * COP range tracking for adaptive normalization
+   * COP range tracking for adaptive normalization with outlier guards
    */
-  private copRange: { minObserved: number; maxObserved: number; updateCount: number } = {
+  private copRange: { 
+    minObserved: number; 
+    maxObserved: number; 
+    updateCount: number;
+    history: number[];
+  } = {
     minObserved: 1,
     maxObserved: 5,
-    updateCount: 0
+    updateCount: 0,
+    history: []
   };
 
   /**
-   * Update COP range based on observed values
+   * Update COP range based on observed values with outlier filtering
    * @param cop Observed COP value
    */
   private updateCOPRange(cop: number): void {
-    if (cop > 0) {
-      this.copRange.minObserved = Math.min(this.copRange.minObserved, cop);
-      this.copRange.maxObserved = Math.max(this.copRange.maxObserved, cop);
-      this.copRange.updateCount++;
-      
-      // Log range updates periodically
-      if (this.copRange.updateCount % 50 === 0) {
-        this.logger.log(`COP range updated after ${this.copRange.updateCount} observations: ${this.copRange.minObserved.toFixed(2)} - ${this.copRange.maxObserved.toFixed(2)}`);
-      }
+    // Guard: reject non-finite, out-of-bounds values
+    if (!Number.isFinite(cop) || cop < 0.5 || cop > 6.0) {
+      this.logger.warn(`COP outlier rejected: ${cop} (valid range: 0.5-6.0)`);
+      return;
+    }
+
+    // Add to rolling history (max 100 entries)
+    this.copRange.history.push(cop);
+    if (this.copRange.history.length > 100) {
+      this.copRange.history.shift();
+    }
+    this.copRange.updateCount++;
+
+    // Recompute min/max using 5th and 95th percentile
+    if (this.copRange.history.length >= 5) {
+      const sorted = [...this.copRange.history].sort((a, b) => a - b);
+      const p5Index = Math.floor(sorted.length * 0.05);
+      const p95Index = Math.floor(sorted.length * 0.95);
+      this.copRange.minObserved = sorted[p5Index];
+      this.copRange.maxObserved = sorted[p95Index];
+    }
+
+    // Persist to settings
+    if (this.homey) {
+      this.homey.settings.set('cop_guards_v1', {
+        minObserved: this.copRange.minObserved,
+        maxObserved: this.copRange.maxObserved,
+        updateCount: this.copRange.updateCount,
+        history: this.copRange.history
+      });
+    }
+
+    // Log range updates periodically
+    if (this.copRange.updateCount % 50 === 0) {
+      this.logger.log(`COP range updated after ${this.copRange.updateCount} observations: ${this.copRange.minObserved.toFixed(2)} - ${this.copRange.maxObserved.toFixed(2)} (${this.copRange.history.length} samples)`);
     }
   }
 
   /**
-   * Normalize COP value using adaptive range
+   * Normalize COP value using adaptive range with clamping
    * @param cop COP value to normalize
    * @returns Normalized COP (0-1)
    */
@@ -669,8 +719,10 @@ export class Optimizer {
     const range = this.copRange.maxObserved - this.copRange.minObserved;
     if (range <= 0) return 0.5; // Default if no range established
     
+    // Clamp input COP to learned range, then normalize to 0-1
+    const clampedCOP = Math.min(Math.max(cop, this.copRange.minObserved), this.copRange.maxObserved);
     return Math.min(Math.max(
-      (cop - this.copRange.minObserved) / range, 0
+      (clampedCOP - this.copRange.minObserved) / range, 0
     ), 1);
   }
 
