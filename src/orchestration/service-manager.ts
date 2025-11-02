@@ -6,6 +6,9 @@ import { Optimizer } from '../services/optimizer';
 import { COPHelper } from '../services/cop-helper';
 import type { PriceProvider } from '../types';
 import { DefaultComfortConfig } from '../config/comfort-defaults';
+import { IHeatpumpProvider } from '../providers/types';
+import { MELCloudProvider } from '../providers/melcloud-provider';
+import { TimeZoneHelper } from '../util/time-zone-helper';
 
 export interface HomeyLikeSettings {
   get(key: string): any;
@@ -31,6 +34,7 @@ export interface HistoricalData {
 
 export interface ServiceState {
   melCloud: MelCloudApi | null;
+  heatpumpProvider: IHeatpumpProvider | null;
   tibber: PriceProvider | null;
   optimizer: Optimizer | null;
   weather: WeatherApi | null;
@@ -92,6 +96,7 @@ function selectPriceProvider(
 
 const serviceState: ServiceState = {
   melCloud: null,
+  heatpumpProvider: null,
   tibber: null,
   optimizer: null,
   weather: null,
@@ -104,6 +109,7 @@ export function getServiceState(): ServiceState {
 
 export function resetServiceState(): void {
   serviceState.melCloud = null;
+  serviceState.heatpumpProvider = null;
   serviceState.tibber = null;
   serviceState.optimizer = null;
   serviceState.weather = null;
@@ -116,6 +122,9 @@ export function applyServiceOverrides(overrides: Partial<ServiceState>): void {
   if (Object.prototype.hasOwnProperty.call(overrides, 'melCloud')) {
     serviceState.melCloud = overrides.melCloud ?? null;
     (global as any).melCloud = serviceState.melCloud;
+  }
+  if (Object.prototype.hasOwnProperty.call(overrides, 'heatpumpProvider')) {
+    serviceState.heatpumpProvider = overrides.heatpumpProvider ?? null;
   }
   if (Object.prototype.hasOwnProperty.call(overrides, 'tibber')) {
     serviceState.tibber = overrides.tibber ?? null;
@@ -140,6 +149,7 @@ export function setHistoricalData(data: HistoricalData): void {
 export function getServiceStateSnapshot(): ServiceState {
   return {
     melCloud: serviceState.melCloud,
+    heatpumpProvider: serviceState.heatpumpProvider,
     tibber: serviceState.tibber,
     optimizer: serviceState.optimizer,
     weather: serviceState.weather,
@@ -241,8 +251,12 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
     : 'tibber';
   
   // Get timezone settings for all services
-  const timeZoneOffset = homey.settings.get('time_zone_offset') || 2;
-  const useDST = homey.settings.get('use_dst') || false;
+  const timeZoneOffsetSetting = homey.settings.get('time_zone_offset');
+  const timeZoneOffset =
+    typeof timeZoneOffsetSetting === 'number'
+      ? timeZoneOffsetSetting
+      : Number.parseFloat(String(timeZoneOffsetSetting ?? '')) || 2;
+  const useDST = Boolean(homey.settings.get('use_dst'));
   const timeZoneName = homey.settings.get('time_zone_name');
 
   if (!melcloudUser || !melcloudPass) {
@@ -273,23 +287,40 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
 
   const melCloudLogger = (appLogger && typeof appLogger.api === 'function') ? appLogger : undefined;
   const melCloud = new MelCloudApi(melCloudLogger);
-  // Set timezone settings after construction
-  melCloud.updateTimeZoneSettings(
-    timeZoneOffset,
-    useDST,
-    typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined
-  );
-  await melCloud.login(melcloudUser, melcloudPass);
+  const providerTimezone =
+    (typeof timeZoneName === 'string' && timeZoneName.length > 0
+      ? timeZoneName
+      : TimeZoneHelper.offsetToIANA(timeZoneOffset)) || 'UTC';
+
+  const heatpumpProvider = new MELCloudProvider({
+    username: melcloudUser,
+    password: melcloudPass,
+    buildingId,
+    api: melCloud,
+    logger: melCloudLogger,
+  });
+
+  await heatpumpProvider.init({
+    timezone: providerTimezone,
+    dst: !!useDST,
+    priceCurrency: homey.settings.get('currency_code'),
+  });
+
+  await heatpumpProvider.login();
+
   serviceState.melCloud = melCloud;
+  serviceState.heatpumpProvider = heatpumpProvider;
   (global as any).melCloud = melCloud;
+  (global as any).heatpumpProvider = heatpumpProvider;
+
   homey.app.log('Successfully logged in to MELCloud');
 
-  const devices = await melCloud.getDevices();
-  homey.app.log(`Found ${devices.length} devices in MELCloud account`);
+  const devices = await heatpumpProvider.listDevices();
+  homey.app.log(`Found ${devices.length} devices via provider ${heatpumpProvider.vendor}`);
   if (devices.length > 0) {
     homey.app.log('===== AVAILABLE DEVICES =====');
-    devices.forEach((device: any) => {
-      homey.app.log(`Device: ${device.name} (ID: ${device.id}, Building ID: ${device.buildingId})`);
+    devices.forEach((device) => {
+      homey.app.log(`Device: ${device.name} (ID: ${device.deviceId}, Building ID: ${device.buildingId ?? 'n/a'})`);
     });
     homey.app.log('=============================');
     
@@ -298,24 +329,23 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
     let resolvedBuildingId = buildingId;
     let deviceResolved = false;
     
+    const normalizedDeviceId = String(deviceId ?? '');
     // Check if we need to resolve device IDs (placeholder values or invalid numeric IDs)
     const needsResolution = (
-      deviceId === 'Boiler' || // Default placeholder
+      normalizedDeviceId === 'Boiler' || // Default placeholder
       buildingId === 456 || // Default placeholder
-      !devices.some((device: any) => device.id?.toString() === deviceId.toString()) // Device ID doesn't exist
+      !devices.some(device => device.deviceId === normalizedDeviceId)
     );
     
     if (needsResolution) {
       // Try to find device by name match first
-      let targetDevice = devices.find((device: any) => 
-        String(device.name || '').toLowerCase() === deviceId.toLowerCase()
+      let targetDevice = devices.find(device => 
+        String(device.name || '').toLowerCase() === normalizedDeviceId.toLowerCase()
       );
       
       // If no name match, try by numeric ID
       if (!targetDevice) {
-        targetDevice = devices.find((device: any) => 
-          device.id?.toString() === deviceId.toString()
-        );
+        targetDevice = devices.find(device => device.deviceId === normalizedDeviceId);
       }
       
       // If still no match, use the first available device
@@ -325,13 +355,18 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
       }
       
       if (targetDevice) {
-        resolvedDeviceId = targetDevice.id.toString();
-        resolvedBuildingId = targetDevice.buildingId;
+        resolvedDeviceId = targetDevice.deviceId;
+        const candidateBuildingId = targetDevice.buildingId !== undefined ? Number(targetDevice.buildingId) : NaN;
+        if (Number.isFinite(candidateBuildingId)) {
+          resolvedBuildingId = candidateBuildingId;
+        }
         deviceResolved = true;
         
         // Update settings with resolved IDs
         homey.settings.set('device_id', resolvedDeviceId);
-        homey.settings.set('building_id', resolvedBuildingId);
+        if (resolvedBuildingId !== undefined && resolvedBuildingId !== null) {
+          homey.settings.set('building_id', resolvedBuildingId);
+        }
         
         homey.app.log(`🔄 AUTO-RESOLVED DEVICE IDs:`);
         homey.app.log(`- Original: Device ID "${deviceId}", Building ID "${buildingId}"`);
@@ -341,13 +376,13 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
       }
     } else {
       // Verify that the configured device exists
-      const exists = devices.some((device: any) => (
-        device.id?.toString() === deviceId.toString() ||
-        String(device.name || '').toLowerCase() === deviceId.toLowerCase()
+      const exists = devices.some(device => (
+        device.deviceId === normalizedDeviceId ||
+        String(device.name || '').toLowerCase() === normalizedDeviceId.toLowerCase()
       ));
       if (!exists && devices[0]) {
         const fallback = devices[0];
-        homey.app.log(`WARNING: Configured device ID "${deviceId}" not found. Consider using ${fallback.name} (ID: ${fallback.id}).`);
+        homey.app.log(`WARNING: Configured device ID "${deviceId}" not found. Consider using ${fallback.name} (ID: ${fallback.deviceId}).`);
       }
     }
     
@@ -357,7 +392,7 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
       buildingId = resolvedBuildingId;
     }
   } else {
-    homey.app.log('WARNING: No devices found in your MELCloud account.');
+    homey.app.log(`WARNING: No devices found via provider ${heatpumpProvider.vendor}.`);
   }
 
   const priceProvider = selectPriceProvider(
@@ -390,11 +425,15 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
     serviceState.weather = null;
   }
 
+  const optimizerBuildingId = (buildingId !== undefined && buildingId !== null)
+    ? String(buildingId)
+    : undefined;
+
   const optimizer = new Optimizer(
-    melCloud,
+    heatpumpProvider,
     priceProvider,
     deviceId,
-    buildingId,
+    optimizerBuildingId,
     homey.app as any, // logger
     serviceState.weather as any, // weatherApi
     homey as any // homey instance for thermal learning
@@ -437,8 +476,12 @@ export function refreshPriceProvider(homey: HomeyLike): PriceProvider | null {
     ? 'entsoe'
     : 'tibber';
   const tibberToken = homey.settings.get('tibber_token') || homey.settings.get('tibberToken') || null;
-  const timeZoneOffset = homey.settings.get('time_zone_offset') || 2;
-  const useDST = homey.settings.get('use_dst') || false;
+  const timeZoneOffsetSetting = homey.settings.get('time_zone_offset');
+  const timeZoneOffset =
+    typeof timeZoneOffsetSetting === 'number'
+      ? timeZoneOffsetSetting
+      : Number.parseFloat(String(timeZoneOffsetSetting ?? '')) || 2;
+  const useDST = Boolean(homey.settings.get('use_dst'));
   const timeZoneName = homey.settings.get('time_zone_name');
 
   const priceProvider = selectPriceProvider(

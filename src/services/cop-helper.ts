@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon';
 import { CronJob } from 'cron';
+import { IHeatpumpProvider, EnergyReport } from '../providers/types';
 
 // Constants for storage keys
 const COP_SNAPSHOTS_DAILY = 'cop_snapshots_daily';
@@ -11,7 +12,6 @@ const COP_SNAPSHOTS_MONTHLY = 'cop_snapshots_monthly';
  * for MELCloud heat pumps
  */
 export class COPHelper {
-  private device: any; // Homey device instance
   private homey: any; // Homey app instance
   private dailyJob: any;
   private weeklyJob: any;
@@ -86,18 +86,16 @@ export class COPHelper {
     try {
       this.logger.log(`Computing ${timeframe} COP values`);
 
-      // Get MELCloud data from the optimizer
-      const melData = await this.getMELCloudData();
-      if (!melData || !melData.Device) {
-        this.logger.error('No MELCloud data available for COP calculation');
+      const report = await this.getEnergyReport(timeframe);
+      if (!report) {
+        this.logger.error('No provider energy report available for COP calculation');
         return;
       }
 
-      // Extract energy figures – values are kWh for the period up to now
-      const producedHeating = melData.Device.DailyHeatingEnergyProduced || 0;
-      const consumedHeating = melData.Device.DailyHeatingEnergyConsumed || 0;
-      const producedHW = melData.Device.DailyHotWaterEnergyProduced || 0;
-      const consumedHW = melData.Device.DailyHotWaterEnergyConsumed || 0;
+      const producedHeating = report.producedHeatingKWh ?? 0;
+      const consumedHeating = report.heatingKWh ?? 0;
+      const producedHW = report.producedHotWaterKWh ?? 0;
+      const consumedHW = report.hotWaterKWh ?? 0;
 
       // Safety – avoid division by zero
       const copHeat = consumedHeating > 0 ? producedHeating / consumedHeating : 0;
@@ -119,33 +117,43 @@ export class COPHelper {
     }
   }
 
-  /**
-   * Get MELCloud data from the optimizer
-   * @returns MELCloud data
-   */
-  private async getMELCloudData(): Promise<any> {
+  private async getEnergyReport(timeframe: 'daily' | 'weekly' | 'monthly'): Promise<EnergyReport | null> {
     try {
-      // Get the device ID and building ID from settings
-      const deviceId = this.homey.settings.get('device_id');
-      const buildingId = parseInt(this.homey.settings.get('building_id') || '0');
+      const deviceIdSetting = this.homey.settings.get('device_id');
+      if (deviceIdSetting == null) {
+        this.logger.error('Device ID not set in settings');
+        return null;
+      }
+      const deviceId = `${deviceIdSetting}`;
 
-      if (!deviceId || !buildingId) {
-        this.logger.error('Device ID or Building ID not set in settings');
+      const provider: IHeatpumpProvider | null = (global as any).heatpumpProvider ?? null;
+      if (!provider) {
+        this.logger.error('Heat pump provider not available for COP calculation');
         return null;
       }
 
-      // Get the MELCloud API instance from the global scope
-      const melCloud = (global as any).melCloud;
-      if (!melCloud) {
-        this.logger.error('MELCloud API instance not available');
-        return null;
+      const now = DateTime.utc();
+      let from: DateTime;
+      switch (timeframe) {
+        case 'daily':
+          from = now.minus({ days: 1 });
+          break;
+        case 'weekly':
+          from = now.minus({ days: 7 });
+          break;
+        case 'monthly':
+          from = now.minus({ days: 30 });
+          break;
+        default:
+          from = now.minus({ days: 7 });
       }
 
-      // Get COP data from MELCloud
-      const copData = await melCloud.getCOPData(deviceId, buildingId);
-      return copData;
+      return await provider.getEnergyReport(deviceId as string, {
+        fromISO: from.toISO(),
+        toISO: now.toISO()
+      });
     } catch (error: unknown) {
-      this.logger.error('Error getting MELCloud data for COP calculation:', error);
+      this.logger.error('Error retrieving provider energy report for COP calculation:', error);
       return null;
     }
   }

@@ -1,17 +1,22 @@
 import { randomUUID } from 'crypto';
-import { MelCloudApi } from './melcloud-api';
 import { ThermalModelService } from './thermal-model';
 import { COPHelper } from './cop-helper';
 import { validateNumber, validateBoolean } from '../util/validation';
 import {
-  MelCloudDevice,
   TibberPriceInfo,
   PriceProvider,
   WeatherData,
   ThermalModel,
   OptimizationResult,
-  HomeyApp
+  HomeyApp,
+  HomeySettings
 } from '../types';
+import {
+  DeviceSnapshot,
+  IHeatpumpProvider,
+  TankState,
+  ZoneState
+} from '../providers/types';
 import { isError } from '../util/error-handler';
 import { EnhancedSavingsCalculator, OptimizationData, SavingsCalculationResult } from '../util/enhanced-savings-calculator';
 import { HomeyLogger } from '../util/logger';
@@ -25,7 +30,7 @@ const DEFAULT_HOT_WATER_PEAK_HOURS = [6, 7, 8]; // Morning fallback window when 
 const MIN_SAVINGS_FOR_LEARNING = 0.05; // Minimum savings (SEK-equivalent) to trigger learning on no-change path
 
 /**
- * Real energy data from MELCloud API
+ * Real energy data from provider API
  */
 interface RealEnergyData {
   TotalHeatingConsumed: number;
@@ -42,6 +47,7 @@ interface RealEnergyData {
   hotWaterCOP?: number | null;
   coolingCOP?: number | null;
   averageCOP?: number | null;
+  sampleDays?: number;
 }
 
 /**
@@ -255,10 +261,10 @@ export class Optimizer {
    * @param homey Homey app instance (optional, required for thermal learning)
    */
   constructor(
-    private readonly melCloud: MelCloudApi,
+    private readonly provider: IHeatpumpProvider,
     private priceProvider: PriceProvider | null,
     private readonly deviceId: string,
-    private readonly buildingId: number,
+    private readonly buildingId: string | undefined,
     private readonly logger: HomeyLogger,
     private readonly weatherApi?: { getCurrentWeather(): Promise<WeatherData> },
     private readonly homey?: HomeyApp
@@ -430,59 +436,87 @@ export class Optimizer {
   private async initializeThermalMassFromHistory(): Promise<void> {
     try {
       if (!this.homey) return;
-      
-      // Validate device ID before attempting to fetch data
-      const numericDeviceId = parseInt(this.deviceId, 10);
-      if (isNaN(numericDeviceId) || numericDeviceId <= 0) {
-        this.logger.log(`Cannot initialize thermal mass from history - invalid device ID: ${this.deviceId}. This is normal during initial setup.`);
+
+      const now = new Date();
+      const past = new Date(now);
+      past.setDate(now.getDate() - 7);
+
+      const report = await this.provider.getEnergyReport(this.deviceId, {
+        fromISO: past.toISOString(),
+        toISO: now.toISOString()
+      });
+
+      if (!report) {
         return;
       }
-      
-      // Get recent energy data to learn thermal characteristics
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      const fromDate = sevenDaysAgo.toISOString().split('T')[0]; // YYYY-MM-DD format
-      const toDate = new Date().toISOString().split('T')[0];
-      
-      const recentData = await this.melCloud.getEnergyData(this.deviceId, this.buildingId, fromDate, toDate);
-      
-      if (recentData && Array.isArray(recentData) && recentData.length > 0) {
-        // Learn hot water usage patterns
-        const hotWaterHistory = recentData.map(day => ({
-          timestamp: day.Date || new Date().toISOString(),
-          amount: day.TotalHotWaterConsumed || 0
-        }));
-        
-        this.learnHotWaterUsage(hotWaterHistory);
-        
-        // Calibrate thermal mass based on energy consumption patterns
-        const avgHeatingConsumption = recentData.reduce((sum, day) => sum + (day.TotalHeatingConsumed || 0), 0) / recentData.length;
-        
-        if (avgHeatingConsumption > 0) {
-          // Estimate thermal capacity based on daily consumption
-          // Typical relationship: higher consumption = larger thermal mass
-          this.thermalMassModel.thermalCapacity = Math.max(1.5, Math.min(4.0, avgHeatingConsumption / 10));
-          
-          // Estimate heat loss rate based on outdoor temperature correlation
-          // This would need outdoor temperature data for proper calculation
-          // For now, use a reasonable default based on consumption
-          this.thermalMassModel.heatLossRate = avgHeatingConsumption > 20 ? 1.0 : 0.6;
-          
-          this.thermalMassModel.lastCalibration = new Date();
-          
-          this.logger.log('Thermal mass model calibrated:', {
-            thermalCapacity: this.thermalMassModel.thermalCapacity.toFixed(2),
-            heatLossRate: this.thermalMassModel.heatLossRate.toFixed(2),
-            avgHeatingConsumption: avgHeatingConsumption.toFixed(1),
-            hotWaterDataPoints: this.hotWaterUsagePattern.dataPoints
+
+      const sampleDays = Math.max(1, report.sampleDays ?? 7);
+
+      // Learn hot water usage patterns using evenly distributed historical samples
+      const hotWaterPerDay = sampleDays > 0 ? report.hotWaterKWh / sampleDays : 0;
+      if (hotWaterPerDay > 0) {
+        const requiredPoints = Math.max(7, sampleDays);
+        const usageHistory: Array<{ timestamp: string; amount: number }> = [];
+        for (let i = 0; i < requiredPoints; i++) {
+          const day = new Date(now);
+          day.setDate(now.getDate() - (requiredPoints - 1 - i));
+          usageHistory.push({
+            timestamp: day.toISOString(),
+            amount: hotWaterPerDay
           });
         }
+        this.learnHotWaterUsage(usageHistory);
       }
-      
+
+      const avgHeatingConsumption = sampleDays > 0 ? report.heatingKWh / sampleDays : 0;
+      if (avgHeatingConsumption > 0) {
+        this.thermalMassModel.thermalCapacity = Math.max(1.5, Math.min(4.0, avgHeatingConsumption / 10));
+        this.thermalMassModel.heatLossRate = avgHeatingConsumption > 20 ? 1.0 : 0.6;
+        this.thermalMassModel.lastCalibration = new Date();
+
+        this.logger.log('Thermal mass model calibrated:', {
+          thermalCapacity: this.thermalMassModel.thermalCapacity.toFixed(2),
+          heatLossRate: this.thermalMassModel.heatLossRate.toFixed(2),
+          avgHeatingConsumption: avgHeatingConsumption.toFixed(1),
+          hotWaterDataPoints: this.hotWaterUsagePattern.dataPoints
+        });
+      }
     } catch (error: unknown) {
       this.logger.error('Failed to initialize thermal mass from history:', error);
-      // Keep default values on error
     }
+  }
+
+  private get buildingRef(): string | undefined {
+    return this.buildingId ?? undefined;
+  }
+
+  private async getSnapshotContext(): Promise<{
+    snapshot: DeviceSnapshot;
+    zone1: ZoneState | null;
+    zone2: ZoneState | null;
+    tank: TankState | undefined;
+  }> {
+    const snapshot = await this.provider.getSnapshot(this.deviceId, this.buildingRef());
+    const zone1 = snapshot.zones.find(z => z.zone === 1) ?? snapshot.zones[0] ?? null;
+    const zone2 = snapshot.zones.find(z => z.zone === 2) ?? null;
+    return {
+      snapshot,
+      zone1,
+      zone2,
+      tank: snapshot.tank
+    };
+  }
+
+  private getSetting<T = any>(key: string): T | undefined {
+    const settings = this.homey?.settings as HomeySettings | undefined;
+    if (!settings) {
+      return undefined;
+    }
+    const getter = (settings as any).get;
+    if (typeof getter !== 'function') {
+      return undefined;
+    }
+    return getter.call(settings, key) as T;
   }
 
   public setPriceProvider(provider: PriceProvider | null): void {
@@ -570,7 +604,7 @@ export class Optimizer {
   refreshOccupancyFromSettings(): void {
     if (!this.homey) return;
     
-    const occupiedSetting = this.homey.settings.get('occupied');
+    const occupiedSetting = this.getSetting('occupied');
     const newOccupied = occupiedSetting !== false; // Default to true if not set
     
     if (newOccupied !== this.occupied) {
@@ -604,16 +638,16 @@ export class Optimizer {
 
     if (this.occupied) {
       // Use occupied (home) comfort band - defaults match settings page HTML
-      const comfortLowerOccupied = toNumber(this.homey.settings.get('comfort_lower_occupied')) ?? 20.0;
-      const comfortUpperOccupied = toNumber(this.homey.settings.get('comfort_upper_occupied')) ?? 21.0;
+      const comfortLowerOccupied = toNumber(this.getSetting('comfort_lower_occupied')) ?? 20.0;
+      const comfortUpperOccupied = toNumber(this.getSetting('comfort_upper_occupied')) ?? 21.0;
       return { 
         minTemp: Math.max(comfortLowerOccupied, 16), 
         maxTemp: Math.min(comfortUpperOccupied, 26) 
       };
     } else {
       // Use away comfort band - defaults match settings page HTML
-      const comfortLowerAway = toNumber(this.homey.settings.get('comfort_lower_away')) ?? 19.0;
-      const comfortUpperAway = toNumber(this.homey.settings.get('comfort_upper_away')) ?? 20.5;
+      const comfortLowerAway = toNumber(this.getSetting('comfort_lower_away')) ?? 19.0;
+      const comfortUpperAway = toNumber(this.getSetting('comfort_upper_away')) ?? 20.5;
       return { 
         minTemp: Math.max(comfortLowerAway, 16), 
         maxTemp: Math.min(comfortUpperAway, 26) 
@@ -650,6 +684,23 @@ export class Optimizer {
    */
   public getEnhancedSavingsCalculator(): EnhancedSavingsCalculator {
     return this.enhancedSavingsCalculator;
+  }
+
+  private safeCOP(
+    produced: number | null | undefined,
+    consumed: number,
+    fallback?: number | null
+  ): number {
+    if (produced !== null && produced !== undefined && consumed > 0) {
+      const value = produced / consumed;
+      if (Number.isFinite(value) && value > 0) {
+        return value;
+      }
+    }
+    if (fallback !== undefined && fallback !== null && fallback > 0) {
+      return fallback;
+    }
+    return 0;
   }
 
   /**
@@ -1318,90 +1369,67 @@ export class Optimizer {
    */
   private async getRealEnergyMetrics(): Promise<OptimizationMetrics | null> {
     try {
-      // Use enhanced COP data for more accurate optimization
-      const enhancedCOPData = await this.melCloud.getEnhancedCOPData(this.deviceId, this.buildingId);
-      
-      // Extract enhanced COP values with sensible fallbacks when the live value is missing
-      const derivedHeatingCOP = (enhancedCOPData.daily as any)?.heatingCOP
-        ?? (enhancedCOPData.daily as any)?.averageCOP
-        ?? enhancedCOPData.historical.heating
-        ?? 0;
-      const derivedHotWaterCOP = (enhancedCOPData.daily as any)?.hotWaterCOP
-        ?? (enhancedCOPData.daily as any)?.averageCOP
-        ?? enhancedCOPData.historical.hotWater
-        ?? 0;
+      const now = new Date();
+      const past = new Date(now);
+      past.setDate(now.getDate() - 7);
 
-      const realHeatingCOP = enhancedCOPData.current.heating > 0
-        ? enhancedCOPData.current.heating
-        : derivedHeatingCOP;
-      const realHotWaterCOP = enhancedCOPData.current.hotWater > 0
-        ? enhancedCOPData.current.hotWater
-        : derivedHotWaterCOP;
-      
-      // Update COP ranges with current values
+      const report = await this.provider.getEnergyReport(this.deviceId, {
+        fromISO: past.toISOString(),
+        toISO: now.toISOString()
+      });
+
+      if (!report) {
+        return null;
+      }
+
+      const heatingConsumed = report.heatingKWh ?? 0;
+      const heatingProduced = report.producedHeatingKWh ?? null;
+      const hotWaterConsumed = report.hotWaterKWh ?? 0;
+      const hotWaterProduced = report.producedHotWaterKWh ?? null;
+      const coolingConsumed = report.coolingKWh ?? 0;
+      const coolingProduced = report.producedCoolingKWh ?? null;
+      const sampleDays = Math.max(1, report.sampleDays ?? 7);
+
+      const realHeatingCOP = this.safeCOP(heatingProduced, heatingConsumed, report.averageHeatingCOP ?? report.averageHotWaterCOP ?? report.averageHeatingCOP);
+      const realHotWaterCOP = this.safeCOP(hotWaterProduced, hotWaterConsumed, report.averageHotWaterCOP ?? report.averageHeatingCOP ?? report.averageHotWaterCOP);
+
       if (realHeatingCOP > 0) this.updateCOPRange(realHeatingCOP);
       if (realHotWaterCOP > 0) this.updateCOPRange(realHotWaterCOP);
 
-      // Get daily energy totals
-      const energyData = enhancedCOPData.daily;
-      
-      // Extract energy consumption data
-      const heatingConsumed = energyData.TotalHeatingConsumed || 0;
-      const heatingProduced = energyData.TotalHeatingProduced || 0;
-      const hotWaterConsumed = energyData.TotalHotWaterConsumed || 0;
-      const hotWaterProduced = energyData.TotalHotWaterProduced || 0;
-
-      // Create type-safe energy data object
-      const safeEnergyData: RealEnergyData = {
+      this.lastEnergyData = {
         TotalHeatingConsumed: heatingConsumed,
-        TotalHeatingProduced: heatingProduced,
+        TotalHeatingProduced: heatingProduced ?? 0,
         TotalHotWaterConsumed: hotWaterConsumed,
-        TotalHotWaterProduced: hotWaterProduced,
-        TotalCoolingConsumed: 0,
-        TotalCoolingProduced: 0,
-        CoP: energyData.CoP || [],
-        // Prefer explicit COP fields when present in the daily report
-        heatingCOP: derivedHeatingCOP,
-        hotWaterCOP: derivedHotWaterCOP,
-        averageCOP: (energyData as any).averageCOP ?? null,
-        AverageHeatingCOP: enhancedCOPData.historical.heating,
-        AverageHotWaterCOP: enhancedCOPData.historical.hotWater
+        TotalHotWaterProduced: hotWaterProduced ?? 0,
+        TotalCoolingConsumed: coolingConsumed,
+        TotalCoolingProduced: coolingProduced ?? 0,
+        heatingCOP: heatingProduced !== null ? this.safeCOP(heatingProduced, heatingConsumed) : realHeatingCOP,
+        hotWaterCOP: hotWaterProduced !== null ? this.safeCOP(hotWaterProduced, hotWaterConsumed) : realHotWaterCOP,
+        averageCOP: report.averageHeatingCOP ?? report.averageHotWaterCOP ?? null,
+        AverageHeatingCOP: report.averageHeatingCOP ?? undefined,
+        AverageHotWaterCOP: report.averageHotWaterCOP ?? undefined,
+        sampleDays
       };
 
-      this.lastEnergyData = safeEnergyData;
       this.refreshHotWaterUsagePattern();
 
-      // Calculate daily energy consumption (kWh/day averaged over the period)
-      const sampledDays = Math.max(1, Number((energyData as any)?.SampledDays) || 1);
-      const dailyEnergyConsumption = (heatingConsumed + hotWaterConsumed) / sampledDays;
-
-      // Calculate efficiency scores using adaptive COP normalization
+      const dailyEnergyConsumption = (heatingConsumed + hotWaterConsumed) / sampleDays;
       const heatingEfficiency = this.normalizeCOP(realHeatingCOP);
       const hotWaterEfficiency = this.normalizeCOP(realHotWaterCOP);
 
-      // Enhanced seasonal mode detection using real energy patterns and trends
       let seasonalMode: 'summer' | 'winter' | 'transition';
       let optimizationFocus: 'heating' | 'hotwater' | 'both';
 
-      // Use trend analysis from enhanced COP data
-      const trends = enhancedCOPData.trends;
-
-      if (heatingConsumed < 1) { // Less than 1 kWh heating in 7 days
+      if (heatingConsumed < 1) {
         seasonalMode = 'summer';
         optimizationFocus = 'hotwater';
       } else if (heatingConsumed > hotWaterConsumed * 2) {
         seasonalMode = 'winter';
-        optimizationFocus = trends.heatingTrend === 'declining' ? 'both' : 'heating';
+        optimizationFocus = hotWaterConsumed > 0.25 * heatingConsumed ? 'both' : 'heating';
       } else {
         seasonalMode = 'transition';
-        // Use trend analysis to determine focus
-        if (trends.heatingTrend === 'improving' && trends.hotWaterTrend === 'stable') {
-          optimizationFocus = 'heating';
-        } else if (trends.hotWaterTrend === 'improving' && trends.heatingTrend === 'stable') {
-          optimizationFocus = 'hotwater';
-        } else {
-          optimizationFocus = 'both';
-        }
+        const ratio = hotWaterConsumed / Math.max(heatingConsumed, 0.1);
+        optimizationFocus = ratio > 0.8 ? 'hotwater' : ratio < 0.5 ? 'heating' : 'both';
       }
 
       const metrics: OptimizationMetrics = {
@@ -1421,48 +1449,22 @@ export class Optimizer {
       const heatingEfficiencyDisplay = realHeatingCOP > 0 ? (heatingEfficiency * 100).toFixed(0) + '%' : 'n/a';
       const hotWaterEfficiencyDisplay = realHotWaterCOP > 0 ? (hotWaterEfficiency * 100).toFixed(0) + '%' : 'n/a';
 
-      this.logger.log(`Enhanced energy metrics calculated:`, {
+      this.logger.log('Provider energy metrics calculated', {
         heatingCOP: heatingCOPDisplay,
         hotWaterCOP: hotWaterCOPDisplay,
         heatingEfficiency: heatingEfficiencyDisplay,
         hotWaterEfficiency: hotWaterEfficiencyDisplay,
-        dailyConsumption: dailyEnergyConsumption.toFixed(1) + ' kWh/day',
+        dailyConsumption: `${dailyEnergyConsumption.toFixed(1)} kWh/day`,
         seasonalMode,
         optimizationFocus,
-        heatingTrend: trends.heatingTrend,
-        hotWaterTrend: trends.hotWaterTrend,
+        sampleDays,
         copRange: `${this.copRange.minObserved.toFixed(1)}-${this.copRange.maxObserved.toFixed(1)} (${this.copRange.updateCount} obs)`
       });
 
       return metrics;
     } catch (error) {
-      this.logger.error('Error getting enhanced energy metrics:', error);
-      
-      // Fallback to basic energy data if enhanced version fails
-      try {
-        const energyData = await this.melCloud.getDailyEnergyTotals(this.deviceId, this.buildingId);
-        
-  const heatingConsumed = energyData.TotalHeatingConsumed || 0;
-  const hotWaterConsumed = energyData.TotalHotWaterConsumed || 0;
-  // Prefer explicit fields if present, then averageCOP, then legacy Average* fields
-  const realHeatingCOP = ((energyData.heatingCOP ?? energyData.averageCOP ?? energyData.AverageHeatingCOP) as number) || 0;
-  const realHotWaterCOP = ((energyData.hotWaterCOP ?? energyData.averageCOP ?? energyData.AverageHotWaterCOP) as number) || 0;
-        
-        this.logger.log('Using fallback energy metrics calculation');
-        
-        return {
-          realHeatingCOP,
-          realHotWaterCOP,
-          dailyEnergyConsumption: (heatingConsumed + hotWaterConsumed) / Math.max(1, Number((energyData as any).SampledDays) || 1),
-          heatingEfficiency: Math.min(realHeatingCOP / 3, 1),
-          hotWaterEfficiency: Math.min(realHotWaterCOP / 3, 1),
-          seasonalMode: heatingConsumed < 1 ? 'summer' : 'winter',
-          optimizationFocus: 'both'
-        };
-      } catch (fallbackError) {
-        this.logger.error('Error with fallback energy metrics:', fallbackError);
-        return null;
-      }
+      this.logger.error('Error getting provider energy metrics:', error);
+      return null;
     }
   }
 
@@ -1639,7 +1641,8 @@ export class Optimizer {
 
     // Calculate hot water efficiency score
     const hotWaterCOP = metrics.realHotWaterCOP;
-    const dailyHotWaterConsumption = this.lastEnergyData.TotalHotWaterConsumed / 7; // kWh per day
+    const sampleDays = Math.max(1, this.lastEnergyData.sampleDays ?? 7);
+    const dailyHotWaterConsumption = this.lastEnergyData.TotalHotWaterConsumed / sampleDays;
 
     // Find cheapest hours in the next 24 hours
     const referenceTimeMs = priceData.current?.time ? Date.parse(priceData.current.time) : NaN;
@@ -1748,18 +1751,18 @@ export class Optimizer {
 
     try {
       // Get current device state
-      const deviceState = await this.melCloud.getDeviceState(this.deviceId, this.buildingId);
-      const currentTemp = deviceState.RoomTemperature || deviceState.RoomTemperatureZone1;
-      const currentTarget = deviceState.SetTemperature || deviceState.SetTemperatureZone1;
-      const outdoorTemp = deviceState.OutdoorTemperature || 0;
+      const { snapshot, zone1, zone2 } = await this.getSnapshotContext();
+      const currentTemp = zone1?.roomTempC ?? null;
+      const currentTarget = zone1?.targetTempC ?? null;
+      const outdoorTemp = snapshot.outdoorTempC ?? 0;
 
       // Check if temperature data is missing and log an error
-      if (currentTemp === undefined && deviceState.RoomTemperature === undefined && deviceState.RoomTemperatureZone1 === undefined) {
-        this.logger.error('Missing indoor temperature data in device state', deviceState);
+      if (currentTemp === null) {
+        this.logger.error('Missing indoor temperature data in device snapshot', snapshot);
       }
 
-      if (currentTarget === undefined && deviceState.SetTemperature === undefined && deviceState.SetTemperatureZone1 === undefined) {
-        this.logger.error('Missing target temperature data in device state', deviceState);
+      if (currentTarget === null) {
+        this.logger.error('Missing target temperature data in device snapshot', snapshot);
       }
 
       // Get electricity prices
@@ -1808,7 +1811,7 @@ export class Optimizer {
             indoorTemperature: currentTemp ?? 20,
             outdoorTemperature: outdoorTemp,
             targetTemperature: currentTarget ?? 20,
-            heatingActive: !deviceState.IdleZone1,
+            heatingActive: zone1?.idle === false,
             weatherConditions: {
               windSpeed: weatherConditions.windSpeed,
               humidity: weatherConditions.humidity,
@@ -1833,10 +1836,10 @@ export class Optimizer {
         try {
           // Get comfort profile from user settings (using settings page defaults)
           const comfortProfile = {
-            dayStart: Number(this.homey?.settings.get('day_start_hour')) || 6,     // Settings page default: value="6"
-            dayEnd: Number(this.homey?.settings.get('day_end_hour')) || 22,        // Settings page default: value="22"
-            nightTempReduction: Number(this.homey?.settings.get('night_temp_reduction')) || 2,
-            preHeatHours: Number(this.homey?.settings.get('pre_heat_hours')) || 1  // Settings page default: value="1"
+            dayStart: Number(this.getSetting('day_start_hour')) || 6,     // Settings page default: value="6"
+            dayEnd: Number(this.getSetting('day_end_hour')) || 22,        // Settings page default: value="22"
+            nightTempReduction: Number(this.getSetting('night_temp_reduction')) || 2,
+            preHeatHours: Number(this.getSetting('pre_heat_hours')) || 1  // Settings page default: value="1"
           };
 
           // Get thermal model recommendation
@@ -1922,12 +1925,12 @@ export class Optimizer {
       // Set new temperature if different
       if (newTarget !== safeCurrentTarget) {
         try {
-          await this.melCloud.setDeviceTemperature(this.deviceId, this.buildingId, newTarget);
+          await this.provider.setZoneTarget(this.deviceId, { zone: 1, targetTempC: newTarget }, this.buildingRef());
           this.logger.log(`Changed temperature from ${safeCurrentTarget}°C to ${newTarget}°C: ${reason}`);
         } catch (error) {
-          this.logger.error('Failed to set MELCloud target temperature:', error);
+          this.logger.error(`Failed to set ${this.provider.vendor} target temperature:`, error);
           const errMsg = (error instanceof Error) ? error.message : String(error);
-          reason = `Temperature change requested but MELCloud rejected: ${errMsg}`;
+          reason = `Temperature change requested but ${this.provider.vendor} rejected: ${errMsg}`;
           newTarget = safeCurrentTarget;
         }
       } else {
@@ -1963,9 +1966,9 @@ export class Optimizer {
         priceAvg,
         priceMin,
         priceMax,
-        indoorTemp: currentTemp,
-        outdoorTemp: deviceState.OutdoorTemperature,
-        targetOriginal: currentTarget,
+        indoorTemp: currentTemp ?? safeCurrentTarget,
+        outdoorTemp: snapshot.outdoorTempC ?? 0,
+        targetOriginal: currentTarget ?? safeCurrentTarget,
         savings,
         comfort,
         timestamp: new Date().toISOString(),
@@ -2000,13 +2003,13 @@ export class Optimizer {
 
     try {
       // Get current device state
-      const deviceState = await this.melCloud.getDeviceState(this.deviceId, this.buildingId);
-      const currentTemp = deviceState.RoomTemperature || deviceState.RoomTemperatureZone1;
-      const currentTarget = deviceState.SetTemperature || deviceState.SetTemperatureZone1;
-      const outdoorTemp = deviceState.OutdoorTemperature || 0;
+      const { snapshot, zone1, zone2 } = await this.getSnapshotContext();
+      const currentTemp = zone1?.roomTempC ?? null;
+      const currentTarget = zone1?.targetTempC ?? null;
+      const outdoorTemp = snapshot.outdoorTempC ?? 0;
 
       // Validate temperature data
-      if (currentTemp === undefined && deviceState.RoomTemperature === undefined && deviceState.RoomTemperatureZone1 === undefined) {
+      if (currentTemp === null) {
         throw new Error('No temperature data available from device');
       }
 
@@ -2089,16 +2092,16 @@ export class Optimizer {
       let previousIndoorTempTs: number | null = null;
       if (this.homey) {
         try {
-          const rawResponse = this.homey.settings.get('thermal_response');
+          const rawResponse = this.getSetting('thermal_response');
           const numericResponse = typeof rawResponse === 'number' ? rawResponse : Number(rawResponse);
           if (Number.isFinite(numericResponse) && numericResponse >= 0.5 && numericResponse <= 1.5) {
             thermalResponse = numericResponse;
           }
-          const rawPrevTemp = this.homey.settings.get('optimizer_last_indoor_temp');
+          const rawPrevTemp = this.getSetting('optimizer_last_indoor_temp');
           if (typeof rawPrevTemp === 'number' && Number.isFinite(rawPrevTemp)) {
             previousIndoorTemp = rawPrevTemp;
           }
-          const rawPrevTs = this.homey.settings.get('optimizer_last_indoor_temp_ts');
+          const rawPrevTs = this.getSetting('optimizer_last_indoor_temp_ts');
           if (typeof rawPrevTs === 'number' && Number.isFinite(rawPrevTs)) {
             previousIndoorTempTs = rawPrevTs;
           }
@@ -2140,7 +2143,7 @@ export class Optimizer {
             indoorTemperature: currentTemp ?? 20,
             outdoorTemperature: outdoorTemp,
             targetTemperature: currentTarget ?? 20,
-            heatingActive: !deviceState.IdleZone1,
+            heatingActive: zone1?.idle === false,
             weatherConditions: {
               windSpeed: 0, // Will be filled if weather available
               humidity: 0,
@@ -2265,8 +2268,8 @@ export class Optimizer {
       let tempDifference = Math.abs(zone1ConstraintsInitial.deltaC);
       let lockoutActive = zone1ConstraintsInitial.lockoutActive;
       let isSignificantChange = zone1ConstraintsInitial.changed && !lockoutActive;
-      let melCloudSetpointApplied = true;
-      let melCloudSetpointError: string | undefined;
+      let providerSetpointApplied = true;
+      let providerSetpointError: string | undefined;
       let setpointApplied = false;
 
       // Enhanced logging with real energy metrics
@@ -2431,7 +2434,7 @@ export class Optimizer {
       this.logger.log('Enhanced optimization result:', logData);
 
       // Handle secondary zone optimization (Zone2)
-      const deviceSupportsZone2 = deviceState.SetTemperatureZone2 !== undefined;
+      const deviceSupportsZone2 = Boolean(zone2 || snapshot.device.supportsZone2);
       if (this.enableZone2 && !deviceSupportsZone2) {
         this.logger.log('WARNING: Zone2 temperature optimization enabled in settings, but device does not expose Zone2');
       }
@@ -2439,8 +2442,8 @@ export class Optimizer {
       let zone2Result: SecondaryZoneResult | null = null;
       if (this.enableZone2 && deviceSupportsZone2) {
         try {
-          const currentTempZone2 = deviceState.RoomTemperatureZone2 ?? currentTemp ?? 21;
-          const currentTargetZone2 = deviceState.SetTemperatureZone2 ?? currentTempZone2;
+          const currentTempZone2 = zone2?.roomTempC ?? currentTemp ?? 21;
+          const currentTargetZone2 = zone2?.targetTempC ?? currentTempZone2;
 
           let zone2Target = await this.calculateOptimalTemperature(
             currentPrice,
@@ -2498,7 +2501,7 @@ export class Optimizer {
           const zone2ShouldApply = zone2Constraints.changed && !zone2Lockout && !zone2Duplicate;
 
           if (zone2ShouldApply) {
-            await this.melCloud.setZoneTemperature(this.deviceId, this.buildingId, zone2Target, 2);
+            await this.provider.setZoneTarget(this.deviceId, { zone: 2, targetTempC: zone2Target }, this.buildingRef());
             this.logger.log(`Zone2 temperature adjusted from ${currentTargetZone2.toFixed(1)}°C to ${zone2Target.toFixed(1)}°C`);
             this.lastZone2SetpointChangeMs = zone2Constraints.evaluatedAtMs;
             this.lastZone2IssuedSetpointC = zone2Target;
@@ -2528,8 +2531,9 @@ export class Optimizer {
 
       // Handle hot water tank optimization
       let tankResult: TankOptimizationResult | null = null;
-      const currentTankTarget = deviceState.SetTankWaterTemperature;
-      if (this.enableTankControl && currentTankTarget !== undefined) {
+      const tankState = snapshot.tank;
+      const currentTankTarget = tankState?.targetTempC ?? null;
+      if (this.enableTankControl && currentTankTarget !== null) {
         try {
           let tankTarget = currentTankTarget;
           let tankReason = 'Maintaining current tank temperature';
@@ -2605,7 +2609,7 @@ export class Optimizer {
 
           if (changeApplied) {
             try {
-              await this.melCloud.setTankTemperature(this.deviceId, this.buildingId, tankTarget);
+              await this.provider.setTankTarget(this.deviceId, { targetTempC: tankTarget }, this.buildingRef());
               this.logger.log(`Tank temperature adjusted from ${currentTankTarget.toFixed(1)}°C to ${tankTarget.toFixed(1)}°C`);
               tankStatus = { setpointApplied: true };
               this.lastTankSetpointChangeMs = tankConstraints.evaluatedAtMs;
@@ -2619,7 +2623,7 @@ export class Optimizer {
               };
             } catch (error) {
               const errMsg = (error instanceof Error) ? error.message : String(error);
-              this.logger.error('Failed to update MELCloud tank temperature:', error);
+              this.logger.error(`Failed to update ${this.provider.vendor} tank temperature:`, error);
               tankStatus = { setpointApplied: false, error: errMsg };
               tankResult = {
                 fromTemp: currentTankTarget,
@@ -2656,7 +2660,8 @@ export class Optimizer {
 
       // Anti–short-cycling lockout: avoid frequent setpoint changes
       try {
-        const last = (this.homey && Number(this.homey.settings.get('last_setpoint_change_ms'))) || this.lastSetpointChangeMs || 0;
+        const lastSetting = this.getSetting('last_setpoint_change_ms');
+        const last = (Number(lastSetting) || this.lastSetpointChangeMs || 0);
         const sinceMin = last > 0 ? (Date.now() - last) / 60000 : Infinity;
         lockoutActive = sinceMin < this.minSetpointChangeMinutes;
         if (lockoutActive) {
@@ -2668,9 +2673,9 @@ export class Optimizer {
       if (isSignificantChange && !lockoutActive && !duplicateTarget) {
         const apiStart = Date.now();
         try {
-          await this.melCloud.setDeviceTemperature(this.deviceId, this.buildingId, targetTemp);
+          await this.provider.setZoneTarget(this.deviceId, { zone: 1, targetTempC: targetTemp }, this.buildingRef());
           setpointApplied = true;
-          melCloudSetpointApplied = true;
+          providerSetpointApplied = true;
           logDecision('optimizer.setpoint.applied', {
             targetTemp,
             from: safeCurrentTarget,
@@ -2678,11 +2683,11 @@ export class Optimizer {
             latencyMs: Date.now() - apiStart
           });
         } catch (error) {
-          melCloudSetpointApplied = false;
-          melCloudSetpointError = (error instanceof Error) ? error.message : String(error);
-          this.logger.error('Failed to apply MELCloud temperature change during optimization:', error);
+          providerSetpointApplied = false;
+          providerSetpointError = (error instanceof Error) ? error.message : String(error);
+          this.logger.error(`Failed to apply ${this.provider.vendor} temperature change during optimization:`, error);
           logDecision('optimizer.setpoint.error', {
-            error: melCloudSetpointError,
+            error: providerSetpointError,
             latencyMs: Date.now() - apiStart
           });
         }
@@ -2819,14 +2824,15 @@ export class Optimizer {
           zone2Data: zone2Result || undefined,
           tankData: tankResult || undefined,
           melCloudStatus: {
-            setpointApplied: true
+            setpointApplied: providerSetpointApplied,
+            error: providerSetpointError
           },
           tankStatus
         };
       }
 
-      const failureOrHoldReason = !melCloudSetpointApplied && melCloudSetpointError
-        ? `Temperature change requested but MELCloud rejected: ${melCloudSetpointError}`
+      const failureOrHoldReason = !providerSetpointApplied && providerSetpointError
+        ? `Temperature change requested but ${this.provider.vendor} rejected: ${providerSetpointError}`
         : lockoutActive
           ? `Setpoint change lockout (${this.minSetpointChangeMinutes}m) to prevent cycling`
           : duplicateTarget
@@ -2939,8 +2945,8 @@ export class Optimizer {
           zone2Data: zone2Result || undefined,
           tankData: tankResult || undefined,
           melCloudStatus: {
-            setpointApplied: melCloudSetpointApplied,
-            error: melCloudSetpointError
+            setpointApplied: providerSetpointApplied,
+            error: providerSetpointError
           },
           tankStatus
         };
@@ -3364,7 +3370,7 @@ export class Optimizer {
     const tempDiff = Number(oldTemp) - Number(newTemp);
     if (!Number.isFinite(tempDiff) || !Number.isFinite(currentPrice)) return 0;
 
-    const gridFee: number = Number(this.homey?.settings.get('grid_fee_per_kwh')) || 0;
+    const gridFee: number = Number(this.getSetting('grid_fee_per_kwh')) || 0;
     const effectivePrice = currentPrice + (Number.isFinite(gridFee) ? gridFee : 0);
 
     // Use real daily consumption data from MELCloud when available, fallback to 1.0 kWh/h
@@ -3412,7 +3418,7 @@ export class Optimizer {
   ): Promise<SavingsCalculationResult> {
     try {
       const currentHour = this.timeZoneHelper.getLocalTime().hour;
-      const gridFee: number = Number(this.homey?.settings.get('grid_fee_per_kwh')) || 0;
+      const gridFee: number = Number(this.getSetting('grid_fee_per_kwh')) || 0;
       if (!this.priceProvider) {
         throw new Error('Price provider not initialized');
       }
@@ -3457,7 +3463,7 @@ export class Optimizer {
   ): Promise<SavingsCalculationResult> {
     try {
       // Get current price
-      const gridFee: number = Number(this.homey?.settings.get('grid_fee_per_kwh')) || 0;
+      const gridFee: number = Number(this.getSetting('grid_fee_per_kwh')) || 0;
       let pricePerKWh = 1.0; // Default fallback
       let priceFactors: number[] | undefined = undefined;
       

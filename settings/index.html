@@ -184,21 +184,35 @@
   </head>
   <body>
     <header class="homey-header">
-      <h1 class="homey-title">MELCloud Optimizer Settings</h1>
-      <p class="homey-subtitle">Configure your credentials and temperature settings</p>
+      <h1 class="homey-title">Heat Pump Optimizer Settings</h1>
+      <p class="homey-subtitle">Configure vendor credentials, devices, and comfort preferences</p>
     </header>
 
     <details class="homey-form-fieldset" open>
-      <summary class="homey-form-legend">Quick Start: MELCloud & Device</summary>
+      <summary class="homey-form-legend">Quick Start: Heat Pump Vendor & Device</summary>
       <div class="homey-form-group">
+        <label class="homey-form-label" for="heatpump_vendor">Heat Pump Vendor</label>
+        <select class="homey-form-input" id="heatpump_vendor">
+          <option value="melcloud">Mitsubishi Electric (MELCloud)</option>
+          <option value="myuplink">NIBE (myUplink)</option>
+        </select>
+        <p class="homey-form-helper">Choose the platform that manages your heat pump. Vendor-specific fields appear below.</p>
+      </div>
+      <div class="homey-form-group" data-vendor="melcloud">
         <label class="homey-form-label" for="melcloud_user">Email</label>
         <input class="homey-form-input" id="melcloud_user" type="email" autocomplete="username" aria-describedby="melcloud_user_help" value="" />
         <p id="melcloud_user_help" class="homey-form-helper">Use your MELCloud account email.</p>
       </div>
-      <div class="homey-form-group">
+      <div class="homey-form-group" data-vendor="melcloud">
         <label class="homey-form-label" for="melcloud_pass">Password</label>
         <input class="homey-form-input" id="melcloud_pass" type="password" autocomplete="current-password" aria-describedby="melcloud_pass_help" value="" />
         <p id="melcloud_pass_help" class="homey-form-helper">Stored securely by Homey.</p>
+      </div>
+
+      <div class="homey-form-group" data-vendor="myuplink">
+        <label class="homey-form-label" for="myuplink_access_token">myUplink Access Token</label>
+        <input class="homey-form-input" id="myuplink_access_token" type="password" autocomplete="off" aria-describedby="myuplink_access_token_help" value="" />
+        <p id="myuplink_access_token_help" class="homey-form-helper">Generate a long-lived API token from the myUplink Portal under Developer &gt; API clients.</p>
       </div>
 
       <div class="homey-form-group">
@@ -206,7 +220,7 @@
         <span id="device_refresh_status" role="status" aria-live="polite"></span>
       </div>
 
-      <div class="homey-form-group">
+      <div class="homey-form-group" data-vendor="melcloud">
         <label class="homey-form-label" for="building_id">Building</label>
         <select class="homey-form-input" id="building_id">
           <option value="">Select a building</option>
@@ -219,10 +233,16 @@
         <select class="homey-form-input" id="device_id">
           <option value="">Select a device</option>
         </select>
-        <p class="homey-form-helper">Capabilities appear after selection; use Advanced for manual IDs.</p>
+        <p class="homey-form-helper">Capabilities appear after selection; use Advanced for manual IDs when available.</p>
       </div>
 
-      <div class="homey-form-group">
+      <div class="homey-form-group" data-vendor="myuplink">
+        <label class="homey-form-label" for="myuplink_device_id_manual">Manual myUplink Device ID</label>
+        <input class="homey-form-input" id="myuplink_device_id_manual" type="text" value="" autocomplete="off" aria-describedby="myuplink_device_id_help" />
+        <p id="myuplink_device_id_help" class="homey-form-helper">Paste the device identifier from myUplink if it does not appear after refreshing.</p>
+      </div>
+
+      <div class="homey-form-group" data-vendor="melcloud">
         <details>
           <summary class="homey-form-label">Advanced: Manual ID entry</summary>
           <label class="homey-form-checkbox">
@@ -233,7 +253,7 @@
         </details>
       </div>
 
-      <div id="manual_id_entry" style="display: none;">
+      <div id="manual_id_entry" style="display: none;" data-vendor="melcloud">
         <div class="homey-form-group">
           <label class="homey-form-label" for="manual_device_id">Manual Device ID</label>
           <input class="homey-form-input" id="manual_device_id" type="text" value="" />
@@ -1229,8 +1249,10 @@
         }
 
         // Get elements
+        const vendorElement = document.getElementById("heatpump_vendor");
         const melcloudUserElement = document.getElementById("melcloud_user");
         const melcloudPassElement = document.getElementById("melcloud_pass");
+        const myUplinkAccessTokenElement = document.getElementById("myuplink_access_token");
         const deviceIdElement = document.getElementById("device_id");
         const buildingIdElement = document.getElementById("building_id");
         const refreshDevicesButton = document.getElementById("refresh_devices");
@@ -1239,6 +1261,68 @@
         const manualIdEntryDiv = document.getElementById("manual_id_entry");
         const manualDeviceIdElement = document.getElementById("manual_device_id");
         const manualBuildingIdElement = document.getElementById("manual_building_id");
+        const myUplinkDeviceIdManualElement = document.getElementById("myuplink_device_id_manual");
+        const vendorScopedElements = Array.prototype.slice.call(document.querySelectorAll('[data-vendor]'));
+
+        let currentVendor = 'melcloud';
+
+        function getSelectedVendor() {
+          if (!vendorElement) {
+            return 'melcloud';
+          }
+          const raw = (vendorElement.value || '').toLowerCase();
+          return raw === 'myuplink' ? 'myuplink' : 'melcloud';
+        }
+
+        function applyVendorVisibility(vendor) {
+          currentVendor = vendor;
+          vendorScopedElements.forEach(function (el) {
+            if (!el || typeof el.getAttribute !== 'function') {
+              return;
+            }
+            const targetAttr = (el.getAttribute('data-vendor') || '').toLowerCase();
+            if (!targetAttr) {
+              return;
+            }
+            const allowed = targetAttr.split(',').map(function (part) {
+              return part.trim();
+            }).filter(Boolean);
+            const shouldShow = allowed.indexOf(vendor) >= 0;
+            if (shouldShow) {
+              el.style.removeProperty('display');
+            } else {
+              if (el.tagName === 'DETAILS') {
+                try {
+                  el.open = false;
+                } catch (e) {
+                  // no-op for browsers without details support
+                }
+              }
+              el.style.display = 'none';
+            }
+          });
+
+          if (vendor !== 'melcloud') {
+            if (showManualEntryElement) {
+              showManualEntryElement.checked = false;
+            }
+            if (manualIdEntryDiv) {
+              manualIdEntryDiv.style.display = 'none';
+            }
+          }
+        }
+
+        applyVendorVisibility(getSelectedVendor());
+
+        if (vendorElement) {
+          vendorElement.addEventListener('change', function () {
+            const vendor = getSelectedVendor();
+            applyVendorVisibility(vendor);
+            if (deviceRefreshStatus) {
+              deviceRefreshStatus.textContent = '';
+            }
+          });
+        }
         const tibberTokenElement = document.getElementById("tibber_token");
         const priceSourceTibberElement = document.getElementById("price_source_tibber");
         const priceSourceEntsoeElement = document.getElementById("price_source_entsoe");
@@ -2727,6 +2811,28 @@
         // Buttons now use onclick attributes with global functions
 
         // Load current settings
+        if (vendorElement) {
+          Homey.get("vendor", function (err, value) {
+            if (!err && typeof value === 'string') {
+              const normalized = value === 'myuplink' ? 'myuplink' : 'melcloud';
+              vendorElement.value = normalized;
+              applyVendorVisibility(normalized);
+            }
+          });
+        }
+
+        Homey.get("myuplink_access_token", function (err, value) {
+          if (!err && typeof value === 'string' && myUplinkAccessTokenElement) {
+            myUplinkAccessTokenElement.value = value;
+          }
+        });
+
+        Homey.get("myuplink_device_id", function (err, value) {
+          if (!err && typeof value === 'string' && myUplinkDeviceIdManualElement) {
+            myUplinkDeviceIdManualElement.value = value;
+          }
+        });
+
         Homey.get("price_data_source", function (err, value) {
           if (err) {
             console.error('Failed to load price_data_source', err);
@@ -3060,6 +3166,7 @@
         // Function to load the device list and select the saved device and building IDs
         function loadDeviceList(savedDeviceId, savedBuildingId) {
           console.log('Loading device list with saved IDs:', { savedDeviceId, savedBuildingId });
+          const vendor = getSelectedVendor();
 
           // Show loading state
           deviceRefreshStatus.textContent = "Loading devices...";
@@ -3073,7 +3180,7 @@
               deviceRefreshStatus.textContent = "Error: " + err.message;
 
               // If we can't load the device list but have saved IDs, show the manual entry fields
-              if (savedDeviceId || savedBuildingId) {
+              if (vendor === 'melcloud' && (savedDeviceId || savedBuildingId)) {
                 showManualEntryElement.checked = true;
                 manualIdEntryDiv.style.display = 'block';
               }
@@ -3205,14 +3312,16 @@
               deviceRefreshStatus.textContent = "Failed to load devices";
             }
 
-            if (!normalized.success && normalized.message) {
-              showManualEntryElement.checked = true;
-              manualIdEntryDiv.style.display = 'block';
-            } else if ((savedDeviceIdStr && !foundSavedDevice) || (savedBuildingIdStr && !foundSavedBuilding)) {
-              showManualEntryElement.checked = true;
-              manualIdEntryDiv.style.display = 'block';
-            } else if (!showManualEntryElement.checked) {
-              manualIdEntryDiv.style.display = 'none';
+            if (vendor === 'melcloud') {
+              if (!normalized.success && normalized.message) {
+                showManualEntryElement.checked = true;
+                manualIdEntryDiv.style.display = 'block';
+              } else if ((savedDeviceIdStr && !foundSavedDevice) || (savedBuildingIdStr && !foundSavedBuilding)) {
+                showManualEntryElement.checked = true;
+                manualIdEntryDiv.style.display = 'block';
+              } else if (!showManualEntryElement.checked) {
+                manualIdEntryDiv.style.display = 'none';
+              }
             }
           });
         }
@@ -3223,42 +3332,82 @@
 
           // Disable the button and show loading state
           refreshDevicesButton.disabled = true;
-          deviceRefreshStatus.textContent = "Saving credentials...";
+          if (deviceRefreshStatus) {
+            deviceRefreshStatus.textContent = "Saving credentials...";
+          }
 
-          // Get credentials from form inputs
-          const melcloudUser = melcloudUserElement.value.trim();
-          const melcloudPass = melcloudPassElement.value;
+          const vendor = getSelectedVendor();
+          Homey.set("vendor", vendor, function (err) {
+            if (err) {
+              console.warn('Failed to persist vendor before refreshing devices', err);
+            }
+          });
 
-          // Validate credentials
-          if (!melcloudUser || !melcloudPass) {
-            refreshDevicesButton.disabled = false;
-            deviceRefreshStatus.textContent = "Error: Please enter both email and password";
+          if (vendor === 'myuplink') {
+            const token = myUplinkAccessTokenElement ? myUplinkAccessTokenElement.value.trim() : '';
+            if (!token) {
+              refreshDevicesButton.disabled = false;
+              if (deviceRefreshStatus) {
+                deviceRefreshStatus.textContent = "Error: Enter your myUplink access token";
+              }
+              return;
+            }
+
+            Homey.set("myuplink_access_token", token, function (err) {
+              if (err) {
+                refreshDevicesButton.disabled = false;
+                if (deviceRefreshStatus) {
+                  deviceRefreshStatus.textContent = "Error saving access token: " + err.message;
+                }
+                return;
+              }
+
+              if (deviceRefreshStatus) {
+                deviceRefreshStatus.textContent = "Loading devices...";
+              }
+
+              const currentDeviceId = myUplinkDeviceIdManualElement ? myUplinkDeviceIdManualElement.value : '';
+              loadDeviceList(currentDeviceId || null, null);
+            });
             return;
           }
 
-          // Save credentials to Homey settings first
+          // Default: MELCloud flow
+          const melcloudUser = melcloudUserElement ? melcloudUserElement.value.trim() : '';
+          const melcloudPass = melcloudPassElement ? melcloudPassElement.value : '';
+
+          if (!melcloudUser || !melcloudPass) {
+            refreshDevicesButton.disabled = false;
+            if (deviceRefreshStatus) {
+              deviceRefreshStatus.textContent = "Error: Please enter both email and password";
+            }
+            return;
+          }
+
           Homey.set("melcloud_user", melcloudUser, function (err) {
             if (err) {
               refreshDevicesButton.disabled = false;
-              deviceRefreshStatus.textContent = "Error saving email: " + err.message;
+              if (deviceRefreshStatus) {
+                deviceRefreshStatus.textContent = "Error saving email: " + err.message;
+              }
               return;
             }
 
             Homey.set("melcloud_pass", melcloudPass, function (err) {
               if (err) {
                 refreshDevicesButton.disabled = false;
-                deviceRefreshStatus.textContent = "Error saving password: " + err.message;
+                if (deviceRefreshStatus) {
+                  deviceRefreshStatus.textContent = "Error saving password: " + err.message;
+                }
                 return;
               }
 
-              // Credentials saved successfully, now load devices
-              deviceRefreshStatus.textContent = "Loading devices...";
+              if (deviceRefreshStatus) {
+                deviceRefreshStatus.textContent = "Loading devices...";
+              }
 
-              // Get the current saved IDs
               const currentDeviceId = deviceIdElement.value || manualDeviceIdElement.value;
               const currentBuildingId = buildingIdElement.value || manualBuildingIdElement.value;
-
-              // Call the loadDeviceList function
               loadDeviceList(currentDeviceId, currentBuildingId);
             });
           });
@@ -3266,6 +3415,9 @@
 
         // Add event listener for the device selection to update building selection
         deviceIdElement.addEventListener('change', function() {
+          if (getSelectedVendor() === 'myuplink' && myUplinkDeviceIdManualElement) {
+            myUplinkDeviceIdManualElement.value = deviceIdElement.value || '';
+          }
           const selectedOption = deviceIdElement.options[deviceIdElement.selectedIndex];
 
           if (selectedOption && selectedOption.dataset.buildingId) {
@@ -3365,21 +3517,44 @@
           // Note: Save remains enabled; we validate progressively and only block
           // when an entered value is outside allowed bounds (handled per-field below).
           // Save all settings
-          if (melcloudUserElement) persistSetting('melcloud_user', melcloudUserElement.value, { trimString: true });
+          const selectedVendor = getSelectedVendor();
+          persistSetting('vendor', selectedVendor);
 
-          if (melcloudPassElement) persistSetting('melcloud_pass', melcloudPassElement.value);
+          if (myUplinkAccessTokenElement) {
+            persistSetting('myuplink_access_token', myUplinkAccessTokenElement.value, { trimString: true });
+          }
 
-          // Save device and building IDs based on selection or manual entry
-          if (showManualEntryElement && showManualEntryElement.checked && manualDeviceIdElement && manualDeviceIdElement.value) {
-            persistSetting('device_id', manualDeviceIdElement.value, { trimString: true });
+          if (myUplinkDeviceIdManualElement) {
+            persistSetting('myuplink_device_id', myUplinkDeviceIdManualElement.value, { trimString: true });
+          }
 
-            const manualBuildingId = parseInt(manualBuildingIdElement ? manualBuildingIdElement.value : '0', 10);
-            persistSetting('building_id', Number.isFinite(manualBuildingId) ? manualBuildingId : 0);
-          } else {
-            if (deviceIdElement) persistSetting('device_id', deviceIdElement.value, { trimString: true });
+          if (melcloudUserElement) {
+            const melcloudUser = melcloudUserElement.value;
+            if (selectedVendor === 'melcloud' || (melcloudUser && melcloudUser.trim().length > 0)) {
+              persistSetting('melcloud_user', melcloudUser, { trimString: true });
+            }
+          }
 
-            const selectedBuildingId = parseInt(buildingIdElement ? buildingIdElement.value : '0', 10);
-            persistSetting('building_id', Number.isFinite(selectedBuildingId) ? selectedBuildingId : 0);
+          if (melcloudPassElement) {
+            const melcloudPass = melcloudPassElement.value;
+            if (selectedVendor === 'melcloud' || (melcloudPass && melcloudPass.length > 0)) {
+              persistSetting('melcloud_pass', melcloudPass);
+            }
+          }
+
+          if (selectedVendor === 'melcloud') {
+            // Save device and building IDs based on selection or manual entry
+            if (showManualEntryElement && showManualEntryElement.checked && manualDeviceIdElement && manualDeviceIdElement.value) {
+              persistSetting('device_id', manualDeviceIdElement.value, { trimString: true });
+
+              const manualBuildingId = parseInt(manualBuildingIdElement ? manualBuildingIdElement.value : '0', 10);
+              persistSetting('building_id', Number.isFinite(manualBuildingId) ? manualBuildingId : 0);
+            } else {
+              if (deviceIdElement) persistSetting('device_id', deviceIdElement.value, { trimString: true });
+
+              const selectedBuildingId = parseInt(buildingIdElement ? buildingIdElement.value : '0', 10);
+              persistSetting('building_id', Number.isFinite(selectedBuildingId) ? selectedBuildingId : 0);
+            }
           }
 
           // Do not persist UI-only manual entry settings

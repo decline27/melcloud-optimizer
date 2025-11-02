@@ -14,6 +14,7 @@ import {
   HomeyApp
 } from './types';
 import { OrchestratorMetrics } from './metrics';
+import { Vendor } from './providers/types';
 
 /**
  * MELCloud Heat Pump Optimizer App
@@ -40,6 +41,7 @@ export default class HeatOptimizerApp extends App {
   }
   private memoryUsageInterval?: NodeJS.Timeout;
   private timeZoneHelper?: TimeZoneHelper;
+  private pendingVendorNotice: Vendor | null = null;
 
   /**
    * Warning method for compatibility
@@ -110,6 +112,52 @@ export default class HeatOptimizerApp extends App {
       }
     } catch (e) {
       this.logger.error('Failed to migrate legacy savings', e as Error);
+    }
+  }
+
+  private async migrateVendorSettings(): Promise<void> {
+    try {
+      const currentVendor = (this.homey.settings.get('vendor') as Vendor | null) ?? null;
+      const vendor: Vendor = currentVendor === 'myuplink' ? 'myuplink' : 'melcloud';
+
+      if (currentVendor !== vendor) {
+        await this.homey.settings.set('vendor', vendor);
+        this.logger.info(`Vendor setting initialized to ${vendor}`);
+      }
+
+      const noticeLogged = this.homey.settings.get('vendor_notice_logged');
+      if (!noticeLogged) {
+        this.pendingVendorNotice = vendor;
+        await this.homey.settings.set('vendor_notice_logged', true);
+      }
+    } catch (error) {
+      this.logger.warn('Failed to migrate vendor settings', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  private async publishVendorNotice(): Promise<void> {
+    if (!this.pendingVendorNotice) {
+      return;
+    }
+
+    const vendorName = this.pendingVendorNotice === 'myuplink' ? 'myUplink' : 'MELCloud';
+    const message = `Multi-vendor support enabled; current vendor: ${vendorName}.`;
+
+    try {
+      if (this.timelineHelper) {
+        await this.timelineHelper.createInfoEntry('Heat Pump Optimizer', message, false);
+      } else if (this.homey.timeline) {
+        await this.homey.timeline.createEntry({ title: 'Heat Pump Optimizer', body: message, icon: 'mdi:information' });
+      }
+      this.logger.info(message);
+    } catch (error) {
+      this.logger.warn('Failed to publish vendor migration notice', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    } finally {
+      this.pendingVendorNotice = null;
     }
   }
 
@@ -427,6 +475,7 @@ export default class HeatOptimizerApp extends App {
 
     // Migrate legacy savings to new metrics structure
     this.migrateLegacySavings();
+    await this.migrateVendorSettings();
 
     // API is automatically registered by Homey
 
@@ -472,6 +521,7 @@ export default class HeatOptimizerApp extends App {
       
       this.timelineHelper = new TimelineHelper(homeyAppAdapter, this.logger);
       this.logger.info('Timeline Helper initialized');
+      await this.publishVendorNotice();
     } catch (error) {
       this.logger.error('Failed to initialize Timeline Helper', error as Error);
     }
