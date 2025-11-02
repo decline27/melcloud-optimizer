@@ -29,6 +29,45 @@
         background-color: #e09612;
       }
 
+      /* Button styles for savings history range selector */
+      .btn {
+        border: 1px solid #d1d5db;
+        background: #fff;
+        color: #374151;
+        padding: 4px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 500;
+        transition: all 0.15s ease;
+      }
+      
+      .btn-ghost {
+        border-color: #e5e7eb;
+        background: #f9fafb;
+      }
+      
+      .btn-xs {
+        padding: 3px 10px;
+        font-size: 12px;
+      }
+      
+      .btn:hover {
+        background: #f3f4f6;
+        border-color: #9ca3af;
+      }
+      
+      .btn[aria-pressed="true"] {
+        background: #1f2937;
+        color: #fff;
+        border-color: #1f2937;
+      }
+      
+      .btn[aria-pressed="true"]:hover {
+        background: #111827;
+        border-color: #111827;
+      }
+
       /* Accessible accordion styling */
       details.homey-form-fieldset {
         border: 1px solid #eee;
@@ -344,7 +383,7 @@
                 <span id="cooling_rate_value" style="font-weight: 500; margin-left: 4px;">—</span>
               </div>
               <div id="thermal_mass_row" style="display: none;">
-                <span class="metric-label" data-tooltip="How much heat your building stores. Higher = better heat retention and smoother control.">Thermal mass:</span>
+                <span class="metric-label" data-tooltip="How much heat your building stores. Higher closer to 1.0 = better heat retention and smoother control.">Thermal mass:</span>
                 <span id="thermal_mass_value" style="font-weight: 500; margin-left: 4px;">—</span>
               </div>
             </div>
@@ -446,7 +485,7 @@
               </div>
             </div>
             <div id="smart-savings-chart-wrap" style="margin:6px 0 10px;">
-              <svg id="smart-savings-chart" viewBox="0 0 320 80" preserveAspectRatio="none" role="img" aria-label="Savings over time"></svg>
+              <svg id="smart-savings-chart" viewBox="0 0 320 100" preserveAspectRatio="none" role="img" aria-label="Savings over time" style="width: 100%; height: 120px;"></svg>
               <div id="smart-savings-chart-empty" class="muted" style="display:none;font-size:0.9em;">No savings history yet.</div>
             </div>
             <details id="smart-savings-why" style="margin-top:4px;">
@@ -1570,7 +1609,7 @@
         function ss_drawChart(svg, points, currency) {
           while (svg.firstChild) svg.removeChild(svg.firstChild);
 
-          const W = 320, H = 80, P = 6;
+          const W = 320, H = 100, P = 20, PR = 35;  // Increased height and padding for labels
           svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
           if (!points || points.length === 0) return;
 
@@ -1585,43 +1624,122 @@
           const denomX = maxX - minX || 1;
           const denomY = maxY - minY || 1;
 
-          const xScale = x => P + (W - 2 * P) * (x - minX) / denomX;
+          const xScale = x => P + (W - P - PR) * (x - minX) / denomX;
           const yScale = y => H - P - (H - 2 * P) * (y - minY) / denomY;
 
-          const grid = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-          grid.setAttribute('d', `M ${P} ${yScale(0)} L ${W - P} ${yScale(0)}`);
-          grid.setAttribute('stroke', '#ddd');
-          grid.setAttribute('stroke-width', '1');
-          svg.appendChild(grid);
+          // Background grid lines
+          const gridLines = 3;
+          for (let i = 0; i <= gridLines; i++) {
+            const yVal = minY + (maxY - minY) * i / gridLines;
+            const yPos = yScale(yVal);
+            const grid = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            grid.setAttribute('d', `M ${P} ${yPos} L ${W - PR} ${yPos}`);
+            grid.setAttribute('stroke', i === 0 ? '#ccc' : '#f0f0f0');
+            grid.setAttribute('stroke-width', i === 0 ? '1' : '0.5');
+            svg.appendChild(grid);
 
+            // Y-axis labels
+            const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            label.setAttribute('x', W - PR + 4);
+            label.setAttribute('y', yPos + 3);
+            label.setAttribute('fill', '#666');
+            label.setAttribute('font-size', '9');
+            label.setAttribute('font-family', 'system-ui, sans-serif');
+            label.textContent = yVal.toFixed(0);
+            svg.appendChild(label);
+          }
+
+          // Draw line path
           let d = '';
           xs.forEach((x, i) => {
             const X = xScale(x);
             const Y = yScale(ys[i]);
             d += (i === 0 ? `M ${X} ${Y}` : ` L ${X} ${Y}`);
           });
-          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-          path.setAttribute('d', d);
-          path.setAttribute('fill', 'none');
-          path.setAttribute('stroke', '#555');
-          path.setAttribute('stroke-width', '2');
-          svg.appendChild(path);
-
+          
+          // Gradient area under the line
           const area = document.createElementNS('http://www.w3.org/2000/svg', 'path');
           const areaD = `${d} L ${xScale(maxX)} ${H - P} L ${xScale(minX)} ${H - P} Z`;
           area.setAttribute('d', areaD);
-          area.setAttribute('fill', '#000');
-          area.setAttribute('opacity', '0.06');
+          area.setAttribute('fill', '#059669');
+          area.setAttribute('opacity', '0.1');
           svg.appendChild(area);
 
+          // Main line
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          path.setAttribute('d', d);
+          path.setAttribute('fill', 'none');
+          path.setAttribute('stroke', '#059669');
+          path.setAttribute('stroke-width', '2');
+          path.setAttribute('stroke-linecap', 'round');
+          path.setAttribute('stroke-linejoin', 'round');
+          svg.appendChild(path);
+
+          // Data points
+          xs.forEach((x, i) => {
+            const X = xScale(x);
+            const Y = yScale(ys[i]);
+            const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            dot.setAttribute('cx', X);
+            dot.setAttribute('cy', Y);
+            dot.setAttribute('r', '2');
+            dot.setAttribute('fill', '#059669');
+            dot.setAttribute('stroke', '#fff');
+            dot.setAttribute('stroke-width', '1');
+            
+            // Add tooltip on hover
+            const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+            const dateStr = points[i].date || `Day ${i + 1}`;
+            const valueStr = ys[i].toFixed(2);
+            title.textContent = `${dateStr}: ${valueStr} ${currency}`;
+            dot.appendChild(title);
+            
+            svg.appendChild(dot);
+          });
+
+          // Highlight the last point
           const lastX = xScale(maxX);
           const lastY = yScale(ys[ys.length - 1]);
-          const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-          dot.setAttribute('cx', lastX);
-          dot.setAttribute('cy', lastY);
-          dot.setAttribute('r', '2.8');
-          dot.setAttribute('fill', '#000');
-          svg.appendChild(dot);
+          const lastDot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          lastDot.setAttribute('cx', lastX);
+          lastDot.setAttribute('cy', lastY);
+          lastDot.setAttribute('r', '4');
+          lastDot.setAttribute('fill', '#059669');
+          lastDot.setAttribute('stroke', '#fff');
+          lastDot.setAttribute('stroke-width', '2');
+          svg.appendChild(lastDot);
+
+          // Add first and last date labels on X-axis
+          if (points.length > 0) {
+            const firstDate = new Date(points[0].date);
+            const lastDate = new Date(points[points.length - 1].date);
+            
+            const formatDate = (d) => {
+              const month = d.toLocaleDateString('en', { month: 'short' });
+              const day = d.getDate();
+              return `${month} ${day}`;
+            };
+
+            // First date label
+            const firstLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            firstLabel.setAttribute('x', P);
+            firstLabel.setAttribute('y', H - 2);
+            firstLabel.setAttribute('fill', '#999');
+            firstLabel.setAttribute('font-size', '9');
+            firstLabel.setAttribute('font-family', 'system-ui, sans-serif');
+            firstLabel.textContent = formatDate(firstDate);
+            svg.appendChild(firstLabel);
+
+            // Last date label
+            const lastLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            lastLabel.setAttribute('x', W - PR - 30);
+            lastLabel.setAttribute('y', H - 2);
+            lastLabel.setAttribute('fill', '#999');
+            lastLabel.setAttribute('font-size', '9');
+            lastLabel.setAttribute('font-family', 'system-ui, sans-serif');
+            lastLabel.textContent = formatDate(lastDate);
+            svg.appendChild(lastLabel);
+          }
 
           const last = ys[ys.length - 1];
           svg.setAttribute('aria-label', `Savings over time. Last value ${last.toFixed(2)} ${currency || ''}`);

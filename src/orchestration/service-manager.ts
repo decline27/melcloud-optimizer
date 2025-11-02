@@ -390,12 +390,13 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
     serviceState.weather = null;
   }
 
+  const optimizerLogger = appLogger || (homey.app as any);
   const optimizer = new Optimizer(
     melCloud,
     priceProvider,
     deviceId,
     buildingId,
-    homey.app as any, // logger
+    optimizerLogger, // logger
     serviceState.weather as any, // weatherApi
     homey as any // homey instance for thermal learning
   );
