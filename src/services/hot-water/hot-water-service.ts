@@ -70,8 +70,6 @@ export class HotWaterService {
         return false;
       }
 
-      this.lastDataCollectionTime = now;
-
       // Extract relevant data from device state
       if (!deviceState || !deviceState.SetTankWaterTemperature) {
         this.homey.log('No tank water temperature data available');
@@ -88,25 +86,44 @@ export class HotWaterService {
       const recentPoint = previousDataPoints.length > 0 ? previousDataPoints[previousDataPoints.length - 1] : null;
       
       // Use incremental energy calculation or fallback to daily totals
-      let hotWaterEnergyProduced = deviceState.DailyHotWaterEnergyProduced || 0;
-      let hotWaterEnergyConsumed = deviceState.DailyHotWaterEnergyConsumed || 0;
+      const producedCounter = typeof deviceState.DailyHotWaterEnergyProduced === 'number'
+        ? deviceState.DailyHotWaterEnergyProduced
+        : undefined;
+      const consumedCounter = typeof deviceState.DailyHotWaterEnergyConsumed === 'number'
+        ? deviceState.DailyHotWaterEnergyConsumed
+        : undefined;
+
+      let hotWaterEnergyProduced = producedCounter ?? 0;
+      let hotWaterEnergyConsumed = consumedCounter ?? 0;
       
       // If we have recent data and it's the same day, calculate incremental usage
       if (recentPoint) {
         const recentTime = new Date(recentPoint.timestamp);
         const isSameDay = recentTime.toDateString() === localDate.toDateString();
         
-        if (isSameDay && deviceState.DailyHotWaterEnergyProduced) {
-          const incremental = deviceState.DailyHotWaterEnergyProduced - (recentPoint.hotWaterEnergyProduced || 0);
-          if (incremental > 0) {
+        const recentRawProduced = typeof recentPoint.rawHotWaterEnergyProduced === 'number'
+          ? recentPoint.rawHotWaterEnergyProduced
+          : undefined;
+        const recentRawConsumed = typeof recentPoint.rawHotWaterEnergyConsumed === 'number'
+          ? recentPoint.rawHotWaterEnergyConsumed
+          : undefined;
+
+        if (isSameDay && producedCounter !== undefined && recentRawProduced !== undefined) {
+          const incremental = producedCounter - recentRawProduced;
+          if (incremental >= 0) {
             hotWaterEnergyProduced = incremental;
+          } else {
+            // Counter reset mid-day (device reboot), treat reading as fresh cumulative value
+            hotWaterEnergyProduced = producedCounter;
           }
         }
         
-        if (isSameDay && deviceState.DailyHotWaterEnergyConsumed) {
-          const incremental = deviceState.DailyHotWaterEnergyConsumed - (recentPoint.hotWaterEnergyConsumed || 0);
-          if (incremental > 0) {
+        if (isSameDay && consumedCounter !== undefined && recentRawConsumed !== undefined) {
+          const incremental = consumedCounter - recentRawConsumed;
+          if (incremental >= 0) {
             hotWaterEnergyConsumed = incremental;
+          } else {
+            hotWaterEnergyConsumed = consumedCounter;
           }
         }
       }
@@ -130,6 +147,8 @@ export class HotWaterService {
         hotWaterEnergyProduced,
         hotWaterEnergyConsumed,
         hotWaterCOP: this.calculateCOP(deviceState),
+        rawHotWaterEnergyProduced: producedCounter,
+        rawHotWaterEnergyConsumed: consumedCounter,
         isHeating: this.isHeatingHotWater(deviceState),
         hourOfDay: currentHour,
         dayOfWeek: (localDate.getDay() + 6) % 7 // Convert Sunday=0 to 0-6 format (Monday=0)
@@ -137,6 +156,7 @@ export class HotWaterService {
 
       // Add data point to collector
       await this.dataCollector.addDataPoint(dataPoint);
+      this.lastDataCollectionTime = Date.now();
 
       // Enhanced logging with more details
       const totalDataPoints = this.dataCollector.getAllDataPoints().length;

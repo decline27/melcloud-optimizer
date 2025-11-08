@@ -28,6 +28,8 @@ export interface HotWaterUsageDataPoint {
   hotWaterEnergyProduced: number;
   hotWaterEnergyConsumed: number;
   hotWaterCOP: number;
+  rawHotWaterEnergyProduced?: number;
+  rawHotWaterEnergyConsumed?: number;
   isHeating: boolean; // Whether the tank is actively heating
   hourOfDay: number; // Hour of the day (0-23)
   dayOfWeek: number; // Day of the week (0-6, 0 = Sunday)
@@ -96,8 +98,15 @@ export class HotWaterDataCollector {
         this.dataPoints = [];
       }
 
-      // Clean up data on load (remove old data points, trim to max size)
-      this.cleanupDataOnLoad();
+      const legacyReset = this.resetLegacyCountersIfNeeded();
+
+      if (legacyReset) {
+        // Persist the reset state so future loads start clean
+        this.saveData();
+      } else {
+        // Clean up data on load (remove old data points, trim to max size)
+        this.cleanupDataOnLoad();
+      }
 
       this.initialized = true;
     } catch (error) {
@@ -105,6 +114,30 @@ export class HotWaterDataCollector {
       this.dataPoints = [];
       this.aggregatedData = [];
       this.initialized = true;
+    }
+  }
+
+  /**
+   * Legacy migration: clear datasets that were stored without raw counters.
+   * These points cannot be corrected because the original MELCloud counters were lost.
+   * @returns true when a reset was performed
+   */
+  private resetLegacyCountersIfNeeded(): boolean {
+    try {
+      const legacyPoint = this.dataPoints.find(dp => typeof dp.rawHotWaterEnergyProduced !== 'number' || typeof dp.rawHotWaterEnergyConsumed !== 'number');
+      if (!legacyPoint) {
+        return false;
+      }
+
+      this.homey.log('Detected legacy hot water data without raw energy counters, resetting dataset to avoid inflated deltas');
+      this.dataPoints = [];
+      this.aggregatedData = [];
+      this.homey.settings.unset(HOT_WATER_DATA_SETTINGS_KEY);
+      this.homey.settings.unset(HOT_WATER_AGGREGATED_DATA_SETTINGS_KEY);
+      return true;
+    } catch (error) {
+      this.homey.error(`Error handling legacy hot water data reset: ${error}`);
+      return false;
     }
   }
 

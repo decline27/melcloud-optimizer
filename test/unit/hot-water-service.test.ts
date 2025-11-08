@@ -26,6 +26,7 @@ describe('HotWaterService (unit)', () => {
     const res = await svc.collectData(undefined as any);
     expect(res).toBe(false);
     expect((svc as any).dataCollector.addDataPoint).not.toHaveBeenCalled();
+    expect((svc as any).lastDataCollectionTime).toBe(0);
   });
 
   test('collectData adds a valid datapoint and triggers analyzer when interval passed', async () => {
@@ -67,6 +68,47 @@ describe('HotWaterService (unit)', () => {
     expect(res).toBe(true);
     expect(addSpy).toHaveBeenCalled();
     expect(updatePatterns).toHaveBeenCalled();
+  });
+
+  test('collectData derives incremental energy from raw counters', async () => {
+    const homey: any = makeHomey();
+    const svc = new HotWaterService(homey);
+
+    const storedPoints: any[] = [];
+    const addSpy = jest.fn(async (point: any) => {
+      storedPoints.push(point);
+    });
+    const getAllSpy = jest.fn(() => storedPoints);
+    const updatePatterns = jest.fn().mockResolvedValue(undefined);
+
+    (svc as any).dataCollector = {
+      addDataPoint: addSpy,
+      getAllDataPoints: getAllSpy
+    };
+    (svc as any).analyzer = { updatePatterns };
+
+    const sample = async (produced: number, consumed: number) => {
+      await svc.collectData({
+        SetTankWaterTemperature: 50,
+        TankWaterTemperature: 45,
+        DailyHotWaterEnergyProduced: produced,
+        DailyHotWaterEnergyConsumed: consumed,
+        HotWaterActive: true
+      } as any);
+      // Allow subsequent samples
+      (svc as any).lastDataCollectionTime = Date.now() - (6 * 60 * 1000);
+    };
+
+    await sample(2.0, 1.0);
+    await sample(2.4, 1.2);
+    await sample(2.7, 1.35);
+
+    expect(storedPoints).toHaveLength(3);
+    expect(storedPoints[0].hotWaterEnergyProduced).toBeCloseTo(2.0, 5);
+    expect(storedPoints[1].hotWaterEnergyProduced).toBeCloseTo(0.4, 5);
+    expect(storedPoints[2].hotWaterEnergyProduced).toBeCloseTo(0.3, 5);
+    expect(storedPoints[1].rawHotWaterEnergyProduced).toBeCloseTo(2.4, 5);
+    expect(storedPoints[2].rawHotWaterEnergyProduced).toBeCloseTo(2.7, 5);
   });
 
   test('getOptimalTankTemperature returns analyzer result and handles errors', () => {
