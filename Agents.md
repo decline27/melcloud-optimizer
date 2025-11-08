@@ -60,6 +60,14 @@ This Homey SDK 3 TypeScript app orchestrates Mitsubishi Electric heat pump sched
 - Settings UI lives in `settings/index.html` and covers credentials, price source, comfort bands, hot-water configuration, currency overrides, consumer markup JSON, FX cache, logging level, and timezone controls.
 - Flow definitions reside under `.homeycompose/flow/` and `drivers/boiler/driver.flow.compose.json`; custom capabilities are in `capabilities/`.
 
+## Review Context Assets
+
+- `/review/context/FACTS.md` captures the up-to-date “facts & invariants” packet for high-impact reviews. Always read it before surfacing bugs; treat the **Known Non-Issues** section as authoritative (do not re-report them unless new evidence conflicts).
+- `/review/context/PROMPT.md` defines the reusable review prompt: required files to inspect, evidence standards (≤6-line snippets, file:line cites), output structure, and guardrails (comfort safety, DST alignment, savings visibility). Copy it verbatim whenever you request a code review.
+- Update both files whenever domain invariants, constants, scope, or review expectations change (e.g., new learning guardrails, different price percentile defaults, altered cron ownership). Keep them under 400 lines combined.
+- When facts drift, update `FACTS.md` first, then run any relevant `openspec update` or review tooling so downstream reviewers stay in sync.
+- Logs or dashboards cited in reviews must come from workspace sources (`documentation/HIGH_IMPACT_OPTIMIZER_REVIEW*.md`, `dashboard-output/**`, etc.); external links aren’t allowed.
+
 ## Pricing & Currency Pipeline
 
 - `price_data_source` selects Tibber or ENTSO-E. If Tibber lacks a token, `service-manager` falls back to ENTSO-E.
