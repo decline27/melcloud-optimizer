@@ -16,7 +16,7 @@ Guiding document distilled from the high-impact review so we can drive a PR thro
   3. Backfill existing stored points by recomputing deltas once (if feasible) or document/reset.
   4. Add unit test proving successive cumulative readings (2.0 → 2.4 → 2.7 kWh) yield deltas 0.4 / 0.3 kWh.
   5. **Reliability enhancement:** update `lastDataCollectionTime` *only after* payload validation and successful persist, so missing MELCloud fields don’t block learning.
-* **Status**: [x] Implemented: _pending commit hash_ (Tests: `npm run lint`, `npm test`)
+* **Status**: [x] Implemented: fe1ea5a (Tests: `npm run lint`, `npm test`)
 
 ## 2. Local Timestamp & Day-Of-Week Drift
 
@@ -28,7 +28,7 @@ Guiding document distilled from the high-impact review so we can drive a PR thro
   2. When computing “same day”, compare using the same timezone helper rather than raw `Date` strings.
   3. Migration: normalize existing samples (or clear them) so counters don’t reset mid-evening.
   4. Add regression covering a UTC+2 user at 22:30: ensure the next sample still sees the same local day.
-* **Status**: [x] Implemented: _pending commit hash_ (Tests: `npm run lint`, `npm test`)
+* **Status**: [x] Implemented: 695efab (Tests: `npm run lint`, `npm test`)
 
 ## 3. Hot-Water Day-Of-Week Mapping Mismatch
 
@@ -39,7 +39,7 @@ Guiding document distilled from the high-impact review so we can drive a PR thro
   1. Pick a single convention (recommend Monday=0..Sunday=6) and apply it in both collection and prediction.
   2. Migrate stored data or provide compatibility shim translating legacy values.
   3. Extend analyzer tests to assert Monday predictions pull Monday patterns.
-* **Status**: [x] Implemented: _pending commit hash_ (Tests: `npm run lint`, `npm test`)
+* **Status**: [x] Implemented: 5b5c91b (Tests: `npm run lint`, `npm test`)
 
 ## 4. Thermal Response Expected Delta Hard-Coded
 
@@ -50,7 +50,7 @@ Guiding document distilled from the high-impact review so we can drive a PR thro
   1. Feed the true `zone1FinalConstraints.deltaC` (or 0 when held) into `updateThermalResponse`.
   2. Clamp to a sensible window (e.g., ±2 °C) instead of a fixed ±0.2 °C constant.
   3. Add unit test around `updateThermalResponse` verifying no adjustment when observed≈expected.
-* **Status**: [x] Implemented: _pending commit hash_ (Tests: `npm run lint`, `npm test`)
+* **Status**: [x] Implemented: 8462712 (Tests: `npm run lint`, `npm test`)
 
 ## 5. Thermal Time-To-Target Ignores Delta Magnitude
 
@@ -61,7 +61,7 @@ Guiding document distilled from the high-impact review so we can drive a PR thro
   1. Base heating time on actual ramp rate (e.g., `tempDiff / max(heatingRate * referenceDelta, ε)` or reuse `predictTemperature` to integrate).
   2. Include cooling path parity so coast predictions stay consistent.
   3. Cover with tests showing larger deltas produce proportionally longer times.
-* **Status**: [x] Implemented: _pending commit hash_ (Tests: `npm run lint`, `npm test`)
+* **Status**: [x] Implemented: de80c41 (Tests: `npm run lint`, `npm test`)
 
 ## 6. Hot-Water Sampling Interval & Data Collector Reliability
 
@@ -72,7 +72,7 @@ Guiding document distilled from the high-impact review so we can drive a PR thro
   1. Derive sample intervals dynamically from consecutive timestamps instead of constants.
   2. Recalculate `heatingHours` and `dataPointsPerDay` based on real intervals.
   3. Add test verifying computed durations reflect a 5 min poll cadence, not 20 min.
-* **Status**: [x] Implemented: _pending commit hash_ (Tests: `npm run lint`, `npm test`)
+* **Status**: [x] Implemented: 32b8e60 (Tests: `npm run lint`, `npm test`)
 
 ---
 
