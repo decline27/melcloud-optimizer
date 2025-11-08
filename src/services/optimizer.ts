@@ -2409,7 +2409,9 @@ export class Optimizer {
         adjustmentReason += ` | ${zone1FinalConstraints.reason}`;
       }
       targetTemp = zone1FinalConstraints.constrainedC;
-      expectedDelta = zone1FinalConstraints.deltaC > 0 ? 0.2 : zone1FinalConstraints.deltaC < 0 ? -0.1 : 0;
+      const rawExpectedDelta = zone1FinalConstraints.changed ? zone1FinalConstraints.deltaC : 0;
+      const clampLimit = 2; // prevent unrealistic deltas from skewing thermal response learning
+      expectedDelta = Math.max(-clampLimit, Math.min(clampLimit, rawExpectedDelta));
       tempDifference = Math.abs(zone1FinalConstraints.deltaC);
       lockoutActive = zone1FinalConstraints.lockoutActive;
       isSignificantChange = zone1FinalConstraints.changed && !lockoutActive;

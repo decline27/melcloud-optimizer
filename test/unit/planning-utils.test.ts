@@ -87,4 +87,10 @@ describe('planning-utils', () => {
     const clamped = updateThermalResponse(1.4, -2, 0.2, { alpha: 0.5, min: 0.5, max: 1.5 });
     expect(clamped).toBeCloseTo(0.5, 5);
   });
+
+  test('thermal response stays steady when observed delta matches expectation', () => {
+    const baseline = 1.1;
+    const updated = updateThermalResponse(baseline, 0.4, 0.4, { alpha: 0.3, min: 0.5, max: 1.5 });
+    expect(updated).toBeCloseTo(baseline, 5);
+  });
 });

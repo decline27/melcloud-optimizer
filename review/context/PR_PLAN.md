@@ -50,6 +50,7 @@ Guiding document distilled from the high-impact review so we can drive a PR thro
   1. Feed the true `zone1FinalConstraints.deltaC` (or 0 when held) into `updateThermalResponse`.
   2. Clamp to a sensible window (e.g., ±2 °C) instead of a fixed ±0.2 °C constant.
   3. Add unit test around `updateThermalResponse` verifying no adjustment when observed≈expected.
+* **Status**: [x] Implemented: _pending commit hash_ (Tests: `npm run lint`, `npm test`)
 
 ## 5. Thermal Time-To-Target Ignores Delta Magnitude
 
