@@ -20,6 +20,8 @@ const DEFAULT_MAX_DATA_POINTS = 2016; // ~7 days of data at 5-minute intervals
 const MAX_DATA_AGE_DAYS = 30;
 // Maximum size of data to store in settings (bytes)
 const MAX_SETTINGS_DATA_SIZE = 500000; // ~500KB
+const DEFAULT_INTERVAL_MINUTES = 5;
+const MAX_INTERVAL_MINUTES = 30;
 
 export interface HotWaterUsageDataPoint {
   timestamp: string;
@@ -320,17 +322,25 @@ export class HotWaterDataCollector {
         return;
       }
 
+      const sortedPoints = [...dataPoints].sort((a, b) =>
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      );
+      const sampleDurations = this.computeSampleDurations(sortedPoints);
+
       // Calculate averages and totals
-      const avgTankTemperature = dataPoints.reduce((sum, dp) => sum + dp.tankTemperature, 0) / dataPoints.length;
-      const avgTargetTankTemperature = dataPoints.reduce((sum, dp) => sum + dp.targetTankTemperature, 0) / dataPoints.length;
-      const totalHotWaterEnergyProduced = dataPoints.reduce((sum, dp) => sum + dp.hotWaterEnergyProduced, 0);
-      const totalHotWaterEnergyConsumed = dataPoints.reduce((sum, dp) => sum + dp.hotWaterEnergyConsumed, 0);
+      const avgTankTemperature = sortedPoints.reduce((sum, dp) => sum + dp.tankTemperature, 0) / sortedPoints.length;
+      const avgTargetTankTemperature = sortedPoints.reduce((sum, dp) => sum + dp.targetTankTemperature, 0) / sortedPoints.length;
+      const totalHotWaterEnergyProduced = sortedPoints.reduce((sum, dp) => sum + dp.hotWaterEnergyProduced, 0);
+      const totalHotWaterEnergyConsumed = sortedPoints.reduce((sum, dp) => sum + dp.hotWaterEnergyConsumed, 0);
       const avgHotWaterCOP = totalHotWaterEnergyConsumed > 0 ? totalHotWaterEnergyProduced / totalHotWaterEnergyConsumed : 0;
-      const heatingHours = dataPoints.filter(dp => dp.isHeating).length * (20 / 60); // Assuming 20-minute intervals
+      const heatingMinutes = sortedPoints.reduce((sum, dp, idx) => {
+        return dp.isHeating ? sum + sampleDurations[idx] : sum;
+      }, 0);
+      const heatingHours = heatingMinutes / 60;
 
       // Calculate usage by hour (24 values)
       const usageByHour = new Array(24).fill(0);
-      dataPoints.forEach(dp => {
+      sortedPoints.forEach(dp => {
         if (dp.hotWaterEnergyProduced > 0) {
           usageByHour[dp.hourOfDay] += dp.hotWaterEnergyProduced;
         }
@@ -480,6 +490,29 @@ export class HotWaterDataCollector {
       detailed: this.dataPoints,
       aggregated: this.aggregatedData
     };
+  }
+
+  /**
+   * Compute sample durations (in minutes) for a chronologically sorted list of data points.
+   */
+  private computeSampleDurations(points: HotWaterUsageDataPoint[]): number[] {
+    if (points.length === 0) {
+      return [];
+    }
+
+    const durations = new Array(points.length).fill(DEFAULT_INTERVAL_MINUTES);
+    for (let i = 0; i < points.length - 1; i++) {
+      const currentTs = new Date(points[i].timestamp).getTime();
+      const nextTs = new Date(points[i + 1].timestamp).getTime();
+      const diffMinutes = Math.max(0, (nextTs - currentTs) / 60000);
+      durations[i] = Math.min(diffMinutes || DEFAULT_INTERVAL_MINUTES, MAX_INTERVAL_MINUTES);
+    }
+
+    if (points.length > 1) {
+      durations[points.length - 1] = durations[points.length - 2];
+    }
+
+    return durations;
   }
 
   /**
@@ -698,8 +731,25 @@ export class HotWaterDataCollector {
       // Calculate bytes per data point
       const bytesPerDataPoint = this.dataPoints.length > 0 ? dataJson.length / this.dataPoints.length : 0;
 
-      // Calculate data points per day based on collection interval
-      const dataPointsPerDay = 24 * 3; // Assuming 20-minute intervals (3 per hour)
+      // Calculate data points per day based on observed collection interval
+      let dataPointsPerDay = 0;
+      if (this.dataPoints.length > 1) {
+        const sortedPoints = [...this.dataPoints].sort((a, b) =>
+          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+        );
+        const durations = this.computeSampleDurations(sortedPoints);
+        const totalMinutes = durations.reduce((sum, val) => sum + val, 0);
+        const avgInterval = totalMinutes / durations.length;
+        if (avgInterval > 0) {
+          dataPointsPerDay = Math.round((24 * 60) / avgInterval);
+        }
+      } else if (this.dataPoints.length === 1) {
+        dataPointsPerDay = Math.round((24 * 60) / DEFAULT_INTERVAL_MINUTES);
+      }
+
+      if (dataPointsPerDay === 0) {
+        dataPointsPerDay = Math.round((24 * 60) / DEFAULT_INTERVAL_MINUTES);
+      }
 
       return {
         usageKB,

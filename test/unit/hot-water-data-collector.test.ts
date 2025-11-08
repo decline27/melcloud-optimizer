@@ -238,6 +238,34 @@ describe('HotWaterDataCollector', () => {
     expect(Array.isArray(aggregatedData)).toBe(true);
   });
 
+  test('aggregateDataForDay uses actual sample intervals for heating hours', async () => {
+    const base = new Date('2024-01-01T00:00:00Z').getTime();
+    const points: HotWaterUsageDataPoint[] = [];
+    for (let i = 0; i < 6; i++) {
+      const ts = new Date(base + i * 5 * 60 * 1000).toISOString();
+      points.push({
+        timestamp: ts,
+        localDayKey: '2024-01-01',
+        tankTemperature: 45,
+        targetTankTemperature: 50,
+        hotWaterEnergyProduced: 0.2,
+        hotWaterEnergyConsumed: 0.1,
+        hotWaterCOP: 2,
+        isHeating: true,
+        hourOfDay: 10,
+        dayOfWeek: 1,
+        timeZoneName: 'Europe/Oslo',
+        timeZoneOffset: 2,
+        localTimeString: '2024-01-01 10:00:00 Europe/Oslo'
+      });
+    }
+
+    await (collector as any).aggregateDataForDay('2024-01-01', points);
+    const aggregated = collector.getAggregatedData().find(entry => entry.date === '2024-01-01');
+    expect(aggregated).toBeDefined();
+    expect(aggregated!.heatingHours).toBeCloseTo((points.length * 5) / 60, 2);
+  });
+
   test('getCombinedDataForAnalysis returns both detailed and aggregated data', () => {
     const combinedData = collector.getCombinedDataForAnalysis();
     expect(combinedData).toHaveProperty('detailed');
@@ -399,6 +427,33 @@ describe('HotWaterDataCollector', () => {
     expect(memoryUsage).toHaveProperty('dataPointsPerDay');
     expect(typeof memoryUsage.usageKB).toBe('number');
     expect(typeof memoryUsage.usagePercent).toBe('number');
+  });
+
+  test('getMemoryUsage derives dataPointsPerDay from sampling intervals', async () => {
+    const base = Date.now() - (60 * 60 * 1000);
+    const points: HotWaterUsageDataPoint[] = [];
+    for (let i = 0; i < 12; i++) {
+      const ts = new Date(base + i * 5 * 60 * 1000).toISOString();
+      points.push({
+        timestamp: ts,
+        localDayKey: ts.split('T')[0],
+        tankTemperature: 45,
+        targetTankTemperature: 50,
+        hotWaterEnergyProduced: 0.2,
+        hotWaterEnergyConsumed: 0.1,
+        hotWaterCOP: 2,
+        isHeating: true,
+        hourOfDay: 8,
+        dayOfWeek: 1,
+        timeZoneName: 'Europe/Oslo',
+        timeZoneOffset: 2,
+        localTimeString: `${ts.split('T')[0]} 08:00:00 Europe/Oslo`
+      });
+    }
+
+    await collector.setDataPoints(points);
+    const memoryUsage = collector.getMemoryUsage();
+    expect(memoryUsage.dataPointsPerDay).toBeGreaterThan(200);
   });
 
   test('getDataStatistics calculates statistics correctly with data', async () => {

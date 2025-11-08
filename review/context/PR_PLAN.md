@@ -72,6 +72,7 @@ Guiding document distilled from the high-impact review so we can drive a PR thro
   1. Derive sample intervals dynamically from consecutive timestamps instead of constants.
   2. Recalculate `heatingHours` and `dataPointsPerDay` based on real intervals.
   3. Add test verifying computed durations reflect a 5 min poll cadence, not 20 min.
+* **Status**: [x] Implemented: _pending commit hash_ (Tests: `npm run lint`, `npm test`)
 
 ---
 

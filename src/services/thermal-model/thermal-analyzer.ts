@@ -292,7 +292,21 @@ export class ThermalAnalyzer {
     }
 
     const isHeating = targetTemp > currentTemp;
-    if (!isHeating && outdoorTemp >= targetTemp) {
+    const tempDiff = Math.abs(targetTemp - currentTemp);
+
+    if (isHeating) {
+      const effectiveHeatingRate = Math.max(this.thermalCharacteristics.heatingRate, 0.01); // °C per hour
+      const hoursToTarget = tempDiff / effectiveHeatingRate;
+      const minutesToTarget = Math.ceil(hoursToTarget * 60);
+
+      return {
+        predictedTemperature: targetTemp,
+        timeToTarget: minutesToTarget,
+        confidence: this.thermalCharacteristics.modelConfidence
+      };
+    }
+
+    if (outdoorTemp >= targetTemp) {
       return {
         predictedTemperature: outdoorTemp,
         timeToTarget: Infinity,
@@ -300,46 +314,15 @@ export class ThermalAnalyzer {
       };
     }
 
-    const tolerance = 0.1;
-    const stepMinutes = 10;
-    const maxMinutes = 12 * 60; // cap simulations at 12 hours
-    let elapsedMinutes = 0;
-    let simulatedTemp = currentTemp;
-
-    while (elapsedMinutes < maxMinutes) {
-      const nextTemp = this.predictTemperature(
-        simulatedTemp,
-        targetTemp,
-        outdoorTemp,
-        isHeating,
-        weatherConditions,
-        stepMinutes
-      );
-
-      elapsedMinutes += stepMinutes;
-
-      const reachedTarget = isHeating
-        ? nextTemp >= targetTemp - tolerance
-        : nextTemp <= targetTemp + tolerance;
-
-      if (reachedTarget) {
-        return {
-          predictedTemperature: targetTemp,
-          timeToTarget: elapsedMinutes,
-          confidence: this.thermalCharacteristics.modelConfidence
-        };
-      }
-
-      if (Math.abs(nextTemp - simulatedTemp) < 0.005) {
-        break;
-      }
-
-      simulatedTemp = nextTemp;
-    }
+    const baseCoolingRate = Math.max(this.thermalCharacteristics.coolingRate, 0.005);
+    const windAssistedRate = Math.max(this.thermalCharacteristics.windImpact * weatherConditions.windSpeed, 0);
+    const effectiveCoolingRate = baseCoolingRate + windAssistedRate;
+    const hoursToCool = tempDiff / effectiveCoolingRate;
+    const minutesToCool = Math.ceil(hoursToCool * 60);
 
     return {
-      predictedTemperature: simulatedTemp,
-      timeToTarget: Infinity,
+      predictedTemperature: targetTemp,
+      timeToTarget: minutesToCool,
       confidence: this.thermalCharacteristics.modelConfidence
     };
   }
