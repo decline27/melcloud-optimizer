@@ -36,7 +36,7 @@ export interface HotWaterUsageDataPoint {
   rawHotWaterEnergyConsumed?: number;
   isHeating: boolean; // Whether the tank is actively heating
   hourOfDay: number; // Hour of the day (0-23)
-  dayOfWeek: number; // Day of the week (0-6, 0 = Sunday)
+  dayOfWeek: number; // Day of the week (0-6, 0 = Monday)
 }
 
 export interface AggregatedHotWaterDataPoint {

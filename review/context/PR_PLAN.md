@@ -39,6 +39,7 @@ Guiding document distilled from the high-impact review so we can drive a PR thro
   1. Pick a single convention (recommend Monday=0..Sunday=6) and apply it in both collection and prediction.
   2. Migrate stored data or provide compatibility shim translating legacy values.
   3. Extend analyzer tests to assert Monday predictions pull Monday patterns.
+* **Status**: [x] Implemented: _pending commit hash_ (Tests: `npm run lint`, `npm test`)
 
 ## 4. Thermal Response Expected Delta Hard-Coded
 

@@ -254,6 +254,13 @@ export class HotWaterAnalyzer {
   }
 
   /**
+   * Convert Luxon weekday (Monday=1..Sunday=7) into Monday=0..Sunday=6 indexing.
+   */
+  private toMondayZero(weekday: number): number {
+    return (weekday + 6) % 7;
+  }
+
+  /**
    * Get hot water usage patterns
    * @returns Hot water usage patterns
    */
@@ -264,7 +271,7 @@ export class HotWaterAnalyzer {
   /**
    * Predict hot water usage for a specific hour and day
    * @param hour Hour of day (0-23)
-   * @param dayOfWeek Day of week (0-6, 0 = Sunday)
+   * @param dayOfWeek Day of week (0-6, 0 = Monday)
    * @returns Predicted usage factor (relative to average)
    */
   public predictUsage(hour: number, dayOfWeek: number): number {
@@ -313,7 +320,7 @@ export class HotWaterAnalyzer {
       for (let i = 0; i < 24; i++) {
         const futureTime = now.plus({ hours: i });
         const hour = futureTime.hour;
-        const dayOfWeek = futureTime.weekday % 7; // Convert to 0-6 (0 = Sunday)
+        const dayOfWeek = this.toMondayZero(futureTime.weekday);
 
         predictions.push(this.predictUsage(hour, dayOfWeek));
       }
@@ -347,7 +354,7 @@ export class HotWaterAnalyzer {
       // Calculate the current hour's predicted usage
       const now = DateTime.now();
       const currentHour = now.hour;
-      const currentDayOfWeek = now.weekday % 7; // Convert to 0-6 (0 = Sunday)
+      const currentDayOfWeek = this.toMondayZero(now.weekday);
       const currentPredictedUsage = this.predictUsage(currentHour, currentDayOfWeek);
 
       // Calculate the next 6 hours' average predicted usage
@@ -355,7 +362,7 @@ export class HotWaterAnalyzer {
       for (let i = 1; i <= 6; i++) {
         const futureTime = now.plus({ hours: i });
         const hour = futureTime.hour;
-        const dayOfWeek = futureTime.weekday % 7;
+        const dayOfWeek = this.toMondayZero(futureTime.weekday);
         next6HoursUsage.push(this.predictUsage(hour, dayOfWeek));
       }
       const avgNext6HoursUsage = next6HoursUsage.reduce((sum, val) => sum + val, 0) / next6HoursUsage.length;

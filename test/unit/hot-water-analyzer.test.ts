@@ -49,7 +49,7 @@ describe('HotWaterAnalyzer', () => {
         hotWaterCOP: 2,
         isHeating: (i % 10) === 0,
         hourOfDay: dt.hour,
-        dayOfWeek: dt.weekday % 7
+        dayOfWeek: (dt.weekday + 6) % 7
       });
     }
 
@@ -82,4 +82,27 @@ describe('HotWaterAnalyzer', () => {
     const optimalExpensive = analyzer.getOptimalTankTemperature(40, 60, 0.2, 'EXPENSIVE');
     expect(typeof optimalExpensive).toBe('number');
   }, 10000);
+
+  test('predictUsage honors Monday=0 mapping', () => {
+    const homey = mockHomey();
+    const dataCollector = {
+      getCombinedDataForAnalysis: () => ({ detailed: new Array(12).fill(0), aggregated: [] })
+    } as any;
+
+    const analyzer = new HotWaterAnalyzer(homey, dataCollector);
+    const customPatterns = {
+      hourlyUsagePattern: new Array(24).fill(1),
+      dailyUsagePattern: [3, 1, 1, 1, 1, 1, 1],
+      hourlyByDayUsagePattern: new Array(7).fill(null).map(() => new Array(24).fill(1)),
+      confidence: 80,
+      lastUpdated: new Date().toISOString()
+    };
+    customPatterns.hourlyByDayUsagePattern[0][8] = 5; // Monday morning spike
+    customPatterns.hourlyByDayUsagePattern[1][8] = 1;
+    analyzer['patterns'] = customPatterns;
+
+    const mondayUsage = analyzer.predictUsage(8, 0);
+    const tuesdayUsage = analyzer.predictUsage(8, 1);
+    expect(mondayUsage).toBeGreaterThan(tuesdayUsage);
+  });
 });
