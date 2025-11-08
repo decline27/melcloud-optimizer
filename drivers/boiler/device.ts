@@ -62,6 +62,15 @@ module.exports = class BoilerDevice extends Homey.Device {
     lastFailureTime: null as Date | null,
     degradedModeActive: false
   };
+  private pollingSettingsListenerAttached = false;
+  private readonly onPollingSettingChange = (key: string) => {
+    if (!key.startsWith('polling_')) {
+      return;
+    }
+
+    this.logger.log(`Polling setting changed: ${key}, reinitializing...`);
+    this.initializePollingConfiguration(true);
+  };
 
   /**
    * onInit is called when the device is initialized.
@@ -983,11 +992,20 @@ module.exports = class BoilerDevice extends Homey.Device {
           await this.setCapabilityValue('hotwater_cop', hotWaterCOP);
         }
 
-        // Update meter capabilities with actual values
-        await this.updateEnergyCapability('meter_power.heating_consumed', (deviceState.DailyHeatingEnergyConsumed || 0) / 1000);
-        await this.updateEnergyCapability('meter_power.heating_produced', (deviceState.DailyHeatingEnergyProduced || 0) / 1000);
-        await this.updateEnergyCapability('meter_power.hotwater_consumed', (deviceState.DailyHotWaterEnergyConsumed || 0) / 1000);
-        await this.updateEnergyCapability('meter_power.hotwater_produced', (deviceState.DailyHotWaterEnergyProduced || 0) / 1000);
+        // Update meter capabilities with actual values (support legacy + future IDs)
+        const heatingConsumedKwh = (deviceState.DailyHeatingEnergyConsumed || 0) / 1000;
+        const heatingProducedKwh = (deviceState.DailyHeatingEnergyProduced || 0) / 1000;
+        const hotWaterConsumedKwh = (deviceState.DailyHotWaterEnergyConsumed || 0) / 1000;
+        const hotWaterProducedKwh = (deviceState.DailyHotWaterEnergyProduced || 0) / 1000;
+
+        await this.updateEnergyCapability('meter_power.heating', heatingConsumedKwh);
+        await this.updateEnergyCapability('meter_power.heating_consumed', heatingConsumedKwh);
+        await this.updateEnergyCapability('meter_power.produced_heating', heatingProducedKwh);
+        await this.updateEnergyCapability('meter_power.heating_produced', heatingProducedKwh);
+        await this.updateEnergyCapability('meter_power.hotwater', hotWaterConsumedKwh);
+        await this.updateEnergyCapability('meter_power.hotwater_consumed', hotWaterConsumedKwh);
+        await this.updateEnergyCapability('meter_power.produced_hotwater', hotWaterProducedKwh);
+        await this.updateEnergyCapability('meter_power.hotwater_produced', hotWaterProducedKwh);
         
         return; // Exit early since we have real data
       }
@@ -1595,17 +1613,20 @@ module.exports = class BoilerDevice extends Homey.Device {
   /**
    * Task 2.1: Initialize configurable polling intervals
    */
-  private initializePollingConfiguration() {
+  private initializePollingConfiguration(forceReschedule: boolean = false) {
     try {
       // Get user-configured intervals from settings (in minutes, convert to ms)
       const dataIntervalMinutes = this.getSetting('polling_data_interval') || 5;
       const energyIntervalMinutes = this.getSetting('polling_energy_interval') || 15;
       const adaptiveMode = this.getSetting('polling_adaptive_mode') !== false; // default true
-      
+
+      const previousDataInterval = this.currentDataInterval;
+      const previousEnergyInterval = this.currentEnergyInterval;
+
       // Validate and apply intervals
       this.currentDataInterval = Math.max(60000, dataIntervalMinutes * 60000); // Min 1 minute
       this.currentEnergyInterval = Math.max(300000, energyIntervalMinutes * 60000); // Min 5 minutes
-      
+
       // Update config
       this.pollingConfig.dataInterval = this.currentDataInterval;
       this.pollingConfig.energyInterval = this.currentEnergyInterval;
@@ -1614,15 +1635,29 @@ module.exports = class BoilerDevice extends Homey.Device {
       this.logger.log(`  - Data interval: ${dataIntervalMinutes} minutes (${this.currentDataInterval}ms)`);
       this.logger.log(`  - Energy interval: ${energyIntervalMinutes} minutes (${this.currentEnergyInterval}ms)`);
       this.logger.log(`  - Adaptive mode: ${adaptiveMode ? 'enabled' : 'disabled'}`);
-      
-      // Listen for settings changes
-      this.homey.settings.on('set', (key: string) => {
-        if (key.startsWith('polling_')) {
-          this.logger.log(`Polling setting changed: ${key}, reinitializing...`);
-          this.initializePollingConfiguration();
+
+      if (!this.pollingSettingsListenerAttached) {
+        this.homey.settings.on('set', this.onPollingSettingChange);
+        this.pollingSettingsListenerAttached = true;
+      }
+
+      if (forceReschedule) {
+        const dataIntervalChanged = this.currentDataInterval !== previousDataInterval;
+        const energyIntervalChanged = this.currentEnergyInterval !== previousEnergyInterval;
+
+        if (dataIntervalChanged) {
+          this.logger.log('Data polling interval updated, restarting scheduler');
         }
-      });
-      
+        if (energyIntervalChanged) {
+          this.logger.log('Energy polling interval updated, restarting scheduler');
+        }
+
+        // Restart timers so new configuration takes effect immediately
+        this.scheduleNextDataFetch();
+        if (this.energyReportInterval) {
+          this.startEnergyReporting();
+        }
+      }
     } catch (error) {
       this.logger.error('Error initializing polling configuration, using defaults:', error);
       // Keep default values on error
@@ -1646,12 +1681,12 @@ module.exports = class BoilerDevice extends Homey.Device {
     const adaptiveMode = this.getSetting('polling_adaptive_mode') !== false;
     
     if (adaptiveMode) {
+      const wasFastPolling = this.shouldUseFastPolling();
       this.fastPollUntil = Date.now() + this.pollingConfig.fastPollDuration;
       this.logger.debug(`Fast polling enabled for 10 minutes after ${reason}`);
       
-      // If currently using slow polling, restart with fast polling immediately
-      if (this.updateInterval && !this.shouldUseFastPolling()) {
-        clearTimeout(this.updateInterval);
+      // If we just entered fast mode, restart the scheduler so it takes effect immediately
+      if (!wasFastPolling) {
         this.scheduleNextDataFetch();
       }
     }
@@ -1662,10 +1697,14 @@ module.exports = class BoilerDevice extends Homey.Device {
    * Task 2.2: Use circuit breaker protected data fetching
    */
   private scheduleNextDataFetch() {
+    if (this.updateInterval) {
+      clearTimeout(this.updateInterval);
+    }
+
     const interval = this.shouldUseFastPolling() 
       ? this.pollingConfig.fastPollInterval 
       : this.currentDataInterval;
-      
+
     this.updateInterval = setTimeout(async () => {
       try {
         // Task 2.2: Use circuit breaker protected fetch
@@ -1725,6 +1764,18 @@ module.exports = class BoilerDevice extends Homey.Device {
     // Clean up MELCloud API
     if (this.melCloudApi) {
       this.melCloudApi.cleanup();
+    }
+
+    if (this.pollingSettingsListenerAttached) {
+      const settingsWithOff = this.homey.settings as typeof this.homey.settings & { off?: (event: string, callback: (key: string) => void) => void };
+      if (typeof settingsWithOff.off === 'function') {
+        try {
+          settingsWithOff.off('set', this.onPollingSettingChange);
+        } catch (error) {
+          this.logger.error('Failed to detach polling settings listener:', error);
+        }
+      }
+      this.pollingSettingsListenerAttached = false;
     }
   }
 
