@@ -284,7 +284,6 @@ export class ThermalAnalyzer {
     weatherConditions: { windSpeed: number; humidity: number; cloudCover: number }
   ): HeatingPrediction {
     if (Math.abs(currentTemp - targetTemp) < 0.1) {
-      // Already at target temperature
       return {
         predictedTemperature: currentTemp,
         timeToTarget: 0,
@@ -293,62 +292,56 @@ export class ThermalAnalyzer {
     }
 
     const isHeating = targetTemp > currentTemp;
-
-    if (isHeating) {
-      // Calculate time to heat up
-      const tempDiff = targetTemp - currentTemp;
-      const heatingRatePerHour = this.thermalCharacteristics.heatingRate * tempDiff;
-
-      if (heatingRatePerHour <= 0) {
-        return {
-          predictedTemperature: currentTemp,
-          timeToTarget: Infinity,
-          confidence: 0
-        };
-      }
-
-      const hoursToTarget = tempDiff / heatingRatePerHour;
-      const minutesToTarget = Math.ceil(hoursToTarget * 60);
-
+    if (!isHeating && outdoorTemp >= targetTemp) {
       return {
-        predictedTemperature: targetTemp,
-        timeToTarget: minutesToTarget,
+        predictedTemperature: outdoorTemp,
+        timeToTarget: Infinity,
         confidence: this.thermalCharacteristics.modelConfidence
       };
-    } else {
-      // Calculate time to cool down
-      const tempDiff = currentTemp - targetTemp;
-      const outdoorDiff = currentTemp - outdoorTemp;
+    }
 
-      // If outdoor temp is higher than target, natural cooling won't reach target
-      if (outdoorTemp >= targetTemp) {
+    const tolerance = 0.1;
+    const stepMinutes = 10;
+    const maxMinutes = 12 * 60; // cap simulations at 12 hours
+    let elapsedMinutes = 0;
+    let simulatedTemp = currentTemp;
+
+    while (elapsedMinutes < maxMinutes) {
+      const nextTemp = this.predictTemperature(
+        simulatedTemp,
+        targetTemp,
+        outdoorTemp,
+        isHeating,
+        weatherConditions,
+        stepMinutes
+      );
+
+      elapsedMinutes += stepMinutes;
+
+      const reachedTarget = isHeating
+        ? nextTemp >= targetTemp - tolerance
+        : nextTemp <= targetTemp + tolerance;
+
+      if (reachedTarget) {
         return {
-          predictedTemperature: outdoorTemp,
-          timeToTarget: Infinity,
+          predictedTemperature: targetTemp,
+          timeToTarget: elapsedMinutes,
           confidence: this.thermalCharacteristics.modelConfidence
         };
       }
 
-      const coolingRatePerHour = this.thermalCharacteristics.coolingRate * outdoorDiff +
-                                this.thermalCharacteristics.windImpact * weatherConditions.windSpeed;
-
-      if (coolingRatePerHour <= 0) {
-        return {
-          predictedTemperature: currentTemp,
-          timeToTarget: Infinity,
-          confidence: 0
-        };
+      if (Math.abs(nextTemp - simulatedTemp) < 0.005) {
+        break;
       }
 
-      const hoursToTarget = tempDiff / coolingRatePerHour;
-      const minutesToTarget = Math.ceil(hoursToTarget * 60);
-
-      return {
-        predictedTemperature: targetTemp,
-        timeToTarget: minutesToTarget,
-        confidence: this.thermalCharacteristics.modelConfidence
-      };
+      simulatedTemp = nextTemp;
     }
+
+    return {
+      predictedTemperature: simulatedTemp,
+      timeToTarget: Infinity,
+      confidence: this.thermalCharacteristics.modelConfidence
+    };
   }
 
   /**

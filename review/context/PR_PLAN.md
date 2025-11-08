@@ -61,6 +61,7 @@ Guiding document distilled from the high-impact review so we can drive a PR thro
   1. Base heating time on actual ramp rate (e.g., `tempDiff / max(heatingRate * referenceDelta, ε)` or reuse `predictTemperature` to integrate).
   2. Include cooling path parity so coast predictions stay consistent.
   3. Cover with tests showing larger deltas produce proportionally longer times.
+* **Status**: [x] Implemented: _pending commit hash_ (Tests: `npm run lint`, `npm test`)
 
 ## 6. Hot-Water Sampling Interval & Data Collector Reliability
 

@@ -254,5 +254,25 @@ describe('ThermalAnalyzer', () => {
 
       expect(result.timeToTarget).toBe(Infinity);
     });
+
+    it('should take longer to heat when delta is larger', () => {
+      const outdoorTemp = 5.0;
+      const weatherConditions = { windSpeed: 3.0, humidity: 70, cloudCover: 80 };
+
+      const smallDelta = thermalAnalyzer.calculateTimeToTarget(20, 21, outdoorTemp, weatherConditions);
+      const largeDelta = thermalAnalyzer.calculateTimeToTarget(20, 24, outdoorTemp, weatherConditions);
+
+      expect(largeDelta.timeToTarget).toBeGreaterThan(smallDelta.timeToTarget);
+    });
+
+    it('should take longer to cool when delta is larger and outdoor temp allows it', () => {
+      const outdoorTemp = 5.0;
+      const weatherConditions = { windSpeed: 3.0, humidity: 70, cloudCover: 80 };
+
+      const smallDrop = thermalAnalyzer.calculateTimeToTarget(24, 22, outdoorTemp, weatherConditions);
+      const bigDrop = thermalAnalyzer.calculateTimeToTarget(24, 18, outdoorTemp, weatherConditions);
+
+      expect(bigDrop.timeToTarget).toBeGreaterThan(smallDrop.timeToTarget);
+    });
   });
 });
