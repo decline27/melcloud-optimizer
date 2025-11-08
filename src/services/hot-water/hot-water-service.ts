@@ -5,7 +5,6 @@
  * It collects data, analyzes patterns, and provides optimal tank temperature recommendations.
  */
 
-import { DateTime } from 'luxon';
 import { HotWaterDataCollector, HotWaterUsageDataPoint } from './hot-water-data-collector';
 import { HotWaterAnalyzer } from './hot-water-analyzer';
 import { TimeZoneHelper } from '../../util/time-zone-helper';
@@ -65,8 +64,8 @@ export class HotWaterService {
   public async collectData(deviceState: any): Promise<boolean> {
     try {
       // Throttle collection to align with the 5-minute device polling cadence
-      const now = Date.now();
-      if (now - this.lastDataCollectionTime < this.dataCollectionInterval) {
+      const pollTimestamp = Date.now();
+      if (pollTimestamp - this.lastDataCollectionTime < this.dataCollectionInterval) {
         return false;
       }
 
@@ -78,9 +77,11 @@ export class HotWaterService {
 
       // Calculate incremental energy usage (better for hourly pattern analysis)
       // Use user's local time instead of system time
+      const timestampUtc = new Date(pollTimestamp).toISOString();
       const localTime = this.timeZoneHelper.getLocalTime();
       const currentHour = localTime.hour;
       const localDate = localTime.date;
+      const localDayKey = this.formatLocalDayKey(localDate);
       
       const previousDataPoints = this.dataCollector.getAllDataPoints();
       const recentPoint = previousDataPoints.length > 0 ? previousDataPoints[previousDataPoints.length - 1] : null;
@@ -98,9 +99,7 @@ export class HotWaterService {
       
       // If we have recent data and it's the same day, calculate incremental usage
       if (recentPoint) {
-        const recentTime = new Date(recentPoint.timestamp);
-        const isSameDay = recentTime.toDateString() === localDate.toDateString();
-        
+        const isSameDay = this.isSameLocalDay(recentPoint, localDayKey);
         const recentRawProduced = typeof recentPoint.rawHotWaterEnergyProduced === 'number'
           ? recentPoint.rawHotWaterEnergyProduced
           : undefined;
@@ -141,12 +140,16 @@ export class HotWaterService {
 
       // Create data point using user's local time
       const dataPoint: HotWaterUsageDataPoint = {
-        timestamp: localDate.toISOString(),
+        timestamp: timestampUtc,
+        localDayKey,
         tankTemperature: deviceState.TankWaterTemperature || deviceState.SetTankWaterTemperature,
         targetTankTemperature: deviceState.SetTankWaterTemperature,
         hotWaterEnergyProduced,
         hotWaterEnergyConsumed,
         hotWaterCOP: this.calculateCOP(deviceState),
+        timeZoneName: localTime.timeZoneName,
+        timeZoneOffset: localTime.effectiveOffset,
+        localTimeString: localTime.timeString,
         rawHotWaterEnergyProduced: producedCounter,
         rawHotWaterEnergyConsumed: consumedCounter,
         isHeating: this.isHeatingHotWater(deviceState),
@@ -156,7 +159,7 @@ export class HotWaterService {
 
       // Add data point to collector
       await this.dataCollector.addDataPoint(dataPoint);
-      this.lastDataCollectionTime = Date.now();
+      this.lastDataCollectionTime = pollTimestamp;
 
       // Enhanced logging with more details
       const totalDataPoints = this.dataCollector.getAllDataPoints().length;
@@ -170,8 +173,8 @@ export class HotWaterService {
       }
 
       // Check if it's time to analyze data
-      if (now - this.lastAnalysisTime >= this.analysisInterval) {
-        this.lastAnalysisTime = now;
+      if (pollTimestamp - this.lastAnalysisTime >= this.analysisInterval) {
+        this.lastAnalysisTime = pollTimestamp;
         await this.analyzer.updatePatterns();
       }
 
@@ -180,6 +183,27 @@ export class HotWaterService {
       this.homey.error(`Error collecting hot water usage data: ${error}`);
       return false;
     }
+  }
+
+  /**
+   * Format a consistent YYYY-MM-DD string using the already shifted local date.
+   */
+  private formatLocalDayKey(localDate: Date): string {
+    const year = localDate.getUTCFullYear();
+    const month = (localDate.getUTCMonth() + 1).toString().padStart(2, '0');
+    const day = localDate.getUTCDate().toString().padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  /**
+   * Determine if the most recent data point shares the provided local day key.
+   */
+  private isSameLocalDay(recentPoint: HotWaterUsageDataPoint, currentDayKey: string): boolean {
+    if (!recentPoint) {
+      return false;
+    }
+
+    return recentPoint.localDayKey === currentDayKey;
   }
 
   /**

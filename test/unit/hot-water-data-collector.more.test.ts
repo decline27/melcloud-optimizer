@@ -27,17 +27,21 @@ describe('HotWaterDataCollector - additional coverage', () => {
     await collector.setMaxDataPoints(10);
 
     const now = Date.now();
-    const mk = (ts: number, produced = 1, consumed = 1): HotWaterUsageDataPoint => ({
-      timestamp: new Date(ts).toISOString(),
+    const mk = (ts: number, produced = 1, consumed = 1): HotWaterUsageDataPoint => {
+      const iso = new Date(ts).toISOString();
+      return {
+        timestamp: iso,
+        localDayKey: iso.split('T')[0],
       tankTemperature: 45,
       targetTankTemperature: 50,
       hotWaterEnergyProduced: produced,
       hotWaterEnergyConsumed: consumed,
       hotWaterCOP: consumed > 0 ? produced / consumed : 0,
       isHeating: produced > 0,
-      hourOfDay: 12,
-      dayOfWeek: 2,
-    });
+        hourOfDay: 12,
+        dayOfWeek: 2,
+      };
+    };
 
     const points: HotWaterUsageDataPoint[] = [];
     // 80 recent points within last ~3 days
@@ -64,17 +68,21 @@ describe('HotWaterDataCollector - additional coverage', () => {
     await collector.setMaxDataPoints(10); // will be set to 100 internally
 
     const now = Date.now();
-    const mk = (ts: number): HotWaterUsageDataPoint => ({
-      timestamp: new Date(ts).toISOString(),
+    const mk = (ts: number): HotWaterUsageDataPoint => {
+      const iso = new Date(ts).toISOString();
+      return {
+        timestamp: iso,
+        localDayKey: iso.split('T')[0],
       tankTemperature: 45,
       targetTankTemperature: 50,
       hotWaterEnergyProduced: 1,
       hotWaterEnergyConsumed: 1,
       hotWaterCOP: 1,
       isHeating: true,
-      hourOfDay: 10,
-      dayOfWeek: 1,
-    });
+        hourOfDay: 10,
+        dayOfWeek: 1,
+      };
+    };
 
     const points: HotWaterUsageDataPoint[] = [];
     for (let i = 0; i < 80; i++) points.push(mk(now - i * 60 * 60 * 1000));
@@ -98,8 +106,10 @@ describe('HotWaterDataCollector - additional coverage', () => {
     const settingsSet = homey.settings.set as jest.Mock;
     settingsSet.mockImplementationOnce(() => { throw new Error('settings error'); });
 
+    const pointIso = new Date().toISOString();
     const point: HotWaterUsageDataPoint = {
-      timestamp: new Date().toISOString(),
+      timestamp: pointIso,
+      localDayKey: pointIso.split('T')[0],
       tankTemperature: 40,
       targetTankTemperature: 45,
       hotWaterEnergyProduced: 1,

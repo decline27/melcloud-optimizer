@@ -28,6 +28,7 @@ Guiding document distilled from the high-impact review so we can drive a PR thro
   2. When computing “same day”, compare using the same timezone helper rather than raw `Date` strings.
   3. Migration: normalize existing samples (or clear them) so counters don’t reset mid-evening.
   4. Add regression covering a UTC+2 user at 22:30: ensure the next sample still sees the same local day.
+* **Status**: [x] Implemented: _pending commit hash_ (Tests: `npm run lint`, `npm test`)
 
 ## 3. Hot-Water Day-Of-Week Mapping Mismatch
 

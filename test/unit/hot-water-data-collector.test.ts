@@ -28,8 +28,10 @@ describe('HotWaterDataCollector', () => {
   });
 
   test('validateDataPoint rejects future timestamps', () => {
+    const futureTimestamp = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString();
     const future: HotWaterUsageDataPoint = {
-      timestamp: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(),
+      timestamp: futureTimestamp,
+      localDayKey: futureTimestamp.split('T')[0],
       tankTemperature: 40,
       targetTankTemperature: 45,
       hotWaterEnergyProduced: 1,
@@ -49,8 +51,10 @@ describe('HotWaterDataCollector', () => {
 
   test('setDataPoints filters invalid points and saves', async () => {
     const now = new Date().toISOString();
+    const nowDayKey = now.split('T')[0];
     const valid: HotWaterUsageDataPoint = {
       timestamp: now,
+      localDayKey: nowDayKey,
       tankTemperature: 45,
       targetTankTemperature: 47,
       hotWaterEnergyProduced: 1,
@@ -81,8 +85,10 @@ describe('HotWaterDataCollector', () => {
   });
 
   test('addDataPoint validates and stores valid data points', async () => {
+    const validTimestamp = new Date().toISOString();
     const validDataPoint: HotWaterUsageDataPoint = {
-      timestamp: new Date().toISOString(),
+      timestamp: validTimestamp,
+      localDayKey: validTimestamp.split('T')[0],
       tankTemperature: 45,
       targetTankTemperature: 50,
       hotWaterEnergyProduced: 1.5,
@@ -100,8 +106,10 @@ describe('HotWaterDataCollector', () => {
   });
 
   test('addDataPoint rejects invalid tank temperature', async () => {
+    const invalidTimestamp = new Date().toISOString();
     const invalidDataPoint: HotWaterUsageDataPoint = {
-      timestamp: new Date().toISOString(),
+      timestamp: invalidTimestamp,
+      localDayKey: invalidTimestamp.split('T')[0],
       tankTemperature: -5, // Invalid: negative temperature
       targetTankTemperature: 50,
       hotWaterEnergyProduced: 1.5,
@@ -117,8 +125,10 @@ describe('HotWaterDataCollector', () => {
   });
 
   test('addDataPoint rejects invalid target tank temperature', async () => {
+    const invalidTargetTimestamp = new Date().toISOString();
     const invalidDataPoint: HotWaterUsageDataPoint = {
-      timestamp: new Date().toISOString(),
+      timestamp: invalidTargetTimestamp,
+      localDayKey: invalidTargetTimestamp.split('T')[0],
       tankTemperature: 45,
       targetTankTemperature: 150, // Invalid: too high
       hotWaterEnergyProduced: 1.5,
@@ -134,8 +144,10 @@ describe('HotWaterDataCollector', () => {
   });
 
   test('addDataPoint rejects invalid hour of day', async () => {
+    const invalidHourTimestamp = new Date().toISOString();
     const invalidDataPoint: HotWaterUsageDataPoint = {
-      timestamp: new Date().toISOString(),
+      timestamp: invalidHourTimestamp,
+      localDayKey: invalidHourTimestamp.split('T')[0],
       tankTemperature: 45,
       targetTankTemperature: 50,
       hotWaterEnergyProduced: 1.5,
@@ -151,8 +163,10 @@ describe('HotWaterDataCollector', () => {
   });
 
   test('addDataPoint rejects invalid day of week', async () => {
+    const invalidDayTimestamp = new Date().toISOString();
     const invalidDataPoint: HotWaterUsageDataPoint = {
-      timestamp: new Date().toISOString(),
+      timestamp: invalidDayTimestamp,
+      localDayKey: invalidDayTimestamp.split('T')[0],
       tankTemperature: 45,
       targetTankTemperature: 50,
       hotWaterEnergyProduced: 1.5,
@@ -185,8 +199,10 @@ describe('HotWaterDataCollector', () => {
   });
 
   test('getAllDataPoints returns all stored data points', async () => {
+    const dataPoint1Timestamp = new Date().toISOString();
     const dataPoint1: HotWaterUsageDataPoint = {
-      timestamp: new Date().toISOString(),
+      timestamp: dataPoint1Timestamp,
+      localDayKey: dataPoint1Timestamp.split('T')[0],
       tankTemperature: 45,
       targetTankTemperature: 50,
       hotWaterEnergyProduced: 1.5,
@@ -197,8 +213,10 @@ describe('HotWaterDataCollector', () => {
       dayOfWeek: 2
     };
 
+    const dataPoint2Timestamp = new Date(Date.now() - 3600000).toISOString();
     const dataPoint2: HotWaterUsageDataPoint = {
-      timestamp: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
+      timestamp: dataPoint2Timestamp, // 1 hour ago
+      localDayKey: dataPoint2Timestamp.split('T')[0],
       tankTemperature: 40,
       targetTankTemperature: 45,
       hotWaterEnergyProduced: 1.0,
@@ -230,8 +248,10 @@ describe('HotWaterDataCollector', () => {
 
   test('getRecentDataPoints returns data from specified hours', async () => {
     const now = new Date();
+    const recentIso = now.toISOString();
     const recentDataPoint: HotWaterUsageDataPoint = {
-      timestamp: now.toISOString(),
+      timestamp: recentIso,
+      localDayKey: recentIso.split('T')[0],
       tankTemperature: 45,
       targetTankTemperature: 50,
       hotWaterEnergyProduced: 1.5,
@@ -242,8 +262,10 @@ describe('HotWaterDataCollector', () => {
       dayOfWeek: 2
     };
 
+    const oldIso = new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString();
     const oldDataPoint: HotWaterUsageDataPoint = {
-      timestamp: new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString(), // 48 hours ago
+      timestamp: oldIso, // 48 hours ago
+      localDayKey: oldIso.split('T')[0],
       tankTemperature: 40,
       targetTankTemperature: 45,
       hotWaterEnergyProduced: 1.0,
@@ -270,8 +292,10 @@ describe('HotWaterDataCollector', () => {
 
     // Add 250 data points
     for (let i = 0; i < 250; i++) {
+      const iso = new Date(Date.now() - i * 60 * 1000).toISOString();
       await collector.addDataPoint({
-        timestamp: new Date(Date.now() - i * 60 * 1000).toISOString(),
+        timestamp: iso,
+        localDayKey: iso.split('T')[0],
         tankTemperature: 45,
         targetTankTemperature: 50,
         hotWaterEnergyProduced: 1.5,
@@ -293,8 +317,10 @@ describe('HotWaterDataCollector', () => {
     const originalSaveData = (collector as any).saveData;
     (collector as any).saveData = jest.fn().mockRejectedValue(new Error('Save failed'));
 
+    const errorIso = new Date().toISOString();
     const dataPoints: HotWaterUsageDataPoint[] = [{
-      timestamp: new Date().toISOString(),
+      timestamp: errorIso,
+      localDayKey: errorIso.split('T')[0],
       tankTemperature: 45,
       targetTankTemperature: 50,
       hotWaterEnergyProduced: 1.5,
@@ -320,8 +346,10 @@ describe('HotWaterDataCollector', () => {
 
     // Add some data points first
     for (let i = 0; i < 150; i++) {
+      const iso = new Date(Date.now() - i * 60 * 1000).toISOString();
       await collector.addDataPoint({
-        timestamp: new Date(Date.now() - i * 60 * 1000).toISOString(),
+        timestamp: iso,
+        localDayKey: iso.split('T')[0],
         tankTemperature: 45,
         targetTankTemperature: 50,
         hotWaterEnergyProduced: 1.5,
@@ -342,8 +370,10 @@ describe('HotWaterDataCollector', () => {
   });
 
   test('clearData removes all data points', async () => {
+    const clearIso = new Date().toISOString();
     const dataPoint: HotWaterUsageDataPoint = {
-      timestamp: new Date().toISOString(),
+      timestamp: clearIso,
+      localDayKey: clearIso.split('T')[0],
       tankTemperature: 45,
       targetTankTemperature: 50,
       hotWaterEnergyProduced: 1.5,
@@ -377,8 +407,10 @@ describe('HotWaterDataCollector', () => {
 
     // Create data points for different hours
     for (let hour = 0; hour < 24; hour++) {
+      const iso = new Date(now.getTime() - hour * 60 * 60 * 1000).toISOString();
       dataPoints.push({
-        timestamp: new Date(now.getTime() - hour * 60 * 60 * 1000).toISOString(),
+        timestamp: iso,
+        localDayKey: iso.split('T')[0],
         tankTemperature: 45 + Math.random() * 10,
         targetTankTemperature: 50,
         hotWaterEnergyProduced: 1.5 + Math.random(),
@@ -402,8 +434,10 @@ describe('HotWaterDataCollector', () => {
 
   test('handles validation errors gracefully', async () => {
     // Test with malformed data that causes validation error
+    const malformedIso = new Date().toISOString();
     const malformedDataPoint: any = {
-      timestamp: new Date().toISOString(),
+      timestamp: malformedIso,
+      localDayKey: malformedIso.split('T')[0],
       tankTemperature: 'invalid', // Should be number
       targetTankTemperature: 50,
       hotWaterEnergyProduced: 1.5,

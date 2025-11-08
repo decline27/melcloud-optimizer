@@ -23,11 +23,15 @@ const MAX_SETTINGS_DATA_SIZE = 500000; // ~500KB
 
 export interface HotWaterUsageDataPoint {
   timestamp: string;
+  localDayKey?: string;
   tankTemperature: number;
   targetTankTemperature: number;
   hotWaterEnergyProduced: number;
   hotWaterEnergyConsumed: number;
   hotWaterCOP: number;
+  timeZoneName?: string;
+  timeZoneOffset?: number;
+  localTimeString?: string;
   rawHotWaterEnergyProduced?: number;
   rawHotWaterEnergyConsumed?: number;
   isHeating: boolean; // Whether the tank is actively heating
@@ -124,12 +128,12 @@ export class HotWaterDataCollector {
    */
   private resetLegacyCountersIfNeeded(): boolean {
     try {
-      const legacyPoint = this.dataPoints.find(dp => typeof dp.rawHotWaterEnergyProduced !== 'number' || typeof dp.rawHotWaterEnergyConsumed !== 'number');
+      const legacyPoint = this.dataPoints.find(dp => typeof dp.rawHotWaterEnergyProduced !== 'number' || typeof dp.rawHotWaterEnergyConsumed !== 'number' || !dp.localDayKey);
       if (!legacyPoint) {
         return false;
       }
 
-      this.homey.log('Detected legacy hot water data without raw energy counters, resetting dataset to avoid inflated deltas');
+      this.homey.log('Detected legacy hot water data missing raw counters or local day tracking, resetting dataset to avoid drift');
       this.dataPoints = [];
       this.aggregatedData = [];
       this.homey.settings.unset(HOT_WATER_DATA_SETTINGS_KEY);
@@ -252,7 +256,7 @@ export class HotWaterDataCollector {
           // Group older data by day
           const dataByDay = new Map<string, HotWaterUsageDataPoint[]>();
           olderData.forEach(dp => {
-            const date = dp.timestamp.split('T')[0]; // YYYY-MM-DD
+            const date = dp.localDayKey || dp.timestamp.split('T')[0]; // Prefer local day tracking
             if (!dataByDay.has(date)) {
               dataByDay.set(date, []);
             }
@@ -404,6 +408,11 @@ export class HotWaterDataCollector {
       // Check required fields
       if (!dataPoint.timestamp) {
         this.homey.error('Invalid hot water usage data point: missing timestamp');
+        return false;
+      }
+
+      if (!dataPoint.localDayKey) {
+        this.homey.error('Invalid hot water usage data point: missing local day key');
         return false;
       }
 

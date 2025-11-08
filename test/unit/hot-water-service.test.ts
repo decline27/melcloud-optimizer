@@ -111,6 +111,66 @@ describe('HotWaterService (unit)', () => {
     expect(storedPoints[2].rawHotWaterEnergyProduced).toBeCloseTo(2.7, 5);
   });
 
+  test('collectData keeps UTC+2 evening samples on the same local day', async () => {
+    const homey: any = makeHomey();
+    const svc = new HotWaterService(homey);
+
+    const storedPoints: any[] = [];
+    const addSpy = jest.fn(async (point: any) => storedPoints.push(point));
+
+    (svc as any).dataCollector = {
+      addDataPoint: addSpy,
+      getAllDataPoints: jest.fn(() => storedPoints)
+    };
+    (svc as any).analyzer = { updatePatterns: jest.fn().mockResolvedValue(undefined) };
+
+    const localTimes = [
+      {
+        date: new Date(Date.UTC(2024, 0, 1, 22, 30)),
+        hour: 22,
+        timeString: '2024-01-01 22:30:00 Europe/Oslo',
+        timeZoneOffset: 2,
+        effectiveOffset: 2,
+        timeZoneName: 'Europe/Oslo'
+      },
+      {
+        date: new Date(Date.UTC(2024, 0, 1, 22, 35)),
+        hour: 22,
+        timeString: '2024-01-01 22:35:00 Europe/Oslo',
+        timeZoneOffset: 2,
+        effectiveOffset: 2,
+        timeZoneName: 'Europe/Oslo'
+      }
+    ];
+
+    (svc as any).timeZoneHelper = {
+      getLocalTime: jest.fn(() => (localTimes.length > 1 ? localTimes.shift()! : localTimes[0]))
+    };
+
+    const nowSpy = jest.spyOn(Date, 'now')
+      .mockReturnValueOnce(Date.UTC(2024, 0, 1, 20, 30))
+      .mockReturnValueOnce(Date.UTC(2024, 0, 1, 20, 35));
+
+    const sample = async (produced: number, consumed: number) => {
+      await svc.collectData({
+        SetTankWaterTemperature: 50,
+        TankWaterTemperature: 45,
+        DailyHotWaterEnergyProduced: produced,
+        DailyHotWaterEnergyConsumed: consumed,
+        HotWaterActive: true
+      } as any);
+    };
+
+    await sample(1.2, 0.6);
+    await sample(1.4, 0.7);
+
+    nowSpy.mockRestore();
+
+    expect(storedPoints).toHaveLength(2);
+    expect(storedPoints[0].localDayKey).toBe(storedPoints[1].localDayKey);
+    expect(storedPoints[1].hotWaterEnergyProduced).toBeCloseTo(0.2, 5);
+  });
+
   test('getOptimalTankTemperature returns analyzer result and handles errors', () => {
     const homey: any = makeHomey();
     const svc = new HotWaterService(homey);
