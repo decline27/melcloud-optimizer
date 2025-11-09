@@ -24,10 +24,11 @@ jobs:
       - name: Install TypeScript globally
         run: npm install -g typescript
 
+      - name: Install Homey CLI
+        run: npm install -g homey@3.9.6
+
       - name: Run unit tests
         run: npm run test:unit:ci
 
       - name: Validate Homey App
-        uses: athombv/github-action-homey-app-validate@master
-        with:
-          level: verified
+        run: homey app validate --level verified
