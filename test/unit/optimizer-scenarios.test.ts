@@ -1,4 +1,5 @@
 import { describe, expect, test } from '@jest/globals';
+import { DateTime } from 'luxon';
 import { runScenarioHarness } from '../../simulate';
 import { scenarios, ScenarioRow } from '../fixtures/generate-scenarios';
 
@@ -49,6 +50,12 @@ async function executeScenario(name: keyof typeof scenarios) {
   };
 }
 
+const SCENARIO_ZONE = 'Europe/Stockholm';
+
+function hourInScenarioZone(ts: string) {
+  return DateTime.fromISO(ts).setZone(SCENARIO_ZONE).hour;
+}
+
 function violationsRatio(rows: any[], timeline: ScenarioRow[]) {
   const occupiedHours = timeline.filter((row) => row.occupied).length || 1;
   const violations = rows.filter((row) => row.comfort_violation).length;
@@ -68,7 +75,7 @@ describe('optimizer scenario harness', () => {
     const { result, melStub, timeline } = await executeScenario('cold_front_cheap_night');
 
     const cheapHours = result.rows.filter((row: any) => {
-      const hour = new Date(row.ts).getHours();
+      const hour = hourInScenarioZone(row.ts);
       return hour >= 0 && hour <= 5;
     });
     const maxBias = Math.max(...cheapHours.map((row: any) => row.bias_c));
@@ -84,7 +91,7 @@ describe('optimizer scenario harness', () => {
     const { result, timeline } = await executeScenario('warm_spike_expensive_evening');
 
     const peakHours = result.rows.filter((row: any) => {
-      const hour = new Date(row.ts).getHours();
+      const hour = hourInScenarioZone(row.ts);
       return hour >= 17 && hour <= 20;
     });
     const minBias = Math.min(...peakHours.map((row: any) => row.bias_c));
@@ -113,7 +120,7 @@ describe('optimizer scenario harness', () => {
     const { result, melStub } = await executeScenario('price_outage_midday');
 
     const outageRows = result.rows.filter((row: any) => {
-      const hour = new Date(row.ts).getHours();
+      const hour = hourInScenarioZone(row.ts);
       return hour >= 10 && hour <= 14;
     });
 
