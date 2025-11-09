@@ -24,6 +24,9 @@ jobs:
       - name: Install TypeScript globally
         run: npm install -g typescript
 
+      - name: Run unit tests
+        run: npm run test:unit:ci
+
       - name: Validate Homey App
         uses: athombv/github-action-homey-app-validate@master
         with:
