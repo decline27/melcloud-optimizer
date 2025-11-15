@@ -1,0 +1,582 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <script
+      type="text/javascript"
+      src="/homey.js"
+      data-origin="widget"
+    ></script>
+    <style>
+      :root {
+        font-family: "SF Pro Text", "Inter", -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+      }
+
+      body.homey-widget {
+        margin: 0;
+        padding: 16px;
+        background: transparent;
+        color: var(--homey-color-text, #0f172a);
+        min-width: 360px;
+        min-height: 420px;
+        box-sizing: border-box;
+        display: flex;
+        justify-content: center;
+        align-items: stretch;
+      }
+
+      .widget {
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        box-shadow: 0 4px 20px rgba(15, 23, 42, 0.08);
+        padding: 18px;
+        width: 100%;
+        max-width: 420px;
+        min-height: 420px;
+        box-sizing: border-box;
+      }
+
+      .widget-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .widget-header .title {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 600;
+        color: #0f172a;
+      }
+
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+        background: rgba(59, 130, 246, 0.15);
+        color: #1d4ed8;
+      }
+
+      .status-pill[data-level="Improving"] {
+        background: rgba(251, 191, 36, 0.2);
+        color: #b45309;
+      }
+
+      .status-pill[data-level="Reliable"],
+      .status-pill[data-level="Highly reliable"] {
+        background: rgba(16, 185, 129, 0.2);
+        color: #047857;
+      }
+
+      .refresh {
+        border: none;
+        border-radius: 999px;
+        padding: 6px 14px;
+        background: #0f172a;
+        color: #fff;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .refresh:disabled {
+        opacity: 0.6;
+        cursor: wait;
+      }
+
+      .confidence-block {
+        margin: 14px 0 18px;
+      }
+
+      .confidence-value {
+        font-size: 36px;
+        font-weight: 700;
+        margin: 0;
+      }
+
+      .confidence-detail {
+        margin: 4px 0 0;
+        font-size: 13px;
+        color: #64748b;
+      }
+
+      .system-learning {
+        border-top: 1px solid rgba(15, 23, 42, 0.08);
+        padding-top: 12px;
+        margin-top: 12px;
+      }
+
+      .system-row {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+
+      .system-label {
+        width: 120px;
+        font-size: 13px;
+        font-weight: 600;
+        color: #475569;
+      }
+
+      .system-info {
+        flex: 1;
+      }
+
+      .system-status {
+        font-weight: 600;
+        font-size: 13px;
+      }
+
+      .system-detail {
+        margin: 2px 0 0;
+        font-size: 12px;
+        color: #6b7280;
+      }
+
+      .savings {
+        border-top: 1px solid rgba(15, 23, 42, 0.08);
+        margin-top: 16px;
+        padding-top: 12px;
+      }
+      .thermal-details {
+        border-top: 1px solid rgba(15, 23, 42, 0.08);
+        margin-top: 16px;
+        padding-top: 12px;
+      }
+      .thermal-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .thermal-metric {
+        background: rgba(15, 23, 42, 0.04);
+        border-radius: 8px;
+        padding: 8px;
+        font-size: 12px;
+      }
+      .thermal-metric span {
+        display: block;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #6b7280;
+      }
+      .thermal-metric strong {
+        font-size: 14px;
+        color: #0f172a;
+      }
+      .retention {
+        margin-top: 10px;
+        font-size: 12px;
+        color: #475569;
+      }
+      .retention small {
+        display: block;
+        color: #94a3b8;
+        font-size: 11px;
+        margin-top: 2px;
+      }
+
+      .savings-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .metric {
+        background: rgba(15, 23, 42, 0.04);
+        border-radius: 8px;
+        padding: 8px;
+      }
+
+      .metric p {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin: 0 0 4px;
+        color: #6b7280;
+      }
+
+      .metric strong {
+        font-size: 15px;
+        font-weight: 600;
+        color: #0f172a;
+      }
+
+      .savings-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 13px;
+        margin-top: 8px;
+      }
+
+      .savings-note {
+        font-size: 11px;
+        color: #6b7280;
+        margin-top: 8px;
+      }
+
+      .widget-footer {
+        margin-top: 12px;
+        font-size: 11px;
+        color: #94a3b8;
+      }
+
+      .widget-state {
+        margin-top: 8px;
+        font-size: 12px;
+        color: #64748b;
+      }
+
+      .widget-state[hidden] {
+        display: none;
+      }
+
+      .state-error {
+        color: #dc2626;
+      }
+    </style>
+    <script src="./model-confidence-shared.js"></script>
+  </head>
+
+  <body class="homey-widget">
+    <div class="widget" id="model-confidence-widget">
+      <header class="widget-header">
+        <div>
+          <p class="title">Live Model Confidence</p>
+          <span class="status-pill" id="widget_confidence_status" data-level="Learning">
+            Learning
+          </span>
+        </div>
+        <button type="button" class="refresh" id="widget_refresh">Refresh</button>
+      </header>
+
+      <div class="confidence-block">
+        <div class="confidence-value" id="widget_confidence_value">—%</div>
+        <div class="confidence-detail" id="widget_confidence_detail">Collecting data…</div>
+      </div>
+
+      <section class="system-learning">
+        <div class="system-row">
+          <div class="system-label">Temperature model</div>
+          <div class="system-info">
+            <span class="system-status" id="system_temp_status">Learning</span>
+            <p class="system-detail" id="system_temp_detail">Collecting data…</p>
+          </div>
+        </div>
+        <div class="system-row">
+          <div class="system-label">Price strategy</div>
+          <div class="system-info">
+            <span class="system-status" id="system_price_status">Learning</span>
+            <p class="system-detail" id="system_price_detail">No optimization runs yet</p>
+          </div>
+        </div>
+        <div class="system-row">
+          <div class="system-label">Hot water</div>
+          <div class="system-info">
+            <span class="system-status" id="system_hw_status">Learning</span>
+            <p class="system-detail" id="system_hw_detail">Collecting usage data</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="savings">
+        <div class="savings-grid">
+          <div class="metric">
+            <p>Today</p>
+            <strong id="savings_today">—</strong>
+          </div>
+          <div class="metric">
+            <p>Last 7 days</p>
+            <strong id="savings_7d">—</strong>
+          </div>
+          <div class="metric">
+            <p>Projection</p>
+            <strong id="savings_projection">—</strong>
+          </div>
+        </div>
+        <div class="savings-row">
+          <span>Avg spot price</span>
+          <span id="savings_avg_price">Collecting data…</span>
+        </div>
+        <div class="savings-row">
+          <span>Season mode</span>
+          <span id="savings_season_mode">—</span>
+        </div>
+        <p class="savings-note" id="savings_note">
+          Optimizer is learning your baseline; savings will appear after a few hourly runs.
+        </p>
+      </section>
+
+      <section class="thermal-details">
+        <div class="thermal-grid">
+          <div class="thermal-metric">
+            <span>Heating rate</span>
+            <strong id="thermal_heating_rate">—</strong>
+          </div>
+          <div class="thermal-metric">
+            <span>Cooling rate</span>
+            <strong id="thermal_cooling_rate">—</strong>
+          </div>
+          <div class="thermal-metric">
+            <span>Thermal mass</span>
+            <strong id="thermal_mass_value">—</strong>
+          </div>
+          <div class="thermal-metric">
+            <span>Learning cycles</span>
+            <strong id="thermal_learning_cycles">—</strong>
+          </div>
+        </div>
+        <div class="retention" id="thermal_retention">
+          <div><strong>Data footprint</strong></div>
+          <div><span id="thermal_retention_points">—</span></div>
+          <small id="thermal_retention_size">—</small>
+        </div>
+      </section>
+
+      <div class="widget-footer" id="widget_updated">Awaiting first update…</div>
+
+      <div class="widget-state" id="widget_loading">Loading model confidence…</div>
+      <div class="widget-state state-error" id="widget_error" hidden>
+        <span id="widget_error_text">Failed to load data</span>
+      </div>
+    </div>
+
+    <script>
+      (function() {
+        const helper = window.ModelConfidenceShared;
+        const els = {
+          refresh: document.getElementById('widget_refresh'),
+          loading: document.getElementById('widget_loading'),
+          error: document.getElementById('widget_error'),
+          errorText: document.getElementById('widget_error_text'),
+          confidenceValue: document.getElementById('widget_confidence_value'),
+          confidenceDetail: document.getElementById('widget_confidence_detail'),
+          confidenceStatus: document.getElementById('widget_confidence_status'),
+          tempStatus: document.getElementById('system_temp_status'),
+          tempDetail: document.getElementById('system_temp_detail'),
+          priceStatus: document.getElementById('system_price_status'),
+          priceDetail: document.getElementById('system_price_detail'),
+          hwStatus: document.getElementById('system_hw_status'),
+          hwDetail: document.getElementById('system_hw_detail'),
+          savingsToday: document.getElementById('savings_today'),
+          savings7d: document.getElementById('savings_7d'),
+          savingsProjection: document.getElementById('savings_projection'),
+          avgPrice: document.getElementById('savings_avg_price'),
+          seasonMode: document.getElementById('savings_season_mode'),
+          savingsNote: document.getElementById('savings_note'),
+          updated: document.getElementById('widget_updated'),
+          heatingRate: document.getElementById('thermal_heating_rate'),
+          coolingRate: document.getElementById('thermal_cooling_rate'),
+          thermalMass: document.getElementById('thermal_mass_value'),
+          learningCycles: document.getElementById('thermal_learning_cycles'),
+          retentionPoints: document.getElementById('thermal_retention_points'),
+          retentionSize: document.getElementById('thermal_retention_size'),
+          retentionSection: document.getElementById('thermal_retention')
+        };
+
+        function setText(node, value) {
+          if (node) {
+            node.textContent = value;
+          }
+        }
+
+        function setStatusPill(level) {
+          if (!els.confidenceStatus) return;
+          const label = level || 'Learning';
+          setText(els.confidenceStatus, label);
+          if (label) {
+            els.confidenceStatus.dataset.level = label;
+          } else {
+            delete els.confidenceStatus.dataset.level;
+          }
+        }
+
+        function setLoading(isLoading) {
+          if (els.loading) {
+            els.loading.hidden = !isLoading;
+          }
+          if (els.refresh) {
+            els.refresh.disabled = !!isLoading;
+            els.refresh.textContent = isLoading ? 'Loading…' : 'Refresh';
+          }
+        }
+
+        function setError(message) {
+          if (!els.error) return;
+          if (message) {
+            els.error.hidden = false;
+            if (els.errorText) {
+              els.errorText.textContent = message;
+            }
+          } else {
+            els.error.hidden = true;
+          }
+        }
+
+        function renderSystem(summary) {
+          if (!summary) return;
+          setText(els.tempStatus, summary.temperature?.status || 'Learning');
+          setText(els.tempDetail, summary.temperature?.detail || 'Collecting data…');
+          setText(els.priceStatus, summary.price?.status || 'Learning');
+          setText(els.priceDetail, summary.price?.detail || 'No optimization runs yet');
+          setText(els.hwStatus, summary.hotWater?.status || 'Learning');
+          setText(els.hwDetail, summary.hotWater?.detail || 'Collecting usage data');
+        }
+
+        function renderSavings(summary) {
+          if (!summary) return;
+          const formatMoney = (value) => {
+            if (helper && typeof helper.formatMoney === 'function') {
+              return helper.formatMoney(value, summary.currencySymbol, summary.decimals);
+            }
+            if (value == null || isNaN(value)) {
+              return '—';
+            }
+            const decimals = typeof summary.decimals === 'number' ? summary.decimals : 2;
+            return `${Number(value).toFixed(decimals)} ${summary.currencySymbol || 'SEK'}`;
+          };
+
+          setText(els.savingsToday, summary.todayMajor !== null ? `${formatMoney(summary.todayMajor)} saved` : '—');
+          setText(els.savings7d, summary.last7Major !== null ? `${formatMoney(summary.last7Major)} saved` : '—');
+          setText(els.savingsProjection, summary.projectionMajor !== null ? `~${formatMoney(summary.projectionMajor)}/month` : '—');
+
+          if (summary.seasonMode) {
+            const map = {
+              winter: 'Winter',
+              transition: 'Transitional',
+              transitional: 'Transitional',
+              summer: 'Summer'
+            };
+            setText(els.seasonMode, map[summary.seasonMode] || summary.seasonMode);
+          } else {
+            setText(els.seasonMode, '—');
+          }
+
+          if (summary.averageSpotPrice !== null && Number.isFinite(summary.averageSpotPrice) && summary.averageSpotPrice > 0) {
+            const priceDecimals = summary.averageSpotPrice < 1 ? 4 : 3;
+            setText(els.avgPrice, `${summary.averageSpotPrice.toFixed(priceDecimals)} ${summary.currencySymbol}/kWh`);
+          } else if ((summary.priceDataPoints ?? 0) === 0) {
+            setText(els.avgPrice, 'Collecting data…');
+          } else {
+            setText(els.avgPrice, 'Not enough price data');
+          }
+
+          setText(els.savingsNote, summary.note || 'Optimizer is learning your baseline; savings will appear after a few hourly runs.');
+        }
+
+        function renderThermalDetails(snapshot) {
+          const model = snapshot?.thermalModel || {};
+          const adaptive = snapshot?.adaptiveParameters || {};
+          const retention = snapshot?.dataRetention || {};
+
+          const heating = typeof model.heatingRate === 'number'
+            ? `${model.heatingRate.toFixed(2)} °C/h`
+            : '—';
+          const cooling = typeof model.coolingRate === 'number'
+            ? `${model.coolingRate.toFixed(2)} °C/h`
+            : '—';
+          const mass = typeof model.thermalMass === 'number'
+            ? model.thermalMass.toFixed(2)
+            : '—';
+          const cycles = typeof adaptive.learningCycles === 'number'
+            ? adaptive.learningCycles.toString()
+            : '—';
+
+          setText(els.heatingRate, heating);
+          setText(els.coolingRate, cooling);
+          setText(els.thermalMass, mass);
+          setText(els.learningCycles, cycles);
+
+          const totalPoints = (retention.thermalRawPoints || 0) + (retention.thermalAggPoints || 0);
+          const totalKb = ((retention.rawKB || 0) + (retention.aggKB || 0)).toFixed(2);
+          if (els.retentionPoints) {
+            const raw = retention.thermalRawPoints || 0;
+            const agg = retention.thermalAggPoints || 0;
+            setText(els.retentionPoints, `${totalPoints} pts (${raw} raw / ${agg} agg)`);
+          }
+          if (els.retentionSize) {
+            setText(els.retentionSize, `${totalKb} KB footprint`);
+          }
+          if (els.retentionSection) {
+            els.retentionSection.style.display = totalPoints > 0 ? 'block' : 'none';
+          }
+        }
+
+        function renderSnapshot(snapshot) {
+          if (!snapshot) return;
+          const systemSummary = helper && typeof helper.buildSystemLearningSummary === 'function'
+            ? helper.buildSystemLearningSummary(snapshot)
+            : null;
+          const savingsSummary = helper && typeof helper.buildSmartSavingsSummary === 'function'
+            ? helper.buildSmartSavingsSummary(snapshot)
+            : null;
+
+          const pct = snapshot.confidencePct ?? null;
+          setText(els.confidenceValue, pct !== null ? `${pct}%` : '—%');
+          setStatusPill(snapshot.confidenceStatus || 'Learning');
+          setText(els.confidenceDetail, systemSummary?.temperature?.detail || 'Collecting data…');
+
+          renderSystem(systemSummary);
+          renderSavings(savingsSummary);
+          renderThermalDetails(snapshot);
+
+          if (els.updated) {
+            const lastUpdated = snapshot?.thermalModel?.lastUpdated;
+            if (lastUpdated) {
+              try {
+                const date = new Date(lastUpdated);
+                setText(els.updated, isNaN(date) ? `Updated ${lastUpdated}` : `Updated ${date.toLocaleString()}`);
+              } catch (err) {
+                setText(els.updated, `Updated ${lastUpdated}`);
+              }
+            } else {
+              setText(els.updated, 'Awaiting first update…');
+            }
+          }
+        }
+
+        let homeyInstance = null;
+
+        function fetchAndRender() {
+          if (!homeyInstance) {
+            return;
+          }
+          if (!helper || typeof helper.fetchSnapshot !== 'function') {
+            setError('Shared helper unavailable');
+            return;
+          }
+          setError(null);
+          setLoading(true);
+          helper.fetchSnapshot(homeyInstance)
+            .then((data) => {
+              renderSnapshot(data);
+              setError(null);
+            })
+            .catch((err) => {
+              console.error('Widget failed to load model confidence', err);
+              setError(err?.message || 'Failed to load data');
+            })
+            .finally(() => setLoading(false));
+        }
+
+        window.onHomeyReady = function(Homey) {
+          homeyInstance = Homey;
+          if (typeof Homey.ready === 'function') {
+            Homey.ready();
+          }
+          fetchAndRender();
+          if (els.refresh) {
+            els.refresh.addEventListener('click', fetchAndRender);
+          }
+        };
+      })();
+    </script>
+  </body>
+</html>

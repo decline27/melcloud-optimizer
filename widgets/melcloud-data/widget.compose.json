@@ -1,0 +1,13 @@
+{
+  "name": {
+    "en": "Live Model Confidence"
+  },
+  "height": 720,
+  "settings": [],
+  "api": {
+    "getModelConfidence": {
+      "method": "GET",
+      "path": "/getModelConfidence"
+    }
+  }
+}
