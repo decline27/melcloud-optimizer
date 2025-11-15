@@ -1,6 +1,6 @@
 {
   "id": "com.melcloud.optimize",
-  "version": "14.0.18",
+  "version": "14.0.19",
   "compatibility": ">=12.2.0",
   "sdk": 3,
   "platforms": [
@@ -29,6 +29,22 @@
   "brandColor": "#1E88E5",
   "homeyCommunityTopicId": 136325,
   "support": "https://github.com/decline27/melcloud-optimizer/issues",
+  "widgets": {
+    "melcloud-data": {
+      "name": {
+        "en": "Live Model Confidence"
+      },
+      "height": 620,
+      "settings": [],
+      "api": {
+        "getModelConfidence": {
+          "method": "GET",
+          "path": "/getModelConfidence"
+        }
+      },
+      "id": "melcloud-data"
+    }
+  },
   "capabilities": {
     "heating_cop": {
       "type": "number",
