@@ -172,5 +172,8 @@
   },
   "14.0.20": {
     "en": "New widget for model data"
+  },
+  "14.0.21": {
+    "en": "Widget bug fix"
   }
 }
