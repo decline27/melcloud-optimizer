@@ -151,7 +151,8 @@ export class FixedBaselineCalculator {
       const hotWaterEnergy = this.calculateHotWaterEnergy(
         finalConfig,
         hours,
-        effectiveCOPs.hotWater
+        effectiveCOPs.hotWater,
+        avgOutdoorTemp
       );
       
       const totalEnergy = heatingEnergy + hotWaterEnergy;
@@ -161,6 +162,15 @@ export class FixedBaselineCalculator {
       const confidence = this.calculateConfidence(outdoorTemps, finalConfig);
       
       const method = this.getCalculationMethod(finalConfig);
+
+      // Explicitly log the winter factor impact so we can trace cold-weather behavior in logs
+      const winterFactor = this.getWinterFactor(avgOutdoorTemp);
+      this.safeDebug('Fixed baseline temperature scaling applied:', {
+        avgOutdoorTemp: avgOutdoorTemp.toFixed(1),
+        winterFactor: winterFactor.toFixed(2),
+        heatingEnergy: heatingEnergy.toFixed(2),
+        hotWaterEnergy: hotWaterEnergy.toFixed(2)
+      });
       
       const result: BaselineConsumption = {
         heatingEnergyKWh: heatingEnergy,
@@ -377,9 +387,12 @@ export class FixedBaselineCalculator {
     // Scale to actual hours requested
     const scaledTargetKWh = (targetDailyKWh / 24) * hours;
     
+    // Apply a simple winter factor so the baseline reflects colder periods better
+    const winterFactor = this.getWinterFactor(avgOutdoorTemp);
+
     // Apply heating schedule efficiency
     const scheduleEfficiency = effectiveHeatingHours / hours;
-    const baselineHeatingEnergy = scaledTargetKWh * scheduleEfficiency;
+    const baselineHeatingEnergy = scaledTargetKWh * scheduleEfficiency * winterFactor;
     
     this.safeDebug('Calculated baseline heating energy:', {
       avgOutdoorTemp: avgOutdoorTemp.toFixed(1),
@@ -388,16 +401,18 @@ export class FixedBaselineCalculator {
       hours: hours,
       effectiveHeatingHours: effectiveHeatingHours,
       scheduleEfficiency: scheduleEfficiency.toFixed(2),
+      winterFactor: winterFactor.toFixed(2),
       baselineHeatingEnergy: baselineHeatingEnergy.toFixed(2)
     });
-    
+
     return baselineHeatingEnergy;
   }
 
   private calculateHotWaterEnergy(
     config: BaselineConfig,
     hours: number,
-    hotWaterCOP: number
+    hotWaterCOP: number,
+    avgOutdoorTemp: number
   ): number {
     // Set reasonable hot water baseline consumption
     // Typically 2-4 kWh/day for hot water in an average home
@@ -417,17 +432,40 @@ export class FixedBaselineCalculator {
       }
     }
     
+    // Slightly increase DHW demand on very cold days (occupants keep water hotter / longer)
+    const winterFactor = this.getWinterFactor(avgOutdoorTemp);
+    const dhwColdBoost = winterFactor > 1 ? Math.min(1.2, 1 + (winterFactor - 1) * 0.4) : 1;
+
     // Scale to timespan
-    const scaledDemand = (dailyHotWaterKWh / 24) * hours;
+    const scaledDemand = (dailyHotWaterKWh / 24) * hours * dhwColdBoost;
     
     this.safeDebug('Calculated baseline hot water energy:', {
       dailyHotWaterKWh: dailyHotWaterKWh.toFixed(2),
       hours: hours,
       scaledDemand: scaledDemand.toFixed(3),
-      hotWaterCOP: hotWaterCOP.toFixed(2)
+      hotWaterCOP: hotWaterCOP.toFixed(2),
+      avgOutdoorTemp: avgOutdoorTemp.toFixed(1),
+      dhwColdBoost: dhwColdBoost.toFixed(2)
     });
-    
+
     return scaledDemand;
+  }
+
+  private getWinterFactor(tempC: number): number {
+    if (tempC >= 20) {
+      return 0.9; // Slightly lower baseline in hot weather
+    }
+    if (tempC >= 10) {
+      return 1.0;
+    }
+    if (tempC >= 0) {
+      // Scale linearly between 10°C (1.0) and 0°C (1.5)
+      const fraction = (10 - tempC) / 10;
+      return 1.0 + fraction * 0.5;
+    }
+    // Colder than 0°C - cap around 1.8-2.0 depending on severity
+    const severity = Math.min(10, Math.abs(tempC));
+    return Math.min(2.0, 1.5 + severity * 0.05);
   }
 
   private getEffectiveHeatingHours(config: BaselineConfig, totalHours: number): number {

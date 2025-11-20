@@ -1356,12 +1356,13 @@ module.exports = class BoilerDevice extends Homey.Device {
    * Get main operation mode state
    */
   private getOperationModeState(operationMode: number): string {
+    // Reference: https://github.com/OlivierZal/melcloud-api/blob/master/src/enums.ts (OperationModeState)
     switch (operationMode) {
       case 0: return 'idle';
-      case 1: return 'heating';
-      case 2: return 'cooling'; 
-      case 3: return 'defrost';
-      case 5: return 'dhw';       // Domestic hot water
+      case 1: return 'dhw';         // Domestic hot water
+      case 2: return 'heating';
+      case 3: return 'cooling';
+      case 5: return 'defrost';
       case 6: return 'legionella';
       default: return 'idle';
     }

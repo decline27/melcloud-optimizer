@@ -149,6 +149,11 @@ type AugmentedOptimizationResult = EnhancedOptimizationResult & {
   };
 };
 
+type OptimizerCostSnapshot = {
+  baselineCostMajor: number;
+  optimizedCostMajor: number;
+};
+
 async function syncDevicesWithOptimizationResult(homey: any, result: AugmentedOptimizationResult): Promise<void> {
   try {
     if (!result) return;
@@ -1007,6 +1012,10 @@ const apiHandlers: ApiHandlers = {
       // Run hourly optimization
       const activeOptimizer = requireOptimizer();
       const melCloudService = requireMelCloud();
+      const enhancedCalculator = typeof activeOptimizer.getEnhancedSavingsCalculator === 'function'
+        ? activeOptimizer.getEnhancedSavingsCalculator()
+        : null;
+      const baselineComparisonEnabled = homey.settings.get('enable_baseline_comparison') !== false;
       homey.app.log('Starting hourly optimization');
       homey.app.log('===== HOURLY OPTIMIZATION STARTED =====');
 
@@ -1016,10 +1025,9 @@ const apiHandlers: ApiHandlers = {
 
         // Calculate enhanced savings with baseline comparison early for timeline (using result.savings)
         let enhancedSavingsData = null;
+        let optimizerCostSnapshot: OptimizerCostSnapshot | null = null;
         try {
-          const enableBaselineComparison = homey.settings.get('enable_baseline_comparison') !== false;
-          const enhancedCalculator = activeOptimizer.getEnhancedSavingsCalculator();
-          if (enableBaselineComparison && enhancedCalculator?.hasBaselineCapability()) {
+          if (baselineComparisonEnabled && enhancedCalculator?.hasBaselineCapability()) {
             // Use result.savings for early calculation
             const initialSavings = (typeof result.savings === 'number' && !Number.isNaN(result.savings)) ? result.savings : 0;
             
@@ -1048,6 +1056,18 @@ const apiHandlers: ApiHandlers = {
               baselinePercentage: enhancedSavingsData.baselineComparison?.baselinePercentage.toFixed(1) || 'n/a',
               confidence: enhancedSavingsData.baselineComparison?.confidenceLevel.toFixed(2) || 'n/a'
             });
+
+            const baselineBreakdown = enhancedSavingsData.baselineComparison?.breakdown;
+            if (baselineBreakdown) {
+              const baselineCostMajor = Number(baselineBreakdown.baselineCost);
+              const optimizedCostMajor = Number(baselineBreakdown.actualCost);
+              if (Number.isFinite(baselineCostMajor) && Number.isFinite(optimizedCostMajor)) {
+                optimizerCostSnapshot = {
+                  baselineCostMajor,
+                  optimizedCostMajor
+                };
+              }
+            }
           }
         } catch (enhancedErr: any) {
           homey.app.error('Error calculating enhanced savings with baseline (early):', enhancedErr.message || String(enhancedErr));
@@ -1345,102 +1365,129 @@ const apiHandlers: ApiHandlers = {
 
             // Update display_savings_history (read-only estimates for UI)
             try {
-              const enhancedCalculator = typeof activeOptimizer.getEnhancedSavingsCalculator === 'function'
-                ? activeOptimizer.getEnhancedSavingsCalculator()
-                : null;
-
-              if (enhancedCalculator && typeof enhancedCalculator.calculateEnhancedDailySavingsWithBaseline === 'function') {
+              const calculatorHasBaseline = enhancedCalculator && typeof enhancedCalculator.calculateEnhancedDailySavingsWithBaseline === 'function';
+              if (optimizerCostSnapshot || calculatorHasBaseline) {
                 const displayHistoryRaw = homey.settings.get('display_savings_history') || [];
                 const displayHistory = Array.isArray(displayHistoryRaw) ? displayHistoryRaw.slice() : [];
+                const entryIndex = displayHistory.findIndex((item: any) => item && item.date === todayStr);
+                const entry = entryIndex >= 0 ? { ...displayHistory[entryIndex] } : { date: todayStr };
+                const hasStoredBaseline = Number.isFinite(entry?.baselineMinor) && Number.isFinite(entry?.optimizedMinor);
 
-                // Gather historical optimizations (today only preferred)
-                const historicalOptimizations = Array.isArray(historicalData?.optimizations)
-                  ? historicalData.optimizations.filter(opt => {
-                      if (!opt || !opt.timestamp) return false;
-                      return opt.timestamp.startsWith(todayStr);
-                    })
-                  : [];
+                let baselineCostMajor: number | null = null;
+                let optimizedCostMajor: number | null = null;
+                let baselineSource: 'optimizer' | 'stored' | 'fallback' | null = null;
 
-                // Estimate actual consumption and cost from metrics
-                const dailyConsumption = Number(result.energyMetrics?.dailyEnergyConsumption);
-                const gridFee = Number(homey.settings.get('grid_fee_per_kwh')) || 0;
-                const priceAverage = Number(result.priceData?.average);
-                const priceCurrent = Number(result.priceData?.current);
-                let pricePerKWh = Number.isFinite(priceAverage) && priceAverage > 0 ? priceAverage : undefined;
-                if (pricePerKWh === undefined && Number.isFinite(priceCurrent) && priceCurrent > 0) {
-                  pricePerKWh = priceCurrent;
-                }
-                if (pricePerKWh !== undefined && Number.isFinite(gridFee) && gridFee > 0) {
-                  pricePerKWh += gridFee;
-                } else if (pricePerKWh === undefined && Number.isFinite(gridFee) && gridFee > 0) {
-                  pricePerKWh = gridFee;
-                }
+                if (optimizerCostSnapshot) {
+                  baselineCostMajor = optimizerCostSnapshot.baselineCostMajor;
+                  optimizedCostMajor = optimizerCostSnapshot.optimizedCostMajor;
+                  baselineSource = 'optimizer';
+                } else if (hasStoredBaseline) {
+                  baselineSource = 'stored';
+                } else if (calculatorHasBaseline) {
+                  // Gather historical optimizations (today only preferred)
+                  const historicalOptimizations = Array.isArray(historicalData?.optimizations)
+                    ? historicalData.optimizations.filter(opt => {
+                        if (!opt || !opt.timestamp) return false;
+                        return opt.timestamp.startsWith(todayStr);
+                      })
+                    : [];
 
-                const actualConsumptionKWh = Number.isFinite(dailyConsumption) && dailyConsumption > 0 ? dailyConsumption : undefined;
-                let actualCost = actualConsumptionKWh !== undefined && pricePerKWh !== undefined
-                  ? actualConsumptionKWh * pricePerKWh
-                  : undefined;
+                  // Estimate actual consumption and cost from metrics
+                  const dailyConsumption = Number(result.energyMetrics?.dailyEnergyConsumption);
+                  const gridFee = Number(homey.settings.get('grid_fee_per_kwh')) || 0;
+                  const priceAverage = Number(result.priceData?.average);
+                  const priceCurrent = Number(result.priceData?.current);
+                  let pricePerKWh = Number.isFinite(priceAverage) && priceAverage > 0 ? priceAverage : undefined;
+                  if (pricePerKWh === undefined && Number.isFinite(priceCurrent) && priceCurrent > 0) {
+                    pricePerKWh = priceCurrent;
+                  }
+                  if (pricePerKWh !== undefined && Number.isFinite(gridFee) && gridFee > 0) {
+                    pricePerKWh += gridFee;
+                  } else if (pricePerKWh === undefined && Number.isFinite(gridFee) && gridFee > 0) {
+                    pricePerKWh = gridFee;
+                  }
 
-                if ((actualCost === undefined || Number.isNaN(actualCost)) && enhancedSavingsData?.baselineComparison?.breakdown?.actualCost !== undefined) {
-                  const fallbackCost = Number(enhancedSavingsData.baselineComparison.breakdown.actualCost);
-                  if (Number.isFinite(fallbackCost) && fallbackCost >= 0) {
-                    actualCost = fallbackCost;
+                  const actualConsumptionKWh = Number.isFinite(dailyConsumption) && dailyConsumption > 0 ? dailyConsumption : undefined;
+                  let actualCost = actualConsumptionKWh !== undefined && pricePerKWh !== undefined
+                    ? actualConsumptionKWh * pricePerKWh
+                    : undefined;
+
+                  if ((actualCost === undefined || Number.isNaN(actualCost)) && enhancedSavingsData?.baselineComparison?.breakdown?.actualCost !== undefined) {
+                    const fallbackCost = Number(enhancedSavingsData.baselineComparison.breakdown.actualCost);
+                    if (Number.isFinite(fallbackCost) && fallbackCost >= 0) {
+                      actualCost = fallbackCost;
+                    }
+                  }
+
+                  const baselineOptions: any = {
+                    enableBaseline: true,
+                    baselineConfig: {
+                      heatingSetpoint: 21,
+                      hotWaterSetpoint: 60,
+                      operatingProfile: 'always_on'
+                    }
+                  };
+
+                  if (actualConsumptionKWh !== undefined) baselineOptions.actualConsumptionKWh = actualConsumptionKWh;
+                  if (actualCost !== undefined) baselineOptions.actualCost = actualCost;
+                  if (pricePerKWh !== undefined) baselineOptions.pricePerKWh = pricePerKWh;
+
+                  const currentHourLocal = local.getHours();
+                  const baselineResult = enhancedCalculator!.calculateEnhancedDailySavingsWithBaseline(
+                    Number.isFinite(computedSavings) ? Number(computedSavings) : 0,
+                    historicalOptimizations,
+                    currentHourLocal,
+                    undefined,
+                    baselineOptions
+                  );
+
+                  const comparison = baselineResult?.baselineComparison;
+                  baselineCostMajor = comparison?.breakdown && Number.isFinite(comparison.breakdown.baselineCost)
+                    ? Number(comparison.breakdown.baselineCost)
+                    : null;
+                  optimizedCostMajor = comparison?.breakdown && Number.isFinite(comparison.breakdown.actualCost)
+                    ? Number(comparison.breakdown.actualCost)
+                    : null;
+                  if (baselineCostMajor !== null && optimizedCostMajor !== null) {
+                    baselineSource = 'fallback';
                   }
                 }
 
-                const baselineOptions: any = {
-                  enableBaseline: true,
-                  baselineConfig: {
-                    heatingSetpoint: 21,
-                    hotWaterSetpoint: 60,
-                    operatingProfile: 'always_on'
-                  }
-                };
+                const seasonModeValue = result.energyMetrics?.seasonalMode;
+                let entryUpdated = false;
 
-                if (actualConsumptionKWh !== undefined) baselineOptions.actualConsumptionKWh = actualConsumptionKWh;
-                if (actualCost !== undefined) baselineOptions.actualCost = actualCost;
-                if (pricePerKWh !== undefined) baselineOptions.pricePerKWh = pricePerKWh;
-
-                const currentHourLocal = local.getHours();
-                const baselineResult = enhancedCalculator.calculateEnhancedDailySavingsWithBaseline(
-                  Number.isFinite(computedSavings) ? Number(computedSavings) : 0,
-                  historicalOptimizations,
-                  currentHourLocal,
-                  undefined,
-                  baselineOptions
-                );
-
-                const comparison = baselineResult?.baselineComparison;
-                const baselineCostMajor = comparison?.breakdown && Number.isFinite(comparison.breakdown.baselineCost)
-                  ? Number(comparison.breakdown.baselineCost)
-                  : null;
-                const optimizedCostMajor = comparison?.breakdown && Number.isFinite(comparison.breakdown.actualCost)
-                  ? Number(comparison.breakdown.actualCost)
-                  : null;
-
-                if (baselineCostMajor !== null && optimizedCostMajor !== null) {
-                  const entryIndex = displayHistory.findIndex((item: any) => item && item.date === todayStr);
-                  const entry = entryIndex >= 0 ? { ...displayHistory[entryIndex] } : { date: todayStr };
+                if ((baselineSource === 'optimizer' || baselineSource === 'fallback') &&
+                    baselineCostMajor !== null && optimizedCostMajor !== null) {
                   entry.currency = currencyCode;
                   entry.decimals = decimals;
                   entry.baselineMinor = toMinor(Math.max(0, baselineCostMajor));
                   entry.optimizedMinor = toMinor(Math.max(0, optimizedCostMajor));
-                  const seasonModeValue = result.energyMetrics?.seasonalMode;
-                  if (seasonModeValue) entry.seasonMode = seasonModeValue;
+                  entryUpdated = true;
+                } else if (!hasStoredBaseline && baselineSource !== 'stored') {
+                  homey.app.log('Skipping display_savings_history update: no baseline data available for today');
+                }
+
+                if (seasonModeValue && entry.seasonMode !== seasonModeValue) {
+                  entry.seasonMode = seasonModeValue;
+                  entryUpdated = true;
+                }
+
+                if (entryIndex >= 0) {
+                  displayHistory[entryIndex] = entry;
+                } else if (entryUpdated) {
+                  displayHistory.push(entry);
+                }
+
+                if (entryUpdated) {
                   entry.updatedAt = new Date().toISOString();
-
-                  if (entryIndex >= 0) {
-                    displayHistory[entryIndex] = entry;
-                  } else {
-                    displayHistory.push(entry);
-                  }
-
                   displayHistory.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
                   const trimmedDisplay = displayHistory.slice(Math.max(0, displayHistory.length - 30));
                   homey.settings.set('display_savings_history', trimmedDisplay);
 
                   try {
-                    homey.app.log(`Updated display_savings_history: baseline=${baselineCostMajor.toFixed(2)}, optimized=${optimizedCostMajor.toFixed(2)} (${todayStr})`);
+                    const baselineLog = baselineCostMajor !== null ? baselineCostMajor.toFixed(2) : 'n/a';
+                    const optimizedLog = optimizedCostMajor !== null ? optimizedCostMajor.toFixed(2) : 'n/a';
+                    homey.app.log(`Updated display_savings_history (${baselineSource || 'stored'}): baseline=${baselineLog}, optimized=${optimizedLog} (${todayStr})`);
                   } catch (_: any) {}
                 }
               }
