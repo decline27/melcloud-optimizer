@@ -149,6 +149,16 @@ interface EnhancedOptimizationResult {
     bestTimes?: any;
     worstTimes?: any;
   };
+  // Added for Mode-Aware Optimization compatibility
+  targetTemp?: number;
+  priceNow?: number;
+  priceAvg?: number;
+  priceMin?: number;
+  priceMax?: number;
+  targetOriginal?: number | null;
+  comfort?: number;
+  timestamp?: string;
+  kFactor?: number;
   zone2Data?: SecondaryZoneResult;
   tankData?: TankOptimizationResult;
   melCloudStatus?: {
@@ -1824,68 +1834,143 @@ export class Optimizer {
         }
       }
 
+      // Detect Operation Mode (0=Room, 1=Flow, 2=Curve)
+      // Prioritize HCControlType if available, as it's the standard field for many ATW units
+      this.logger.log(`[DEBUG] Full Device State Keys: ${Object.keys(deviceState).join(', ')}`);
+      this.logger.log(`[DEBUG] HCControlType value: ${deviceState.HCControlType} (type: ${typeof deviceState.HCControlType})`);
+      this.logger.log(`[DEBUG] OperationModeZone1 value: ${deviceState.OperationModeZone1} (type: ${typeof deviceState.OperationModeZone1})`);
+
+      const operationMode = deviceState.HCControlType ?? deviceState.OperationModeZone1 ?? 0;
+      this.logger.log(`Detected Operation Mode: ${operationMode} (HCControlType: ${deviceState.HCControlType}, OperationModeZone1: ${deviceState.OperationModeZone1})`);
       let newTarget: number;
       let reason: string;
       let additionalInfo: any = {};
+      const safeCurrentTarget = currentTarget ?? 20; // Define here for use across modes
 
-      // Use thermal learning model if available
-      if (this.useThermalLearning && this.thermalModelService) {
-        try {
-          // Get comfort profile from user settings (using settings page defaults)
-          const comfortProfile = {
-            dayStart: Number(this.homey?.settings.get('day_start_hour')) || 6,     // Settings page default: value="6"
-            dayEnd: Number(this.homey?.settings.get('day_end_hour')) || 22,        // Settings page default: value="22"
-            nightTempReduction: Number(this.homey?.settings.get('night_temp_reduction')) || 2,
-            preHeatHours: Number(this.homey?.settings.get('pre_heat_hours')) || 1  // Settings page default: value="1"
-          };
+      // --- MODE-SPECIFIC OPTIMIZATION ---
+      if (operationMode === 1) {
+        // === FLOW MODE (Direct Flow Temperature Control) ===
+        // Strategy: Calculate ideal flow temp based on outdoor temp, then shift based on price
 
-          // Get thermal model recommendation
-          const recommendation = this.thermalModelService.getHeatingRecommendation(
-            priceData.prices,
-            currentTarget ?? 20,
-            currentTemp ?? 20,
-            outdoorTemp,
-            weatherConditions,
-            comfortProfile
-          );
+        // 1. Calculate Base Flow Temp (Linear Curve: -10C->50C, 15C->30C)
+        // Slope = (30 - 50) / (15 - (-10)) = -20 / 25 = -0.8
+        // Intercept: T_flow = 30 - (-0.8 * 15) = 30 + 12 = 42
+        // Formula: Flow = 42 - 0.8 * Outdoor
+        let baseFlowTarget = 42 - (0.8 * outdoorTemp);
 
-          newTarget = recommendation.recommendedTemperature;
-          reason = recommendation.explanation;
+        // Clamp base target to reasonable bounds before adjustment
+        baseFlowTarget = Math.max(25, Math.min(55, baseFlowTarget));
 
-          // Get time to target prediction
-          const timeToTarget = this.thermalModelService.getTimeToTarget(
-            currentTemp ?? 20,
-            newTarget,
-            outdoorTemp,
-            weatherConditions
-          );
+        // 2. Apply Price-Based Adjustment
+        // Stronger shifts allowed for flow temp (thermal mass absorbs it)
+        let flowShift = 0;
+        if (currentPrice < priceAvg * 0.8) flowShift = 5;       // Very Cheap: +5C
+        else if (currentPrice < priceAvg) flowShift = 3;        // Cheap: +3C
+        else if (currentPrice > priceMax * 0.9) flowShift = -5; // Very Expensive: -5C
+        else if (currentPrice > priceAvg) flowShift = -3;       // Expensive: -3C
 
-          // Add thermal model data to result
-          additionalInfo = {
-            thermalModel: {
-              characteristics: this.thermalModelService.getThermalCharacteristics(),
-              timeToTarget: timeToTarget.timeToTarget,
-              confidence: timeToTarget.confidence,
-              recommendation: recommendation
-            }
-          };
+        newTarget = baseFlowTarget + flowShift;
+        reason = `Flow Mode: Base ${baseFlowTarget.toFixed(1)}°C (at ${outdoorTemp}°C) + Shift ${flowShift}°C (Price)`;
 
-          this.logger.log(`Thermal model recommendation: ${newTarget}°C (${reason})`);
+        // 3. Apply Flow Mode Constraints
+        const minFlow = 20;
+        const maxFlow = 60;
+        newTarget = Math.max(minFlow, Math.min(maxFlow, newTarget));
+        newTarget = Math.round(newTarget); // Flow temps usually integers
 
-        } catch (modelError) {
-          this.logger.error('Error using thermal model, falling back to basic optimization:', modelError);
-          // Fall back to basic optimization
+      } else if (operationMode === 2) {
+        // === CURVE MODE (Weather Compensation Shift) ===
+        // Strategy: Adjust the curve shift parameter (usually -9 to +9 or -5 to +5)
+        // Base is 0 (no shift)
+
+        let curveShift = 0;
+        if (currentPrice < priceAvg * 0.8) curveShift = 2;       // Very Cheap: +2
+        else if (currentPrice < priceAvg) curveShift = 1;        // Cheap: +1
+        else if (currentPrice > priceMax * 0.9) curveShift = -2; // Very Expensive: -2
+        else if (currentPrice > priceAvg) curveShift = -1;       // Expensive: -1
+
+        newTarget = curveShift;
+        reason = `Curve Mode: Shift ${curveShift > 0 ? '+' : ''}${curveShift} (Price)`;
+
+        // 3. Apply Curve Mode Constraints
+        // Assuming standard range -5 to +5 for safety, though some units go to +/-9
+        newTarget = Math.max(-5, Math.min(5, newTarget));
+
+      } else {
+        // === ROOM MODE (Legacy/Default Logic) ===
+
+        // Use thermal learning model if available
+        if (this.useThermalLearning && this.thermalModelService) {
+          try {
+            // Get comfort profile from user settings (using settings page defaults)
+            const comfortProfile = {
+              dayStart: Number(this.homey?.settings.get('day_start_hour')) || 6,
+              dayEnd: Number(this.homey?.settings.get('day_end_hour')) || 22,
+              nightTempReduction: Number(this.homey?.settings.get('night_temp_reduction')) || 2,
+              preHeatHours: Number(this.homey?.settings.get('pre_heat_hours')) || 1
+            };
+
+            // Get thermal model recommendation
+            const recommendation = this.thermalModelService.getHeatingRecommendation(
+              priceData.prices,
+              currentTarget ?? 20,
+              currentTemp ?? 20,
+              outdoorTemp,
+              weatherConditions,
+              comfortProfile
+            );
+
+            newTarget = recommendation.recommendedTemperature;
+            reason = recommendation.explanation;
+
+            // Get time to target prediction
+            const timeToTarget = this.thermalModelService.getTimeToTarget(
+              currentTemp ?? 20,
+              newTarget,
+              outdoorTemp,
+              weatherConditions
+            );
+
+            // Add thermal model data to result
+            additionalInfo = {
+              thermalModel: {
+                characteristics: this.thermalModelService.getThermalCharacteristics(),
+                timeToTarget: timeToTarget.timeToTarget,
+                confidence: timeToTarget.confidence,
+                recommendation: recommendation
+              }
+            };
+
+            this.logger.log(`Thermal model recommendation: ${newTarget}°C (${reason})`);
+
+          } catch (modelError) {
+            this.logger.error('Error using thermal model, falling back to basic optimization:', modelError);
+            // Fall back to basic optimization
+            newTarget = await this.calculateOptimalTemperature(currentPrice, priceAvg, priceMin, priceMax, currentTemp ?? 20);
+            reason = newTarget < (currentTarget ?? 20) ? 'Price is above average, reducing temperature' :
+              newTarget > (currentTarget ?? 20) ? 'Price is below average, increasing temperature' :
+                'No change needed';
+          }
+        } else {
+          // Use basic optimization
           newTarget = await this.calculateOptimalTemperature(currentPrice, priceAvg, priceMin, priceMax, currentTemp ?? 20);
           reason = newTarget < (currentTarget ?? 20) ? 'Price is above average, reducing temperature' :
             newTarget > (currentTarget ?? 20) ? 'Price is below average, increasing temperature' :
               'No change needed';
         }
-      } else {
-        // Use basic optimization
-        newTarget = await this.calculateOptimalTemperature(currentPrice, priceAvg, priceMin, priceMax, currentTemp ?? 20);
-        reason = newTarget < (currentTarget ?? 20) ? 'Price is above average, reducing temperature' :
-          newTarget > (currentTarget ?? 20) ? 'Price is below average, increasing temperature' :
-            'No change needed';
+
+        // Apply constraints - use user-configurable comfort bands (ROOM MODE ONLY)
+        const constraints = this.getCurrentComfortBand();
+        newTarget = Math.max(constraints.minTemp, Math.min(constraints.maxTemp, newTarget));
+
+        // Apply step constraint (don't change by more than tempStep)
+        const maxChange = this.tempStep;
+        if (Math.abs(newTarget - safeCurrentTarget) > maxChange) {
+          newTarget = safeCurrentTarget + (newTarget > safeCurrentTarget ? maxChange : -maxChange);
+        }
+
+        // Round to nearest step
+        newTarget = Math.round(newTarget / this.tempStep) * this.tempStep;
       }
 
       // If COP helper is available, add COP info to the reason
@@ -1901,24 +1986,6 @@ export class Optimizer {
         }
       }
 
-      // Apply constraints - use user-configurable comfort bands
-      const constraints = this.getCurrentComfortBand();
-      newTarget = Math.max(constraints.minTemp, Math.min(constraints.maxTemp, newTarget));
-
-      // Apply step constraint (don't change by more than tempStep)
-      const maxChange = this.tempStep;
-      const safeCurrentTarget = currentTarget ?? 20;
-      if (Math.abs(newTarget - safeCurrentTarget) > maxChange) {
-        newTarget = safeCurrentTarget + (newTarget > safeCurrentTarget ? maxChange : -maxChange);
-      }
-
-      // Round to nearest step
-      newTarget = Math.round(newTarget / this.tempStep) * this.tempStep;
-
-      // Calculate savings and comfort impact
-      const savings = this.calculateSavings(safeCurrentTarget, newTarget, currentPrice);
-      const comfort = this.calculateComfortImpact(safeCurrentTarget, newTarget);
-
       // Set new temperature if different
       if (newTarget !== safeCurrentTarget) {
         try {
@@ -1933,6 +2000,11 @@ export class Optimizer {
       } else {
         this.logger.log(`Keeping temperature at ${safeCurrentTarget}°C: ${reason}`);
       }
+
+      // Calculate savings and comfort impact (for reporting)
+      // Note: In Flow/Curve modes, these metrics are approximations as "target" isn't room temp
+      const savings = this.calculateSavings(safeCurrentTarget, newTarget, currentPrice);
+      const comfort = this.calculateComfortImpact(safeCurrentTarget, newTarget);
 
       // Get COP data if available
       let copData = null;
@@ -2133,28 +2205,35 @@ export class Optimizer {
       });
 
       // Collect thermal data point for learning
+      // Only collect if target is within reasonable room temp range (10-35°C)
+      // In Flow/Curve mode, currentTarget might be Flow Temp (e.g. 40) or Shift (e.g. -2)
       if (this.useThermalLearning && this.thermalModelService) {
         try {
-          const dataPoint = {
-            timestamp: new Date().toISOString(),
-            indoorTemperature: currentTemp ?? 20,
-            outdoorTemperature: outdoorTemp,
-            targetTemperature: currentTarget ?? 20,
-            heatingActive: !deviceState.IdleZone1,
-            weatherConditions: {
-              windSpeed: 0, // Will be filled if weather available
-              humidity: 0,
-              cloudCover: 0,
-              precipitation: 0
-            }
-          };
-          this.thermalModelService.collectDataPoint(dataPoint);
-          this.logger.log('Thermal data point collected', {
-            indoorTemp: dataPoint.indoorTemperature,
-            outdoorTemp: dataPoint.outdoorTemperature,
-            targetTemp: dataPoint.targetTemperature,
-            heatingActive: dataPoint.heatingActive
-          });
+          const safeTarget = currentTarget ?? 20;
+          if (safeTarget >= 10 && safeTarget <= 35) {
+            const dataPoint = {
+              timestamp: new Date().toISOString(),
+              indoorTemperature: currentTemp ?? 20,
+              outdoorTemperature: outdoorTemp,
+              targetTemperature: safeTarget,
+              heatingActive: !deviceState.IdleZone1,
+              weatherConditions: {
+                windSpeed: 0, // Will be filled if weather available
+                humidity: 0,
+                cloudCover: 0,
+                precipitation: 0
+              }
+            };
+            this.thermalModelService.collectDataPoint(dataPoint);
+            this.logger.log('Thermal data point collected', {
+              indoorTemp: dataPoint.indoorTemperature,
+              outdoorTemp: dataPoint.outdoorTemperature,
+              targetTemp: dataPoint.targetTemperature,
+              heatingActive: dataPoint.heatingActive
+            });
+          } else {
+            this.logger.log(`Skipping thermal data collection: Target ${safeTarget} is likely Flow/Curve value (not Room Temp)`);
+          }
         } catch (error) {
           this.logger.error('Error collecting thermal data point:', error);
         }
@@ -2162,6 +2241,157 @@ export class Optimizer {
 
       // Use enhanced optimization with real energy data
       const cachedMetrics = await this.getRealEnergyMetrics();
+
+      // --- MODE-AWARE OPTIMIZATION START ---
+      // Get operation mode from device state
+      // HCControlType: 0=Room, 1=Flow, 2=Curve (approximate mapping, needs verification)
+      // OperationModeZone1: 0=Room, 1=Flow, 2=Curve (often mirrors HCControlType)
+      const hcControl = deviceState.HCControlType;
+      const opMode = deviceState.OperationModeZone1;
+
+      // Aggressive Debug Logging for Mode Detection
+      this.logger.log('--- MODE DETECTION DEBUG ---');
+      this.logger.log(`HCControlType: ${hcControl} (${typeof hcControl})`);
+      this.logger.log(`OperationModeZone1: ${opMode} (${typeof opMode})`);
+      this.logger.log('Full Device State Keys:', Object.keys(deviceState).join(', '));
+      this.logger.log('----------------------------');
+
+      // Determine effective mode (Prioritize OperationModeZone1 as it seems more specific)
+      // HCControlType: 1 might just mean "Water Temp Control" (covering both Flow and Curve)
+      // OperationModeZone1: 1=Flow, 2=Curve
+      let effectiveMode = 0; // Default to Room
+
+      if (opMode !== undefined && opMode !== null) {
+        effectiveMode = Number(opMode);
+      } else if (hcControl !== undefined && hcControl !== null) {
+        effectiveMode = Number(hcControl);
+      }
+
+      this.logger.log(`Effective Optimization Mode: ${effectiveMode === 1 ? 'FLOW' : effectiveMode === 2 ? 'CURVE' : 'ROOM'} (${effectiveMode})`);
+
+      // Handle Flow Mode (1)
+      if (effectiveMode === 1) {
+        this.logger.log('Executing Flow Temperature Optimization...');
+
+        // 1. Calculate Base Flow Target (Virtual Target)
+        // Simple compensation curve: 42°C at 0°C outdoor, slope -0.8
+        // This should ideally be user-configurable
+        const baseFlow = 42 - (0.8 * outdoorTemp);
+        const clampedBase = Math.max(25, Math.min(55, baseFlow));
+
+        // 2. Apply Price-Based Adjustment
+        // Cheap: +3 to +5°C (Store heat)
+        // Expensive: -3 to -5°C (Coast)
+        let flowShift = 0;
+        let reason = `Base Flow: ${clampedBase.toFixed(1)}°C (Outdoor: ${outdoorTemp.toFixed(1)}°C)`;
+
+        // Use price classification from earlier
+        if (priceClassification.label === 'CHEAP' || priceClassification.label === 'VERY_CHEAP') {
+          flowShift = 5;
+          reason += ' + Cheap Price Boost (+5°C)';
+        } else if (priceClassification.label === 'EXPENSIVE' || priceClassification.label === 'VERY_EXPENSIVE') {
+          flowShift = -5;
+          reason += ' - Expensive Price Cut (-5°C)';
+        } else {
+          reason += ' (Normal Price)';
+        }
+
+        const targetFlow = Math.max(25, Math.min(60, clampedBase + flowShift));
+
+        // 3. Apply to Device
+        if (this.melCloud) {
+          await this.melCloud.setFlowTemperature(this.deviceId, this.buildingId, targetFlow, 1);
+        }
+
+        // Return result immediately for Flow Mode
+        return {
+          success: true,
+          action: 'temperature_adjusted',
+          fromTemp: currentTarget ?? 0,
+          toTemp: targetFlow,
+          priceData: {
+            current: currentPrice,
+            average: avgPrice,
+            min: minPrice,
+            max: maxPrice,
+            level: priceClassification.label,
+            percentile: priceClassification.percentile
+          },
+          targetTemp: targetFlow, // This is flow temp, not room temp
+          reason: `[FLOW MODE] ${reason}`,
+          priceNow: currentPrice,
+          priceAvg: avgPrice,
+          priceMin: minPrice,
+          priceMax: maxPrice,
+          indoorTemp: currentTemp,
+          outdoorTemp: outdoorTemp,
+          targetOriginal: currentTarget, // Likely flow temp in this mode
+          savings: 0, // Hard to calc without room temp impact
+          comfort: 0,
+          timestamp: new Date().toISOString(),
+          kFactor: this.thermalModel.K
+        };
+      }
+
+      // Handle Curve Mode (2)
+      if (effectiveMode === 2) {
+        this.logger.log('Executing Curve Shift Optimization...');
+
+        // 1. Base Shift is 0
+        let curveShift = 0;
+        let reason = 'Base Shift: 0';
+
+        // 2. Apply Price-Based Shift
+        // Range typically -5 to +5 or -9 to +9
+        if (priceClassification.label === 'CHEAP' || priceClassification.label === 'VERY_CHEAP') {
+          curveShift = 2;
+          reason += ' + Cheap Price Boost (+2)';
+        } else if (priceClassification.label === 'EXPENSIVE' || priceClassification.label === 'VERY_EXPENSIVE') {
+          curveShift = -2;
+          reason += ' - Expensive Price Cut (-2)';
+        } else {
+          reason += ' (Normal Price)';
+        }
+
+        // 3. Apply to Device
+        if (this.melCloud) {
+          await this.melCloud.setCurveShift(this.deviceId, this.buildingId, curveShift, 1);
+        }
+
+        // Return result immediately for Curve Mode
+        return {
+          success: true,
+          action: 'temperature_adjusted',
+          fromTemp: currentTarget ?? 0,
+          toTemp: curveShift,
+          priceData: {
+            current: currentPrice,
+            average: avgPrice,
+            min: minPrice,
+            max: maxPrice,
+            level: priceClassification.label,
+            percentile: priceClassification.percentile
+          },
+          targetTemp: curveShift, // This is shift value
+          reason: `[CURVE MODE] ${reason}`,
+          priceNow: currentPrice,
+          priceAvg: avgPrice,
+          priceMin: minPrice,
+          priceMax: maxPrice,
+          indoorTemp: currentTemp,
+          outdoorTemp: outdoorTemp,
+          targetOriginal: currentTarget,
+          savings: 0,
+          comfort: 0,
+          timestamp: new Date().toISOString(),
+          kFactor: this.thermalModel.K
+        };
+      }
+
+      // Fallthrough to Standard Room Optimization (Mode 0 or unknown)
+      this.logger.log('Executing Standard Room Optimization...');
+      // --- MODE-AWARE OPTIMIZATION END ---
+
       const optimizationResult = await this.calculateOptimalTemperatureWithRealData(
         currentPrice,
         avgPrice,

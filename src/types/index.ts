@@ -67,6 +67,9 @@ export interface MelCloudDevice {
   SetTemperatureZone1?: number;
   OutdoorTemperature: number;
   IdleZone1: boolean;
+  OperationModeZone1?: number; // 0=Room, 1=Flow, 2=Curve
+  OperationModeZone2?: number;
+  HCControlType?: number; // 0=Room, 1=Flow, 2=Curve (Alternative field)
   DailyHeatingEnergyProduced?: number;
   DailyHeatingEnergyConsumed?: number;
   DailyHotWaterEnergyProduced?: number;

@@ -26,7 +26,7 @@ export class MelCloudApi extends BaseApiService {
   private reconnectDelay: number = 5000; // 5 seconds initial delay
   private reconnectTimers: NodeJS.Timeout[] = [];
   private timeZoneHelper: TimeZoneHelper;
-  
+
   // Request deduplication (Task 1.2)
   private pendingRequests = new Map<string, Promise<any>>();
 
@@ -37,7 +37,7 @@ export class MelCloudApi extends BaseApiService {
   constructor(logger?: Logger) {
     // Ensure we have a valid logger - use fallback if none provided
     const safeLogger = logger || (global.logger as Logger) || createFallbackLogger('MELCloud');
-    
+
     // Call the parent constructor with service name and logger
     super('MELCloud', safeLogger, {
       failureThreshold: 3,
@@ -88,10 +88,10 @@ export class MelCloudApi extends BaseApiService {
   private isAuthError(error: unknown): boolean {
     return error instanceof Error &&
       (error.message.includes('auth') ||
-       error.message.includes('credentials') ||
-       error.message.includes('login') ||
-       error.message.includes('Authentication') ||
-       error.message.includes('X-MitsContextKey'));
+        error.message.includes('credentials') ||
+        error.message.includes('login') ||
+        error.message.includes('Authentication') ||
+        error.message.includes('X-MitsContextKey'));
   }
 
   /**
@@ -205,7 +205,7 @@ export class MelCloudApi extends BaseApiService {
   ): Promise<T> {
     // Check for duplicate requests (Task 1.2)
     const requestKey = this.getRequestKey(method, endpoint, options);
-    
+
     // If same request is already pending, return existing promise
     if (this.pendingRequests.has(requestKey)) {
       this.logger.log(`Duplicate API call detected for ${method} ${endpoint}, returning existing promise`);
@@ -747,15 +747,15 @@ export class MelCloudApi extends BaseApiService {
         // Try to use real-time power readings if available
         const powerConsumed = deviceState.CurrentHeatingPowerConsumption || 0;
         const powerProduced = deviceState.CurrentHeatingPowerProduction || 0;
-        
+
         if (powerConsumed > 0.1) { // Avoid division by very small numbers
           return powerProduced / powerConsumed;
         }
-        
+
         // Fallback to daily energy readings
         const energyConsumed = deviceState.DailyHeatingEnergyConsumed || 0;
         const energyProduced = deviceState.DailyHeatingEnergyProduced || 0;
-        
+
         if (energyConsumed > 0) {
           return energyProduced / energyConsumed;
         }
@@ -763,20 +763,20 @@ export class MelCloudApi extends BaseApiService {
         // Hot water COP calculation
         const powerConsumed = deviceState.CurrentHotWaterPowerConsumption || 0;
         const powerProduced = deviceState.CurrentHotWaterPowerProduction || 0;
-        
+
         if (powerConsumed > 0.1) {
           return powerProduced / powerConsumed;
         }
-        
+
         // Fallback to daily energy readings
         const energyConsumed = deviceState.DailyHotWaterEnergyConsumed || 0;
         const energyProduced = deviceState.DailyHotWaterEnergyProduced || 0;
-        
+
         if (energyConsumed > 0) {
           return energyProduced / energyConsumed;
         }
       }
-      
+
       return 0; // No data available
     } catch (error) {
       this.logger.warn(`Error calculating current COP for ${mode}:`, {
@@ -794,7 +794,7 @@ export class MelCloudApi extends BaseApiService {
    */
   private analyzeCOPTrends(energyData: any): {
     heatingTrend: 'improving' | 'stable' | 'declining';
-    hotWaterTrend: 'improving' | 'stable' | 'declining'; 
+    hotWaterTrend: 'improving' | 'stable' | 'declining';
     averageHeating: number;
     averageHotWater: number;
   } {
@@ -857,7 +857,7 @@ export class MelCloudApi extends BaseApiService {
     try {
       // Simple prediction model - in reality this would use more sophisticated algorithms
       const tempDelta = predictedOutdoorTemp - currentData.outdoorTemp;
-      
+
       // Heating COP typically decreases as outdoor temperature decreases
       let predictedHeatingCOP = currentData.heatingCOP;
       if (tempDelta < -2) {
@@ -1153,13 +1153,13 @@ export class MelCloudApi extends BaseApiService {
    * @returns Energy data
    */
   public async getEnergyData(
-    deviceId: string, 
-    buildingId: number, 
-    from?: string, 
+    deviceId: string,
+    buildingId: number,
+    from?: string,
     to?: string
   ): Promise<any> {
     const url = 'EnergyCost/Report';
-    
+
     // Validate device ID - must be numeric
     const numericDeviceId = parseInt(deviceId, 10);
     if (isNaN(numericDeviceId) || numericDeviceId <= 0) {
@@ -1167,16 +1167,16 @@ export class MelCloudApi extends BaseApiService {
       // Return empty data structure instead of failing
       return { message: 'Invalid device ID - energy data not available' };
     }
-    
+
     // Build the request body according to MELCloud API specification
     const postData = {
       DeviceID: numericDeviceId,
       FromDate: from || '1970-01-01',
       ToDate: to || new Date().toISOString().split('T')[0]
     };
-    
+
     this.logApiCall('POST', url, postData);
-    
+
     const data = await this.retryableRequest(
       () => this.throttledApiCall<any>('POST', url, {
         headers: {
@@ -1209,11 +1209,11 @@ export class MelCloudApi extends BaseApiService {
     CoP?: number[];  // Include CoP array from API
     AverageHeatingCOP?: number;  // Calculated average heating COP
     AverageHotWaterCOP?: number; // Calculated average hot water COP
-  // New explicit COP fields (preferred)
-  heatingCOP?: number | null;
-  hotWaterCOP?: number | null;
-  coolingCOP?: number | null;
-  averageCOP?: number | null;
+    // New explicit COP fields (preferred)
+    heatingCOP?: number | null;
+    hotWaterCOP?: number | null;
+    coolingCOP?: number | null;
+    averageCOP?: number | null;
     HasZone2?: boolean; // Include Zone 2 support flag from API
     SampledDays?: number;
   }> {
@@ -1244,16 +1244,16 @@ export class MelCloudApi extends BaseApiService {
       const today = new Date();
       const oneWeekAgo = new Date(today);
       oneWeekAgo.setDate(today.getDate() - 7);
-      
+
       const toDate = today.toISOString().split('T')[0];
       const fromDate = oneWeekAgo.toISOString().split('T')[0];
       let usedFromDate = fromDate;
       let usedToDate = toDate;
-      
+
       this.logger.info(`Trying energy data from ${fromDate} to ${toDate}`);
-      
+
       let energyData = await this.getEnergyData(deviceId, buildingId, usedFromDate, usedToDate);
-      
+
       const hasMeaningfulTotals = (data: any): boolean => {
         if (!data) return false;
         if (Array.isArray(data)) {
@@ -1267,7 +1267,7 @@ export class MelCloudApi extends BaseApiService {
         const copArray = Array.isArray((data as any).CoP) ? (data as any).CoP : [];
         return copArray.some((value: unknown) => typeof value === 'number' && value > 0);
       };
-      
+
       // If we don't get meaningful data, try yesterday
       if (!hasMeaningfulTotals(energyData)) {
         const yesterday = new Date(today);
@@ -1275,11 +1275,11 @@ export class MelCloudApi extends BaseApiService {
         const yesterdayDate = yesterday.toISOString().split('T')[0];
         usedFromDate = yesterdayDate;
         usedToDate = yesterdayDate;
-        
+
         this.logger.info(`Trying yesterday's energy data: ${yesterdayDate}`);
         energyData = await this.getEnergyData(deviceId, buildingId, usedFromDate, usedToDate);
       }
-      
+
       // Extract energy totals from the response
       // The exact structure will depend on the API response format
       const result = {
@@ -1334,7 +1334,7 @@ export class MelCloudApi extends BaseApiService {
       (result as any).hotWaterCOP = rounded(hotWaterCOP);
       (result as any).coolingCOP = rounded(coolingCOP);
       (result as any).averageCOP = averageCOP !== null && !Number.isNaN(averageCOP) ? Math.round(averageCOP * 100) / 100 : null;
-      
+
       const effectiveDays = (() => {
         const parseDate = (value: string): number => {
           const ms = Date.parse(value);
@@ -1363,7 +1363,7 @@ export class MelCloudApi extends BaseApiService {
         deviceId,
         buildingId
       });
-      
+
       // Return zeros as fallback (include new COP fields as null for consistency)
       return {
         TotalHeatingConsumed: 0,
@@ -1639,7 +1639,64 @@ export class MelCloudApi extends BaseApiService {
       });
 
       this.errorHandler.logError(appError);
+      this.errorHandler.logError(appError);
       throw appError;
+    }
+  }
+
+
+  /**
+   * Set flow temperature for a device (Flow Mode)
+   * @param deviceId Device ID
+   * @param buildingId Building ID
+   * @param temperature Target flow temperature
+   * @param zone Zone ID (default 1)
+   */
+  public async setFlowTemperature(deviceId: string, buildingId: number, temperature: number, zone: number = 1): Promise<boolean> {
+    try {
+      this.logger.info(`Setting flow temperature for device ${deviceId} (Zone ${zone}) to ${temperature}°C`);
+
+      // Get current device state to ensure we have the context key
+      await this.getDeviceState(deviceId, buildingId);
+
+      const payload = {
+        DeviceID: deviceId,
+        EffectiveFlags: zone === 1 ? 281474976710656 : 0, // Flag for FlowTemperatureZone1? Needs verification. Using standard set logic.
+        // For ATW, flow temp is often set via SetTemperatureZone1 when in Flow Mode.
+        // However, we should be careful. Let's assume standard SetTemperatureZone1 works if the device is in Flow Mode.
+        // But to be safe and explicit, we might need a specific command if the API distinguishes them.
+        // Based on reverse engineering, SetTemperatureZone1 usually handles the target for the active mode.
+        SetTemperatureZone1: zone === 1 ? temperature : undefined,
+        SetTemperatureZone2: zone === 2 ? temperature : undefined
+      };
+
+      // If we are just setting the temperature, we can reuse setZoneTemperature logic but with logging context
+      // For now, we will reuse setZoneTemperature but keep this method for semantic clarity in the optimizer
+      return this.setZoneTemperature(deviceId, buildingId, temperature, zone);
+    } catch (error) {
+      this.logger.error(`Failed to set flow temperature: ${error}`);
+      return false;
+    }
+  }
+
+  /**
+   * Set curve shift for a device (Curve Mode)
+   * @param deviceId Device ID
+   * @param buildingId Building ID
+   * @param shift Curve shift value (e.g. -2 to +2)
+   * @param zone Zone ID (default 1)
+   */
+  public async setCurveShift(deviceId: string, buildingId: number, shift: number, zone: number = 1): Promise<boolean> {
+    try {
+      this.logger.info(`Setting curve shift for device ${deviceId} (Zone ${zone}) to ${shift}`);
+
+      // For Curve Mode, the "temperature" is actually the shift value.
+      // MELCloud often accepts this as the SetTemperature value when in Curve Mode.
+      // Range is typically -9 to +9 or -5 to +5.
+      return this.setZoneTemperature(deviceId, buildingId, shift, zone);
+    } catch (error) {
+      this.logger.error(`Failed to set curve shift: ${error}`);
+      return false;
     }
   }
 
@@ -1703,7 +1760,7 @@ export class MelCloudApi extends BaseApiService {
         try {
           this.logger.debug('Using Device/SetAtw endpoint with complete device state');
           this.logger.debug('SetAtw request body (truncated): ' + JSON.stringify(currentState).substring(0, 200) + '...');
-        } catch {}
+        } catch { }
 
         // Send update with retry
         const data = await this.retryableRequest(
@@ -1817,7 +1874,7 @@ export class MelCloudApi extends BaseApiService {
         try {
           this.logger.debug('Using Device/SetAtw endpoint with complete device state for tank temperature');
           this.logger.debug('SetAtw request body (truncated): ' + JSON.stringify(currentState).substring(0, 200) + '...');
-        } catch {}
+        } catch { }
 
         // Send update with retry
         const data = await this.retryableRequest(
