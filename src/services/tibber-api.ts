@@ -26,7 +26,7 @@ export class TibberApi extends BaseApiService {
   constructor(token: string, logger?: Logger) {
     // Ensure we have a valid logger - use fallback if none provided
     const safeLogger = logger || (global.logger as Logger) || createFallbackLogger('Tibber');
-    
+
     // Call the parent constructor with service name and logger
     super('Tibber', safeLogger, {
       failureThreshold: 3,
@@ -142,18 +142,21 @@ export class TibberApi extends BaseApiService {
                 energy
                 tax
                 startsAt
+                level
               }
               today {
                 total
                 energy
                 tax
                 startsAt
+                level
               }
               tomorrow {
                 total
                 energy
                 tax
                 startsAt
+                level
               }
             }
           }
@@ -241,6 +244,7 @@ export class TibberApi extends BaseApiService {
       ].map(price => ({
         time: price.startsAt,
         price: price.total,
+        level: price.level  // Tibber's native price level classification
       }));
 
       const intervalMinutes = this.detectIntervalMinutes(quarterHourlyPrices) ?? undefined;
@@ -250,6 +254,7 @@ export class TibberApi extends BaseApiService {
         current: priceInfo.current ? {
           time: priceInfo.current.startsAt,
           price: priceInfo.current.total,
+          level: priceInfo.current.level  // Include level for current price
         } : {
           time: new Date().toISOString(),
           price: 0
@@ -260,7 +265,7 @@ export class TibberApi extends BaseApiService {
       };
 
       this.logger.log(
-        `Formatted price data: current price ${result.current?.price || 'N/A'}, hourly=${result.prices.length}, quarterHourly=${quarterHourlyPrices.length}`
+        `Formatted price data: current price ${result.current?.price || 'N/A'} (level: ${priceInfo.current?.level || 'N/A'}), hourly=${result.prices.length}, quarterHourly=${quarterHourlyPrices.length}`
       );
       return result;
     } catch (error) {

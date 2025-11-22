@@ -34,7 +34,7 @@ module.exports = class BoilerDevice extends Homey.Device {
   private zone2Checked: boolean = false;
   private energyBasedZone2Check: boolean = false;
   private hotWaterService?: HotWaterService;
-  
+
   // Power command debouncing properties (Task 1.1)
   private powerCommandDebounce?: NodeJS.Timeout;
   private lastPowerCommand?: { value: boolean; timestamp: number };
@@ -47,7 +47,7 @@ module.exports = class BoilerDevice extends Homey.Device {
     fastPollDuration: 600000, // 10 minutes of fast polling after commands
     fastPollInterval: 60000   // 1 minute during fast poll mode
   };
-  
+
   private fastPollUntil?: number;
   private currentDataInterval: number = this.pollingConfig.dataInterval;
   private currentEnergyInterval: number = this.pollingConfig.energyInterval;
@@ -134,7 +134,7 @@ module.exports = class BoilerDevice extends Homey.Device {
 
     // Set up initial capability listeners (Zone 1 and common capabilities)
     this.setupInitialCapabilityListeners();
-    
+
     // Set up settings listener for occupied state
     this.setupSettingsListener();
 
@@ -179,13 +179,13 @@ module.exports = class BoilerDevice extends Homey.Device {
     ];
 
     this.logger.log('Checking required capabilities...');
-    
+
     for (const capability of requiredCapabilities) {
       if (!this.hasCapability(capability)) {
         try {
           await this.addCapability(capability);
           this.logger.log(`Added missing capability: ${capability}`);
-          
+
           // Set initial values for custom capabilities
           if (capability === 'heating_cop') {
             await this.setCapabilityValue(capability, 0);
@@ -217,7 +217,7 @@ module.exports = class BoilerDevice extends Homey.Device {
         }
       }
     }
-    
+
     this.logger.log('Capability check completed');
   }
 
@@ -227,13 +227,13 @@ module.exports = class BoilerDevice extends Homey.Device {
   private async removeZone2Capabilities() {
     const zone2Capabilities = [
       'measure_temperature.zone2',
-      'target_temperature.zone2', 
+      'target_temperature.zone2',
       'thermostat_mode.zone2',
       'operational_state.zone2'
     ];
 
     this.logger.log('Removing Zone 2 capabilities as device does not support Zone 2');
-    
+
     for (const capability of zone2Capabilities) {
       if (this.hasCapability(capability)) {
         try {
@@ -252,13 +252,13 @@ module.exports = class BoilerDevice extends Homey.Device {
   private async ensureZone2Capabilities() {
     const zone2Capabilities = [
       'measure_temperature.zone2',
-      'target_temperature.zone2', 
+      'target_temperature.zone2',
       'thermostat_mode.zone2',
       'operational_state.zone2'
     ];
 
     this.logger.log('Adding Zone 2 capabilities as device supports Zone 2');
-    
+
     for (const capability of zone2Capabilities) {
       if (!this.hasCapability(capability)) {
         try {
@@ -277,14 +277,14 @@ module.exports = class BoilerDevice extends Homey.Device {
   private checkZone2Support(deviceState: any): boolean {
     // Check if Zone 2 temperature data is valid (above -30°C)
     // Invalid readings like -39°C indicate Zone 2 sensor is not connected
-    const hasValidZone2Temperature = deviceState.RoomTemperatureZone2 !== undefined && 
-                                   deviceState.RoomTemperatureZone2 !== null &&
-                                   deviceState.RoomTemperatureZone2 > -30;
-    
+    const hasValidZone2Temperature = deviceState.RoomTemperatureZone2 !== undefined &&
+      deviceState.RoomTemperatureZone2 !== null &&
+      deviceState.RoomTemperatureZone2 > -30;
+
     // Check if Zone 2 has a custom name (indicates user configuration)
-    const hasZone2Name = deviceState.Zone2Name !== undefined && 
-                        deviceState.Zone2Name !== null && 
-                        deviceState.Zone2Name.trim() !== '';
+    const hasZone2Name = deviceState.Zone2Name !== undefined &&
+      deviceState.Zone2Name !== null &&
+      deviceState.Zone2Name.trim() !== '';
 
     // Check if Zone 2 is idle (if both zones are idle, might indicate single zone)
     const zone1Idle = deviceState.IdleZone1 === true;
@@ -295,15 +295,15 @@ module.exports = class BoilerDevice extends Homey.Device {
     // 1. Temperature reading is valid (above -30°C), OR
     // 2. Zone 2 has a custom name
     // Additional consideration: If both zones are idle and temp is invalid, likely single zone
-    const hasZone2 = (hasValidZone2Temperature || hasZone2Name) && 
-                     !(bothZonesIdle && !hasValidZone2Temperature && !hasZone2Name);
-    
+    const hasZone2 = (hasValidZone2Temperature || hasZone2Name) &&
+      !(bothZonesIdle && !hasValidZone2Temperature && !hasZone2Name);
+
     this.logger.log(`Zone 2 support check:`);
     this.logger.log(`  - Temperature: ${deviceState.RoomTemperatureZone2}°C (valid: ${hasValidZone2Temperature})`);
     this.logger.log(`  - Zone name: "${deviceState.Zone2Name}" (has name: ${hasZone2Name})`);
     this.logger.log(`  - Zone 1 idle: ${zone1Idle}, Zone 2 idle: ${zone2Idle}`);
     this.logger.log(`  - Final result: ${hasZone2}`);
-    
+
     return hasZone2;
   }
 
@@ -314,7 +314,7 @@ module.exports = class BoilerDevice extends Homey.Device {
     // Listen for target temperature changes (Zone 1)
     this.registerCapabilityListener('target_temperature', async (value: number) => {
       this.logger.log(`Target temperature (Zone 1) changed to ${value}°C`);
-      
+
       try {
         // Ensure global settings are available
         if (!(global as any).homeySettings) {
@@ -332,10 +332,10 @@ module.exports = class BoilerDevice extends Homey.Device {
 
           if (success) {
             this.logger.log(`Successfully set target temperature (Zone 1) to ${value}°C`);
-            
+
             // Task 2.1: Enable fast polling after temperature change for better responsiveness
             this.enableFastPolling('temperature command (Zone 1)');
-            
+
             return value;
           } else {
             this.logger.error('Failed to set target temperature (Zone 1)');
@@ -354,7 +354,7 @@ module.exports = class BoilerDevice extends Homey.Device {
     if (this.hasCapability('target_temperature.tank')) {
       this.registerCapabilityListener('target_temperature.tank', async (value: number) => {
         this.logger.log(`Target tank temperature changed to ${value}°C`);
-        
+
         try {
           // Clamp to configured constraints for tank temperature (align with optimizer)
           const minTank = (this.homey.settings.get('min_tank_temp') as number) ?? 40;
@@ -377,10 +377,10 @@ module.exports = class BoilerDevice extends Homey.Device {
 
             if (success) {
               this.logger.log(`Successfully set target tank temperature to ${target}°C`);
-              
+
               // Task 2.1: Enable fast polling after temperature change for better responsiveness
               this.enableFastPolling('tank temperature command');
-              
+
               return target;
             } else {
               this.logger.error('Failed to set target tank temperature');
@@ -399,14 +399,14 @@ module.exports = class BoilerDevice extends Homey.Device {
     // Listen for hot water mode changes
     this.registerCapabilityListener('hot_water_mode', async (value: string) => {
       this.logger.log(`Hot water mode changed to ${value}`);
-      
+
       try {
         if (this.melCloudApi) {
           const forced = value === 'forced';
           this.logger.log(`Setting hot water mode to: ${value} (forced: ${forced})`);
-          
+
           const success = await this.melCloudApi.setHotWaterMode(this.deviceId, this.buildingId, forced);
-          
+
           if (success) {
             this.logger.log(`Successfully set hot water mode to ${value}`);
             return value;
@@ -446,7 +446,7 @@ module.exports = class BoilerDevice extends Homey.Device {
         const success = await this.melCloudApi.startLegionellaCycle(this.deviceId, this.buildingId);
         if (success) {
           // Auto-reset the toggle back to false
-          try { await this.setCapabilityValue('legionella_now', false); } catch (e) {}
+          try { await this.setCapabilityValue('legionella_now', false); } catch (e) { }
           return true;
         } else {
           throw new Error('Failed to start legionella cycle');
@@ -474,21 +474,21 @@ module.exports = class BoilerDevice extends Homey.Device {
     // Listen for on/off changes (with debouncing - Task 1.1)
     this.registerCapabilityListener('onoff', async (value: boolean) => {
       this.logger.log(`Device power changed to ${value ? 'on' : 'off'}`);
-      
+
       // Check if we need to debounce this command
       const now = Date.now();
       if (this.lastPowerCommand) {
         const timeSinceLastCommand = now - this.lastPowerCommand.timestamp;
-        
+
         if (timeSinceLastCommand < this.POWER_COMMAND_DELAY) {
           const remainingDelay = this.POWER_COMMAND_DELAY - timeSinceLastCommand;
           this.logger.log(`Power command debounced. Waiting ${remainingDelay}ms before executing.`);
-          
+
           // Clear any existing debounce timer
           if (this.powerCommandDebounce) {
             clearTimeout(this.powerCommandDebounce);
           }
-          
+
           // Set up a new debounced command
           return new Promise<boolean>((resolve, reject) => {
             this.powerCommandDebounce = setTimeout(async () => {
@@ -502,7 +502,7 @@ module.exports = class BoilerDevice extends Homey.Device {
           });
         }
       }
-      
+
       // Execute command immediately if no recent command
       return await this.executePowerCommand(value);
     });
@@ -510,7 +510,7 @@ module.exports = class BoilerDevice extends Homey.Device {
     // Listen for thermostat mode changes (Zone 1)
     this.registerCapabilityListener('thermostat_mode', async (value: string) => {
       this.logger.log(`Thermostat mode (Zone 1) changed to ${value}`);
-      
+
       try {
         if (this.melCloudApi) {
           const modeMap: { [key: string]: number } = {
@@ -518,14 +518,14 @@ module.exports = class BoilerDevice extends Homey.Device {
             'flow': 1,
             'curve': 2
           };
-          
+
           const mode = modeMap[value];
           if (mode === undefined) {
             throw new Error(`Invalid thermostat mode: ${value}`);
           }
-          
+
           const success = await this.melCloudApi.setOperationMode(this.deviceId, this.buildingId, mode, 1);
-          
+
           if (success) {
             this.logger.log(`Successfully set thermostat mode (Zone 1) to ${value}`);
             return value;
@@ -564,7 +564,7 @@ module.exports = class BoilerDevice extends Homey.Device {
     if (this.hasCapability('target_temperature.zone2')) {
       this.registerCapabilityListener('target_temperature.zone2', async (value: number) => {
         this.logger.log(`Target temperature (Zone 2) changed to ${value}°C`);
-        
+
         try {
           if (this.melCloudApi) {
             const success = await this.melCloudApi.setZoneTemperature(
@@ -595,7 +595,7 @@ module.exports = class BoilerDevice extends Homey.Device {
     if (this.hasCapability('thermostat_mode.zone2')) {
       this.registerCapabilityListener('thermostat_mode.zone2', async (value: string) => {
         this.logger.log(`Thermostat mode (Zone 2) changed to ${value}`);
-        
+
         try {
           if (this.melCloudApi) {
             const modeMap: { [key: string]: number } = {
@@ -603,14 +603,14 @@ module.exports = class BoilerDevice extends Homey.Device {
               'flow': 1,
               'curve': 2
             };
-            
+
             const mode = modeMap[value];
             if (mode === undefined) {
               throw new Error(`Invalid thermostat mode: ${value}`);
             }
-            
+
             const success = await this.melCloudApi.setOperationMode(this.deviceId, this.buildingId, mode, 2);
-            
+
             if (success) {
               this.logger.log(`Successfully set thermostat mode (Zone 2) to ${value}`);
               return value;
@@ -639,9 +639,9 @@ module.exports = class BoilerDevice extends Homey.Device {
       if (key === 'occupied') {
         const newValue = this.homey.settings.get('occupied');
         const boolValue = !!newValue;
-        
+
         this.logger.log(`Settings 'occupied' changed to: ${boolValue}`);
-        
+
         // Update the capability value to match the setting
         if (this.hasCapability('occupied')) {
           this.setCapabilityValue('occupied', boolValue).catch((error) => {
@@ -672,15 +672,15 @@ module.exports = class BoilerDevice extends Homey.Device {
 
       // Update tracking before making the call
       this.lastPowerCommand = { value, timestamp: Date.now() };
-      
+
       const success = await this.melCloudApi.setDevicePower(this.deviceId, this.buildingId, value);
-      
+
       if (success) {
         this.logger.log(`Successfully set power to ${value ? 'on' : 'off'}`);
-        
+
         // Task 2.1: Enable fast polling after power command for better responsiveness
         this.enableFastPolling('power command');
-        
+
         return value;
       } else {
         this.logger.error(`Failed to set power to ${value ? 'on' : 'off'}`);
@@ -812,9 +812,9 @@ module.exports = class BoilerDevice extends Homey.Device {
       const lastComm = new Date(deviceState.LastCommunication);
       const staleness = Date.now() - lastComm.getTime();
       const isStale = staleness > 300000; // 5 minutes threshold
-      
-      this.logger.log(`Device communication check: lastComm=${lastComm.toISOString()}, staleness=${Math.round(staleness/1000)}s, isStale=${isStale}`);
-      
+
+      this.logger.log(`Device communication check: lastComm=${lastComm.toISOString()}, staleness=${Math.round(staleness / 1000)}s, isStale=${isStale}`);
+
       return isStale;
     } catch (error) {
       this.logger.error('Error parsing LastCommunication timestamp:', error);
@@ -832,7 +832,7 @@ module.exports = class BoilerDevice extends Homey.Device {
       if (!this.zone2Checked) {
         this.hasZone2 = this.checkZone2Support(deviceState);
         this.zone2Checked = true;
-        
+
         if (!this.hasZone2) {
           this.logger.log('Device does not support Zone 2, removing Zone 2 capabilities');
           await this.removeZone2Capabilities();
@@ -846,12 +846,12 @@ module.exports = class BoilerDevice extends Homey.Device {
       // Log the complete device state for debugging
       this.logger.log('MELCloud device state keys:', Object.keys(deviceState));
       this.logger.log('MELCloud device state:', JSON.stringify(deviceState, null, 2));
-      
+
       // Set device online/offline status using improved detection (Task 1.3)
       if (this.hasCapability('alarm_generic.offline')) {
         const actuallyOffline = this.isActuallyOffline(deviceState);
         await this.setCapabilityValue('alarm_generic.offline', actuallyOffline);
-        
+
         if (actuallyOffline) {
           this.logger.warn('Device detected as actually offline based on LastCommunication timestamp');
         }
@@ -903,11 +903,30 @@ module.exports = class BoilerDevice extends Homey.Device {
       }
 
       // Update target temperature (Zone 1)
+      // Note: In Curve or Flow mode, SetTemperatureZone1 contains a shift/flow temp, not a room temp
       if (deviceState.SetTemperatureZone1 !== undefined) {
-        const currentTarget = this.getCapabilityValue('target_temperature');
-        if (currentTarget !== deviceState.SetTemperatureZone1) {
-          await this.setCapabilityValue('target_temperature', deviceState.SetTemperatureZone1);
-          this.logger.log(`Updated target temperature (Zone 1): ${deviceState.SetTemperatureZone1}°C`);
+        // Detect operation mode to determine if SetTemperatureZone1 is a room temp or a shift/flow value
+        const operationMode = deviceState.OperationModeZone1;
+        const hcControlType = deviceState.HCControlType;
+
+        // Only update target_temperature if we're in Room Mode (OperationModeZone1 === 0)
+        // In Curve Mode (2) or Flow Mode (HCControlType === 1), SetTemperatureZone1 is NOT a room temperature
+        const isRoomMode = operationMode === 0 || (operationMode === undefined && hcControlType === 0);
+
+        if (isRoomMode) {
+          const currentTarget = this.getCapabilityValue('target_temperature');
+          if (currentTarget !== deviceState.SetTemperatureZone1) {
+            await this.setCapabilityValue('target_temperature', deviceState.SetTemperatureZone1);
+            this.logger.log(`Updated target temperature (Zone 1): ${deviceState.SetTemperatureZone1}°C`);
+          }
+        } else {
+          // In Curve or Flow mode, clear the target temperature display to avoid showing misleading values
+          const currentTarget = this.getCapabilityValue('target_temperature');
+          if (currentTarget !== null) {
+            await this.setCapabilityValue('target_temperature', null);
+            this.logger.log(`Cleared target temperature display (device in non-room mode: OperationMode=${operationMode}, HCControlType=${hcControlType})`);
+          }
+          this.logger.log(`Device in non-room mode (OperationMode: ${operationMode}, HCControlType: ${hcControlType}), SetTemperatureZone1: ${deviceState.SetTemperatureZone1} (not displayed as room temp)`);
         }
       }
 
@@ -968,13 +987,13 @@ module.exports = class BoilerDevice extends Homey.Device {
   private async updateEnergyData(deviceState: MelCloudDevice) {
     try {
       // Check if device state has energy data
-      if (deviceState.DailyHeatingEnergyConsumed !== undefined || 
-          deviceState.DailyHeatingEnergyProduced !== undefined ||
-          deviceState.DailyHotWaterEnergyConsumed !== undefined ||
-          deviceState.DailyHotWaterEnergyProduced !== undefined) {
-        
+      if (deviceState.DailyHeatingEnergyConsumed !== undefined ||
+        deviceState.DailyHeatingEnergyProduced !== undefined ||
+        deviceState.DailyHotWaterEnergyConsumed !== undefined ||
+        deviceState.DailyHotWaterEnergyProduced !== undefined) {
+
         this.logger.log('Using energy data from device state');
-        
+
         // Update energy capabilities from device state
         if (this.hasCapability('heating_cop')) {
           const heatingCOP = this.calculateCOP(
@@ -1006,14 +1025,14 @@ module.exports = class BoilerDevice extends Homey.Device {
         await this.updateEnergyCapability('meter_power.hotwater_consumed', hotWaterConsumedKwh);
         await this.updateEnergyCapability('meter_power.produced_hotwater', hotWaterProducedKwh);
         await this.updateEnergyCapability('meter_power.hotwater_produced', hotWaterProducedKwh);
-        
+
         return; // Exit early since we have real data
       }
 
       // Fallback: try to get energy data from API
       this.logger.log('No energy data in device state, trying API');
       await this.fetchEnergyDataFromApi();
-      
+
       // Start energy reporting if not already started
       if (!this.energyReportInterval) {
         this.startEnergyReporting();
@@ -1021,7 +1040,7 @@ module.exports = class BoilerDevice extends Homey.Device {
 
     } catch (error) {
       this.logger.error('Error updating energy data:', error);
-      
+
       // Fallback to estimation if API fails
       this.logger.log('Falling back to energy estimation');
       await this.estimateEnergyData(deviceState);
@@ -1038,25 +1057,25 @@ module.exports = class BoilerDevice extends Homey.Device {
       const powerOn = deviceState.Power || false;
       const isHeating = deviceState.OperationModeZone1 === 1; // Heat mode
       const isHotWater = deviceState.ForcedHotWaterMode || false;
-      
+
       // Estimate energy consumption based on system state and typical COP values
       // This is a simplified estimation until proper energy API is available
       const baseConsumption = powerOn ? (demandPercentage / 100) * 3000 : 0; // 3kW typical max
-      
+
       if (isHeating) {
         const estimatedHeatingConsumed = baseConsumption * 0.7; // 70% for heating
         const estimatedHeatingProduced = estimatedHeatingConsumed * 2.5; // COP of 2.5
-        
+
         await this.updateEnergyCapability('meter_power.heating_consumed', estimatedHeatingConsumed);
         await this.updateEnergyCapability('meter_power.heating', estimatedHeatingConsumed);
         await this.updateEnergyCapability('meter_power.produced_heating', estimatedHeatingProduced);
         await this.updateEnergyCapability('heating_cop', estimatedHeatingProduced / (estimatedHeatingConsumed || 1));
       }
-      
+
       if (isHotWater) {
         const estimatedHotWaterConsumed = baseConsumption * 0.3; // 30% for hot water
         const estimatedHotWaterProduced = estimatedHotWaterConsumed * 3.0; // COP of 3.0 for hot water
-        
+
         await this.updateEnergyCapability('meter_power.hotwater_consumed', estimatedHotWaterConsumed);
         await this.updateEnergyCapability('meter_power.hotwater', estimatedHotWaterConsumed);
         await this.updateEnergyCapability('meter_power.produced_hotwater', estimatedHotWaterProduced);
@@ -1091,7 +1110,7 @@ module.exports = class BoilerDevice extends Homey.Device {
     if (this.energyReportInterval) {
       clearInterval(this.energyReportInterval);
     }
-    
+
     // Report energy data using configured interval (default 15 minutes)
     this.energyReportInterval = setInterval(async () => {
       // Task 2.2: Use circuit breaker protected energy fetch
@@ -1123,9 +1142,9 @@ module.exports = class BoilerDevice extends Homey.Device {
       if (!this.energyBasedZone2Check && energyTotals.HasZone2 !== undefined) {
         this.energyBasedZone2Check = true;
         const energyHasZone2 = energyTotals.HasZone2;
-        
+
         this.logger.log(`Energy API reports Zone 2 support: ${energyHasZone2}`);
-        
+
         // If energy API says no Zone 2 but we detected it from device state, remove Zone 2 capabilities
         if (!energyHasZone2 && this.hasZone2) {
           this.logger.log('Energy API indicates no Zone 2 support, overriding device state detection');
@@ -1211,16 +1230,16 @@ module.exports = class BoilerDevice extends Homey.Device {
   private calculateCOP(produced: number, consumed: number): number {
     // Return 0 if consumed is 0 or very small to avoid division by zero
     if (consumed <= 0.001) return 0;
-    
+
     const cop = produced / consumed;
-    
+
     // Sanity check: COP should be reasonable for heat pumps (typically 1.5-6.0)
     // If it's outside this range, something might be wrong with the data
     if (cop < 0 || cop > 10) {
       this.logger.warn(`Unusual COP calculated: ${cop} (Produced: ${produced}, Consumed: ${consumed})`);
       return 0;
     }
-    
+
     // Round to 2 decimal places for cleaner display
     return Math.round(cop * 100) / 100;
   }
@@ -1375,17 +1394,17 @@ module.exports = class BoilerDevice extends Homey.Device {
     if (deviceState.ProhibitHotWater) {
       return 'prohibited';
     }
-    
+
     // Check if hot water is actively being produced
     if (deviceState.OperationMode === 5) { // DHW mode
       return 'dhw';
     }
-    
+
     // Check for legionella mode
     if (deviceState.OperationMode === 6) {
       return 'legionella';
     }
-    
+
     return 'idle';
   }
 
@@ -1413,7 +1432,7 @@ module.exports = class BoilerDevice extends Homey.Device {
     if (zoneInCoolMode && !idle) {
       return 'cooling';
     }
-    
+
     if (zoneInHeatMode && !idle) {
       return 'heating';
     }
@@ -1446,9 +1465,9 @@ module.exports = class BoilerDevice extends Homey.Device {
     if (changedKeys.includes('device_id') || changedKeys.includes('building_id')) {
       this.deviceId = newSettings.device_id as string;
       this.buildingId = newSettings.building_id as number;
-      
+
       this.logger.log(`Device configuration updated: Device ID=${this.deviceId}, Building ID=${this.buildingId}`);
-      
+
       // Restart data fetching with new configuration
       if (this.updateInterval) {
         clearInterval(this.updateInterval);
@@ -1497,7 +1516,7 @@ module.exports = class BoilerDevice extends Homey.Device {
       );
 
       this.logger.log('Circuit breakers initialized for API protection');
-      
+
     } catch (error) {
       this.logger.error('Error initializing circuit breakers:', error);
       // Continue without circuit breakers if initialization fails
@@ -1522,13 +1541,13 @@ module.exports = class BoilerDevice extends Homey.Device {
       this.lastSuccessfulUpdate = new Date();
       this.circuitBreakerMetrics.degradedModeActive = false;
       await this.setAvailable();
-      
+
       return deviceData;
-      
+
     } catch (error) {
       this.circuitBreakerMetrics.dataCallFailures++;
       this.circuitBreakerMetrics.lastFailureTime = new Date();
-      
+
       const errorMessage = error instanceof Error ? error.message : String(error);
       if (errorMessage.includes('circuit') && errorMessage.includes('open')) {
         // Circuit breaker is open - enter degraded mode
@@ -1538,7 +1557,7 @@ module.exports = class BoilerDevice extends Homey.Device {
         // Regular API error
         this.logger.error('API call failed:', error);
       }
-      
+
       throw error;
     }
   }
@@ -1556,10 +1575,10 @@ module.exports = class BoilerDevice extends Homey.Device {
       await this.energyCircuitBreaker.execute(async () => {
         await this.fetchEnergyDataFromApi();
       });
-      
+
     } catch (error) {
       this.circuitBreakerMetrics.energyCallFailures++;
-      
+
       const errorMessage = error instanceof Error ? error.message : String(error);
       if (errorMessage.includes('circuit') && errorMessage.includes('open')) {
         this.logger.warn('Energy circuit breaker is open, skipping energy updates');
@@ -1575,16 +1594,16 @@ module.exports = class BoilerDevice extends Homey.Device {
    */
   private async enterDegradedMode(reason: string) {
     this.circuitBreakerMetrics.degradedModeActive = true;
-    
+
     // Set device as warning state but not unavailable
     await this.setWarning(`Degraded mode: ${reason}`);
-    
+
     // Disable non-essential polling temporarily
     if (this.energyReportInterval) {
       clearInterval(this.energyReportInterval);
       this.logger.log('Energy reporting paused during degraded mode');
     }
-    
+
     // Notify user
     try {
       await this.homey.notifications.createNotification({
@@ -1631,7 +1650,7 @@ module.exports = class BoilerDevice extends Homey.Device {
       // Update config
       this.pollingConfig.dataInterval = this.currentDataInterval;
       this.pollingConfig.energyInterval = this.currentEnergyInterval;
-      
+
       this.logger.log(`Polling configuration initialized:`);
       this.logger.log(`  - Data interval: ${dataIntervalMinutes} minutes (${this.currentDataInterval}ms)`);
       this.logger.log(`  - Energy interval: ${energyIntervalMinutes} minutes (${this.currentEnergyInterval}ms)`);
@@ -1671,7 +1690,7 @@ module.exports = class BoilerDevice extends Homey.Device {
   private shouldUseFastPolling(): boolean {
     const adaptiveMode = this.getSetting('polling_adaptive_mode') !== false;
     const inFastPollWindow = this.fastPollUntil ? Date.now() < this.fastPollUntil : false;
-    
+
     return adaptiveMode && inFastPollWindow;
   }
 
@@ -1680,12 +1699,12 @@ module.exports = class BoilerDevice extends Homey.Device {
    */
   private enableFastPolling(reason: string = 'user command') {
     const adaptiveMode = this.getSetting('polling_adaptive_mode') !== false;
-    
+
     if (adaptiveMode) {
       const wasFastPolling = this.shouldUseFastPolling();
       this.fastPollUntil = Date.now() + this.pollingConfig.fastPollDuration;
       this.logger.debug(`Fast polling enabled for 10 minutes after ${reason}`);
-      
+
       // If we just entered fast mode, restart the scheduler so it takes effect immediately
       if (!wasFastPolling) {
         this.scheduleNextDataFetch();
@@ -1702,8 +1721,8 @@ module.exports = class BoilerDevice extends Homey.Device {
       clearTimeout(this.updateInterval);
     }
 
-    const interval = this.shouldUseFastPolling() 
-      ? this.pollingConfig.fastPollInterval 
+    const interval = this.shouldUseFastPolling()
+      ? this.pollingConfig.fastPollInterval
       : this.currentDataInterval;
 
     this.updateInterval = setTimeout(async () => {
@@ -1716,7 +1735,7 @@ module.exports = class BoilerDevice extends Homey.Device {
         this.scheduleNextDataFetch(); // Continue despite errors
       }
     }, interval);
-    
+
     this.logger.debug(`Next data fetch scheduled in ${interval}ms (${this.shouldUseFastPolling() ? 'fast' : 'normal'} mode)`);
   }
 
@@ -1732,7 +1751,7 @@ module.exports = class BoilerDevice extends Homey.Device {
    */
   async onDeleted() {
     this.logger.log('BoilerDevice has been deleted');
-    
+
     // Task 2.1: Clean up adaptive polling timeout (now using setTimeout instead of setInterval)
     if (this.updateInterval) {
       clearTimeout(this.updateInterval);

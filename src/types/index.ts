@@ -24,6 +24,7 @@ export interface DeviceInfo {
 export interface PricePoint {
   time: string;
   price: number;
+  level?: string; // Tibber's native price level classification (VERY_CHEAP, CHEAP, NORMAL, EXPENSIVE, VERY_EXPENSIVE)
 }
 
 export interface OptimizationResult {
@@ -53,7 +54,36 @@ export interface OptimizationResult {
     weight: number;
     isSummerMode: boolean;
     autoSeasonalMode: boolean;
+    lastUpdated?: string | null;
   };
+}
+
+// COP Prediction types
+export interface COPPrediction {
+  predictedCOP: number;
+  carnotCOP: number;
+  carnotEfficiency: number;
+  flowTempSetpoint: number;
+  outdoorTemp: number;
+  temperatureLift: number;
+  confidence: number;
+  method: 'carnot_calibrated' | 'historical_fallback';
+  timestamp: string;
+}
+
+export interface COPCalibrationPoint {
+  flowSetpoint: number;
+  outdoorTemp: number;
+  actualCOP: number;
+  timestamp: string;
+}
+
+export interface COPCalibrationResult {
+  carnotEfficiency: number;
+  sampleCount: number;
+  averageError: number;
+  lastCalibration: string;
+  confidence: number;
 }
 
 // MELCloud API types
@@ -65,6 +95,7 @@ export interface MelCloudDevice {
   RoomTemperatureZone1?: number;
   SetTemperature?: number;
   SetTemperatureZone1?: number;
+  SetHeatFlowTemperatureZone1?: number; // Flow temperature setpoint for COP prediction
   OutdoorTemperature: number;
   IdleZone1: boolean;
   OperationModeZone1?: number; // 0=Room, 1=Flow, 2=Curve
@@ -79,10 +110,7 @@ export interface MelCloudDevice {
 
 // Tibber API types
 export interface TibberPriceInfo {
-  current: {
-    price: number;
-    time: string;
-  };
+  current: PricePoint;
   prices: PricePoint[];
   quarterHourly?: PricePoint[];
   intervalMinutes?: number;

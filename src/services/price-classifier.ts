@@ -123,8 +123,8 @@ export function classifyPriceUnified(
 
   const numericValues = Array.isArray(prices)
     ? prices
-        .map(point => getNumericValue(point, options?.valueSelector))
-        .filter((value): value is number => Number.isFinite(value))
+      .map(point => getNumericValue(point, options?.valueSelector))
+      .filter((value): value is number => Number.isFinite(value))
     : [];
 
   if (numericValues.length === 0) {
@@ -181,3 +181,79 @@ export function classifyPriceUnified(
     thresholds
   };
 }
+
+/**
+ * Historical price thresholds for absolute classification
+ */
+export interface HistoricalThresholds {
+  p10: number;  // 10th percentile (very cheap threshold)
+  p25: number;  // 25th percentile (cheap threshold)
+  p50: number;  // 50th percentile (median)
+  p75: number;  // 75th percentile (expensive threshold)
+  p90: number;  // 90th percentile (very expensive threshold)
+  sampleSize: number; // Number of data points used
+}
+
+/**
+ * Classify a price against historical thresholds instead of relative to today's prices
+ * This provides context-aware classification (e.g., "is today cheap compared to last month?")
+ * @param currentPrice Current price to classify
+ * @param historical Historical percentile thresholds
+ * @returns Classification statistics
+ */
+export function classifyPriceAgainstHistorical(
+  currentPrice: number,
+  historical: HistoricalThresholds
+): PriceClassificationStats {
+  const safeCurrent = Number.isFinite(currentPrice) ? currentPrice : 0;
+
+  // Classify based on historical percentile thresholds
+  let label: PriceLevel = 'NORMAL';
+  if (safeCurrent <= historical.p10) {
+    label = 'VERY_CHEAP';
+  } else if (safeCurrent <= historical.p25) {
+    label = 'CHEAP';
+  } else if (safeCurrent >= historical.p90) {
+    label = 'VERY_EXPENSIVE';
+  } else if (safeCurrent >= historical.p75) {
+    label = 'EXPENSIVE';
+  }
+
+  // Calculate where the current price falls in the historical range
+  const range = historical.p90 - historical.p10;
+  const normalized = range <= 1e-9
+    ? 0.5
+    : Math.min(Math.max((safeCurrent - historical.p10) / range, 0), 1);
+
+  // Calculate approximate percentile (linear interpolation)
+  let percentile = 50; // Default to median
+  if (safeCurrent <= historical.p10) {
+    percentile = 5; // Approximate for very cheap
+  } else if (safeCurrent <= historical.p25) {
+    percentile = 10 + ((safeCurrent - historical.p10) / (historical.p25 - historical.p10)) * 15;
+  } else if (safeCurrent <= historical.p50) {
+    percentile = 25 + ((safeCurrent - historical.p25) / (historical.p50 - historical.p25)) * 25;
+  } else if (safeCurrent <= historical.p75) {
+    percentile = 50 + ((safeCurrent - historical.p50) / (historical.p75 - historical.p50)) * 25;
+  } else if (safeCurrent <= historical.p90) {
+    percentile = 75 + ((safeCurrent - historical.p75) / (historical.p90 - historical.p75)) * 15;
+  } else {
+    percentile = 95; // Approximate for very expensive
+  }
+
+  return {
+    label,
+    percentile,
+    normalized,
+    min: historical.p10,
+    max: historical.p90,
+    avg: historical.p50,
+    thresholds: {
+      veryCheap: 10,
+      cheap: 25,
+      expensive: 75,
+      veryExpensive: 90
+    }
+  };
+}
+

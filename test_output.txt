@@ -1,0 +1,105 @@
+
+> com.melcloud.optimize@14.0.1 test
+> jest test/unit/optimizer.adaptive.test.ts
+
+FAIL test/unit/optimizer.adaptive.test.ts
+  Optimizer Adaptive COP Thresholds
+    ✕ should apply efficiency boost when predicted COP is in top 25% of history (5 ms)
+    ✕ should NOT apply efficiency boost if predicted COP is average (2 ms)
+
+  ● Optimizer Adaptive COP Thresholds › should apply efficiency boost when predicted COP is in top 25% of history
+
+    expect(jest.fn()).toHaveBeenCalledWith(...expected)
+
+    Expected: "device-1", 1, 44, 1
+
+    Number of calls: 0
+
+      74 |             predictCOP: jest.fn().mockReturnValue({
+      75 |                 predictedCOP: 3.5,
+    > 76 |                 confidence: 0.9
+         |                                ^
+      77 |             }),
+      78 |             addCalibrationPoint: jest.fn()
+      79 |         };
+
+      at Object.<anonymous> (test/unit/optimizer.adaptive.test.ts:76:44)
+
+  ● Optimizer Adaptive COP Thresholds › should NOT apply efficiency boost if predicted COP is average
+
+    expect(jest.fn()).toHaveBeenCalledWith(...expected)
+
+    Expected: "device-1", 1, 43, 1
+
+    Number of calls: 0
+
+       98 |         highCOPs.forEach(cop => (optimizer as any).updateCOPRange(cop));
+       99 |
+    > 100 |         // Good Threshold = 4.0 + (0.9 * 0.75) = 4.675
+          |                                            ^
+      101 |
+      102 |         // 2. Mock COP Predictor to return 3.5 (Poor relative to history)
+      103 |         const mockPredictor = {
+
+      at Object.<anonymous> (test/unit/optimizer.adaptive.test.ts:100:44)
+
+---------------------------------|---------|----------|---------|---------|-----------------------------------------------------------------------------------------------------------------------------
+File                             | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s                                                                                                           
+---------------------------------|---------|----------|---------|---------|-----------------------------------------------------------------------------------------------------------------------------
+All files                        |    3.92 |     1.55 |    2.58 |    3.84 |                                                                                                                             
+ src                             |       0 |        0 |       0 |       0 |                                                                                                                             
+  api.ts                         |       0 |        0 |       0 |       0 | 2-208                                                                                                                       
+  app.ts                         |       0 |        0 |       0 |       0 | 2-1295                                                                                                                      
+  entsoe.ts                      |       0 |        0 |       0 |       0 | 2-483                                                                                                                       
+  metrics.ts                     |       0 |      100 |     100 |       0 | 2                                                                                                                           
+ src/config                      |       0 |      100 |     100 |       0 |                                                                                                                             
+  comfort-defaults.ts            |       0 |      100 |     100 |       0 | 8-14                                                                                                                        
+ src/orchestration               |       0 |        0 |       0 |       0 |                                                                                                                             
+  service-manager.ts             |       0 |        0 |       0 |       0 | 2-482                                                                                                                       
+ src/services                    |    4.99 |     1.43 |    3.14 |    4.99 |                                                                                                                             
+  adaptive-parameters.ts         |    6.02 |        0 |       0 |    6.02 | 33-244                                                                                                                      
+  base-api-service.ts            |       0 |        0 |       0 |       0 | 2-180                                                                                                                       
+  cop-helper.ts                  |     6.4 |        0 |       0 |     6.4 | 21-289                                                                                                                      
+  cop-predictor.ts               |    3.44 |        0 |       0 |     3.5 | 11-261                                                                                                                      
+  entsoe-price-service.ts        |       0 |        0 |       0 |       0 | 2-305                                                                                                                       
+  fx-rate-service.ts             |       0 |        0 |       0 |       0 | 2-142                                                                                                                       
+  melcloud-api.ts                |       0 |        0 |       0 |       0 | 2-1761                                                                                                                      
+  optimizer.ts                   |     8.7 |     2.83 |   10.52 |    8.58 | 106-227,252-381,392-438,447-448,453,466,475-1653,1665-1666,1680,1691-1703,1708,1715-1719,1748,1762-1780,1785-2760,2817-3293 
+  planning-utils.ts              |   14.49 |        0 |       0 |   14.92 | 13-89                                                                                                                       
+  price-classifier.ts            |    8.33 |        0 |       0 |    8.64 | 10-157                                                                                                                      
+  price-history-tracker.ts       |     3.7 |        0 |       0 |    3.94 | 10-199                                                                                                                      
+  tibber-api.ts                  |       0 |        0 |       0 |       0 | 2-362                                                                                                                       
+ src/services/hot-water          |       0 |        0 |       0 |       0 |                                                                                                                             
+  hot-water-analyzer.ts          |       0 |        0 |       0 |       0 | 9-376                                                                                                                       
+  hot-water-data-collector.ts    |       0 |        0 |       0 |       0 | 11-651                                                                                                                      
+  hot-water-service.ts           |       0 |        0 |       0 |       0 | 8-316                                                                                                                       
+  index.ts                       |       0 |      100 |       0 |       0 | 7-14                                                                                                                        
+ src/services/thermal-model      |    7.83 |     7.31 |    5.78 |    7.16 |                                                                                                                             
+  data-collector.ts              |    7.96 |      6.1 |    6.25 |    7.16 | 19-20,25,30-32,70-1087                                                                                                      
+  index.ts                       |   78.94 |    66.66 |      50 |   85.71 | 16-17                                                                                                                       
+  thermal-analyzer.ts            |    3.93 |        0 |       0 |     4.2 | 15-245                                                                                                                      
+  thermal-model-service.ts       |    3.36 |        0 |       0 |    3.46 | 17-591                                                                                                                      
+ src/types                       |       0 |        0 |       0 |       0 |                                                                                                                             
+  index.ts                       |       0 |        0 |       0 |       0 | 2-14                                                                                                                        
+ src/util                        |    4.31 |     0.56 |     2.7 |    4.37 |                                                                                                                             
+  circuit-breaker.ts             |       0 |        0 |       0 |       0 | 8-288                                                                                                                       
+  enhanced-savings-calculator.ts |    4.62 |     0.68 |    5.88 |    4.86 | 25-540,563                                                                                                                  
+  error-handler.ts               |   21.53 |     2.85 |      10 |   21.53 | 30-38,47-199                                                                                                                
+  fixed-baseline-calculator.ts   |    5.44 |        0 |    6.66 |    5.44 | 31-403                                                                                                                      
+  logger.ts                      |       0 |        0 |       0 |       0 | 2-355                                                                                                                       
+  setpoint-constraints.ts        |    5.26 |        0 |       0 |    5.26 | 7-91                                                                                                                        
+  time-zone-helper.ts            |    6.71 |     1.78 |    6.66 |    6.76 | 56-352                                                                                                                      
+  timeline-formatter.ts          |       0 |        0 |       0 |       0 | 6-148                                                                                                                       
+  timeline-helper.ts             |       0 |        0 |       0 |       0 | 7-538                                                                                                                       
+  validation.ts                  |   13.15 |        0 |       0 |   13.51 | 20-85                                                                                                                       
+---------------------------------|---------|----------|---------|---------|-----------------------------------------------------------------------------------------------------------------------------
+Jest: "global" coverage threshold for statements (55%) not met: 3.92%
+Jest: "global" coverage threshold for branches (45%) not met: 1.55%
+Jest: "global" coverage threshold for lines (55%) not met: 3.84%
+Jest: "global" coverage threshold for functions (60%) not met: 2.58%
+Test Suites: 1 failed, 1 total
+Tests:       2 failed, 2 total
+Snapshots:   0 total
+Time:        5.132 s
+Ran all test suites matching /test\/unit\/optimizer.adaptive.test.ts/i.
+Force exiting Jest: Have you considered using `--detectOpenHandles` to detect async operations that kept running after all tests finished?
