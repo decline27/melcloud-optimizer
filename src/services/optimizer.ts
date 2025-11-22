@@ -2680,6 +2680,13 @@ export class Optimizer {
             targetFlow -= 1;
             reason += ` - Eff. Cut (COP < ${adaptiveThresholds.bad.toFixed(1)})`;
           }
+
+          // COMFORT PROTECTION: If COP is good but price is expensive, reduce the penalty
+          // This prevents aggressive temperature cuts when the heat pump is running efficiently
+          if (prediction.predictedCOP > adaptiveThresholds.good && flowShift < 0) {
+            targetFlow += 1; // Offset 1°C of the price-based cut
+            reason += ` + Comfort Prot. (Good COP)`;
+          }
         }
 
         targetFlow = Math.max(25, Math.min(60, targetFlow));
