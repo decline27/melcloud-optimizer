@@ -17,7 +17,7 @@ export class PriceAnalyzer {
 
     public setPriceProvider(provider: PriceProvider | null): void {
         this.priceProvider = provider;
-        this.logger.info(`Price provider updated: ${provider ? provider.constructor.name : 'none'}`);
+        this.logger.log(`Price provider updated: ${provider ? provider.constructor.name : 'none'}`);
     }
 
     public setThresholds(preheatCheapPercentile: number): void {
