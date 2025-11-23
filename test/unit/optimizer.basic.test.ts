@@ -1,6 +1,6 @@
 // Prevent MelCloudApi from triggering network activity during imports
 jest.mock('../../src/services/melcloud-api', () => ({
-  MelCloudApi: class {}
+  MelCloudApi: class { }
 }));
 
 import { Optimizer } from '../../src/services/optimizer';
@@ -8,7 +8,7 @@ import { Optimizer } from '../../src/services/optimizer';
 // Create lightweight mocks for dependencies
 const makeMel = () => ({ getEnergyData: jest.fn().mockResolvedValue([]) });
 const makeTibber = () => ({});
-const makeLogger = () => ({ log: jest.fn(), error: jest.fn(), warn: jest.fn() });
+const makeLogger = () => ({ log: jest.fn(), error: jest.fn(), warn: jest.fn(), info: jest.fn() });
 
 describe('Optimizer basic', () => {
   test('setThermalModel validates and sets K', () => {

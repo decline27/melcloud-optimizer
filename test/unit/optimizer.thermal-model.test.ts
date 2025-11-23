@@ -3,6 +3,7 @@ import { Optimizer } from '../../src/services/optimizer';
 function makeLogger() {
   return {
     log: jest.fn(),
+    info: jest.fn(),
     error: jest.fn()
   } as any;
 }

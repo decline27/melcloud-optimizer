@@ -4,7 +4,53 @@ import { TimelineEventType, TimelineHelperWrapper } from './timeline-helper-wrap
 import { MelCloudApi as MelCloudService } from './src/services/melcloud-api';
 import type { PriceProvider } from './src/types';
 import type { Optimizer } from './src/services/optimizer';
-import { DeviceInfo, TibberPriceInfo } from './src/types';
+import {
+  DeviceInfo,
+  TibberPriceInfo,
+  JsonValue,
+  SystemHealthCheckResult,
+  HomeySettingsLike,
+  HomeyLoggerLike,
+  HomeyLike,
+  LoggerLike,
+  RetryableError,
+  ApiLogger,
+  ApiHandlerContext,
+  ApiSuccess,
+  ApiError,
+  ApiResult,
+  DeviceDropdownItem,
+  BuildingDropdownItem,
+  EnhancedOptimizationResult,
+  WeeklyCalibrationResult,
+  AugmentedOptimizationResult,
+  OptimizerCostSnapshot,
+  HourlyOptimizationData,
+  ThermalModelDataPoint,
+  ThermalModelResponseData,
+  UpdateOptimizerSettingsResponse,
+  GetDeviceListResponse,
+  GetRunHourlyOptimizerResponse,
+  GetThermalModelDataResponse,
+  GetRunWeeklyCalibrationResponse,
+  CronJobSnapshot,
+  CronStatusSnapshot,
+  GetStartCronJobsResponse,
+  GetUpdateCronStatusResponse,
+  GetCheckCronStatusResponse,
+  ValidateAndStartCronResponse,
+  GetCopDataResponse,
+  GetWeeklyAverageCopResponse,
+  ConnectionStatusResponse,
+  RunThermalDataCleanupResponse,
+  InternalCleanupResponse,
+  GetModelConfidenceResponse,
+  HotWaterServiceLike,
+  HotWaterResponse,
+  HotWaterClearRequest,
+  HotWaterHandlers,
+  ApiHandlers
+} from './src/types';
 import type { ServiceState, HistoricalData } from './src/orchestration/service-manager';
 import {
   applyServiceOverrides,
@@ -18,385 +64,7 @@ import {
   saveHistoricalData
 } from './src/orchestration/service-manager';
 
-type JsonValue = Record<string, unknown> | unknown[] | string | number | boolean | null;
 
-type SystemHealthCheckResult = {
-  healthy: boolean;
-  issues?: string[];
-  recovered?: boolean;
-  [key: string]: unknown;
-};
-
-interface HomeySettingsLike {
-  get(key: string): any;
-  set(key: string, value: any): Promise<void> | void;
-  unset?(key: string): Promise<void> | void;
-}
-
-interface HomeyLoggerLike {
-  log(message: string, ...args: any[]): void;
-  error(message: string, ...args: any[]): void;
-  debug?(message: string, ...args: any[]): void;
-  warn?(message: string, ...args: any[]): void;
-  logger?: {
-    info(message: string, meta?: Record<string, unknown>): void;
-  };
-  flow?: {
-    runFlowCardAction(options: { uri: string; args: Record<string, unknown> }): Promise<void> | void;
-  };
-  runSystemHealthCheck?: () => Promise<SystemHealthCheckResult>;
-  hourlyJob?: CronJob | null;
-  weeklyJob?: CronJob | null;
-  homey?: { settings?: HomeySettingsLike };
-}
-
-interface HomeyLike {
-  app: HomeyLoggerLike;
-  settings: HomeySettingsLike;
-  drivers?: {
-    getDriver(driverName: string): any;
-  };
-  timeline?: {
-    createEntry(options: { title: string; body: string; icon?: string; type?: string }): Promise<void> | void;
-  };
-  notifications?: {
-    createNotification(options: { excerpt: string }): Promise<void> | void;
-  };
-  flow?: {
-    runFlowCardAction(options: { uri: string; args: Record<string, unknown> }): Promise<void> | void;
-  };
-  i18n?: {
-    getCurrency(): string | undefined;
-  };
-}
-
-interface LoggerLike {
-  log(message: string, ...args: any[]): void;
-  error(message: string, ...args: any[]): void;
-  warn?(message: string, ...args: any[]): void;
-  debug?(message: string, ...args: any[]): void;
-  homey?: { settings?: HomeySettingsLike };
-}
-
-type RetryableError = NodeJS.ErrnoException & { message: string };
-
-type ApiLogger = LoggerLike & { homey?: { settings?: HomeySettingsLike } };
-
-interface ApiHandlerContext {
-  homey: HomeyLike;
-  body?: unknown;
-  params?: Record<string, unknown>;
-  query?: Record<string, unknown>;
-}
-
-type ApiSuccess<T extends object = Record<string, unknown>> = { success: true } & T;
-
-interface ApiError {
-  success: false;
-  error?: string;
-  message?: string;
-  needsConfiguration?: boolean;
-  [key: string]: unknown;
-}
-
-type ApiResult<T extends object = Record<string, unknown>> = ApiSuccess<T> | ApiError;
-
-interface DeviceDropdownItem {
-  id: string;
-  name: string;
-  buildingId: number;
-  type: string;
-  hasZone1: boolean;
-  hasZone2: boolean;
-  hasTank: boolean;
-  SetTankWaterTemperature?: number | null;
-  TankWaterTemperature?: number | null;
-  currentTemperatureZone1?: number | null;
-  currentTemperatureZone2?: number | null;
-  currentSetTemperatureZone1?: number | null;
-  currentSetTemperatureZone2?: number | null;
-}
-
-interface BuildingDropdownItem {
-  id: number;
-  name: string;
-  devices: string[];
-}
-
-type EnhancedOptimizationResult = Awaited<ReturnType<Optimizer['runEnhancedOptimization']>>;
-
-type WeeklyCalibrationResult = Awaited<ReturnType<Optimizer['runWeeklyCalibration']>>;
-
-type AugmentedOptimizationResult = EnhancedOptimizationResult & {
-  timestamp?: string;
-  targetTemp?: number;
-  targetOriginal?: number;
-  indoorTemp?: number;
-  outdoorTemp?: number;
-  priceNow?: number;
-  comfort?: number;
-  zone2Temperature?: {
-    fromTemp?: number;
-    toTemp?: number;
-    targetTemp?: number;
-    targetOriginal?: number;
-  };
-  tankTemperature?: {
-    fromTemp?: number;
-    toTemp?: number;
-    targetTemp?: number;
-    targetOriginal?: number;
-  };
-};
-
-type OptimizerCostSnapshot = {
-  baselineCostMajor: number;
-  optimizedCostMajor: number;
-};
-
-async function syncDevicesWithOptimizationResult(homey: any, result: AugmentedOptimizationResult): Promise<void> {
-  try {
-    if (!result) return;
-
-    const driver = (homey.drivers && typeof homey.drivers.getDriver === 'function')
-      ? homey.drivers.getDriver('boiler')
-      : null;
-
-    if (!driver || typeof driver.getDevices !== 'function') {
-      return;
-    }
-
-    const devices = driver.getDevices();
-    if (!Array.isArray(devices) || devices.length === 0) {
-      return;
-    }
-
-    const zone1Target = typeof result.toTemp === 'number' ? result.toTemp : undefined;
-    const zone2Target = result.zone2Data && typeof result.zone2Data.toTemp === 'number' ? result.zone2Data.toTemp : undefined;
-    const tankTarget = result.tankData && typeof result.tankData.toTemp === 'number' ? result.tankData.toTemp : undefined;
-
-    await Promise.allSettled(devices.map(async (device: any) => {
-      try {
-        if (zone1Target !== undefined && device?.hasCapability?.('target_temperature')) {
-          const current = device.getCapabilityValue?.('target_temperature');
-          if (current !== zone1Target) {
-            await device.setCapabilityValue('target_temperature', zone1Target);
-          }
-        }
-
-        if (zone2Target !== undefined && device?.hasCapability?.('target_temperature.zone2')) {
-          const currentZone2 = device.getCapabilityValue?.('target_temperature.zone2');
-          if (currentZone2 !== zone2Target) {
-            await device.setCapabilityValue('target_temperature.zone2', zone2Target);
-          }
-        }
-
-        if (tankTarget !== undefined && device?.hasCapability?.('target_temperature.tank')) {
-          const currentTank = device.getCapabilityValue?.('target_temperature.tank');
-          if (currentTank !== tankTarget) {
-            await device.setCapabilityValue('target_temperature.tank', tankTarget);
-          }
-        }
-      } catch (deviceErr: any) {
-        homey.app.error('Failed to synchronize device capability after optimization:', deviceErr?.message ?? String(deviceErr));
-      }
-    }));
-  } catch (err: any) {
-    homey.app.error('Error syncing device capabilities after optimization:', err?.message ?? String(err));
-  }
-}
-
-type HourlyOptimizationData = {
-  action: EnhancedOptimizationResult['action'];
-  fromTemp: number;
-  toTemp: number;
-  reason: string;
-  priceData: EnhancedOptimizationResult['priceData'];
-  priceNow?: number;
-  savings: number;
-  hourlyBaselineKWh: number | null;
-  timestamp: string;
-};
-
-interface ThermalModelDataPoint {
-  timestamp: string;
-  targetTemp: number | null | undefined;
-  indoorTemp: number | null | undefined;
-  outdoorTemp: number | null | undefined;
-  priceNow: number | null | undefined;
-}
-
-interface ThermalModelResponseData {
-  optimizationCount: number;
-  lastOptimization: Record<string, unknown> | null;
-  lastCalibration: Record<string, unknown> | null;
-  kFactor: number | null;
-  dataPoints: ThermalModelDataPoint[];
-}
-
-type UpdateOptimizerSettingsResponse = ApiResult<{ message: string }>;
-type GetDeviceListResponse = ApiResult<{ devices: DeviceDropdownItem[]; buildings: BuildingDropdownItem[] }>;
-type GetRunHourlyOptimizerResponse = ApiResult<{ message: string; data: HourlyOptimizationData; result: EnhancedOptimizationResult }>;
-type GetThermalModelDataResponse = ApiResult<{ data: ThermalModelResponseData }>;
-type GetRunWeeklyCalibrationResponse = ApiResult<{ message?: string; result?: WeeklyCalibrationResult; historicalDataCount?: number }>;
-
-type CronJobSnapshot = {
-  running: boolean;
-  nextRun?: string;
-  cronTime?: string;
-  error?: string;
-};
-
-interface CronStatusSnapshot {
-  hourlyJob: CronJobSnapshot;
-  weeklyJob: CronJobSnapshot;
-  lastHourlyRun: string;
-  lastWeeklyRun: string;
-  lastUpdated?: string;
-}
-
-type GetStartCronJobsResponse = ApiResult<{ message: string; hourlyJobRunning: boolean; weeklyJobRunning: boolean }>;
-type GetUpdateCronStatusResponse = ApiResult<{ message: string; cronStatus: CronStatusSnapshot }>;
-type GetCheckCronStatusResponse = ApiResult<{
-  currentTime: string;
-  hourlyJob: CronJobSnapshot;
-  weeklyJob: CronJobSnapshot;
-  lastHourlyRun: string;
-  lastWeeklyRun: string;
-}>;
-type ValidateAndStartCronResponse = ApiResult<{ cronRunning: boolean; message: string }>;
-
-type GetCopDataResponse = ApiResult<{
-  melcloud: unknown;
-  helper: unknown;
-  settings: {
-    copWeight: number;
-    autoSeasonalMode: boolean;
-    summerMode: boolean;
-  };
-}>;
-
-type GetWeeklyAverageCopResponse = ApiResult<{
-  melcloud: unknown;
-  helper: {
-    heating: unknown;
-    hotWater: unknown;
-  };
-}>;
-
-interface ConnectionStatusResponse {
-  connected: boolean;
-  error?: string;
-  needsConfiguration?: boolean;
-  devices?: number;
-  reconnected?: boolean;
-  pricePoints?: number;
-}
-
-type RunThermalDataCleanupResponse = ApiResult<Record<string, unknown>>;
-
-type InternalCleanupResponse = ApiResult<{ message: string }>;
-
-type GetModelConfidenceResponse = ApiResult<{
-  thermalModel: {
-    confidence: number | null;
-    heatingRate: number | null;
-    coolingRate: number | null;
-    thermalMass: number | null;
-    lastUpdated: string | null;
-  };
-  adaptiveParameters: {
-    learningCycles: number | null;
-    confidence: number | null;
-    lastUpdated: string | null;
-  };
-  dataRetention: {
-    thermalRawPoints: number;
-    thermalAggPoints: number;
-    rawKB: number;
-    aggKB: number;
-  };
-  hotWaterPatterns: {
-    confidence: number | null;
-    hourlyUsagePattern: number[] | null;
-    lastUpdated: string | null;
-  };
-  savingsMetrics: {
-    totalSavings: number | null;
-    averageDailySavings: number | null;
-    todaySavings: number | null;
-    last7DaysSavings: number | null;
-    projectedDailySavings: number | null;
-  };
-  baselineSavings: {
-    todayVsBaseline: number;
-    percentageSaved: number;
-    confidence: number;
-    projectedMonthly: number;
-  } | null;
-  enhancedSavings: {
-    baselineSavings: number;
-    baselinePercentage: number;
-    projectedSavings: number;
-    confidence: number;
-    method: string;
-    breakdown: any;
-  } | null;
-  seasonalMode: string | null;
-  priceData: {
-    currencySymbol: string;
-    currency: string;
-  };
-  smartSavingsDisplay: {
-    currency: string;
-    currencySymbol: string;
-    decimals: number;
-    today: number | null;
-    last7: number | null;
-    projection: number | null;
-    seasonMode: string | null;
-  };
-}>;
-
-interface HotWaterServiceLike {
-  resetPatterns(): void;
-  clearData(clearAggregated: boolean): Promise<void>;
-}
-
-type HotWaterResponse = ApiResult<{ message: string }>;
-
-interface HotWaterClearRequest {
-  clearAggregated?: boolean;
-}
-
-interface HotWaterHandlers {
-  'reset-patterns'(context: ApiHandlerContext): Promise<HotWaterResponse>;
-  'clear-data'(context: ApiHandlerContext): Promise<HotWaterResponse>;
-}
-
-interface ApiHandlers {
-  updateOptimizerSettings(context: ApiHandlerContext): Promise<UpdateOptimizerSettingsResponse>;
-  postHotWaterResetPatterns(context: ApiHandlerContext): Promise<HotWaterResponse>;
-  postHotWaterClearData(context: ApiHandlerContext): Promise<HotWaterResponse>;
-  getHotWaterPatterns(context: ApiHandlerContext): Promise<HotWaterResponse>;
-  getDeviceList(context: ApiHandlerContext): Promise<GetDeviceListResponse>;
-  getRunHourlyOptimizer(context: ApiHandlerContext): Promise<GetRunHourlyOptimizerResponse>;
-  getThermalModelData(context: ApiHandlerContext): Promise<GetThermalModelDataResponse>;
-  getRunWeeklyCalibration(context: ApiHandlerContext): Promise<GetRunWeeklyCalibrationResponse>;
-  getStartCronJobs(context: ApiHandlerContext): Promise<GetStartCronJobsResponse>;
-  getUpdateCronStatus(context: ApiHandlerContext): Promise<GetUpdateCronStatusResponse>;
-  getCheckCronStatus(context: ApiHandlerContext): Promise<GetCheckCronStatusResponse>;
-  getCOPData(context: ApiHandlerContext): Promise<GetCopDataResponse>;
-  getWeeklyAverageCOP(context: ApiHandlerContext): Promise<GetWeeklyAverageCopResponse>;
-  getMelCloudStatus(context: ApiHandlerContext): Promise<ConnectionStatusResponse>;
-  getTibberStatus(context: ApiHandlerContext): Promise<ConnectionStatusResponse>;
-  runSystemHealthCheck(context: ApiHandlerContext): Promise<SystemHealthCheckResult>;
-  runThermalDataCleanup(context: ApiHandlerContext): Promise<RunThermalDataCleanupResponse>;
-  internalCleanup(context: ApiHandlerContext): Promise<InternalCleanupResponse>;
-  validateAndStartCron(context: ApiHandlerContext): Promise<ValidateAndStartCronResponse>;
-  getModelConfidence(context: ApiHandlerContext): Promise<GetModelConfidenceResponse>;
-  'hot-water': HotWaterHandlers;
-}
 
 declare global {
   // Legacy globals used by the runtime layer (kept as any during migration)
@@ -530,10 +198,10 @@ async function httpRequest(
         err?.message.includes('timeout') ||
         // Some HTTP errors are retryable (e.g., 500, 502, 503, 504)
         (err?.message.includes('HTTP error') &&
-         (err.message.includes('500') ||
-          err.message.includes('502') ||
-          err.message.includes('503') ||
-          err.message.includes('504')))
+          (err.message.includes('500') ||
+            err.message.includes('502') ||
+            err.message.includes('503') ||
+            err.message.includes('504')))
       );
 
       // If this error is not retryable, or we've used all our retries, throw the error
@@ -705,27 +373,80 @@ async function updateAllServiceTimezones(
   timeZoneName?: string | null
 ): Promise<void> {
   const state = getServiceState();
-  
+
   // Update MelCloud API service timezone
   if (state.melCloud && typeof state.melCloud.updateTimeZoneSettings === 'function') {
     state.melCloud.updateTimeZoneSettings(timeZoneOffset, useDST, timeZoneName ?? undefined);
     homey.app.log(`Updated MelCloud API timezone settings (${timeZoneName || `offset ${timeZoneOffset}`})`);
   }
-  
+
   // Update Tibber API service timezone
   if (state.tibber && typeof state.tibber.updateTimeZoneSettings === 'function') {
     state.tibber.updateTimeZoneSettings(timeZoneOffset, useDST, timeZoneName ?? undefined);
     homey.app.log(`Updated Tibber API timezone settings (${timeZoneName || `offset ${timeZoneOffset}`})`);
   }
-  
+
   // Update Hot Water Service timezone if available
   const hotWaterService = getHotWaterService(homey);
   if (hotWaterService && typeof (hotWaterService as any).updateTimeZoneSettings === 'function') {
     (hotWaterService as any).updateTimeZoneSettings(timeZoneOffset, useDST, timeZoneName ?? undefined);
     homey.app.log(`Updated Hot Water Service timezone settings (${timeZoneName || `offset ${timeZoneOffset}`})`);
   }
-  
+
   homey.app.log(`All services updated with timezone: offset=${timeZoneOffset}, DST=${useDST}, name=${timeZoneName || 'n/a'}`);
+}
+
+async function syncDevicesWithOptimizationResult(homey: any, result: AugmentedOptimizationResult): Promise<void> {
+  try {
+    if (!result) return;
+
+    const driver = (homey.drivers && typeof homey.drivers.getDriver === 'function')
+      ? homey.drivers.getDriver('boiler')
+      : null;
+
+    if (!driver || typeof driver.getDevices !== 'function') {
+      return;
+    }
+
+    const devices = driver.getDevices();
+    if (!Array.isArray(devices) || devices.length === 0) {
+      return;
+    }
+
+    const zone1Target = typeof result.toTemp === 'number' ? result.toTemp : undefined;
+    const zone2Target = result.zone2Data && typeof result.zone2Data.toTemp === 'number' ? result.zone2Data.toTemp : undefined;
+    const tankTarget = result.tankData && typeof result.tankData.toTemp === 'number' ? result.tankData.toTemp : undefined;
+
+    await Promise.allSettled(devices.map(async (device: any) => {
+      try {
+        if (zone1Target !== undefined && device?.hasCapability?.('target_temperature')) {
+          const current = device.getCapabilityValue?.('target_temperature');
+          if (current !== zone1Target) {
+            await device.setCapabilityValue('target_temperature', zone1Target);
+          }
+        }
+
+        if (zone2Target !== undefined && device?.hasCapability?.('target_temperature.zone2')) {
+          const currentZone2 = device.getCapabilityValue?.('target_temperature.zone2');
+          if (currentZone2 !== zone2Target) {
+            await device.setCapabilityValue('target_temperature.zone2', zone2Target);
+          }
+        }
+
+        if (tankTarget !== undefined && device?.hasCapability?.('target_temperature.tank')) {
+          const currentTank = device.getCapabilityValue?.('target_temperature.tank');
+          if (currentTank !== tankTarget) {
+            await device.setCapabilityValue('target_temperature.tank', tankTarget);
+          }
+        }
+      } catch (deviceErr: any) {
+        homey.app.error('Failed to synchronize device capability after optimization:', deviceErr?.message ?? String(deviceErr));
+      }
+    }));
+
+  } catch (err: any) {
+    homey.app.error('Error syncing device capabilities after optimization:', err?.message ?? String(err));
+  }
 }
 
 const apiHandlers: ApiHandlers = {
@@ -751,7 +472,7 @@ const apiHandlers: ApiHandlers = {
       homey.app.error('Error resetting hot water patterns:', error);
       return {
         success: false,
-        message: `Error resetting hot water usage patterns: ${message}`
+        message: `Error resetting hot water usage patterns: ${message} `
       };
     }
   },
@@ -778,25 +499,25 @@ const apiHandlers: ApiHandlers = {
         : ' while keeping aggregated data.';
       return {
         success: true,
-        message: `Hot water usage data has been cleared${suffix}`
+        message: `Hot water usage data has been cleared${suffix} `
       };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       homey.app.error('Error clearing hot water data:', error);
       return {
         success: false,
-        message: `Error clearing hot water usage data: ${message}`
+        message: `Error clearing hot water usage data: ${message} `
       };
     }
   },
 
   getHotWaterPatterns: async ({ homey }: ApiHandlerContext): Promise<HotWaterResponse> => {
     homey.app.log('API method getHotWaterPatterns called');
-    
+
     try {
       // Get patterns from Homey settings
       const patternsData = homey.settings.get('hot_water_usage_patterns');
-      
+
       if (!patternsData) {
         homey.app.log('===== HOT WATER USAGE PATTERNS =====');
         homey.app.log('No usage patterns found - using defaults');
@@ -808,38 +529,38 @@ const apiHandlers: ApiHandlers = {
       }
 
       const patterns = JSON.parse(patternsData);
-      
+
       // Pretty print to terminal
       homey.app.log('===== HOT WATER USAGE PATTERNS =====');
-      homey.app.log(`Last Updated: ${patterns.lastUpdated || 'Unknown'}`);
-      homey.app.log(`Confidence: ${patterns.confidence || 0}%`);
+      homey.app.log(`Last Updated: ${patterns.lastUpdated || 'Unknown'} `);
+      homey.app.log(`Confidence: ${patterns.confidence || 0}% `);
       homey.app.log('');
-      
+
       // Hourly patterns (0-23 hours)
       homey.app.log('📅 HOURLY USAGE PATTERN (24 hours):');
       if (patterns.hourlyUsagePattern && Array.isArray(patterns.hourlyUsagePattern)) {
         patterns.hourlyUsagePattern.forEach((usage: number, hour: number) => {
           const bar = '█'.repeat(Math.round(usage * 10));
-          homey.app.log(`  ${String(hour).padStart(2, '0')}:00 ${usage.toFixed(2)} ${bar}`);
+          homey.app.log(`  ${String(hour).padStart(2, '0')}:00 ${usage.toFixed(2)} ${bar} `);
         });
       } else {
         homey.app.log('  No hourly pattern data available');
       }
       homey.app.log('');
-      
+
       // Daily patterns (0-6 days, 0=Sunday)
       homey.app.log('📊 DAILY USAGE PATTERN (7 days):');
       if (patterns.dailyUsagePattern && Array.isArray(patterns.dailyUsagePattern)) {
         const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
         patterns.dailyUsagePattern.forEach((usage: number, day: number) => {
           const bar = '█'.repeat(Math.round(usage * 10));
-          homey.app.log(`  ${dayNames[day].padEnd(9)} ${usage.toFixed(2)} ${bar}`);
+          homey.app.log(`  ${dayNames[day].padEnd(9)} ${usage.toFixed(2)} ${bar} `);
         });
       } else {
         homey.app.log('  No daily pattern data available');
       }
       homey.app.log('');
-      
+
       // Get service stats if available
       const service = getHotWaterService(homey);
       if (service && typeof (service as any).getUsageStatistics === 'function') {
@@ -847,18 +568,18 @@ const apiHandlers: ApiHandlers = {
           const stats = (service as any).getUsageStatistics(7);
           if (stats) {
             homey.app.log('📈 RECENT STATISTICS (Last 7 days):');
-            homey.app.log(`  Data Points: ${stats.statistics?.totalDataPoints || 'Unknown'}`);
+            homey.app.log(`  Data Points: ${stats.statistics?.totalDataPoints || 'Unknown'} `);
             homey.app.log(`  Avg Tank Temp: ${stats.statistics?.avgTankTemp?.toFixed(1) || 'Unknown'}°C`);
             homey.app.log(`  Avg Energy: ${stats.statistics?.avgEnergyProduced?.toFixed(2) || 'Unknown'} kWh`);
             homey.app.log('');
-            
+
             if (stats.predictions && Array.isArray(stats.predictions)) {
               homey.app.log('🔮 NEXT 24H PREDICTIONS:');
               const now = new Date();
               stats.predictions.slice(0, 12).forEach((prediction: number, i: number) => {
                 const hour = (now.getHours() + i) % 24;
                 const bar = '█'.repeat(Math.round(prediction * 10));
-                homey.app.log(`  ${String(hour).padStart(2, '0')}:00 ${prediction.toFixed(2)} ${bar}`);
+                homey.app.log(`  ${String(hour).padStart(2, '0')}:00 ${prediction.toFixed(2)} ${bar} `);
               });
             }
           }
@@ -866,20 +587,20 @@ const apiHandlers: ApiHandlers = {
           homey.app.log('📈 STATISTICS: Error retrieving stats');
         }
       }
-      
+
       homey.app.log('=====================================');
-      
+
       return {
         success: true,
         message: 'Hot water usage patterns dumped to terminal - check the logs!'
       };
-      
+
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       homey.app.error('Error getting hot water patterns:', error);
       return {
         success: false,
-        message: `Error retrieving hot water patterns: ${message}`
+        message: `Error retrieving hot water patterns: ${message} `
       };
     }
   },
@@ -896,7 +617,7 @@ const apiHandlers: ApiHandlers = {
       } catch (initErr: any) {
         return {
           success: false,
-          error: `Failed to initialize services: ${initErr.message}`,
+          error: `Failed to initialize services: ${initErr.message} `,
           needsConfiguration: true
         };
       }
@@ -924,7 +645,7 @@ const apiHandlers: ApiHandlers = {
       } catch (initErr: any) {
         return {
           success: false,
-          error: `Failed to initialize services: ${initErr.message}`,
+          error: `Failed to initialize services: ${initErr.message} `,
           needsConfiguration: true
         };
       }
@@ -962,7 +683,7 @@ const apiHandlers: ApiHandlers = {
           if (!buildings[device.buildingId]) {
             buildings[device.buildingId] = {
               id: device.buildingId,
-              name: `Building ${device.buildingId}`,
+              name: `Building ${device.buildingId} `,
               devices: []
             };
           }
@@ -981,7 +702,7 @@ const apiHandlers: ApiHandlers = {
         homey.app.error('Error getting device list:', deviceErr);
         return {
           success: false,
-          error: `Failed to get device list: ${deviceErr.message}`
+          error: `Failed to get device list: ${deviceErr.message} `
         };
       }
     } catch (err: any) {
@@ -1004,7 +725,7 @@ const apiHandlers: ApiHandlers = {
       } catch (initErr: any) {
         return {
           success: false,
-          error: `Failed to initialize services: ${initErr.message}`,
+          error: `Failed to initialize services: ${initErr.message} `,
           needsConfiguration: true
         };
       }
@@ -1030,15 +751,15 @@ const apiHandlers: ApiHandlers = {
           if (baselineComparisonEnabled && enhancedCalculator?.hasBaselineCapability()) {
             // Use result.savings for early calculation
             const initialSavings = (typeof result.savings === 'number' && !Number.isNaN(result.savings)) ? result.savings : 0;
-            
+
             // Get actual consumption for baseline calculation
             const actualConsumptionKWh = result.energyMetrics?.dailyEnergyConsumption || 1.0;
             const actualCost = Math.abs(initialSavings); // Use initial savings as proxy for actual cost
-            
+
             // Get historical optimizations for enhanced calculation
             const today = new Date().toISOString().split('T')[0];
             const optimizationHistory = homey.settings.get('optimization_history') || [];
-            const todayOptimizations = optimizationHistory.filter((opt: any) => 
+            const todayOptimizations = optimizationHistory.filter((opt: any) =>
               opt.timestamp && opt.timestamp.startsWith(today)
             );
 
@@ -1101,7 +822,7 @@ const apiHandlers: ApiHandlers = {
         if (result.action === 'temperature_adjusted') {
           homey.app.log(`🔄 TIMELINE: Enhanced optimization adjusted Zone1 temperature from ${result.fromTemp}°C to ${result.toTemp}°C`);
         } else {
-          homey.app.log(`🔄 TIMELINE: Enhanced optimization - no temperature change needed (${result.reason})`);
+          homey.app.log(`🔄 TIMELINE: Enhanced optimization - no temperature change needed(${result.reason})`);
         }
 
         // Log energy data if available
@@ -1110,14 +831,14 @@ const apiHandlers: ApiHandlers = {
           const heatingCop = Number.isFinite(metrics.realHeatingCOP) ? metrics.realHeatingCOP.toFixed(2) : 'n/a';
           const hotWaterCop = Number.isFinite(metrics.realHotWaterCOP) ? metrics.realHotWaterCOP.toFixed(2) : 'n/a';
           const consumption = Number.isFinite(metrics.dailyEnergyConsumption) ? metrics.dailyEnergyConsumption.toFixed(2) : 'n/a';
-          homey.app.log(`📊 Energy Metrics: daily=${consumption}kWh, heatingCOP=${heatingCop}, hotWaterCOP=${hotWaterCop}`);
+          homey.app.log(`📊 Energy Metrics: daily = ${consumption} kWh, heatingCOP = ${heatingCop}, hotWaterCOP = ${hotWaterCop} `);
         }
 
         // Log price data
         if (result.priceData) {
           const hasNext = (typeof result.priceData.nextHour === 'number' && Number.isFinite(result.priceData.nextHour));
-          const nextHourText = hasNext ? `${result.priceData.nextHour}kr/kWh` : 'n/a';
-          homey.app.log(`💰 Price Data: Current: ${result.priceData.current}kr/kWh, Next Hour: ${nextHourText}`);
+          const nextHourText = hasNext ? `${result.priceData.nextHour} kr / kWh` : 'n/a';
+          homey.app.log(`💰 Price Data: Current: ${result.priceData.current} kr / kWh, Next Hour: ${nextHourText} `);
         }
 
         // Send to timeline using our standardized TimelineHelperWrapper
@@ -1183,7 +904,7 @@ const apiHandlers: ApiHandlers = {
               const currentWeather = result.weather.current;
               const temperature = currentWeather.temperature !== undefined ? `${currentWeather.temperature}°C` : 'n/a';
               const symbol = (currentWeather as Record<string, unknown>).symbol ?? '';
-              details.weather = `${temperature}, ${symbol}`;
+              details.weather = `${temperature}, ${symbol} `;
             }
             additionalData.weather = result.weather;
           }
@@ -1215,12 +936,12 @@ const apiHandlers: ApiHandlers = {
             const hourlySavings = Number(result.savings || 0);
             let projectedDailySavings = hourlySavings * 24;
             let savingsType = 'incremental';
-            
+
             if (typeof activeOptimizer.calculateDailySavings === 'function') {
               try {
                 const val = await activeOptimizer.calculateDailySavings(hourlySavings, historicalData?.optimizations || []);
                 if (Number.isFinite(val)) projectedDailySavings = val;
-              } catch (_: any) {}
+              } catch (_: any) { }
             }
 
             // Check if we have enhanced savings with baseline comparison and use the larger value
@@ -1229,17 +950,17 @@ const apiHandlers: ApiHandlers = {
               if (Number.isFinite(baselineSavings) && baselineSavings > 1 && baselineSavings > projectedDailySavings) {
                 projectedDailySavings = baselineSavings;
                 savingsType = 'vs manual operation';
-                
+
                 // Add baseline data to additional data
                 additionalData.baselineSavings = baselineSavings;
                 additionalData.baselinePercentage = enhancedSavingsData.baselineComparison.baselinePercentage;
                 additionalData.enhancedSavings = enhancedSavingsData;
               }
             }
-            
+
             additionalData.dailySavings = projectedDailySavings;
             additionalData.savingsType = savingsType;
-            
+
             try {
               const currencyCode = homey.settings.get('currency') || homey.settings.get('currency_code') || 'NOK';
               homey.app.log(`Hourly optimization projected daily savings: ${projectedDailySavings.toFixed(2)} ${currencyCode}/day (${savingsType})`);
@@ -1298,14 +1019,14 @@ const apiHandlers: ApiHandlers = {
                   computedSavings += activeOptimizer.calculateSavings(result.tankData.fromTemp, result.tankData.toTemp, p, 'tank');
                 }
               }
-            } catch (_: any) {}
+            } catch (_: any) { }
           }
           if (typeof computedSavings === 'number' && !Number.isNaN(computedSavings)) {
             // Keep both positive and negative savings for proper net accumulation
             // This fixes the issue where only positive individual savings were being added to daily totals
             computedSavings = Number((computedSavings || 0).toFixed(4));
             const toPersist = computedSavings; // Allow negative savings to be accumulated
-            
+
             // Log for debugging savings accumulation
             if (computedSavings !== 0) {
               homey.app.log(`Savings accumulation: ${computedSavings > 0 ? '+' : ''}${computedSavings.toFixed(4)} SEK (individual optimization)`);
@@ -1361,7 +1082,7 @@ const apiHandlers: ApiHandlers = {
                 ? (todayEntry.totalMinor / Math.pow(10, todayEntry.decimals ?? decimals)).toFixed(4)
                 : Number(todayEntry.total || 0).toFixed(4);
               homey.app.log(`Updated savings_history: +${toPersist.toFixed(4)} -> today ${todayMajor} (${todayStr}), size=${trimmed.length}`);
-            } catch (_: any) {}
+            } catch (_: any) { }
 
             // Update display_savings_history (read-only estimates for UI)
             try {
@@ -1387,9 +1108,9 @@ const apiHandlers: ApiHandlers = {
                   // Gather historical optimizations (today only preferred)
                   const historicalOptimizations = Array.isArray(historicalData?.optimizations)
                     ? historicalData.optimizations.filter(opt => {
-                        if (!opt || !opt.timestamp) return false;
-                        return opt.timestamp.startsWith(todayStr);
-                      })
+                      if (!opt || !opt.timestamp) return false;
+                      return opt.timestamp.startsWith(todayStr);
+                    })
                     : [];
 
                   // Estimate actual consumption and cost from metrics
@@ -1457,7 +1178,7 @@ const apiHandlers: ApiHandlers = {
                 let entryUpdated = false;
 
                 if ((baselineSource === 'optimizer' || baselineSource === 'fallback') &&
-                    baselineCostMajor !== null && optimizedCostMajor !== null) {
+                  baselineCostMajor !== null && optimizedCostMajor !== null) {
                   entry.currency = currencyCode;
                   entry.decimals = decimals;
                   entry.baselineMinor = toMinor(Math.max(0, baselineCostMajor));
@@ -1488,7 +1209,7 @@ const apiHandlers: ApiHandlers = {
                     const baselineLog = baselineCostMajor !== null ? baselineCostMajor.toFixed(2) : 'n/a';
                     const optimizedLog = optimizedCostMajor !== null ? optimizedCostMajor.toFixed(2) : 'n/a';
                     homey.app.log(`Updated display_savings_history (${baselineSource || 'stored'}): baseline=${baselineLog}, optimized=${optimizedLog} (${todayStr})`);
-                  } catch (_: any) {}
+                  } catch (_: any) { }
                 }
               }
             } catch (displayErr: any) {
@@ -2605,28 +2326,28 @@ const apiHandlers: ApiHandlers = {
         const tibberToken = homey.settings.get('tibber_token');
         const deviceId = homey.settings.get('device_id');
         const priceDataSource = homey.settings.get('price_data_source') || 'entsoe';
-        
+
         // Check for missing required settings
         const missingSettings = [];
         if (!melcloudUser) missingSettings.push('MELCloud email');
         if (!melcloudPass) missingSettings.push('MELCloud password');
-        
+
         // Only require Tibber token if Tibber is selected as price source
         if (priceDataSource === 'tibber' && !tibberToken) {
           missingSettings.push('Tibber API token');
         }
-        
+
         if (!deviceId) missingSettings.push('Device ID');
-        
+
         const isValid = missingSettings.length === 0;
-        
+
         if (isValid) {
           // Try to get the driver instances and restart cron jobs
           try {
             const driverManager = (homey.drivers && typeof homey.drivers.getDriver === 'function')
               ? homey.drivers.getDriver('boiler')
               : null;
-              
+
             if (driverManager && typeof driverManager.restartCronJobs === 'function') {
               await driverManager.restartCronJobs();
               homey.app.log('✅ Settings valid, cron jobs restarted');
@@ -2636,7 +2357,7 @@ const apiHandlers: ApiHandlers = {
           } catch (driverError: any) {
             homey.app.log('Settings valid, but could not restart cron jobs:', driverError.message);
           }
-          
+
           return {
             success: true,
             cronRunning: true,
@@ -2681,10 +2402,10 @@ const apiHandlers: ApiHandlers = {
 
       if (thermalCharacteristicsRaw) {
         try {
-          const parsed = typeof thermalCharacteristicsRaw === 'string' 
-            ? JSON.parse(thermalCharacteristicsRaw) 
+          const parsed = typeof thermalCharacteristicsRaw === 'string'
+            ? JSON.parse(thermalCharacteristicsRaw)
             : thermalCharacteristicsRaw;
-          
+
           thermalModel = {
             confidence: parsed.modelConfidence ?? null,
             heatingRate: parsed.heatingRate ?? null,
@@ -2711,7 +2432,7 @@ const apiHandlers: ApiHandlers = {
           const parsed = typeof adaptiveParametersRaw === 'string'
             ? JSON.parse(adaptiveParametersRaw)
             : adaptiveParametersRaw;
-          
+
           adaptiveParameters = {
             learningCycles: parsed.learningCycles ?? null,
             confidence: parsed.confidence ?? null,
@@ -2727,7 +2448,7 @@ const apiHandlers: ApiHandlers = {
       const thermalAggKey = 'thermal_model_aggregated_data';
       const thermalDataRaw = homey.settings.get(thermalDataKey);
       const thermalAggRaw = homey.settings.get(thermalAggKey);
-      
+
       let dataRetention = {
         thermalRawPoints: 0,
         thermalAggPoints: 0,
@@ -2771,7 +2492,7 @@ const apiHandlers: ApiHandlers = {
           const parsed = typeof hotWaterPatternsRaw === 'string'
             ? JSON.parse(hotWaterPatternsRaw)
             : hotWaterPatternsRaw;
-          
+
           hotWaterPatterns = {
             confidence: parsed.confidence ?? null,
             hourlyUsagePattern: parsed.hourlyUsagePattern ?? null,
@@ -2789,7 +2510,7 @@ const apiHandlers: ApiHandlers = {
       const displaySavingsHistoryRaw = homey.settings.get('display_savings_history');
       const currency = homey.settings.get('currency_code') || homey.settings.get('currency') || 'SEK';
       const currencySymbol = homey.settings.get('currency_symbol') || currency;
-      
+
       let savingsMetrics = {
         totalSavings: null as number | null,
         averageDailySavings: null as number | null,
@@ -2797,7 +2518,7 @@ const apiHandlers: ApiHandlers = {
         last7DaysSavings: null as number | null,
         projectedDailySavings: null as number | null
       };
-      
+
       // Get currency decimals helper
       const getCurrencyDecimals = (curr: string): number => {
         const code = (curr || 'SEK').toUpperCase();
@@ -2805,12 +2526,12 @@ const apiHandlers: ApiHandlers = {
         if (['BHD', 'KWD', 'OMR'].includes(code)) return 3;
         return 2;
       };
-      
+
       const minorToMajor = (minor: number, decimals: number): number => {
         const divisor = Math.pow(10, decimals);
         return minor / divisor;
       };
-      
+
       const decimals = getCurrencyDecimals(currency);
 
       // Process orchestrator metrics
@@ -2819,11 +2540,11 @@ const apiHandlers: ApiHandlers = {
           const parsed = typeof metricsRaw === 'string'
             ? JSON.parse(metricsRaw)
             : metricsRaw;
-          
+
           if (parsed.totalSavings !== undefined) {
             savingsMetrics.totalSavings = parsed.totalSavings;
           }
-          
+
           // Check for projected daily savings
           if (parsed.projectedDailySavings !== undefined) {
             savingsMetrics.projectedDailySavings = parsed.projectedDailySavings;
@@ -2832,7 +2553,7 @@ const apiHandlers: ApiHandlers = {
           homey.app.error('Failed to parse savings metrics:', parseErr);
         }
       }
-      
+
       // Process savings history for today and last 7 days
       if (savingsHistoryRaw && Array.isArray(savingsHistoryRaw)) {
         try {
@@ -2840,7 +2561,7 @@ const apiHandlers: ApiHandlers = {
           const todayDate = new Date(`${today}T00:00:00`);
           const last7Cutoff = new Date(todayDate);
           last7Cutoff.setDate(todayDate.getDate() - 6); // 7-day window including today
-          
+
           // Calculate today's savings
           const todayEntry = savingsHistoryRaw.find((h: any) => h.date === today);
           if (todayEntry) {
@@ -2851,7 +2572,7 @@ const apiHandlers: ApiHandlers = {
               savingsMetrics.todaySavings = Number(todayEntry.total);
             }
           }
-          
+
           // Calculate last 7 days total
           let last7TotalMinor = 0;
           for (const entry of savingsHistoryRaw) {
@@ -2868,11 +2589,11 @@ const apiHandlers: ApiHandlers = {
               }
             }
           }
-          
+
           if (last7TotalMinor > 0) {
             savingsMetrics.last7DaysSavings = minorToMajor(last7TotalMinor, decimals);
           }
-          
+
           // Calculate average daily savings from last 7 days
           if (savingsMetrics.last7DaysSavings !== null) {
             const daysWithData = savingsHistoryRaw.filter((h: any) => {
@@ -2880,7 +2601,7 @@ const apiHandlers: ApiHandlers = {
               const entryDate = new Date(`${h.date}T00:00:00`);
               return entryDate >= last7Cutoff && entryDate <= todayDate && (h.totalMinor > 0 || h.total > 0);
             }).length;
-            
+
             if (daysWithData > 0) {
               savingsMetrics.averageDailySavings = savingsMetrics.last7DaysSavings / daysWithData;
             }
@@ -2889,7 +2610,7 @@ const apiHandlers: ApiHandlers = {
           homey.app.error('Failed to parse savings history:', parseErr);
         }
       }
-      
+
       const smartSavingsDisplay: {
         currency: string;
         currencySymbol: string;
@@ -3018,28 +2739,28 @@ const apiHandlers: ApiHandlers = {
           homey.app.error('Failed to parse display savings history:', displayErr);
         }
       }
-      
+
       // Calculate baseline savings comparison (read-only, UI display only)
       let baselineSavings = null;
       let enhancedSavings: any = null;
       let seasonalMode: string | null = null;
-      
+
       try {
         // Get optimizer instance from service manager for read-only calculation
         const serviceState = getServiceState();
         const optimizer = serviceState?.optimizer;
-        
+
         // Run baseline calculation if we have any savings data (even if negative)
         // Also run if we have recent optimization data, even without savings history yet
         const hasSavingsData = savingsMetrics.todaySavings !== null && Math.abs(savingsMetrics.todaySavings) > 0.001;
         const hasRecentData = homey.settings.get('melcloud_historical_data')?.length > 0;
-        
+
         if (optimizer && (hasSavingsData || hasRecentData)) {
           // Get actual consumption estimate (use today's savings as proxy for cost delta)
           // This is a read-only calculation, doesn't affect storage
           const actualCost = hasSavingsData ? Math.abs(savingsMetrics.todaySavings!) : 5.0; // Default 5 SEK if no savings yet
           const actualConsumptionKWh = actualCost / 1.5; // Rough estimate: ~1.5 SEK/kWh average
-          
+
           // Get historical optimizations for context (read-only)
           const historicalData = homey.settings.get('melcloud_historical_data');
           let historicalOptimizations: any[] = [];
@@ -3049,7 +2770,7 @@ const apiHandlers: ApiHandlers = {
               .filter((h: any) => h && h.timestamp && h.timestamp.startsWith(today))
               .slice(0, 24); // Max 24 hours
           }
-          
+
           // Calculate enhanced savings with baseline comparison (READ-ONLY)
           const currentHourSavings = hasSavingsData ? savingsMetrics.todaySavings! : 0;
           const result = await optimizer.calculateEnhancedDailySavingsWithBaseline(
@@ -3059,7 +2780,7 @@ const apiHandlers: ApiHandlers = {
             actualCost,
             true // enable baseline
           );
-          
+
           if (result && result.baselineComparison) {
             enhancedSavings = {
               baselineSavings: result.baselineComparison.baselineSavings,
@@ -3069,7 +2790,7 @@ const apiHandlers: ApiHandlers = {
               method: result.baselineComparison.method,
               breakdown: result.baselineComparison.breakdown
             };
-            
+
             baselineSavings = {
               todayVsBaseline: result.baselineComparison.baselineSavings,
               percentageSaved: result.baselineComparison.baselinePercentage,
@@ -3077,7 +2798,7 @@ const apiHandlers: ApiHandlers = {
               projectedMonthly: result.projectedSavings * 30
             };
           }
-          
+
           // Get seasonal mode (read-only)
           const summerMode = homey.settings.get('summer_mode');
           const autoSeasonalMode = homey.settings.get('auto_seasonal_mode');
@@ -3107,7 +2828,7 @@ const apiHandlers: ApiHandlers = {
         homey.app.error('Error calculating baseline savings (non-critical):', baselineErr);
         // Continue without baseline data - graceful degradation
       }
-      
+
       // Build price data for currency context
       const priceData = {
         currencySymbol: currencySymbol,
@@ -3123,7 +2844,7 @@ const apiHandlers: ApiHandlers = {
         const optimizerData = homey.settings.get('optimizer_historical_data');
         const historicalData = optimizerData?.optimizations || null;
         homey.app.log(`[getModelConfidence] Optimizer data exists: ${!!optimizerData}, optimizations array: ${Array.isArray(historicalData)}, length: ${Array.isArray(historicalData) ? historicalData.length : 'N/A'}`);
-        
+
         // Log a sample of historical data entries for debugging
         if (historicalData && Array.isArray(historicalData) && historicalData.length > 0) {
           homey.app.log(`[getModelConfidence] Sample historical entries (first 3):`);
@@ -3134,25 +2855,25 @@ const apiHandlers: ApiHandlers = {
             homey.app.log(`[getModelConfidence]   ... and ${historicalData.length - 3} more entries`);
           }
         }
-        
+
         let needsFallback = false;
-        
+
         if (historicalData && Array.isArray(historicalData) && historicalData.length > 0) {
           const now = new Date();
           const last7Days = new Date(now);
           last7Days.setDate(now.getDate() - 7);
-          
+
           homey.app.log(`[getModelConfidence] Date range: ${last7Days.toISOString()} to ${now.toISOString()}`);
-          
+
           // Filter to last 7 days and extract valid prices
           const recentEntries = historicalData.filter((entry: any) => {
             if (!entry || !entry.timestamp) return false;
             const entryDate = new Date(entry.timestamp);
             return entryDate >= last7Days && entryDate <= now;
           });
-          
+
           homey.app.log(`[getModelConfidence] Recent entries in last 7 days: ${recentEntries.length}`);
-          
+
           const recentPrices = recentEntries
             .map((entry: any) => {
               const price = Number(entry.priceNow);
@@ -3162,14 +2883,14 @@ const apiHandlers: ApiHandlers = {
               return price;
             })
             .filter((price: number) => Number.isFinite(price) && price > 0);
-          
+
           priceDataPoints = recentPrices.length;
-          
+
           homey.app.log(`[getModelConfidence] Valid price data points: ${priceDataPoints}`);
           if (recentPrices.length > 0 && recentPrices.length <= 10) {
             homey.app.log(`[getModelConfidence] Sample prices: ${recentPrices.slice(0, 5).map(p => p.toFixed(4)).join(', ')}`);
           }
-          
+
           if (recentPrices.length > 0) {
             const sum = recentPrices.reduce((acc: number, price: number) => acc + price, 0);
             averageSpotPrice = sum / recentPrices.length;
@@ -3182,7 +2903,7 @@ const apiHandlers: ApiHandlers = {
           homey.app.log('[getModelConfidence] ❌ No historical data available, will try fallback');
           needsFallback = true;
         }
-        
+
         // Try fallback if no historical data was usable
         if (needsFallback) {
           homey.app.log('[getModelConfidence] Attempting fallback to current prices...');
@@ -3190,19 +2911,19 @@ const apiHandlers: ApiHandlers = {
             const serviceState = getServiceState();
             homey.app.log(`[getModelConfidence] Service state exists: ${!!serviceState}, tibber exists: ${!!serviceState?.tibber}`);
             const priceProvider = serviceState?.tibber;
-            
+
             if (priceProvider) {
               homey.app.log('[getModelConfidence] Fetching current prices from provider...');
               const priceInfo = await priceProvider.getPrices();
               homey.app.log(`[getModelConfidence] Price info received, prices array length: ${Array.isArray(priceInfo?.prices) ? priceInfo.prices.length : 'N/A'}`);
-              
+
               if (priceInfo && Array.isArray(priceInfo.prices) && priceInfo.prices.length > 0) {
                 const validPrices = priceInfo.prices
                   .map((p: any) => Number(p.price))
                   .filter((price: number) => Number.isFinite(price) && price > 0);
-                
+
                 homey.app.log(`[getModelConfidence] Valid current prices: ${validPrices.length}`);
-                
+
                 if (validPrices.length > 0) {
                   const sum = validPrices.reduce((acc: number, price: number) => acc + price, 0);
                   averageSpotPrice = sum / validPrices.length;
@@ -3262,7 +2983,7 @@ const apiHandlers: ApiHandlers = {
   }
 };
 
-const exportedApi = apiHandlers as typeof apiHandlers & { 
+const exportedApi = apiHandlers as typeof apiHandlers & {
   __test?: Record<string, unknown>;
   updateAllServiceTimezones?: typeof updateAllServiceTimezones;
   updatePriceProvider?: typeof updatePriceProvider;
@@ -3286,7 +3007,7 @@ try {
       configurable: false
     });
   }
-} catch (_: any) {}
+} catch (_: any) { }
 
 // Test helpers - only exposed when running in test environment
 if (process.env.NODE_ENV === 'test') {

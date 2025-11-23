@@ -8,8 +8,9 @@ describe('Optimizer', () => {
     logger = {
       error: jest.fn(),
       log: jest.fn(),
+      info: jest.fn(),
     };
-  optimizer = new Optimizer({} as any, {} as any, 'deviceId', 1, logger as any);
+    optimizer = new Optimizer({} as any, {} as any, 'deviceId', 1, logger as any);
   });
 
   describe('handleApiError', () => {

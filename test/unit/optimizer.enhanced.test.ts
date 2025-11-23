@@ -46,6 +46,7 @@ describe('Optimizer Enhanced Tests', () => {
     // Create mock logger
     mockLogger = {
       log: jest.fn(),
+      info: jest.fn(),
       error: jest.fn(),
     };
 
@@ -424,7 +425,7 @@ describe('Optimizer Enhanced Tests', () => {
       // Should have called the underlying learner
       expect(learnSpy).toHaveBeenCalledWith(0.10, 0, 3.5);
       expect(mockLearner.learnFromOutcome).toHaveBeenCalled();
-      
+
       learnSpy.mockRestore();
     });
 

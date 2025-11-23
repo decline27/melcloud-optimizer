@@ -10,7 +10,17 @@ import {
   WeatherData,
   ThermalModel,
   OptimizationResult,
-  HomeyApp
+  HomeyApp,
+  RealEnergyData,
+  OptimizationMetrics,
+  ThermalMassModel,
+  ThermalStrategy,
+  HotWaterUsagePattern,
+  HotWaterSchedule,
+  SchedulePoint,
+  EnhancedOptimizationResult,
+  SecondaryZoneResult,
+  TankOptimizationResult
 } from '../types';
 import { isError } from '../util/error-handler';
 import { EnhancedSavingsCalculator, OptimizationData, SavingsCalculationResult } from '../util/enhanced-savings-calculator';
@@ -19,166 +29,11 @@ import { TimeZoneHelper } from '../util/time-zone-helper';
 import { applySetpointConstraints } from '../util/setpoint-constraints';
 import { computePlanningBias, updateThermalResponse } from './planning-utils';
 import { AdaptiveParametersLearner } from './adaptive-parameters';
-import { classifyPriceUnified, resolvePriceThresholds } from './price-classifier';
+import { PriceAnalyzer } from './price-analyzer';
+import { ThermalController } from './thermal-controller';
 
 const DEFAULT_HOT_WATER_PEAK_HOURS = [6, 7, 8]; // Morning fallback window when usage data is flat
 const MIN_SAVINGS_FOR_LEARNING = 0.05; // Minimum savings (SEK-equivalent) to trigger learning on no-change path
-
-/**
- * Real energy data from MELCloud API
- */
-interface RealEnergyData {
-  TotalHeatingConsumed: number;
-  TotalHeatingProduced: number;
-  TotalHotWaterConsumed: number;
-  TotalHotWaterProduced: number;
-  TotalCoolingConsumed: number;
-  TotalCoolingProduced: number;
-  CoP?: number[];
-  AverageHeatingCOP?: number;
-  AverageHotWaterCOP?: number;
-  // New explicit fields (preferred)
-  heatingCOP?: number | null;
-  hotWaterCOP?: number | null;
-  coolingCOP?: number | null;
-  averageCOP?: number | null;
-}
-
-/**
- * Enhanced optimization metrics using real energy data
- */
-interface OptimizationMetrics {
-  realHeatingCOP: number;
-  realHotWaterCOP: number;
-  dailyEnergyConsumption: number;
-  heatingEfficiency: number;
-  hotWaterEfficiency: number;
-  seasonalMode: 'summer' | 'winter' | 'transition';
-  optimizationFocus: 'heating' | 'hotwater' | 'both';
-}
-
-/**
- * Thermal mass model for strategic heating
- */
-interface ThermalMassModel {
-  thermalCapacity: number;      // kWh/°C - Energy needed to heat home by 1°C
-  heatLossRate: number;         // °C/hour - Temperature loss rate
-  maxPreheatingTemp: number;    // Maximum safe preheat temperature
-  preheatingEfficiency: number; // Efficiency factor for preheating strategy
-  lastCalibration: Date;        // When the model was last updated
-}
-
-/**
- * Thermal strategy recommendation
- */
-interface ThermalStrategy {
-  action: 'preheat' | 'coast' | 'maintain' | 'boost';
-  targetTemp: number;
-  reasoning: string;
-  estimatedSavings: number;
-  duration?: number; // Hours for the strategy
-  confidenceLevel: number; // 0-1 confidence in the strategy
-}
-
-/**
- * Hot water usage pattern learning
- */
-interface HotWaterUsagePattern {
-  hourlyDemand: number[];      // 24-hour demand pattern (kWh per hour)
-  peakHours: number[];         // Hours with high demand
-  minimumBuffer: number;       // Minimum hot water energy to maintain (kWh)
-  lastLearningUpdate: Date;    // When pattern was last updated
-  dataPoints: number;          // Number of data points used for learning
-}
-
-/**
- * Hot water schedule recommendation
- */
-interface HotWaterSchedule {
-  schedulePoints: SchedulePoint[];
-  currentAction: 'heat_now' | 'delay' | 'maintain';
-  reasoning: string;
-  estimatedSavings: number;
-}
-
-/**
- * Schedule point for hot water heating
- */
-interface SchedulePoint {
-  hour: number;
-  reason: string;
-  priority: number; // 0-1, higher = more important
-  cop: number;
-  pricePercentile: number;
-}
-
-interface EnhancedOptimizationResult {
-  success: boolean;
-  action: 'temperature_adjusted' | 'no_change';
-  fromTemp: number;
-  toTemp: number;
-  reason: string;
-  indoorTemp?: number | null;
-  outdoorTemp?: number | null;
-  priceData: {
-    current: number;
-    average: number;
-    min: number;
-    max: number;
-    level?: string;
-    percentile?: number;
-    nextHour?: number;
-  };
-  savings?: number;
-  energyMetrics?: OptimizationMetrics;
-  hotWaterAction?: {
-    action: 'heat_now' | 'delay' | 'maintain';
-    reason: string;
-    scheduledTime?: string;
-  };
-  // Optional weather snapshot for timeline/details integration
-  weather?: {
-    current?: Partial<WeatherData>;
-    adjustment?: { adjustment: number; reason: string };
-    trend?: { trend: string; details: string };
-  };
-  priceForecast?: {
-    position?: string;
-    recommendation?: string;
-    upcomingChanges?: any;
-    bestTimes?: any;
-    worstTimes?: any;
-  };
-  zone2Data?: SecondaryZoneResult;
-  tankData?: TankOptimizationResult;
-  melCloudStatus?: {
-    setpointApplied: boolean;
-    error?: string;
-  };
-  tankStatus?: {
-    setpointApplied: boolean;
-    error?: string;
-  };
-}
-
-interface SecondaryZoneResult {
-  fromTemp: number;
-  toTemp: number;
-  reason: string;
-  targetOriginal?: number;
-  targetTemp?: number;
-  indoorTemp?: number;
-  success?: boolean;
-  changed?: boolean;
-}
-
-interface TankOptimizationResult {
-  fromTemp: number;
-  toTemp: number;
-  reason: string;
-  success?: boolean;
-  changed?: boolean;
-}
 
 /**
  * Optimizer Service
@@ -186,7 +41,9 @@ interface TankOptimizationResult {
  * and thermal characteristics of the home
  */
 export class Optimizer {
-  private thermalModel: ThermalModel = { K: 0.5 };
+  private priceAnalyzer: PriceAnalyzer;
+  private thermalController: ThermalController;
+
   private minTemp: number = 18;
   private maxTemp: number = 22;
   private tempStep: number = 0.5;
@@ -215,7 +72,6 @@ export class Optimizer {
   private copWeight: number = 0.3;
   private autoSeasonalMode: boolean = true;
   private summerMode: boolean = false;
-  private preheatCheapPercentile: number = 0.25; // User-configurable cheap price threshold
   private enhancedSavingsCalculator: EnhancedSavingsCalculator;
   private lastEnergyData: RealEnergyData | null = null;
   private optimizationMetrics: OptimizationMetrics | null = null;
@@ -223,15 +79,6 @@ export class Optimizer {
 
   // Home/Away state management
   private occupied: boolean = true;
-
-  // Thermal mass optimization properties
-  private thermalMassModel: ThermalMassModel = {
-    thermalCapacity: 2.5,        // Default: 2.5 kWh per °C for average home
-    heatLossRate: 0.8,           // Default: 0.8°C per hour heat loss
-    maxPreheatingTemp: 23,       // Default: Max 23°C for preheating
-    preheatingEfficiency: 0.85,  // Default: 85% efficiency for preheating
-    lastCalibration: new Date()
-  };
 
   private hotWaterUsagePattern: HotWaterUsagePattern = {
     hourlyDemand: new Array(24).fill(0.5), // Default: 0.5 kWh per hour
@@ -241,13 +88,12 @@ export class Optimizer {
     dataPoints: 0
   };
 
-  private thermalStrategyHistory: ThermalStrategy[] = [];
   private adaptiveParametersLearner?: AdaptiveParametersLearner;
 
   /**
    * Constructor
    * @param melCloud MELCloud API instance
-   * @param tibber Tibber API instance
+   * @param priceProvider Price provider instance
    * @param deviceId MELCloud device ID
    * @param buildingId MELCloud building ID
    * @param logger Logger instance
@@ -256,14 +102,24 @@ export class Optimizer {
    */
   constructor(
     private readonly melCloud: MelCloudApi,
-    private priceProvider: PriceProvider | null,
+    priceProvider: PriceProvider | null,
     private readonly deviceId: string,
     private readonly buildingId: number,
     private readonly logger: HomeyLogger,
     private readonly weatherApi?: { getCurrentWeather(): Promise<WeatherData> },
     private readonly homey?: HomeyApp
   ) {
-    // Initialize thermal learning model first if homey instance is provided
+    // Initialize adaptive parameters learner first
+    if (homey) {
+      this.adaptiveParametersLearner = new AdaptiveParametersLearner(homey);
+      this.logger.log('Adaptive parameters learner initialized');
+    }
+
+    // Initialize services
+    this.priceAnalyzer = new PriceAnalyzer(this.logger, this.adaptiveParametersLearner);
+    this.priceAnalyzer.setPriceProvider(priceProvider);
+
+    // Initialize thermal learning model if homey instance is provided
     if (homey) {
       try {
         this.thermalModelService = new ThermalModelService(homey);
@@ -273,8 +129,16 @@ export class Optimizer {
         this.logger.error('Failed to initialize thermal learning model:', error);
         this.useThermalLearning = false;
       }
+    }
 
-      // Initialize COP helper
+    this.thermalController = new ThermalController(
+      this.logger,
+      this.thermalModelService || undefined,
+      this.adaptiveParametersLearner
+    );
+
+    // Initialize COP helper
+    if (homey) {
       try {
         this.copHelper = new COPHelper(homey, this.logger);
         this.logger.log('COP helper initialized');
@@ -286,12 +150,9 @@ export class Optimizer {
 
         // Load price threshold settings
         const preheatPercentile = Number(homey.settings.get('preheat_cheap_percentile'));
-        if (!Number.isNaN(preheatPercentile) && preheatPercentile >= 0.05 && preheatPercentile <= 0.5) {
-          this.preheatCheapPercentile = preheatPercentile;
-        }
+        this.priceAnalyzer.setThresholds(preheatPercentile);
 
         this.logger.log(`COP settings loaded - Weight: ${this.copWeight}, Auto Seasonal: ${this.autoSeasonalMode}, Summer Mode: ${this.summerMode}`);
-        this.logger.log(`Price threshold settings loaded - Cheap Percentile: ${this.preheatCheapPercentile} (${(this.preheatCheapPercentile * 100).toFixed(1)}th percentile)`);
 
         // Initialize TimeZoneHelper with user settings
         const tzOffset = homey.settings.get('time_zone_offset') || 1; // Settings page default: UTC+01:00
@@ -304,10 +165,6 @@ export class Optimizer {
           typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined
         );
         this.logger.log('TimeZoneHelper initialized for Optimizer');
-
-        // Initialize adaptive parameters learner
-        this.adaptiveParametersLearner = new AdaptiveParametersLearner(homey);
-        this.logger.log('Adaptive parameters learner initialized');
 
         // Load safety constraints
         const mins = Number(homey.settings.get('min_setpoint_change_minutes'));
@@ -461,20 +318,30 @@ export class Optimizer {
         if (avgHeatingConsumption > 0) {
           // Estimate thermal capacity based on daily consumption
           // Typical relationship: higher consumption = larger thermal mass
-          this.thermalMassModel.thermalCapacity = Math.max(1.5, Math.min(4.0, avgHeatingConsumption / 10));
+          const thermalCapacity = Math.max(1.5, Math.min(4.0, avgHeatingConsumption / 10));
 
           // Estimate heat loss rate based on outdoor temperature correlation
           // This would need outdoor temperature data for proper calculation
           // For now, use a reasonable default based on consumption
-          this.thermalMassModel.heatLossRate = avgHeatingConsumption > 20 ? 1.0 : 0.6;
+          const heatLossRate = avgHeatingConsumption > 20 ? 1.0 : 0.6;
 
-          this.thermalMassModel.lastCalibration = new Date();
+          // Create thermal mass model
+          const thermalMassModel: ThermalMassModel = {
+            thermalCapacity: thermalCapacity, // Using estimated thermalCapacity
+            heatLossRate: heatLossRate, // Using estimated heatLossRate
+            maxPreheatingTemp: 23,
+            efficiencyFactor: 0.9,
+            preheatingEfficiency: 0.9,
+            lastCalibration: new Date(),
+            lastUpdated: new Date()
+          };
 
-          this.logger.log('Thermal mass model calibrated:', {
-            thermalCapacity: this.thermalMassModel.thermalCapacity.toFixed(2),
-            heatLossRate: this.thermalMassModel.heatLossRate.toFixed(2),
-            avgHeatingConsumption: avgHeatingConsumption.toFixed(1),
-            hotWaterDataPoints: this.hotWaterUsagePattern.dataPoints
+          this.thermalController.setThermalMassModel(thermalMassModel);
+
+          this.logger.log('Thermal mass model initialized from history:', {
+            capacity: thermalCapacity.toFixed(2),
+            heatLoss: heatLossRate.toFixed(2),
+            dataPoints: recentData.length // Using recentData.length as a proxy for valid models
           });
         }
       }
@@ -486,8 +353,7 @@ export class Optimizer {
   }
 
   public setPriceProvider(provider: PriceProvider | null): void {
-    this.priceProvider = provider;
-    this.logger.info(`Price provider updated: ${provider ? provider.constructor.name : 'none'}`);
+    this.priceAnalyzer.setPriceProvider(provider);
   }
 
   /**
@@ -497,17 +363,7 @@ export class Optimizer {
    * @throws Error if validation fails
    */
   setThermalModel(K: number, S?: number): void {
-    // Validate K-factor
-    const validatedK = validateNumber(K, 'K', { min: 0.1, max: 10 });
-
-    // Validate S-factor if provided
-    let validatedS: number | undefined = undefined;
-    if (S !== undefined) {
-      validatedS = validateNumber(S, 'S', { min: 0.01, max: 1 });
-    }
-
-    this.thermalModel = { K: validatedK, S: validatedS };
-    this.logger.log(`Thermal model updated - K: ${validatedK}${validatedS !== undefined ? `, S: ${validatedS}` : ''}`);
+    this.thermalController.setThermalModel(K, S);
   }
 
   /**
@@ -642,7 +498,7 @@ export class Optimizer {
    * Expose current thermal model configuration
    */
   public getThermalModel(): ThermalModel {
-    return { ...this.thermalModel };
+    return this.thermalController.getThermalModel();
   }
 
   /**
@@ -732,244 +588,33 @@ export class Optimizer {
    * @returns Price level string
    */
   private calculatePriceLevel(percentile: number): string {
-    const adaptiveThresholds = this.adaptiveParametersLearner?.getStrategyThresholds();
-    const thresholds = resolvePriceThresholds({
-      cheapPercentile: this.preheatCheapPercentile,
-      veryCheapMultiplier: adaptiveThresholds?.veryChepMultiplier
-    });
-
-    if (percentile <= thresholds.veryCheap) return 'VERY_CHEAP';
-    if (percentile <= thresholds.cheap) return 'CHEAP';
-    if (percentile <= thresholds.expensive) return 'NORMAL';
-    if (percentile <= thresholds.veryExpensive) return 'EXPENSIVE';
-    return 'VERY_EXPENSIVE';
+    return this.priceAnalyzer.getPriceLevel(percentile);
   }
 
   /**
-   * Calculate thermal mass strategy for strategic heating
-   * @param currentTemp Current indoor temperature
-   * @param targetTemp Target temperature
-   * @param currentPrice Current electricity price
-   * @param futurePrices Future price forecast (next 24 hours)
-   * @param copData Current COP data
-   * @returns Thermal strategy recommendation
+   * Set price threshold settings
+   * @param preheatCheapPercentile Percentile threshold for considering prices "cheap" (0.05-0.5)
+   * @throws Error if validation fails
    */
-  private calculateThermalMassStrategy(
-    currentTemp: number,
-    targetTemp: number,
-    currentPrice: number,
-    futurePrices: any[],
-    copData: { heating: number; hotWater: number; outdoor: number },
-    referenceTimeMs?: number
-  ): ThermalStrategy {
-    try {
-      // Find cheapest periods in next 24 hours
-      const nowMs = typeof referenceTimeMs === 'number' && Number.isFinite(referenceTimeMs)
-        ? referenceTimeMs
-        : Date.now();
-      const upcomingPrices = futurePrices.filter(pricePoint => {
-        const ts = Date.parse(pricePoint.time);
-        if (!Number.isFinite(ts)) {
-          return true;
-        }
-        return ts >= nowMs;
-      });
-      const next24hSource = upcomingPrices.length > 0 ? upcomingPrices : futurePrices;
-      const next24h = next24hSource.slice(0, 24);
-      const sortedPrices = [...next24h].sort((a, b) => a.price - b.price);
-      const cheapest6Hours = sortedPrices.slice(0, 6); // Top 6 cheapest hours
+  setPriceThresholds(preheatCheapPercentile: number): void {
+    // Validate input
+    const validated = validateNumber(preheatCheapPercentile, 'preheatCheapPercentile', { min: 0.05, max: 0.5 });
 
-      // Calculate current price percentile
-      const currentPricePercentile = next24h.filter(p => p.price <= currentPrice).length / next24h.length;
+    this.priceAnalyzer.setThresholds(validated);
 
-      // Get normalized COP efficiency
-      const heatingEfficiency = this.normalizeCOP(copData.heating);
-
-      // Calculate thermal mass capacity for preheating
-      const tempDelta = this.thermalMassModel.maxPreheatingTemp - currentTemp;
-      const preheatingEnergy = tempDelta * this.thermalMassModel.thermalCapacity;
-
-      // Get adaptive strategy thresholds (learned from outcomes, fallback to defaults)
-      const adaptiveThresholds = this.adaptiveParametersLearner?.getStrategyThresholds() || {
-        excellentCOPThreshold: 0.8,
-        goodCOPThreshold: 0.5,
-        minimumCOPThreshold: 0.2,
-        veryChepMultiplier: 0.8,
-        preheatAggressiveness: 2.0,
-        coastingReduction: 1.5,
-        boostIncrease: 0.5
-      };
-
-      // Strategy decision logic using adaptive thresholds
-      if (currentPricePercentile <= (this.preheatCheapPercentile * adaptiveThresholds.veryChepMultiplier) &&
-        heatingEfficiency > adaptiveThresholds.goodCOPThreshold && tempDelta > 0.5) {
-        // Very cheap period (adaptive multiplier of user's cheap threshold) + good COP + room for preheating = PREHEAT
-        const preheatingTarget = Math.min(
-          targetTemp + (heatingEfficiency * adaptiveThresholds.preheatAggressiveness), // Adaptive aggressiveness
-          this.thermalMassModel.maxPreheatingTemp
-        );
-
-        const estimatedSavings = this.calculatePreheatingValue(
-          preheatingTarget,
-          cheapest6Hours,
-          copData,
-          currentPrice
-        );
-
-        return {
-          action: 'preheat',
-          targetTemp: preheatingTarget,
-          reasoning: `Excellent conditions for preheating: price ${(currentPricePercentile * 100).toFixed(0)}th percentile, COP ${copData.heating.toFixed(2)} (${(heatingEfficiency * 100).toFixed(0)}% efficiency)`,
-          estimatedSavings,
-          duration: 2, // 2 hours of preheating
-          confidenceLevel: Math.min(heatingEfficiency + 0.2, 0.9)
-        };
-
-      } else if (currentPricePercentile >= (1.0 - this.preheatCheapPercentile * adaptiveThresholds.veryChepMultiplier) && currentTemp > targetTemp - 0.5) {
-        // Very expensive period (adaptive mirror of cheap threshold) + above target = COAST
-        const coastBand = this.getCurrentComfortBand();
-        const coastingTarget = Math.max(
-          targetTemp - adaptiveThresholds.coastingReduction,
-          coastBand.minTemp
-        );
-
-        // Calculate how long we can coast based on thermal mass
-        const coastingHours = Math.min(
-          (currentTemp - coastingTarget) / this.thermalMassModel.heatLossRate,
-          4 // Maximum 4 hours of coasting
-        );
-
-        const estimatedSavings = this.calculateCoastingSavings(
-          currentPrice,
-          coastingHours,
-          copData
-        );
-
-        return {
-          action: 'coast',
-          targetTemp: coastingTarget,
-          reasoning: `Expensive period (${(currentPricePercentile * 100).toFixed(0)}th percentile): using thermal mass, can coast for ${coastingHours.toFixed(1)} hours`,
-          estimatedSavings,
-          duration: coastingHours,
-          confidenceLevel: 0.8
-        };
-
-      } else if (currentPricePercentile <= this.preheatCheapPercentile && heatingEfficiency > adaptiveThresholds.excellentCOPThreshold && currentTemp < targetTemp - 1.0) {
-        // Cheap period (user's threshold) + excellent COP + below target = BOOST
-        const boostBand = this.getCurrentComfortBand();
-        const boostTarget = Math.min(targetTemp + adaptiveThresholds.boostIncrease, boostBand.maxTemp);
-
-        const estimatedSavings = this.calculateBoostValue(
-          boostTarget,
-          currentPrice,
-          copData
-        );
-
-        return {
-          action: 'boost',
-          targetTemp: boostTarget,
-          reasoning: `Excellent opportunity: cheap electricity (${(currentPricePercentile * 100).toFixed(0)}th percentile) + high COP (${copData.heating.toFixed(2)})`,
-          estimatedSavings,
-          duration: 1,
-          confidenceLevel: heatingEfficiency
-        };
-
-      } else {
-        // Normal operation
-        return {
-          action: 'maintain',
-          targetTemp: targetTemp,
-          reasoning: `Normal operation: price ${(currentPricePercentile * 100).toFixed(0)}th percentile, COP ${copData.heating.toFixed(2)}`,
-          estimatedSavings: 0,
-          confidenceLevel: 0.7
-        };
+    // Save to Homey settings if available
+    if (this.homey) {
+      try {
+        this.homey.settings.set('preheat_cheap_percentile', validated);
+      } catch (error) {
+        this.logger.error('Failed to save price threshold settings to Homey settings:', error);
       }
-
-    } catch (error: unknown) {
-      this.logger.error('Error calculating thermal mass strategy:', error);
-      return {
-        action: 'maintain',
-        targetTemp: targetTemp,
-        reasoning: 'Error in thermal calculation - using standard operation',
-        estimatedSavings: 0,
-        confidenceLevel: 0.3
-      };
     }
+
+    this.logger.log(`Price threshold settings updated - Cheap Percentile: ${validated} (${(validated * 100).toFixed(1)}th percentile)`);
   }
 
-  /**
-   * Calculate value of preheating strategy
-   */
-  private calculatePreheatingValue(
-    preheatingTarget: number,
-    cheapestHours: any[],
-    copData: { heating: number; hotWater: number; outdoor: number },
-    currentPrice: number
-  ): number {
-    try {
-      const avgCheapPrice = cheapestHours.reduce((sum, h) => sum + h.price, 0) / cheapestHours.length;
-      const priceDifference = currentPrice - avgCheapPrice;
 
-      // Energy for preheating
-      const extraEnergy = (preheatingTarget - 20) * this.thermalMassModel.thermalCapacity;
-      const energyWithCOP = extraEnergy / copData.heating;
-
-      // Savings from using cheaper electricity
-      const savingsFromCheaperElectricity = energyWithCOP * priceDifference;
-
-      // Efficiency bonus from good COP
-      const efficiencyBonus = extraEnergy * 0.1 * this.normalizeCOP(copData.heating);
-
-      return Math.max(savingsFromCheaperElectricity + efficiencyBonus, 0);
-    } catch (error) {
-      return 0;
-    }
-  }
-
-  /**
-   * Calculate value of coasting strategy
-   */
-  private calculateCoastingSavings(
-    currentPrice: number,
-    coastingHours: number,
-    copData: { heating: number; hotWater: number; outdoor: number }
-  ): number {
-    try {
-      // Estimate energy that would have been used for heating
-      const avgHeatingPower = 2.0; // kW average heating power
-      const energySaved = avgHeatingPower * coastingHours;
-
-      // Cost savings from not heating during expensive period
-      const costSavings = energySaved * currentPrice;
-
-      return costSavings;
-    } catch (error) {
-      return 0;
-    }
-  }
-
-  /**
-   * Calculate value of boost strategy
-   */
-  private calculateBoostValue(
-    boostTarget: number,
-    currentPrice: number,
-    copData: { heating: number; hotWater: number; outdoor: number }
-  ): number {
-    try {
-      // Extra energy for boost
-      const extraEnergy = (boostTarget - 20) * this.thermalMassModel.thermalCapacity;
-      const energyWithCOP = extraEnergy / copData.heating;
-
-      // Value from using high COP period
-      const copEfficiency = this.normalizeCOP(copData.heating);
-      const efficiencyValue = extraEnergy * 0.15 * copEfficiency;
-
-      return efficiencyValue;
-    } catch (error) {
-      return 0;
-    }
-  }
 
   /**
    * Learn hot water usage patterns from historical data
@@ -1219,7 +864,7 @@ export class Optimizer {
     const avgPrice = priceData.reduce((sum, p) => sum + p.price, 0) / priceData.length;
 
     // Convert user's cheap percentile to price ratio threshold (cheap percentile of 0.25 -> price ratio of ~0.75)
-    const priceRatioThreshold = 1.0 - (this.preheatCheapPercentile * 1.2); // Slightly more aggressive for hot water
+    const priceRatioThreshold = 1.0 - (this.priceAnalyzer.getCheapPercentile() * 1.2); // Slightly more aggressive for hot water
 
     if (currentPrice < avgPrice * priceRatioThreshold && hotWaterCOP > 2.5) {
       // Cheap electricity (based on user's threshold) + decent COP
@@ -1290,26 +935,7 @@ export class Optimizer {
     this.logger.log(`COP settings updated - Weight: ${this.copWeight}, Auto Seasonal: ${this.autoSeasonalMode}, Summer Mode: ${this.summerMode}`);
   }
 
-  /**
-   * Set price threshold settings
-   * @param preheatCheapPercentile Percentile threshold for considering prices "cheap" (0.05-0.5)
-   * @throws Error if validation fails
-   */
-  setPriceThresholds(preheatCheapPercentile: number): void {
-    // Validate input
-    this.preheatCheapPercentile = validateNumber(preheatCheapPercentile, 'preheatCheapPercentile', { min: 0.05, max: 0.5 });
 
-    // Save to Homey settings if available
-    if (this.homey) {
-      try {
-        this.homey.settings.set('preheat_cheap_percentile', this.preheatCheapPercentile);
-      } catch (error) {
-        this.logger.error('Failed to save price threshold settings to Homey settings:', error);
-      }
-    }
-
-    this.logger.log(`Price threshold settings updated - Cheap Percentile: ${this.preheatCheapPercentile} (${(this.preheatCheapPercentile * 100).toFixed(1)}th percentile)`);
-  }
 
   /**
    * Get real energy data from MELCloud API and calculate optimization metrics
@@ -1474,6 +1100,7 @@ export class Optimizer {
    * @param maxPrice Maximum electricity price
    * @param currentTemp Current room temperature
    * @param outdoorTemp Outdoor temperature
+   * @param precomputedMetrics Optional precomputed optimization metrics
    * @returns Optimal target temperature with reasoning
    */
   private async calculateOptimalTemperatureWithRealData(
@@ -1665,12 +1292,12 @@ export class Optimizer {
     // Improved COP-based hot water optimization
     if (hotWaterEfficiency > 0.8) {
       // Excellent hot water COP (>80th percentile): More flexible timing  
-      if (currentPercentile <= (this.preheatCheapPercentile * 1.6)) { // User's cheap threshold * 1.6 for hot water flexibility
+      if (currentPercentile <= (this.priceAnalyzer.getCheapPercentile() * 1.6)) { // User's cheap threshold * 1.6 for hot water flexibility
         return {
           action: 'heat_now',
           reason: `Excellent hot water COP (${hotWaterCOP.toFixed(2)}, ${(hotWaterEfficiency * 100).toFixed(0)}th percentile) + reasonable electricity price (${(currentPercentile * 100).toFixed(0)}th percentile)`
         };
-      } else if (currentPercentile >= (1.0 - this.preheatCheapPercentile * 0.8)) { // Mirror of cheap threshold
+      } else if (currentPercentile >= (1.0 - this.priceAnalyzer.getCheapPercentile() * 0.8)) { // Mirror of cheap threshold
         const nextCheapHour = cheapestHours[0];
         return {
           action: 'delay',
@@ -1763,10 +1390,11 @@ export class Optimizer {
       }
 
       // Get electricity prices
-      if (!this.priceProvider) {
+      // Get electricity prices
+      if (!this.priceAnalyzer.hasPriceProvider()) {
         throw new Error('Price provider not initialized');
       }
-      const priceData = await this.priceProvider.getPrices();
+      const priceData = await this.priceAnalyzer.getPriceData();
       const currentPrice = priceData.current.price;
 
       // Calculate price statistics
@@ -1969,7 +1597,7 @@ export class Optimizer {
         savings,
         comfort,
         timestamp: new Date().toISOString(),
-        kFactor: this.thermalModel.K,
+        kFactor: this.thermalController.getThermalModel().K,
         cop: copData,
         ...additionalInfo
       };
@@ -2011,12 +1639,12 @@ export class Optimizer {
       }
 
       // Get price data (ENTSO-E/Tibber)
-      if (!this.priceProvider) {
+      if (!this.priceAnalyzer.hasPriceProvider()) {
         throw new Error('Price provider not initialized');
       }
       let priceData;
       try {
-        priceData = await this.priceProvider.getPrices();
+        priceData = await this.priceAnalyzer.getPriceData();
       } catch (error) {
         logDecision('inputs.prices.error', {
           message: error instanceof Error ? error.message : String(error)
@@ -2058,10 +1686,7 @@ export class Optimizer {
       const percentileWindow = percentileWindowCandidates.length > 0 ? percentileWindowCandidates : priceData.prices;
       const percentileBase = percentileWindow.length > 0 ? percentileWindow : priceData.prices;
       const adaptiveThresholds = this.adaptiveParametersLearner?.getStrategyThresholds();
-      const priceClassification = classifyPriceUnified(percentileBase, currentPrice, {
-        cheapPercentile: this.preheatCheapPercentile,
-        veryCheapMultiplier: adaptiveThresholds?.veryChepMultiplier
-      });
+      const priceClassification = this.priceAnalyzer.analyzePrice(currentPrice, percentileBase);
       const pricePercentile = priceClassification.percentile;
       const priceLevel: string = priceClassification.label;
       let nextHourPrice: number | undefined;
@@ -2305,9 +1930,10 @@ export class Optimizer {
         optimizationResult.metrics?.optimizationFocus === 'both') {
 
         // Use thermal mass strategy if available
-        if (this.thermalMassModel && priceData.prices && priceData.prices.length >= 24) {
+        const thermalMassModel = this.thermalController.getThermalMassModel();
+        if (thermalMassModel && priceData.prices && priceData.prices.length >= 24) {
           const targetBeforeStrategy = targetTemp;
-          thermalStrategy = this.calculateThermalMassStrategy(
+          thermalStrategy = this.thermalController.calculateThermalMassStrategy(
             currentTemp || 20,
             targetTemp,
             currentPrice,
@@ -2317,6 +1943,8 @@ export class Optimizer {
               hotWater: optimizationResult.metrics.realHotWaterCOP,
               outdoor: outdoorTemp
             },
+            this.priceAnalyzer,
+            this.priceAnalyzer.getCheapPercentile(),
             planningReferenceTimeMs
           );
 
@@ -3116,6 +2744,7 @@ export class Optimizer {
     thermalCharacteristics?: any;
     method?: string;
     analysis?: string;
+    success?: boolean;
   }> {
     this.logger.log('Starting weekly calibration');
 
@@ -3123,9 +2752,22 @@ export class Optimizer {
     const clampS = (value: number): number => Math.min(1, Math.max(0.01, value));
     const DEFAULT_S = 0.7;
 
+    // Get current thermal model
+    const thermalModel = this.thermalController.getThermalModel();
+    if (!thermalModel) {
+      return {
+        oldK: 0,
+        newK: 0,
+        newS: 0,
+        timestamp: new Date().toISOString(),
+        success: false,
+        analysis: 'No thermal model available'
+      };
+    }
+
     try {
-      const previousK = this.thermalModel.K;
-      const previousS = this.thermalModel.S;
+      const oldK = thermalModel.K;
+      const oldS = thermalModel.S || 0;
 
       // If using thermal learning model, update it with collected data
       if (this.useThermalLearning && this.thermalModelService) {
@@ -3139,7 +2781,7 @@ export class Optimizer {
 
           // Update our simple K-factor based on the thermal model's characteristics
           // This maintains compatibility with the existing system
-          const baseK = previousK;
+          const baseK = oldK;
           const rawK = confidence > 0.3
             ? (characteristics.heatingRate / 0.5) * baseK
             : baseK;
@@ -3148,11 +2790,11 @@ export class Optimizer {
           const thermalMass = characteristics.thermalMass;
           const rawS = (typeof thermalMass === 'number' && Number.isFinite(thermalMass))
             ? thermalMass
-            : (typeof previousS === 'number' ? previousS : (typeof this.thermalModel.S === 'number' ? this.thermalModel.S : DEFAULT_S));
+            : (typeof oldS === 'number' ? oldS : (typeof thermalModel.S === 'number' ? thermalModel.S : DEFAULT_S));
           const newS = clampS(rawS);
 
           // Update thermal model
-          this.setThermalModel(newK, newS);
+          this.thermalController.setThermalModel(newK, newS);
 
           const heatingRate = typeof characteristics.heatingRate === 'number' && Number.isFinite(characteristics.heatingRate)
             ? characteristics.heatingRate
@@ -3180,13 +2822,14 @@ export class Optimizer {
 
           // Return result
           return {
-            oldK: previousK,
+            oldK: oldK,
             newK,
-            oldS: previousS,
+            oldS: oldS,
             newS,
             timestamp: new Date().toISOString(),
             thermalCharacteristics: characteristics,
-            analysis: `Learning-based calibration (confidence ${(confidence * 100).toFixed(0)}%)`
+            analysis: `Learning-based calibration (confidence ${(confidence * 100).toFixed(0)}%)`,
+            success: true
           };
         } catch (modelError) {
           this.logger.error('Error updating thermal model from learning data:', modelError);
@@ -3195,31 +2838,40 @@ export class Optimizer {
       }
 
       // Basic calibration (used as fallback or when thermal learning is disabled)
-      const baseK = previousK;
+      const baseK = oldK;
       const newK = clampK(baseK * (0.9 + Math.random() * 0.2));
-      const rawS = typeof previousS === 'number'
-        ? previousS
-        : (typeof this.thermalModel.S === 'number' ? this.thermalModel.S : DEFAULT_S);
+      const rawS = typeof oldS === 'number'
+        ? oldS
+        : (typeof thermalModel.S === 'number' ? thermalModel.S : DEFAULT_S);
       const newS = clampS(rawS);
 
       // Update thermal model
-      this.setThermalModel(newK, newS);
-
-      this.logger.log(`Calibrated thermal model using basic method: K=${newK.toFixed(2)}, S=${newS.toFixed(2)}`);
+      this.thermalController.setThermalModel(newK, newS);
+      this.logger.log(`Weekly calibration updated K-factor: ${oldK.toFixed(2)} -> ${newK.toFixed(2)}`);
 
       // Return result
       return {
-        oldK: previousK,
+        oldK: oldK,
         newK,
-        oldS: previousS,
+        oldS: oldS,
         newS,
         timestamp: new Date().toISOString(),
         method: 'basic',
-        analysis: 'Basic calibration applied (learning data unavailable)'
+        analysis: 'Basic calibration applied (learning data unavailable)',
+        success: true
       };
     } catch (error) {
       this.logger.error('Error in weekly calibration', error);
       this.handleApiError(error);
+      return {
+        oldK: thermalModel.K,
+        newK: thermalModel.K,
+        oldS: thermalModel.S || 0,
+        newS: thermalModel.S || 0,
+        timestamp: new Date().toISOString(),
+        success: false,
+        analysis: `Calibration failed: ${(error as Error).message}`
+      };
     }
   }
 
@@ -3390,6 +3042,7 @@ export class Optimizer {
    * Calculate enhanced daily savings using historical data and compounding effects
    * @param currentHourSavings Current hour's savings
    * @param historicalOptimizations Historical optimization data
+   * @param futurePriceFactors Optional array of future price factors relative to current price
    * @returns Enhanced savings calculation result
    */
   calculateEnhancedDailySavings(
@@ -3415,10 +3068,10 @@ export class Optimizer {
     try {
       const currentHour = this.timeZoneHelper.getLocalTime().hour;
       const gridFee: number = Number(this.homey?.settings.get('grid_fee_per_kwh')) || 0;
-      if (!this.priceProvider) {
+      if (!this.priceAnalyzer.hasPriceProvider()) {
         throw new Error('Price provider not initialized');
       }
-      const pd = await this.priceProvider.getPrices();
+      const pd = await this.priceAnalyzer.getPriceData();
       const now = new Date();
       const currentEffective = (Number(pd.current?.price) || 0) + (Number.isFinite(gridFee) ? gridFee : 0);
       let priceFactors: number[] | undefined = undefined;
@@ -3463,8 +3116,8 @@ export class Optimizer {
       let pricePerKWh = 1.0; // Default fallback
       let priceFactors: number[] | undefined = undefined;
 
-      if (this.priceProvider) {
-        const pd = await this.priceProvider.getPrices();
+      if (this.priceAnalyzer.hasPriceProvider()) {
+        const pd = await this.priceAnalyzer.getPriceData();
         const now = new Date();
         const currentEffective = (Number(pd.current?.price) || 0) + (Number.isFinite(gridFee) ? gridFee : 0);
         if (currentEffective > 0) {

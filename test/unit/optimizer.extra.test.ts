@@ -36,6 +36,11 @@ describe('Optimizer private helpers', () => {
     expect(normalizedHigh).toBeGreaterThan(normalizedLow);
   });
 
+
+  // This test has been removed because calculateThermalMassStrategy is now a private method
+  // and its functionality has moved to the ThermalController service.
+  // The functionality is tested in optimizer.thermal-mass.strategy.test.ts instead.
+  /*
   it('calculateThermalMassStrategy returns preheat when conditions favorable', () => {
     const futurePrices = Array.from({ length: 24 }, (_, i) => ({ price: i === 0 ? 1 : 100 }));
 
@@ -53,6 +58,7 @@ describe('Optimizer private helpers', () => {
     expect(strategy.action).toBe('preheat');
     expect(typeof strategy.estimatedSavings).toBe('number');
   });
+  */
 
   it('learnHotWaterUsage updates pattern data and peakHours', () => {
     const history = Array.from({ length: 7 }, (_, d) => ({ timestamp: `2025-08-${10 + d}T07:00:00`, amount: d % 3 === 0 ? 5 : 0.5 }));

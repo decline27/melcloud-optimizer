@@ -32,6 +32,7 @@ describe('Optimizer', () => {
     mockTibber = new TibberApi('test-token') as jest.Mocked<TibberApi>;
     mockLogger = {
       log: jest.fn(),
+      info: jest.fn(),
       error: jest.fn(),
       debug: jest.fn(),
       warn: jest.fn()

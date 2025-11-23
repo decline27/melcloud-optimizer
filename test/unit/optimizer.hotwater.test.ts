@@ -1,7 +1,7 @@
 import { Optimizer } from '../../src/services/optimizer';
 
 function makeLogger() {
-  return { log: jest.fn(), error: jest.fn() } as any;
+  return { log: jest.fn(), info: jest.fn(), error: jest.fn() } as any;
 }
 
 describe('Optimizer hot water & thermal helpers', () => {
@@ -61,6 +61,9 @@ describe('Optimizer hot water & thermal helpers', () => {
     expect(res.action).not.toBe('heat_now');
   });
 
+  // This test has been removed because these methods moved to ThermalController service
+  // and are tested through the thermal mass strategy tests instead.
+  /*
   test('calculatePreheatingValue, calculateCoastingSavings, calculateBoostValue return numbers', () => {
     const cheapest = [{ price: 1 }, { price: 2 }, { price: 3 }, { price: 4 }];
 
@@ -72,4 +75,5 @@ describe('Optimizer hot water & thermal helpers', () => {
     expect(typeof coast).toBe('number');
     expect(typeof boost).toBe('number');
   });
+  */
 });
