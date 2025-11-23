@@ -530,10 +530,10 @@ async function httpRequest(
         err?.message.includes('timeout') ||
         // Some HTTP errors are retryable (e.g., 500, 502, 503, 504)
         (err?.message.includes('HTTP error') &&
-         (err.message.includes('500') ||
-          err.message.includes('502') ||
-          err.message.includes('503') ||
-          err.message.includes('504')))
+          (err.message.includes('500') ||
+            err.message.includes('502') ||
+            err.message.includes('503') ||
+            err.message.includes('504')))
       );
 
       // If this error is not retryable, or we've used all our retries, throw the error
@@ -705,26 +705,26 @@ async function updateAllServiceTimezones(
   timeZoneName?: string | null
 ): Promise<void> {
   const state = getServiceState();
-  
+
   // Update MelCloud API service timezone
   if (state.melCloud && typeof state.melCloud.updateTimeZoneSettings === 'function') {
     state.melCloud.updateTimeZoneSettings(timeZoneOffset, useDST, timeZoneName ?? undefined);
     homey.app.log(`Updated MelCloud API timezone settings (${timeZoneName || `offset ${timeZoneOffset}`})`);
   }
-  
+
   // Update Tibber API service timezone
   if (state.tibber && typeof state.tibber.updateTimeZoneSettings === 'function') {
     state.tibber.updateTimeZoneSettings(timeZoneOffset, useDST, timeZoneName ?? undefined);
     homey.app.log(`Updated Tibber API timezone settings (${timeZoneName || `offset ${timeZoneOffset}`})`);
   }
-  
+
   // Update Hot Water Service timezone if available
   const hotWaterService = getHotWaterService(homey);
   if (hotWaterService && typeof (hotWaterService as any).updateTimeZoneSettings === 'function') {
     (hotWaterService as any).updateTimeZoneSettings(timeZoneOffset, useDST, timeZoneName ?? undefined);
     homey.app.log(`Updated Hot Water Service timezone settings (${timeZoneName || `offset ${timeZoneOffset}`})`);
   }
-  
+
   homey.app.log(`All services updated with timezone: offset=${timeZoneOffset}, DST=${useDST}, name=${timeZoneName || 'n/a'}`);
 }
 
@@ -792,11 +792,11 @@ const apiHandlers: ApiHandlers = {
 
   getHotWaterPatterns: async ({ homey }: ApiHandlerContext): Promise<HotWaterResponse> => {
     homey.app.log('API method getHotWaterPatterns called');
-    
+
     try {
       // Get patterns from Homey settings
       const patternsData = homey.settings.get('hot_water_usage_patterns');
-      
+
       if (!patternsData) {
         homey.app.log('===== HOT WATER USAGE PATTERNS =====');
         homey.app.log('No usage patterns found - using defaults');
@@ -808,13 +808,13 @@ const apiHandlers: ApiHandlers = {
       }
 
       const patterns = JSON.parse(patternsData);
-      
+
       // Pretty print to terminal
       homey.app.log('===== HOT WATER USAGE PATTERNS =====');
       homey.app.log(`Last Updated: ${patterns.lastUpdated || 'Unknown'}`);
       homey.app.log(`Confidence: ${patterns.confidence || 0}%`);
       homey.app.log('');
-      
+
       // Hourly patterns (0-23 hours)
       homey.app.log('📅 HOURLY USAGE PATTERN (24 hours):');
       if (patterns.hourlyUsagePattern && Array.isArray(patterns.hourlyUsagePattern)) {
@@ -826,7 +826,7 @@ const apiHandlers: ApiHandlers = {
         homey.app.log('  No hourly pattern data available');
       }
       homey.app.log('');
-      
+
       // Daily patterns (0-6 days, 0=Sunday)
       homey.app.log('📊 DAILY USAGE PATTERN (7 days):');
       if (patterns.dailyUsagePattern && Array.isArray(patterns.dailyUsagePattern)) {
@@ -839,7 +839,7 @@ const apiHandlers: ApiHandlers = {
         homey.app.log('  No daily pattern data available');
       }
       homey.app.log('');
-      
+
       // Get service stats if available
       const service = getHotWaterService(homey);
       if (service && typeof (service as any).getUsageStatistics === 'function') {
@@ -851,7 +851,7 @@ const apiHandlers: ApiHandlers = {
             homey.app.log(`  Avg Tank Temp: ${stats.statistics?.avgTankTemp?.toFixed(1) || 'Unknown'}°C`);
             homey.app.log(`  Avg Energy: ${stats.statistics?.avgEnergyProduced?.toFixed(2) || 'Unknown'} kWh`);
             homey.app.log('');
-            
+
             if (stats.predictions && Array.isArray(stats.predictions)) {
               homey.app.log('🔮 NEXT 24H PREDICTIONS:');
               const now = new Date();
@@ -866,14 +866,14 @@ const apiHandlers: ApiHandlers = {
           homey.app.log('📈 STATISTICS: Error retrieving stats');
         }
       }
-      
+
       homey.app.log('=====================================');
-      
+
       return {
         success: true,
         message: 'Hot water usage patterns dumped to terminal - check the logs!'
       };
-      
+
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       homey.app.error('Error getting hot water patterns:', error);
@@ -1030,15 +1030,26 @@ const apiHandlers: ApiHandlers = {
           if (baselineComparisonEnabled && enhancedCalculator?.hasBaselineCapability()) {
             // Use result.savings for early calculation
             const initialSavings = (typeof result.savings === 'number' && !Number.isNaN(result.savings)) ? result.savings : 0;
-            
+
             // Get actual consumption for baseline calculation
             const actualConsumptionKWh = result.energyMetrics?.dailyEnergyConsumption || 1.0;
-            const actualCost = Math.abs(initialSavings); // Use initial savings as proxy for actual cost
-            
+            const actualCost = (() => {
+              const priceAvg = result.priceData?.average;
+              const priceCur = result.priceData?.current;
+              const priceToUse = (typeof priceAvg === 'number' && Number.isFinite(priceAvg) && priceAvg > 0)
+                ? priceAvg
+                : (typeof priceCur === 'number' && Number.isFinite(priceCur) ? priceCur : undefined);
+
+              if (priceToUse !== undefined) {
+                return actualConsumptionKWh * priceToUse;
+              }
+              return Math.abs(initialSavings); // Fallback
+            })();
+
             // Get historical optimizations for enhanced calculation
             const today = new Date().toISOString().split('T')[0];
             const optimizationHistory = homey.settings.get('optimization_history') || [];
-            const todayOptimizations = optimizationHistory.filter((opt: any) => 
+            const todayOptimizations = optimizationHistory.filter((opt: any) =>
               opt.timestamp && opt.timestamp.startsWith(today)
             );
 
@@ -1215,12 +1226,12 @@ const apiHandlers: ApiHandlers = {
             const hourlySavings = Number(result.savings || 0);
             let projectedDailySavings = hourlySavings * 24;
             let savingsType = 'incremental';
-            
+
             if (typeof activeOptimizer.calculateDailySavings === 'function') {
               try {
                 const val = await activeOptimizer.calculateDailySavings(hourlySavings, historicalData?.optimizations || []);
                 if (Number.isFinite(val)) projectedDailySavings = val;
-              } catch (_: any) {}
+              } catch (_: any) { }
             }
 
             // Check if we have enhanced savings with baseline comparison and use the larger value
@@ -1229,17 +1240,17 @@ const apiHandlers: ApiHandlers = {
               if (Number.isFinite(baselineSavings) && baselineSavings > 1 && baselineSavings > projectedDailySavings) {
                 projectedDailySavings = baselineSavings;
                 savingsType = 'vs manual operation';
-                
+
                 // Add baseline data to additional data
                 additionalData.baselineSavings = baselineSavings;
                 additionalData.baselinePercentage = enhancedSavingsData.baselineComparison.baselinePercentage;
                 additionalData.enhancedSavings = enhancedSavingsData;
               }
             }
-            
+
             additionalData.dailySavings = projectedDailySavings;
             additionalData.savingsType = savingsType;
-            
+
             try {
               const currencyCode = homey.settings.get('currency') || homey.settings.get('currency_code') || 'NOK';
               homey.app.log(`Hourly optimization projected daily savings: ${projectedDailySavings.toFixed(2)} ${currencyCode}/day (${savingsType})`);
@@ -1267,16 +1278,20 @@ const apiHandlers: ApiHandlers = {
 
         homey.app.log('===== HOURLY OPTIMIZATION COMPLETED SUCCESSFULLY =====');
 
-        // Persist savings history for settings summary (mirror app.ts addSavings)
-        let computedSavings = (typeof result.savings === 'number' && !Number.isNaN(result.savings))
-          ? result.savings
-          : 0;
-
+        // Persist savings history using new DailySavingsRecord format
+        let computedSavings = (typeof result.savings === 'number' && !Number.isNaN(result.savings)) ? result.savings : 0;
         try {
+          const p = result.priceData?.current || 0;
+          const metrics = result.energyMetrics;
+
+          // Calculate actual consumption and cost for this hour
+          // Note: This is a simplification. Ideally we'd get this from the device or energy metrics directly for the specific hour.
+          // But since we are running hourly, we can approximate using the daily consumption / 24 or similar if we don't have hourly granularity.
+          // However, result.energyMetrics usually contains daily totals. 
+          // For the purpose of this record, we want the *incremental* impact of this optimization action.
+
           if (!(typeof result.savings === 'number' && !Number.isNaN(result.savings))) {
             try {
-              const p = result.priceData?.current || 0;
-              const metrics = result.energyMetrics;
               if (result.fromTemp !== undefined && result.toTemp !== undefined) {
                 if (typeof activeOptimizer.calculateRealHourlySavings === 'function') {
                   computedSavings += await activeOptimizer.calculateRealHourlySavings(result.fromTemp, result.toTemp, p, metrics, 'zone1');
@@ -1298,208 +1313,271 @@ const apiHandlers: ApiHandlers = {
                   computedSavings += activeOptimizer.calculateSavings(result.tankData.fromTemp, result.tankData.toTemp, p, 'tank');
                 }
               }
-            } catch (_: any) {}
+            } catch (_: any) { }
           }
+
           if (typeof computedSavings === 'number' && !Number.isNaN(computedSavings)) {
-            // Keep both positive and negative savings for proper net accumulation
-            // This fixes the issue where only positive individual savings were being added to daily totals
             computedSavings = Number((computedSavings || 0).toFixed(4));
-            const toPersist = computedSavings; // Allow negative savings to be accumulated
-            
-            // Log for debugging savings accumulation
+
+            // Log for debugging
             if (computedSavings !== 0) {
-              homey.app.log(`Savings accumulation: ${computedSavings > 0 ? '+' : ''}${computedSavings.toFixed(4)} SEK (individual optimization)`);
-            }
-            const tzOffset = parseInt(homey.settings.get('time_zone_offset'));
-            const useDST = !!homey.settings.get('use_dst');
-            const now = new Date();
-            const local = new Date(now.getTime());
-            if (!Number.isNaN(tzOffset)) local.setUTCHours(now.getUTCHours() + tzOffset);
-            if (useDST) {
-              const m = now.getUTCMonth();
-              if (m > 2 && m < 10) local.setUTCHours(local.getUTCHours() + 1);
-            }
-            const y = local.getFullYear();
-            const mo = String(local.getMonth() + 1).padStart(2, '0');
-            const d = String(local.getDate()).padStart(2, '0');
-            const todayStr = `${y}-${mo}-${d}`;
-
-            const hist = homey.settings.get('savings_history') || [];
-            const arr = Array.isArray(hist) ? hist.slice() : [];
-            let todayEntry = arr.find(h => h && h.date === todayStr);
-
-            // Determine currency/decimals for minor units
-            const currencyCode = homey.settings.get('currency_code') || homey.settings.get('currency') || '';
-            const decimalsMap: Record<string, number> = { JPY: 0, KWD: 3 };
-            const decimals = decimalsMap[String(currencyCode).toUpperCase()] ?? 2;
-            const toMinor = (amt: number): number => Math.round((Number(amt) || 0) * Math.pow(10, decimals));
-
-            if (!todayEntry) {
-              // Create entry in minor-units format
-              todayEntry = { date: todayStr, totalMinor: 0, currency: currencyCode, decimals };
-              arr.push(todayEntry);
+              homey.app.log(`Savings accumulation: ${computedSavings > 0 ? '+' : ''}${computedSavings.toFixed(4)} (individual optimization)`);
             }
 
-            // If entry already using minor units, keep using that; otherwise fall back to legacy 'total'
-            if (todayEntry.totalMinor !== undefined) {
-              todayEntry.currency = todayEntry.currency || currencyCode;
-              if (todayEntry.decimals === undefined) todayEntry.decimals = decimals;
-              const nextMinor = Number(todayEntry.totalMinor || 0) + toMinor(toPersist);
-              // Store the actual net total (can be negative), but ensure display never shows negative
-              todayEntry.totalMinor = nextMinor;
+            // Construct partial DailySavingsRecord
+            // We need to estimate consumption and cost impact.
+            // Since we don't have granular hourly consumption here easily, we will focus on the financial impact.
+            // We can try to infer consumption from the savings calculation if possible, but for now we'll trust the savings amount.
+            // We will set baselineCost = actualCost + savings.
+            // We need actualCost for this hour.
+
+            // Try to get actual consumption for this hour (very rough estimate if not available)
+            const dailyConsumption = result.energyMetrics?.dailyEnergyConsumption || 0;
+            const hourlyConsumptionEst = dailyConsumption / 24; // Very rough!
+
+            const actualCostEst = hourlyConsumptionEst * p;
+            const baselineCostEst = actualCostEst + computedSavings;
+
+            const recordUpdate = {
+              consumptionKWh: hourlyConsumptionEst,
+              baselineConsumptionKWh: hourlyConsumptionEst, // Assuming consumption doesn't change much, only price/efficiency? Or should we adjust?
+              // Actually, optimization often changes consumption (e.g. shifting).
+              // For now, let's just track the financial savings which is the core metric.
+              actualCost: actualCostEst,
+              baselineCost: baselineCostEst,
+              netSavings: computedSavings,
+              isProjected: true
+            };
+
+            // Use the app's addSavings method which handles the DailySavingsRecord logic
+            if (typeof (homey.app as any).addSavings === 'function') {
+              (homey.app as any).addSavings(recordUpdate);
             } else {
-              const nextTotal = Number(((Number(todayEntry.total || 0)) + toPersist).toFixed(4));
-              // Store the actual net total (can be negative), but ensure display never shows negative
-              todayEntry.total = nextTotal;
-            }
-            // Keep last 30 days only
-            arr.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-            const trimmed = arr.slice(Math.max(0, arr.length - 30));
-            homey.settings.set('savings_history', trimmed);
-            try {
-              const todayMajor = todayEntry.totalMinor !== undefined
-                ? (todayEntry.totalMinor / Math.pow(10, todayEntry.decimals ?? decimals)).toFixed(4)
-                : Number(todayEntry.total || 0).toFixed(4);
-              homey.app.log(`Updated savings_history: +${toPersist.toFixed(4)} -> today ${todayMajor} (${todayStr}), size=${trimmed.length}`);
-            } catch (_: any) {}
+              // Fallback if method not exposed (it should be private but we might need to make it public or access via any)
+              // Since we are in api.ts and app.ts is the main app file, we might not have direct access to private methods.
+              // We should probably expose a public method on the App class or move the logic here.
+              // Given the constraints, let's assume we can access it or duplicate the logic if needed.
+              // But wait, addSavings is private in App.ts. We should make it public or use a service.
+              // For this refactor, I will assume I can change addSavings to public in app.ts or I will implement the update logic here directly using settings.
 
-            // Update display_savings_history (read-only estimates for UI)
-            try {
-              const calculatorHasBaseline = enhancedCalculator && typeof enhancedCalculator.calculateEnhancedDailySavingsWithBaseline === 'function';
-              if (optimizerCostSnapshot || calculatorHasBaseline) {
-                const displayHistoryRaw = homey.settings.get('display_savings_history') || [];
-                const displayHistory = Array.isArray(displayHistoryRaw) ? displayHistoryRaw.slice() : [];
-                const entryIndex = displayHistory.findIndex((item: any) => item && item.date === todayStr);
-                const entry = entryIndex >= 0 ? { ...displayHistory[entryIndex] } : { date: todayStr };
-                const hasStoredBaseline = Number.isFinite(entry?.baselineMinor) && Number.isFinite(entry?.optimizedMinor);
+              // Direct settings update (mirroring app.ts logic for safety)
+              const today = new Date().toISOString().split('T')[0]; // Simple ISO date
+              const currency = homey.settings.get('currency_code') || homey.settings.get('currency') || 'SEK';
+              const rawHistory = homey.settings.get('savings_history') || [];
+              let history = [];
+              if (Array.isArray(rawHistory) && rawHistory.length > 0 && rawHistory[0].netSavings === undefined) {
+                // Migration needed - but we can't easily call the app's migrate method.
+                // We'll just append a new record and let the app handle migration next time it loads/saves.
+                history = rawHistory;
+              } else {
+                history = rawHistory;
+              }
 
-                let baselineCostMajor: number | null = null;
-                let optimizedCostMajor: number | null = null;
-                let baselineSource: 'optimizer' | 'stored' | 'fallback' | null = null;
-
-                if (optimizerCostSnapshot) {
-                  baselineCostMajor = optimizerCostSnapshot.baselineCostMajor;
-                  optimizedCostMajor = optimizerCostSnapshot.optimizedCostMajor;
-                  baselineSource = 'optimizer';
-                } else if (hasStoredBaseline) {
-                  baselineSource = 'stored';
-                } else if (calculatorHasBaseline) {
-                  // Gather historical optimizations (today only preferred)
-                  const historicalOptimizations = Array.isArray(historicalData?.optimizations)
-                    ? historicalData.optimizations.filter(opt => {
-                        if (!opt || !opt.timestamp) return false;
-                        return opt.timestamp.startsWith(todayStr);
-                      })
-                    : [];
-
-                  // Estimate actual consumption and cost from metrics
-                  const dailyConsumption = Number(result.energyMetrics?.dailyEnergyConsumption);
-                  const gridFee = Number(homey.settings.get('grid_fee_per_kwh')) || 0;
-                  const priceAverage = Number(result.priceData?.average);
-                  const priceCurrent = Number(result.priceData?.current);
-                  let pricePerKWh = Number.isFinite(priceAverage) && priceAverage > 0 ? priceAverage : undefined;
-                  if (pricePerKWh === undefined && Number.isFinite(priceCurrent) && priceCurrent > 0) {
-                    pricePerKWh = priceCurrent;
+              let todayEntry = history.find((h: any) => h.date === today);
+              if (!todayEntry) {
+                todayEntry = {
+                  date: today,
+                  currency,
+                  consumptionKWh: 0,
+                  baselineConsumptionKWh: 0,
+                  actualCost: 0,
+                  baselineCost: 0,
+                  netSavings: 0,
+                  isProjected: true,
+                  lastUpdated: new Date().toISOString()
+                };
+                history.push(todayEntry);
+              } else {
+                // Ensure fields exist for legacy entries to avoid NaN
+                if (todayEntry.consumptionKWh === undefined) todayEntry.consumptionKWh = 0;
+                if (todayEntry.baselineConsumptionKWh === undefined) todayEntry.baselineConsumptionKWh = 0;
+                if (todayEntry.actualCost === undefined) todayEntry.actualCost = 0;
+                if (todayEntry.baselineCost === undefined) todayEntry.baselineCost = 0;
+                if (todayEntry.netSavings === undefined) {
+                  // Try to migrate from legacy total
+                  if (todayEntry.totalMinor !== undefined) {
+                    const decimalsMap: Record<string, number> = { JPY: 0, KWD: 3 };
+                    const d = decimalsMap[String(currency).toUpperCase()] ?? 2;
+                    todayEntry.netSavings = todayEntry.totalMinor / Math.pow(10, d);
+                  } else if (todayEntry.total !== undefined) {
+                    todayEntry.netSavings = Number(todayEntry.total);
+                  } else {
+                    todayEntry.netSavings = 0;
                   }
-                  if (pricePerKWh !== undefined && Number.isFinite(gridFee) && gridFee > 0) {
-                    pricePerKWh += gridFee;
-                  } else if (pricePerKWh === undefined && Number.isFinite(gridFee) && gridFee > 0) {
-                    pricePerKWh = gridFee;
-                  }
-
-                  const actualConsumptionKWh = Number.isFinite(dailyConsumption) && dailyConsumption > 0 ? dailyConsumption : undefined;
-                  let actualCost = actualConsumptionKWh !== undefined && pricePerKWh !== undefined
-                    ? actualConsumptionKWh * pricePerKWh
-                    : undefined;
-
-                  if ((actualCost === undefined || Number.isNaN(actualCost)) && enhancedSavingsData?.baselineComparison?.breakdown?.actualCost !== undefined) {
-                    const fallbackCost = Number(enhancedSavingsData.baselineComparison.breakdown.actualCost);
-                    if (Number.isFinite(fallbackCost) && fallbackCost >= 0) {
-                      actualCost = fallbackCost;
-                    }
-                  }
-
-                  const baselineOptions: any = {
-                    enableBaseline: true,
-                    baselineConfig: {
-                      heatingSetpoint: 21,
-                      hotWaterSetpoint: 60,
-                      operatingProfile: 'always_on'
-                    }
-                  };
-
-                  if (actualConsumptionKWh !== undefined) baselineOptions.actualConsumptionKWh = actualConsumptionKWh;
-                  if (actualCost !== undefined) baselineOptions.actualCost = actualCost;
-                  if (pricePerKWh !== undefined) baselineOptions.pricePerKWh = pricePerKWh;
-
-                  const currentHourLocal = local.getHours();
-                  const baselineResult = enhancedCalculator!.calculateEnhancedDailySavingsWithBaseline(
-                    Number.isFinite(computedSavings) ? Number(computedSavings) : 0,
-                    historicalOptimizations,
-                    currentHourLocal,
-                    undefined,
-                    baselineOptions
-                  );
-
-                  const comparison = baselineResult?.baselineComparison;
-                  baselineCostMajor = comparison?.breakdown && Number.isFinite(comparison.breakdown.baselineCost)
-                    ? Number(comparison.breakdown.baselineCost)
-                    : null;
-                  optimizedCostMajor = comparison?.breakdown && Number.isFinite(comparison.breakdown.actualCost)
-                    ? Number(comparison.breakdown.actualCost)
-                    : null;
-                  if (baselineCostMajor !== null && optimizedCostMajor !== null) {
-                    baselineSource = 'fallback';
-                  }
-                }
-
-                const seasonModeValue = result.energyMetrics?.seasonalMode;
-                let entryUpdated = false;
-
-                if ((baselineSource === 'optimizer' || baselineSource === 'fallback') &&
-                    baselineCostMajor !== null && optimizedCostMajor !== null) {
-                  entry.currency = currencyCode;
-                  entry.decimals = decimals;
-                  entry.baselineMinor = toMinor(Math.max(0, baselineCostMajor));
-                  entry.optimizedMinor = toMinor(Math.max(0, optimizedCostMajor));
-                  entryUpdated = true;
-                } else if (!hasStoredBaseline && baselineSource !== 'stored') {
-                  homey.app.log('Skipping display_savings_history update: no baseline data available for today');
-                }
-
-                if (seasonModeValue && entry.seasonMode !== seasonModeValue) {
-                  entry.seasonMode = seasonModeValue;
-                  entryUpdated = true;
-                }
-
-                if (entryIndex >= 0) {
-                  displayHistory[entryIndex] = entry;
-                } else if (entryUpdated) {
-                  displayHistory.push(entry);
-                }
-
-                if (entryUpdated) {
-                  entry.updatedAt = new Date().toISOString();
-                  displayHistory.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-                  const trimmedDisplay = displayHistory.slice(Math.max(0, displayHistory.length - 30));
-                  homey.settings.set('display_savings_history', trimmedDisplay);
-
-                  try {
-                    const baselineLog = baselineCostMajor !== null ? baselineCostMajor.toFixed(2) : 'n/a';
-                    const optimizedLog = optimizedCostMajor !== null ? optimizedCostMajor.toFixed(2) : 'n/a';
-                    homey.app.log(`Updated display_savings_history (${baselineSource || 'stored'}): baseline=${baselineLog}, optimized=${optimizedLog} (${todayStr})`);
-                  } catch (_: any) {}
                 }
               }
-            } catch (displayErr: any) {
-              homey.app.error('Failed to update display_savings_history:', displayErr && displayErr.message ? displayErr.message : String(displayErr));
+
+              // Update
+              todayEntry.consumptionKWh = Number((todayEntry.consumptionKWh + recordUpdate.consumptionKWh).toFixed(4));
+              todayEntry.baselineConsumptionKWh = Number((todayEntry.baselineConsumptionKWh + recordUpdate.baselineConsumptionKWh).toFixed(4));
+              todayEntry.actualCost = Number((todayEntry.actualCost + recordUpdate.actualCost).toFixed(4));
+              todayEntry.baselineCost = Number((todayEntry.baselineCost + recordUpdate.baselineCost).toFixed(4));
+              todayEntry.netSavings = Number((todayEntry.netSavings + recordUpdate.netSavings).toFixed(4));
+              todayEntry.lastUpdated = new Date().toISOString();
+
+              history.sort((a: any, b: any) => a.date.localeCompare(b.date));
+              const trimmed = history.slice(Math.max(0, history.length - 30));
+              homey.settings.set('savings_history', trimmed);
+
+              homey.app.log(`Updated savings_history (API): +${computedSavings.toFixed(4)} -> today ${todayEntry.netSavings.toFixed(4)}`);
             }
-          } else {
-            homey.app.log('No numeric savings value to persist for this optimization run.');
           }
-        } catch (persistErr: any) {
-          homey.app.error('Failed to persist savings_history:', persistErr && persistErr.message ? persistErr.message : String(persistErr));
+        } catch (saveErr: any) {
+          homey.app.error('Error persisting savings history:', saveErr);
         }
+
+        // Define todayStr for display_savings_history logic
+        const now = new Date();
+        const tzOffset = parseInt(homey.settings.get('time_zone_offset'));
+        const useDST = !!homey.settings.get('use_dst');
+        const local = new Date(now.getTime());
+        if (!Number.isNaN(tzOffset)) local.setUTCHours(now.getUTCHours() + tzOffset);
+        if (useDST) {
+          const m = now.getUTCMonth();
+          if (m > 2 && m < 10) local.setUTCHours(local.getUTCHours() + 1);
+        }
+        const y = local.getFullYear();
+        const mo = String(local.getMonth() + 1).padStart(2, '0');
+        const d = String(local.getDate()).padStart(2, '0');
+        const todayStr = `${y}-${mo}-${d}`;
+
+        const currencyCode = homey.settings.get('currency_code') || homey.settings.get('currency') || 'SEK';
+        const decimalsMap: Record<string, number> = { JPY: 0, KWD: 3 };
+        const decimals = decimalsMap[String(currencyCode).toUpperCase()] ?? 2;
+        const toMinor = (amt: number): number => Math.round((Number(amt) || 0) * Math.pow(10, decimals));
+
+        // Update display_savings_history (read-only estimates for UI)
+        try {
+          const calculatorHasBaseline = enhancedCalculator && typeof enhancedCalculator.calculateEnhancedDailySavingsWithBaseline === 'function';
+          if (optimizerCostSnapshot || calculatorHasBaseline) {
+            const displayHistoryRaw = homey.settings.get('display_savings_history') || [];
+            const displayHistory = Array.isArray(displayHistoryRaw) ? displayHistoryRaw.slice() : [];
+            const entryIndex = displayHistory.findIndex((item: any) => item && item.date === todayStr);
+            const entry = entryIndex >= 0 ? { ...displayHistory[entryIndex] } : { date: todayStr };
+            const hasStoredBaseline = Number.isFinite(entry?.baselineMinor) && Number.isFinite(entry?.optimizedMinor);
+
+            let baselineCostMajor: number | null = null;
+            let optimizedCostMajor: number | null = null;
+            let baselineSource: 'optimizer' | 'stored' | 'fallback' | null = null;
+
+            if (optimizerCostSnapshot) {
+              baselineCostMajor = optimizerCostSnapshot.baselineCostMajor;
+              optimizedCostMajor = optimizerCostSnapshot.optimizedCostMajor;
+              baselineSource = 'optimizer';
+            } else if (hasStoredBaseline) {
+              baselineSource = 'stored';
+            } else if (calculatorHasBaseline) {
+              // Gather historical optimizations (today only preferred)
+              const historicalOptimizations = Array.isArray(historicalData?.optimizations)
+                ? historicalData.optimizations.filter(opt => {
+                  if (!opt || !opt.timestamp) return false;
+                  return opt.timestamp.startsWith(todayStr);
+                })
+                : [];
+
+              // Estimate actual consumption and cost from metrics
+              const dailyConsumption = Number(result.energyMetrics?.dailyEnergyConsumption);
+              const gridFee = Number(homey.settings.get('grid_fee_per_kwh')) || 0;
+              const priceAverage = Number(result.priceData?.average);
+              const priceCurrent = Number(result.priceData?.current);
+              let pricePerKWh = Number.isFinite(priceAverage) && priceAverage > 0 ? priceAverage : undefined;
+              if (pricePerKWh === undefined && Number.isFinite(priceCurrent) && priceCurrent > 0) {
+                pricePerKWh = priceCurrent;
+              }
+              if (pricePerKWh !== undefined && Number.isFinite(gridFee) && gridFee > 0) {
+                pricePerKWh += gridFee;
+              } else if (pricePerKWh === undefined && Number.isFinite(gridFee) && gridFee > 0) {
+                pricePerKWh = gridFee;
+              }
+
+              const actualConsumptionKWh = Number.isFinite(dailyConsumption) && dailyConsumption > 0 ? dailyConsumption : undefined;
+              let actualCost = actualConsumptionKWh !== undefined && pricePerKWh !== undefined
+                ? actualConsumptionKWh * pricePerKWh
+                : undefined;
+
+              if ((actualCost === undefined || Number.isNaN(actualCost)) && enhancedSavingsData?.baselineComparison?.breakdown?.actualCost !== undefined) {
+                const fallbackCost = Number(enhancedSavingsData.baselineComparison.breakdown.actualCost);
+                if (Number.isFinite(fallbackCost) && fallbackCost >= 0) {
+                  actualCost = fallbackCost;
+                }
+              }
+
+              const baselineOptions: any = {
+                enableBaseline: true,
+                baselineConfig: {
+                  heatingSetpoint: 21,
+                  hotWaterSetpoint: 60,
+                  operatingProfile: 'always_on'
+                }
+              };
+
+              if (actualConsumptionKWh !== undefined) baselineOptions.actualConsumptionKWh = actualConsumptionKWh;
+              if (actualCost !== undefined) baselineOptions.actualCost = actualCost;
+              if (pricePerKWh !== undefined) baselineOptions.pricePerKWh = pricePerKWh;
+
+              const currentHourLocal = local.getHours();
+              const baselineResult = enhancedCalculator!.calculateEnhancedDailySavingsWithBaseline(
+                Number.isFinite(computedSavings) ? Number(computedSavings) : 0,
+                historicalOptimizations,
+                currentHourLocal,
+                undefined,
+                baselineOptions
+              );
+
+              const comparison = baselineResult?.baselineComparison;
+              baselineCostMajor = comparison?.breakdown && Number.isFinite(comparison.breakdown.baselineCost)
+                ? Number(comparison.breakdown.baselineCost)
+                : null;
+              optimizedCostMajor = comparison?.breakdown && Number.isFinite(comparison.breakdown.actualCost)
+                ? Number(comparison.breakdown.actualCost)
+                : null;
+              if (baselineCostMajor !== null && optimizedCostMajor !== null) {
+                baselineSource = 'fallback';
+              }
+            }
+
+            const seasonModeValue = result.energyMetrics?.seasonalMode;
+            let entryUpdated = false;
+
+            if ((baselineSource === 'optimizer' || baselineSource === 'fallback') &&
+              baselineCostMajor !== null && optimizedCostMajor !== null) {
+              entry.currency = currencyCode;
+              entry.decimals = decimals;
+              entry.baselineMinor = toMinor(Math.max(0, baselineCostMajor));
+              entry.optimizedMinor = toMinor(Math.max(0, optimizedCostMajor));
+              entryUpdated = true;
+            } else if (!hasStoredBaseline && baselineSource !== 'stored') {
+              homey.app.log('Skipping display_savings_history update: no baseline data available for today');
+            }
+
+            if (seasonModeValue && entry.seasonMode !== seasonModeValue) {
+              entry.seasonMode = seasonModeValue;
+              entryUpdated = true;
+            }
+
+            if (entryIndex >= 0) {
+              displayHistory[entryIndex] = entry;
+            } else if (entryUpdated) {
+              displayHistory.push(entry);
+            }
+
+            if (entryUpdated) {
+              entry.updatedAt = new Date().toISOString();
+              displayHistory.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+              const trimmedDisplay = displayHistory.slice(Math.max(0, displayHistory.length - 30));
+              homey.settings.set('display_savings_history', trimmedDisplay);
+
+              try {
+                const baselineLog = baselineCostMajor !== null ? baselineCostMajor.toFixed(2) : 'n/a';
+                const optimizedLog = optimizedCostMajor !== null ? optimizedCostMajor.toFixed(2) : 'n/a';
+                homey.app.log(`Updated display_savings_history (${baselineSource || 'stored'}): baseline=${baselineLog}, optimized=${optimizedLog} (${todayStr})`);
+              } catch (_: any) { }
+            }
+          }
+        } catch (displayErr: any) {
+          homey.app.error('Failed to update display_savings_history:', displayErr && displayErr.message ? displayErr.message : String(displayErr));
+        }
+
 
         // Prepare additional helper fields for the app layer (priceNow, savings, hourly baseline)
         let hourlyBaselineKWh: number | null = null;
@@ -2605,28 +2683,28 @@ const apiHandlers: ApiHandlers = {
         const tibberToken = homey.settings.get('tibber_token');
         const deviceId = homey.settings.get('device_id');
         const priceDataSource = homey.settings.get('price_data_source') || 'entsoe';
-        
+
         // Check for missing required settings
         const missingSettings = [];
         if (!melcloudUser) missingSettings.push('MELCloud email');
         if (!melcloudPass) missingSettings.push('MELCloud password');
-        
+
         // Only require Tibber token if Tibber is selected as price source
         if (priceDataSource === 'tibber' && !tibberToken) {
           missingSettings.push('Tibber API token');
         }
-        
+
         if (!deviceId) missingSettings.push('Device ID');
-        
+
         const isValid = missingSettings.length === 0;
-        
+
         if (isValid) {
           // Try to get the driver instances and restart cron jobs
           try {
             const driverManager = (homey.drivers && typeof homey.drivers.getDriver === 'function')
               ? homey.drivers.getDriver('boiler')
               : null;
-              
+
             if (driverManager && typeof driverManager.restartCronJobs === 'function') {
               await driverManager.restartCronJobs();
               homey.app.log('✅ Settings valid, cron jobs restarted');
@@ -2636,7 +2714,7 @@ const apiHandlers: ApiHandlers = {
           } catch (driverError: any) {
             homey.app.log('Settings valid, but could not restart cron jobs:', driverError.message);
           }
-          
+
           return {
             success: true,
             cronRunning: true,
@@ -2681,10 +2759,10 @@ const apiHandlers: ApiHandlers = {
 
       if (thermalCharacteristicsRaw) {
         try {
-          const parsed = typeof thermalCharacteristicsRaw === 'string' 
-            ? JSON.parse(thermalCharacteristicsRaw) 
+          const parsed = typeof thermalCharacteristicsRaw === 'string'
+            ? JSON.parse(thermalCharacteristicsRaw)
             : thermalCharacteristicsRaw;
-          
+
           thermalModel = {
             confidence: parsed.modelConfidence ?? null,
             heatingRate: parsed.heatingRate ?? null,
@@ -2711,7 +2789,7 @@ const apiHandlers: ApiHandlers = {
           const parsed = typeof adaptiveParametersRaw === 'string'
             ? JSON.parse(adaptiveParametersRaw)
             : adaptiveParametersRaw;
-          
+
           adaptiveParameters = {
             learningCycles: parsed.learningCycles ?? null,
             confidence: parsed.confidence ?? null,
@@ -2727,7 +2805,7 @@ const apiHandlers: ApiHandlers = {
       const thermalAggKey = 'thermal_model_aggregated_data';
       const thermalDataRaw = homey.settings.get(thermalDataKey);
       const thermalAggRaw = homey.settings.get(thermalAggKey);
-      
+
       let dataRetention = {
         thermalRawPoints: 0,
         thermalAggPoints: 0,
@@ -2771,7 +2849,7 @@ const apiHandlers: ApiHandlers = {
           const parsed = typeof hotWaterPatternsRaw === 'string'
             ? JSON.parse(hotWaterPatternsRaw)
             : hotWaterPatternsRaw;
-          
+
           hotWaterPatterns = {
             confidence: parsed.confidence ?? null,
             hourlyUsagePattern: parsed.hourlyUsagePattern ?? null,
@@ -2789,7 +2867,7 @@ const apiHandlers: ApiHandlers = {
       const displaySavingsHistoryRaw = homey.settings.get('display_savings_history');
       const currency = homey.settings.get('currency_code') || homey.settings.get('currency') || 'SEK';
       const currencySymbol = homey.settings.get('currency_symbol') || currency;
-      
+
       let savingsMetrics = {
         totalSavings: null as number | null,
         averageDailySavings: null as number | null,
@@ -2797,7 +2875,7 @@ const apiHandlers: ApiHandlers = {
         last7DaysSavings: null as number | null,
         projectedDailySavings: null as number | null
       };
-      
+
       // Get currency decimals helper
       const getCurrencyDecimals = (curr: string): number => {
         const code = (curr || 'SEK').toUpperCase();
@@ -2805,12 +2883,12 @@ const apiHandlers: ApiHandlers = {
         if (['BHD', 'KWD', 'OMR'].includes(code)) return 3;
         return 2;
       };
-      
+
       const minorToMajor = (minor: number, decimals: number): number => {
         const divisor = Math.pow(10, decimals);
         return minor / divisor;
       };
-      
+
       const decimals = getCurrencyDecimals(currency);
 
       // Process orchestrator metrics
@@ -2819,11 +2897,11 @@ const apiHandlers: ApiHandlers = {
           const parsed = typeof metricsRaw === 'string'
             ? JSON.parse(metricsRaw)
             : metricsRaw;
-          
+
           if (parsed.totalSavings !== undefined) {
             savingsMetrics.totalSavings = parsed.totalSavings;
           }
-          
+
           // Check for projected daily savings
           if (parsed.projectedDailySavings !== undefined) {
             savingsMetrics.projectedDailySavings = parsed.projectedDailySavings;
@@ -2832,7 +2910,7 @@ const apiHandlers: ApiHandlers = {
           homey.app.error('Failed to parse savings metrics:', parseErr);
         }
       }
-      
+
       // Process savings history for today and last 7 days
       if (savingsHistoryRaw && Array.isArray(savingsHistoryRaw)) {
         try {
@@ -2840,56 +2918,53 @@ const apiHandlers: ApiHandlers = {
           const todayDate = new Date(`${today}T00:00:00`);
           const last7Cutoff = new Date(todayDate);
           last7Cutoff.setDate(todayDate.getDate() - 6); // 7-day window including today
-          
+
           // Calculate today's savings
           const todayEntry = savingsHistoryRaw.find((h: any) => h.date === today);
           if (todayEntry) {
-            if (todayEntry.totalMinor !== undefined) {
+            if (todayEntry.netSavings !== undefined) {
+              savingsMetrics.todaySavings = Number(todayEntry.netSavings);
+            } else if (todayEntry.totalMinor !== undefined) {
               const entryDecimals = todayEntry.decimals ?? decimals;
               savingsMetrics.todaySavings = minorToMajor(todayEntry.totalMinor, entryDecimals);
             } else if (todayEntry.total !== undefined) {
               savingsMetrics.todaySavings = Number(todayEntry.total);
             }
           }
-          
+
           // Calculate last 7 days total
-          let last7TotalMinor = 0;
+          let last7Total = 0;
+          let daysWithData = 0;
           for (const entry of savingsHistoryRaw) {
             if (entry && entry.date) {
               const entryDate = new Date(`${entry.date}T00:00:00`);
               if (entryDate >= last7Cutoff && entryDate <= todayDate) {
-                if (entry.totalMinor !== undefined) {
-                  last7TotalMinor += entry.totalMinor;
+                let val = 0;
+                if (entry.netSavings !== undefined) {
+                  val = Number(entry.netSavings);
+                } else if (entry.totalMinor !== undefined) {
+                  val = minorToMajor(entry.totalMinor, entry.decimals ?? decimals);
                 } else if (entry.total !== undefined) {
-                  // Legacy format - convert to minor
-                  const entryDecimals = entry.decimals ?? decimals;
-                  last7TotalMinor += Math.round(entry.total * Math.pow(10, entryDecimals));
+                  val = Number(entry.total);
+                }
+
+                if (val !== 0) {
+                  last7Total += val;
+                  daysWithData++;
                 }
               }
             }
           }
-          
-          if (last7TotalMinor > 0) {
-            savingsMetrics.last7DaysSavings = minorToMajor(last7TotalMinor, decimals);
-          }
-          
-          // Calculate average daily savings from last 7 days
-          if (savingsMetrics.last7DaysSavings !== null) {
-            const daysWithData = savingsHistoryRaw.filter((h: any) => {
-              if (!h || !h.date) return false;
-              const entryDate = new Date(`${h.date}T00:00:00`);
-              return entryDate >= last7Cutoff && entryDate <= todayDate && (h.totalMinor > 0 || h.total > 0);
-            }).length;
-            
-            if (daysWithData > 0) {
-              savingsMetrics.averageDailySavings = savingsMetrics.last7DaysSavings / daysWithData;
-            }
+
+          if (daysWithData > 0) {
+            savingsMetrics.last7DaysSavings = Number(last7Total.toFixed(decimals));
+            savingsMetrics.averageDailySavings = Number((last7Total / daysWithData).toFixed(decimals));
           }
         } catch (parseErr) {
           homey.app.error('Failed to parse savings history:', parseErr);
         }
       }
-      
+
       const smartSavingsDisplay: {
         currency: string;
         currencySymbol: string;
@@ -2918,14 +2993,14 @@ const apiHandlers: ApiHandlers = {
         history: []
       };
 
-      if (displaySavingsHistoryRaw && Array.isArray(displaySavingsHistoryRaw)) {
+      if (savingsHistoryRaw && Array.isArray(savingsHistoryRaw)) {
         try {
           const todayIso = new Date().toISOString().slice(0, 10);
           const todayMidnight = new Date(`${todayIso}T00:00:00`);
           const last7Cutoff = new Date(todayMidnight);
           last7Cutoff.setDate(todayMidnight.getDate() - 6);
 
-          const entries = displaySavingsHistoryRaw
+          const entries = savingsHistoryRaw
             .filter((entry: any) => entry && typeof entry.date === 'string')
             .slice()
             .sort((a: any, b: any) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
@@ -2946,21 +3021,19 @@ const apiHandlers: ApiHandlers = {
             if (!entry || !entry.date) continue;
             const entryDate = new Date(`${entry.date}T00:00:00`);
             const entryDecimals = entry.decimals ?? decimals;
-            const baselineMinor = Number(entry.baselineMinor);
-            const optimizedMinor = Number(entry.optimizedMinor);
+
+            let valueMajor: number | null = null;
             let baselineMajor: number | null = null;
             let optimizedMajor: number | null = null;
-            let valueMajor: number | null = null;
 
-            if (Number.isFinite(baselineMinor) && Number.isFinite(optimizedMinor)) {
-              baselineMajor = Number(minorToMajor(Math.max(0, baselineMinor), entryDecimals).toFixed(entryDecimals));
-              optimizedMajor = Number(minorToMajor(Math.max(0, optimizedMinor), entryDecimals).toFixed(entryDecimals));
-              const savingsMinor = Math.max(0, baselineMinor - optimizedMinor);
-              valueMajor = Number(minorToMajor(savingsMinor, entryDecimals).toFixed(entryDecimals));
-            } else if (typeof entry.valueMajor === 'number') {
-              valueMajor = Number(entry.valueMajor);
-            } else if (typeof entry.value === 'number') {
-              valueMajor = Number(entry.value);
+            if (entry.netSavings !== undefined) {
+              valueMajor = Number(entry.netSavings);
+              if (entry.baselineCost !== undefined) baselineMajor = Number(entry.baselineCost);
+              if (entry.actualCost !== undefined) optimizedMajor = Number(entry.actualCost);
+            } else if (entry.totalMinor !== undefined) {
+              valueMajor = Number(minorToMajor(entry.totalMinor, entryDecimals).toFixed(entryDecimals));
+            } else if (entry.total !== undefined) {
+              valueMajor = Number(entry.total);
             }
 
             if (typeof valueMajor === 'number') {
@@ -2969,9 +3042,9 @@ const apiHandlers: ApiHandlers = {
                 valueMajor,
                 baselineMajor,
                 optimizedMajor,
-                seasonMode: typeof entry.seasonMode === 'string' ? entry.seasonMode : null,
+                seasonMode: null, // DailySavingsRecord doesn't track seasonMode yet
                 decimals: entryDecimals,
-                updatedAt: typeof entry.updatedAt === 'string' ? entry.updatedAt : undefined
+                updatedAt: typeof entry.lastUpdated === 'string' ? entry.lastUpdated : undefined
               });
             }
 
@@ -2989,9 +3062,6 @@ const apiHandlers: ApiHandlers = {
             if (typeof todayHistory.valueMajor === 'number') {
               smartSavingsDisplay.today = todayHistory.valueMajor;
             }
-            if (todayHistory.seasonMode) {
-              smartSavingsDisplay.seasonMode = todayHistory.seasonMode;
-            }
           }
 
           if (last7Days > 0) {
@@ -3007,39 +3077,32 @@ const apiHandlers: ApiHandlers = {
               smartSavingsDisplay.projection = Number(projectionMonthly.toFixed(decimals));
             }
           }
-
-          if (!smartSavingsDisplay.seasonMode && entries.length > 0) {
-            const latest = entries[entries.length - 1];
-            if (latest?.seasonMode && typeof latest.seasonMode === 'string') {
-              smartSavingsDisplay.seasonMode = latest.seasonMode;
-            }
-          }
         } catch (displayErr) {
           homey.app.error('Failed to parse display savings history:', displayErr);
         }
       }
-      
+
       // Calculate baseline savings comparison (read-only, UI display only)
       let baselineSavings = null;
       let enhancedSavings: any = null;
       let seasonalMode: string | null = null;
-      
+
       try {
         // Get optimizer instance from service manager for read-only calculation
         const serviceState = getServiceState();
         const optimizer = serviceState?.optimizer;
-        
+
         // Run baseline calculation if we have any savings data (even if negative)
         // Also run if we have recent optimization data, even without savings history yet
         const hasSavingsData = savingsMetrics.todaySavings !== null && Math.abs(savingsMetrics.todaySavings) > 0.001;
         const hasRecentData = homey.settings.get('melcloud_historical_data')?.length > 0;
-        
+
         if (optimizer && (hasSavingsData || hasRecentData)) {
           // Get actual consumption estimate (use today's savings as proxy for cost delta)
           // This is a read-only calculation, doesn't affect storage
           const actualCost = hasSavingsData ? Math.abs(savingsMetrics.todaySavings!) : 5.0; // Default 5 SEK if no savings yet
           const actualConsumptionKWh = actualCost / 1.5; // Rough estimate: ~1.5 SEK/kWh average
-          
+
           // Get historical optimizations for context (read-only)
           const historicalData = homey.settings.get('melcloud_historical_data');
           let historicalOptimizations: any[] = [];
@@ -3049,7 +3112,7 @@ const apiHandlers: ApiHandlers = {
               .filter((h: any) => h && h.timestamp && h.timestamp.startsWith(today))
               .slice(0, 24); // Max 24 hours
           }
-          
+
           // Calculate enhanced savings with baseline comparison (READ-ONLY)
           const currentHourSavings = hasSavingsData ? savingsMetrics.todaySavings! : 0;
           const result = await optimizer.calculateEnhancedDailySavingsWithBaseline(
@@ -3059,7 +3122,7 @@ const apiHandlers: ApiHandlers = {
             actualCost,
             true // enable baseline
           );
-          
+
           if (result && result.baselineComparison) {
             enhancedSavings = {
               baselineSavings: result.baselineComparison.baselineSavings,
@@ -3069,7 +3132,7 @@ const apiHandlers: ApiHandlers = {
               method: result.baselineComparison.method,
               breakdown: result.baselineComparison.breakdown
             };
-            
+
             baselineSavings = {
               todayVsBaseline: result.baselineComparison.baselineSavings,
               percentageSaved: result.baselineComparison.baselinePercentage,
@@ -3077,7 +3140,7 @@ const apiHandlers: ApiHandlers = {
               projectedMonthly: result.projectedSavings * 30
             };
           }
-          
+
           // Get seasonal mode (read-only)
           const summerMode = homey.settings.get('summer_mode');
           const autoSeasonalMode = homey.settings.get('auto_seasonal_mode');
@@ -3107,7 +3170,7 @@ const apiHandlers: ApiHandlers = {
         homey.app.error('Error calculating baseline savings (non-critical):', baselineErr);
         // Continue without baseline data - graceful degradation
       }
-      
+
       // Build price data for currency context
       const priceData = {
         currencySymbol: currencySymbol,
@@ -3123,7 +3186,7 @@ const apiHandlers: ApiHandlers = {
         const optimizerData = homey.settings.get('optimizer_historical_data');
         const historicalData = optimizerData?.optimizations || null;
         homey.app.log(`[getModelConfidence] Optimizer data exists: ${!!optimizerData}, optimizations array: ${Array.isArray(historicalData)}, length: ${Array.isArray(historicalData) ? historicalData.length : 'N/A'}`);
-        
+
         // Log a sample of historical data entries for debugging
         if (historicalData && Array.isArray(historicalData) && historicalData.length > 0) {
           homey.app.log(`[getModelConfidence] Sample historical entries (first 3):`);
@@ -3134,25 +3197,25 @@ const apiHandlers: ApiHandlers = {
             homey.app.log(`[getModelConfidence]   ... and ${historicalData.length - 3} more entries`);
           }
         }
-        
+
         let needsFallback = false;
-        
+
         if (historicalData && Array.isArray(historicalData) && historicalData.length > 0) {
           const now = new Date();
           const last7Days = new Date(now);
           last7Days.setDate(now.getDate() - 7);
-          
+
           homey.app.log(`[getModelConfidence] Date range: ${last7Days.toISOString()} to ${now.toISOString()}`);
-          
+
           // Filter to last 7 days and extract valid prices
           const recentEntries = historicalData.filter((entry: any) => {
             if (!entry || !entry.timestamp) return false;
             const entryDate = new Date(entry.timestamp);
             return entryDate >= last7Days && entryDate <= now;
           });
-          
+
           homey.app.log(`[getModelConfidence] Recent entries in last 7 days: ${recentEntries.length}`);
-          
+
           const recentPrices = recentEntries
             .map((entry: any) => {
               const price = Number(entry.priceNow);
@@ -3162,14 +3225,14 @@ const apiHandlers: ApiHandlers = {
               return price;
             })
             .filter((price: number) => Number.isFinite(price) && price > 0);
-          
+
           priceDataPoints = recentPrices.length;
-          
+
           homey.app.log(`[getModelConfidence] Valid price data points: ${priceDataPoints}`);
           if (recentPrices.length > 0 && recentPrices.length <= 10) {
             homey.app.log(`[getModelConfidence] Sample prices: ${recentPrices.slice(0, 5).map(p => p.toFixed(4)).join(', ')}`);
           }
-          
+
           if (recentPrices.length > 0) {
             const sum = recentPrices.reduce((acc: number, price: number) => acc + price, 0);
             averageSpotPrice = sum / recentPrices.length;
@@ -3182,7 +3245,7 @@ const apiHandlers: ApiHandlers = {
           homey.app.log('[getModelConfidence] ❌ No historical data available, will try fallback');
           needsFallback = true;
         }
-        
+
         // Try fallback if no historical data was usable
         if (needsFallback) {
           homey.app.log('[getModelConfidence] Attempting fallback to current prices...');
@@ -3190,19 +3253,19 @@ const apiHandlers: ApiHandlers = {
             const serviceState = getServiceState();
             homey.app.log(`[getModelConfidence] Service state exists: ${!!serviceState}, tibber exists: ${!!serviceState?.tibber}`);
             const priceProvider = serviceState?.tibber;
-            
+
             if (priceProvider) {
               homey.app.log('[getModelConfidence] Fetching current prices from provider...');
               const priceInfo = await priceProvider.getPrices();
               homey.app.log(`[getModelConfidence] Price info received, prices array length: ${Array.isArray(priceInfo?.prices) ? priceInfo.prices.length : 'N/A'}`);
-              
+
               if (priceInfo && Array.isArray(priceInfo.prices) && priceInfo.prices.length > 0) {
                 const validPrices = priceInfo.prices
                   .map((p: any) => Number(p.price))
                   .filter((price: number) => Number.isFinite(price) && price > 0);
-                
+
                 homey.app.log(`[getModelConfidence] Valid current prices: ${validPrices.length}`);
-                
+
                 if (validPrices.length > 0) {
                   const sum = validPrices.reduce((acc: number, price: number) => acc + price, 0);
                   averageSpotPrice = sum / validPrices.length;
@@ -3262,7 +3325,7 @@ const apiHandlers: ApiHandlers = {
   }
 };
 
-const exportedApi = apiHandlers as typeof apiHandlers & { 
+const exportedApi = apiHandlers as typeof apiHandlers & {
   __test?: Record<string, unknown>;
   updateAllServiceTimezones?: typeof updateAllServiceTimezones;
   updatePriceProvider?: typeof updatePriceProvider;
@@ -3286,7 +3349,7 @@ try {
       configurable: false
     });
   }
-} catch (_: any) {}
+} catch (_: any) { }
 
 // Test helpers - only exposed when running in test environment
 if (process.env.NODE_ENV === 'test') {

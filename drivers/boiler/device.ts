@@ -926,7 +926,13 @@ module.exports = class BoilerDevice extends Homey.Device {
             await this.setCapabilityValue('target_temperature', null);
             this.logger.log(`Cleared target temperature display (device in non-room mode: OperationMode=${operationMode}, HCControlType=${hcControlType})`);
           }
-          this.logger.log(`Device in non-room mode (OperationMode: ${operationMode}, HCControlType: ${hcControlType}), SetTemperatureZone1: ${deviceState.SetTemperatureZone1} (not displayed as room temp)`);
+
+          // Clarify logging for Curve Mode
+          if (operationMode === 2 || hcControlType === 2) {
+            this.logger.log(`Device in Curve Mode (OperationMode: ${operationMode}, HCControlType: ${hcControlType}), Curve Shift: ${deviceState.SetTemperatureZone1}°C`);
+          } else {
+            this.logger.log(`Device in non-room mode (OperationMode: ${operationMode}, HCControlType: ${hcControlType}), SetTemperatureZone1: ${deviceState.SetTemperatureZone1} (not displayed as room temp)`);
+          }
         }
       }
 
@@ -1378,7 +1384,7 @@ module.exports = class BoilerDevice extends Homey.Device {
     // Reference: https://github.com/OlivierZal/melcloud-api/blob/master/src/enums.ts (OperationModeState)
     switch (operationMode) {
       case 0: return 'idle';
-      case 1: return 'dhw';         // Domestic hot water
+      case 1: return 'heating';     // DHW (Domestic Hot Water) - map to heating as 'dhw' is not a valid operational_state
       case 2: return 'heating';
       case 3: return 'cooling';
       case 5: return 'defrost';

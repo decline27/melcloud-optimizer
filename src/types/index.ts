@@ -27,6 +27,25 @@ export interface PricePoint {
   level?: string; // Tibber's native price level classification (VERY_CHEAP, CHEAP, NORMAL, EXPENSIVE, VERY_EXPENSIVE)
 }
 
+export interface DailySavingsRecord {
+  // Identity
+  date: string;           // YYYY-MM-DD
+  currency: string;       // e.g., "SEK", "NOK"
+
+  // Energy Metrics (kWh)
+  consumptionKWh: number;         // Actual energy used
+  baselineConsumptionKWh: number; // Estimated energy if no optimization existed
+
+  // Financial Metrics (Major Units, e.g., SEK)
+  actualCost: number;     // Real cost incurred
+  baselineCost: number;   // Estimated cost without optimization
+  netSavings: number;     // baselineCost - actualCost
+
+  // Status
+  isProjected: boolean;   // true if day is incomplete/projected
+  lastUpdated: string;    // ISO timestamp of last update
+}
+
 export interface OptimizationResult {
   targetTemp: number;
   reason: string;

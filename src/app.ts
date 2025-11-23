@@ -11,7 +11,8 @@ import {
   DeviceInfo,
   PricePoint,
   OptimizationResult,
-  HomeyApp
+  HomeyApp,
+  DailySavingsRecord
 } from './types';
 import { OrchestratorMetrics } from './metrics';
 
@@ -32,7 +33,7 @@ export default class HeatOptimizerApp extends App {
     includeTimestamps: true,
     includeSourceModule: true
   });
-  
+
   constructor() {
     console.log('🚀 HeatOptimizerApp constructor called');
     super();
@@ -192,17 +193,22 @@ export default class HeatOptimizerApp extends App {
     // Here we only read today's total from the already-persisted history to report "today so far".
     let todaySoFar = 0;
     try {
-      const currency = this.homey.settings.get('currency_code') || this.homey.settings.get('currency') || '';
-      const decimals = this.getCurrencyDecimals(currency);
       const today = this.formatLocalDate();
       const rawHistory = this.homey.settings.get('savings_history') || [];
-      const history = (rawHistory as any[]).map((h: any) => this.migrateLegacyEntry(h, currency, decimals));
-      const todayEntry: any = history.find((h: any) => h.date === today);
-      if (todayEntry) {
-        if (todayEntry.totalMinor !== undefined) {
-          todaySoFar = Number(this.minorToMajor(todayEntry.totalMinor, todayEntry.decimals ?? decimals).toFixed(4));
-        } else if (todayEntry.total !== undefined) {
-          todaySoFar = Number(Number(todayEntry.total).toFixed(4));
+
+      // Handle both legacy and new formats
+      if (Array.isArray(rawHistory) && rawHistory.length > 0) {
+        const todayEntry = rawHistory.find((h: any) => h.date === today);
+        if (todayEntry) {
+          if (todayEntry.netSavings !== undefined) {
+            todaySoFar = todayEntry.netSavings;
+          } else if (todayEntry.totalMinor !== undefined) {
+            const currency = this.homey.settings.get('currency_code') || this.homey.settings.get('currency') || '';
+            const decimals = this.getCurrencyDecimals(currency);
+            todaySoFar = this.minorToMajor(todayEntry.totalMinor, todayEntry.decimals ?? decimals);
+          } else if (todayEntry.total !== undefined) {
+            todaySoFar = Number(todayEntry.total);
+          }
         }
       }
     } catch (_) {
@@ -220,80 +226,121 @@ export default class HeatOptimizerApp extends App {
   }
 
   /**
-   * Add an hourly savings amount to today's total and maintain a short history
-   * Amount should be in major units and will be converted to integer minor units
-   * Returns todaySoFar and weekSoFar (last 7 days including today) in major units
+   * Migrate legacy savings history to new DailySavingsRecord format
    */
-  private addSavings(amount: number): { todaySoFar: number; weekSoFar: number } {
+  private migrateSavingsHistory(): void {
     try {
-      if (typeof amount !== 'number' || isNaN(amount)) {
-        return { todaySoFar: 0, weekSoFar: 0 };
+      const rawHistory = this.homey.settings.get('savings_history') || [];
+      if (!Array.isArray(rawHistory) || rawHistory.length === 0) return;
+
+      // Check if already migrated (look for netSavings property)
+      if (rawHistory.some((h: any) => h.netSavings !== undefined)) {
+        return;
       }
 
-      const today = this.formatLocalDate();
-      
-      // Get currency settings - prefer currency_code, fall back to currency
-      const currency = this.homey.settings.get('currency_code') || this.homey.settings.get('currency') || '';
+      this.logger.info('Migrating savings history to new DailySavingsRecord format...');
+      const currency = this.homey.settings.get('currency_code') || this.homey.settings.get('currency') || 'SEK';
       const decimals = this.getCurrencyDecimals(currency);
 
-      // Convert amount to minor units
-      const amountMinor = this.majorToMinor(amount, decimals);
+      const newHistory: DailySavingsRecord[] = rawHistory.map((h: any) => {
+        // Handle various legacy formats
+        let savingsMajor = 0;
+        if (h.totalMinor !== undefined) {
+          savingsMajor = this.minorToMajor(h.totalMinor, h.decimals ?? decimals);
+        } else if (h.total !== undefined) {
+          savingsMajor = Number(h.total);
+        }
+
+        // Estimate baseline/actual if missing (legacy data only had savings)
+        // We assume savings = baseline - actual.
+        // If we don't have consumption data, we can't reconstruct exact costs.
+        // Strategy: Set netSavings = legacy savings. Set actualCost = 0 (unknown), baselineCost = savings.
+        // This preserves the "saved amount" which is the most critical metric for history.
+
+        return {
+          date: h.date,
+          currency: h.currency || currency,
+          consumptionKWh: 0, // Unknown for legacy
+          baselineConsumptionKWh: 0, // Unknown for legacy
+          actualCost: 0,
+          baselineCost: Number(savingsMajor.toFixed(4)),
+          netSavings: Number(savingsMajor.toFixed(4)),
+          isProjected: false,
+          lastUpdated: new Date().toISOString()
+        };
+      });
+
+      this.homey.settings.set('savings_history', newHistory);
+      this.logger.info(`Migrated ${newHistory.length} savings records`);
+    } catch (e) {
+      this.logger.error('Failed to migrate savings history', e as Error);
+    }
+  }
+
+  /**
+   * Add an hourly savings amount to today's total and maintain a short history
+   * Uses the new DailySavingsRecord format
+   */
+  private addSavings(record: Partial<DailySavingsRecord>): void {
+    try {
+      const today = this.formatLocalDate();
+      const currency = this.homey.settings.get('currency_code') || this.homey.settings.get('currency') || 'SEK';
 
       const rawHistory = this.homey.settings.get('savings_history') || [];
+      let history: DailySavingsRecord[] = [];
 
-      // Migrate legacy entries and normalize the history
-      const history = rawHistory.map((h: any) => this.migrateLegacyEntry(h, currency, decimals));
+      // Ensure history is in new format
+      if (Array.isArray(rawHistory) && rawHistory.length > 0 && rawHistory[0].netSavings === undefined) {
+        this.migrateSavingsHistory();
+        history = this.homey.settings.get('savings_history') || [];
+      } else {
+        history = rawHistory;
+      }
 
-      // Find or create today's entry
-      let todayEntry: any = history.find((h: any) => h.date === today);
+      let todayEntry = history.find(h => h.date === today);
+
       if (!todayEntry) {
         todayEntry = {
           date: today,
-          totalMinor: 0,
           currency,
-          decimals
+          consumptionKWh: 0,
+          baselineConsumptionKWh: 0,
+          actualCost: 0,
+          baselineCost: 0,
+          netSavings: 0,
+          isProjected: true,
+          lastUpdated: new Date().toISOString()
         };
         history.push(todayEntry);
-      } else {
-        // Ensure currency and decimals are set on existing entry
-        if (!todayEntry.currency) todayEntry.currency = currency;
-        if (todayEntry.decimals === undefined) todayEntry.decimals = decimals;
       }
 
-      // Increment today's total (in minor units)
-      todayEntry.totalMinor = (todayEntry.totalMinor || 0) + amountMinor;
+      // Update fields
+      if (record.consumptionKWh !== undefined) todayEntry.consumptionKWh = Number((todayEntry.consumptionKWh + record.consumptionKWh).toFixed(4));
+      if (record.baselineConsumptionKWh !== undefined) todayEntry.baselineConsumptionKWh = Number((todayEntry.baselineConsumptionKWh + record.baselineConsumptionKWh).toFixed(4));
+      if (record.actualCost !== undefined) todayEntry.actualCost = Number((todayEntry.actualCost + record.actualCost).toFixed(4));
+      if (record.baselineCost !== undefined) todayEntry.baselineCost = Number((todayEntry.baselineCost + record.baselineCost).toFixed(4));
 
-      // Trim history to last 30 days
-      history.sort((a: any, b: any) => a.date.localeCompare(b.date));
-      const cutoffIndex = Math.max(0, history.length - 30);
-      const trimmed = history.slice(cutoffIndex);
+      // Recalculate net savings based on costs if available, otherwise accumulate provided savings
+      if (record.netSavings !== undefined) {
+        todayEntry.netSavings = Number((todayEntry.netSavings + record.netSavings).toFixed(4));
+      } else {
+        todayEntry.netSavings = Number((todayEntry.baselineCost - todayEntry.actualCost).toFixed(4));
+      }
+
+      todayEntry.lastUpdated = new Date().toISOString();
+      todayEntry.isProjected = record.isProjected ?? todayEntry.isProjected;
+
+      // Sort and trim
+      history.sort((a, b) => a.date.localeCompare(b.date));
+      const trimmed = history.slice(Math.max(0, history.length - 30));
 
       this.homey.settings.set('savings_history', trimmed);
 
-      // Compute last 7 days total including today (convert back to major units)
-      const todayDate = new Date(`${today}T00:00:00`);
-      const last7Cutoff = new Date(todayDate);
-      last7Cutoff.setDate(todayDate.getDate() - 6); // include 7 days window
+      // Log update
+      this.logger.info(`Updated savings history for ${today}: Saved ${todayEntry.netSavings.toFixed(2)} ${currency}`);
 
-      const weekSoFarMinor = (trimmed as any[])
-        .filter((h: any) => {
-          const d = new Date(`${h.date}T00:00:00`);
-          return d >= last7Cutoff && d <= todayDate;
-        })
-        .reduce((sum: number, h: any) => {
-          return sum + (h.totalMinor || 0);
-        }, 0);
-
-      const todaySoFar = this.minorToMajor(todayEntry.totalMinor, decimals);
-      const weekSoFar = this.minorToMajor(weekSoFarMinor, decimals);
-
-      return {
-        todaySoFar: Number(todaySoFar.toFixed(4)),
-        weekSoFar: Number(weekSoFar.toFixed(4))
-      };
     } catch (e) {
-      this.error('Failed to add savings to history', e as Error);
-      return { todaySoFar: 0, weekSoFar: 0 };
+      this.logger.error('Failed to add savings to history', e as Error);
     }
   }
 
@@ -307,29 +354,43 @@ export default class HeatOptimizerApp extends App {
       const last7Cutoff = new Date(todayDate);
       last7Cutoff.setDate(todayDate.getDate() - 6);
 
-      // Get currency settings
-      const currency = this.homey.settings.get('currency_code') || this.homey.settings.get('currency') || '';
-      const decimals = this.getCurrencyDecimals(currency);
-
       const rawHistory = this.homey.settings.get('savings_history') || [];
+      // Ensure migration if needed (though should be done on init/add)
+      if (Array.isArray(rawHistory) && rawHistory.length > 0 && rawHistory[0].netSavings === undefined) {
+        // If we are just reading, maybe don't force migration here to avoid side effects in getters? 
+        // But for consistency, let's assume migration happened in onInit.
+        // We'll just handle legacy format gracefully if present.
+        return this.calculateLegacyWeeklyTotal(rawHistory, last7Cutoff, todayDate);
+      }
 
-      // Migrate legacy entries and calculate total
-      const totalMinor = (rawHistory as any[])
-        .map((h: any) => this.migrateLegacyEntry(h, currency, decimals))
-        .filter((h: any) => {
+      const total = (rawHistory as DailySavingsRecord[])
+        .filter(h => {
           const d = new Date(`${h.date}T00:00:00`);
           return d >= last7Cutoff && d <= todayDate;
         })
-        .reduce((sum: number, h: any) => {
-          return sum + (h.totalMinor || 0);
-        }, 0);
+        .reduce((sum, h) => sum + (h.netSavings || 0), 0);
 
-      const total = this.minorToMajor(totalMinor, decimals);
       return Number(total.toFixed(4));
     } catch (e) {
-      this.error('Failed to compute weekly savings total', e as Error);
+      this.logger.error('Failed to compute weekly savings total', e as Error);
       return 0;
     }
+  }
+
+  private calculateLegacyWeeklyTotal(history: any[], start: Date, end: Date): number {
+    // Fallback for legacy data
+    const currency = this.homey.settings.get('currency_code') || this.homey.settings.get('currency') || '';
+    const decimals = this.getCurrencyDecimals(currency);
+
+    const totalMinor = history
+      .map((h: any) => this.migrateLegacyEntry(h, currency, decimals))
+      .filter((h: any) => {
+        const d = new Date(`${h.date}T00:00:00`);
+        return d >= start && d <= end;
+      })
+      .reduce((sum: number, h: any) => sum + (h.totalMinor || 0), 0);
+
+    return Number(this.minorToMajor(totalMinor, decimals).toFixed(4));
   }
 
   /**
@@ -340,13 +401,13 @@ export default class HeatOptimizerApp extends App {
     try {
       // Return status indicating that cron jobs run in the driver
       return {
-        hourlyJob: { 
-          running: 'unknown', 
+        hourlyJob: {
+          running: 'unknown',
           note: 'Real cron jobs run in BoilerDriver, not in main app',
           message: 'Check driver logs for actual cron job status'
         },
-        weeklyJob: { 
-          running: 'unknown', 
+        weeklyJob: {
+          running: 'unknown',
           note: 'Real cron jobs run in BoilerDriver, not in main app',
           message: 'Check driver logs for actual cron job status'
         },
@@ -438,7 +499,7 @@ export default class HeatOptimizerApp extends App {
     } catch (error) {
       this.logger.error('Failed to initialize COP Helper', error as Error);
     }
-    
+
     // Initialize Hot Water Service
     try {
       this.hotWaterService = new HotWaterService(this.homey);
@@ -469,7 +530,7 @@ export default class HeatOptimizerApp extends App {
         notifications: this.homey.notifications,
         flow: this.homey.flow
       };
-      
+
       this.timelineHelper = new TimelineHelper(homeyAppAdapter, this.logger);
       this.logger.info('Timeline Helper initialized');
     } catch (error) {
@@ -498,14 +559,14 @@ export default class HeatOptimizerApp extends App {
       } catch (error) {
         this.logger.error('Failed to start memory usage monitoring', error as Error);
       }
-  }
+    }
 
-  // Run initial data cleanup to optimize memory usage on startup
-  this.runInitialDataCleanup();
+    // Run initial data cleanup to optimize memory usage on startup
+    this.runInitialDataCleanup();
 
-  // Log app initialization complete
-  this.logger.info('MELCloud Optimizer App initialized successfully');
-  console.log('🚀 HeatOptimizerApp onInit() completed successfully');
+    // Log app initialization complete
+    this.logger.info('MELCloud Optimizer App initialized successfully');
+    console.log('🚀 HeatOptimizerApp onInit() completed successfully');
   }
 
   private registerEntsoeFlowAction(): void {
@@ -598,7 +659,7 @@ export default class HeatOptimizerApp extends App {
     const tzOffset = this.homey.settings.get('time_zone_offset') || 2;
     const useDST = this.homey.settings.get('use_dst') || false;
     const timeZoneName = this.homey.settings.get('time_zone_name');
-    
+
     // Update our own TimeZoneHelper
     if (this.timeZoneHelper) {
       this.timeZoneHelper.updateSettings(
@@ -607,7 +668,7 @@ export default class HeatOptimizerApp extends App {
         typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined
       );
     }
-    
+
     // Update services through API if available
     try {
       const api = require('../api.js');
@@ -622,7 +683,7 @@ export default class HeatOptimizerApp extends App {
     } catch (error) {
       this.error('Failed to update service timezones via API:', error as Error);
     }
-    
+
     // Update cron jobs in drivers
     try {
       // Update the boiler driver specifically
@@ -634,7 +695,7 @@ export default class HeatOptimizerApp extends App {
     } catch (error) {
       this.error('Failed to update driver timezones:', error as Error);
     }
-    
+
     this.log(`Updated timezone settings: offset=${tzOffset}, DST=${useDST}`);
   }
 
@@ -699,7 +760,7 @@ export default class HeatOptimizerApp extends App {
     ].includes(key)) {
       this.log(`Temperature/occupancy setting '${key}' changed, re-validating settings and updating optimizer`);
       this.validateSettings();
-      
+
       // Update optimizer settings immediately for occupancy changes
       if (key === 'occupied') {
         try {
@@ -727,7 +788,7 @@ export default class HeatOptimizerApp extends App {
     // If timezone settings changed, update all services
     else if (['time_zone_offset', 'use_dst', 'time_zone_name'].includes(key)) {
       this.log(`Timezone setting '${key}' changed, updating all services`);
-      
+
       try {
         await this.updateTimezoneSettings();
         this.log('All services updated with new timezone settings');

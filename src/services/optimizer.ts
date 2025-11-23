@@ -291,7 +291,19 @@ export class Optimizer {
       // Initialize COP helper
       try {
         this.copHelper = new COPHelper(homey, this.logger);
-        this.copPredictor = new COPPredictor(homey, this.logger);
+        // COP Predictor for Flow/Curve temperature optimization
+        if (this.homey) {
+          // Create a logger wrapper that includes warn method for COPPredictor
+          const copLogger = {
+            // @ts-ignore - Simple pass-through, TypeScript spread checking too strict
+            log: (...args: unknown[]) => this.logger.log(...args),
+            // @ts-ignore - Simple pass-through, TypeScript spread checking too strict
+            warn: (...args: unknown[]) => this.logger.log('[WARN]', ...args),
+            // @ts-ignore - Simple pass-through, TypeScript spread checking too strict
+            error: (...args: unknown[]) => this.logger.error(...args)
+          };
+          this.copPredictor = new COPPredictor(homey, copLogger);
+        }
         this.logger.log('COP helper initialized');
 
         // Load COP settings from Homey settings
@@ -385,18 +397,35 @@ export class Optimizer {
         const copGuards = homey.settings.get('cop_guards_v1');
         if (copGuards && typeof copGuards === 'object') {
           if (Array.isArray(copGuards.history)) {
-            this.copRange.history = copGuards.history.slice(-100); // Ensure max 100
+            this.heatingCOPRange.history = copGuards.history.slice(-100); // Ensure max 100
           }
           if (typeof copGuards.minObserved === 'number') {
-            this.copRange.minObserved = copGuards.minObserved;
+            this.heatingCOPRange.minObserved = copGuards.minObserved;
           }
           if (typeof copGuards.maxObserved === 'number') {
-            this.copRange.maxObserved = copGuards.maxObserved;
+            this.heatingCOPRange.maxObserved = copGuards.maxObserved;
           }
           if (typeof copGuards.updateCount === 'number') {
-            this.copRange.updateCount = copGuards.updateCount;
+            this.heatingCOPRange.updateCount = copGuards.updateCount;
           }
-          this.logger.log(`COP guards restored - Range: ${this.copRange.minObserved.toFixed(2)}-${this.copRange.maxObserved.toFixed(2)}, ${this.copRange.history.length} samples`);
+          this.logger.log(`Heating COP guards restored - Range: ${this.heatingCOPRange.minObserved.toFixed(2)}-${this.heatingCOPRange.maxObserved.toFixed(2)}, ${this.heatingCOPRange.history.length} samples`);
+        }
+
+        const copGuardsHotWater = homey.settings.get('cop_guards_hotwater_v1');
+        if (copGuardsHotWater && typeof copGuardsHotWater === 'object') {
+          if (Array.isArray(copGuardsHotWater.history)) {
+            this.hotWaterCOPRange.history = copGuardsHotWater.history.slice(-100); // Ensure max 100
+          }
+          if (typeof copGuardsHotWater.minObserved === 'number') {
+            this.hotWaterCOPRange.minObserved = copGuardsHotWater.minObserved;
+          }
+          if (typeof copGuardsHotWater.maxObserved === 'number') {
+            this.hotWaterCOPRange.maxObserved = copGuardsHotWater.maxObserved;
+          }
+          if (typeof copGuardsHotWater.updateCount === 'number') {
+            this.hotWaterCOPRange.updateCount = copGuardsHotWater.updateCount;
+          }
+          this.logger.log(`Hot Water COP guards restored - Range: ${this.hotWaterCOPRange.minObserved.toFixed(2)}-${this.hotWaterCOPRange.maxObserved.toFixed(2)}, ${this.hotWaterCOPRange.history.length} samples`);
         }
 
         // Load home/away state
@@ -684,14 +713,32 @@ export class Optimizer {
   /**
    * COP range tracking for adaptive normalization with outlier guards
    */
-  private copRange: {
+  /**
+   * Heating COP range tracking for adaptive normalization
+   */
+  private heatingCOPRange: {
     minObserved: number;
     maxObserved: number;
     updateCount: number;
     history: number[];
   } = {
-      minObserved: 1,
+      minObserved: 2,
       maxObserved: 5,
+      updateCount: 0,
+      history: []
+    };
+
+  /**
+   * Hot Water COP range tracking for adaptive normalization
+   */
+  private hotWaterCOPRange: {
+    minObserved: number;
+    maxObserved: number;
+    updateCount: number;
+    history: number[];
+  } = {
+      minObserved: 1.5,
+      maxObserved: 3.5,
       updateCount: 0,
       history: []
     };
@@ -700,42 +747,63 @@ export class Optimizer {
    * Update COP range based on observed values with outlier filtering
    * @param cop Observed COP value
    */
-  private updateCOPRange(cop: number): void {
+  /**
+   * Update COP range based on observed values with outlier filtering
+   * @param cop Observed COP value
+   * @param type Type of COP ('heating' | 'hotwater')
+   */
+  private updateCOPRange(cop: number, type: 'heating' | 'hotwater' = 'heating'): void {
+    const range = type === 'heating' ? this.heatingCOPRange : this.hotWaterCOPRange;
+    const minValid = type === 'heating' ? 1.0 : 0.5;
+    const maxValid = type === 'heating' ? 7.0 : 5.0;
+
     // Guard: reject non-finite, out-of-bounds values
-    if (!Number.isFinite(cop) || cop < 0.5 || cop > 6.0) {
-      this.logger.warn(`COP outlier rejected: ${cop} (valid range: 0.5-6.0)`);
+    if (!Number.isFinite(cop) || cop < minValid || cop > maxValid) {
+      // Only warn for extreme outliers
+      if (cop > 0.1) {
+        this.logger.warn(`${type} COP outlier rejected: ${cop} (valid range: ${minValid}-${maxValid})`);
+      }
       return;
     }
 
     // Add to rolling history (max 100 entries)
-    this.copRange.history.push(cop);
-    if (this.copRange.history.length > 100) {
-      this.copRange.history.shift();
+    range.history.push(cop);
+    if (range.history.length > 100) {
+      range.history.shift();
     }
-    this.copRange.updateCount++;
+    range.updateCount++;
 
     // Recompute min/max using 5th and 95th percentile
-    if (this.copRange.history.length >= 5) {
-      const sorted = [...this.copRange.history].sort((a, b) => a - b);
+    if (range.history.length >= 5) {
+      const sorted = [...range.history].sort((a, b) => a - b);
       const p5Index = Math.floor(sorted.length * 0.05);
       const p95Index = Math.floor(sorted.length * 0.95);
-      this.copRange.minObserved = sorted[p5Index];
-      this.copRange.maxObserved = sorted[p95Index];
+      range.minObserved = sorted[p5Index];
+      range.maxObserved = sorted[p95Index];
     }
 
     // Persist to settings
     if (this.homey) {
-      this.homey.settings.set('cop_guards_v1', {
-        minObserved: this.copRange.minObserved,
-        maxObserved: this.copRange.maxObserved,
-        updateCount: this.copRange.updateCount,
-        history: this.copRange.history
-      });
+      if (type === 'heating') {
+        this.homey.settings.set('cop_guards_v1', {
+          minObserved: range.minObserved,
+          maxObserved: range.maxObserved,
+          updateCount: range.updateCount,
+          history: range.history
+        });
+      } else {
+        this.homey.settings.set('cop_guards_hotwater_v1', {
+          minObserved: range.minObserved,
+          maxObserved: range.maxObserved,
+          updateCount: range.updateCount,
+          history: range.history
+        });
+      }
     }
 
     // Log range updates periodically
-    if (this.copRange.updateCount % 50 === 0) {
-      this.logger.log(`COP range updated after ${this.copRange.updateCount} observations: ${this.copRange.minObserved.toFixed(2)} - ${this.copRange.maxObserved.toFixed(2)} (${this.copRange.history.length} samples)`);
+    if (range.updateCount % 50 === 0) {
+      this.logger.log(`${type} COP range updated after ${range.updateCount} observations: ${range.minObserved.toFixed(2)} - ${range.maxObserved.toFixed(2)} (${range.history.length} samples)`);
     }
   }
 
@@ -745,12 +813,12 @@ export class Optimizer {
    */
   private getAdaptiveCOPThresholds(): { good: number; bad: number } {
     // Fallback defaults if not enough history
-    if (this.copRange.history.length < 10) {
+    if (this.heatingCOPRange.history.length < 10) {
       return { good: 4.0, bad: 2.5 };
     }
 
-    const min = this.copRange.minObserved;
-    const max = this.copRange.maxObserved;
+    const min = this.heatingCOPRange.minObserved;
+    const max = this.heatingCOPRange.maxObserved;
     const range = max - min;
 
     // Avoid division by zero or tiny ranges
@@ -772,14 +840,22 @@ export class Optimizer {
    * @param cop COP value to normalize
    * @returns Normalized COP (0-1)
    */
-  private normalizeCOP(cop: number): number {
-    const range = this.copRange.maxObserved - this.copRange.minObserved;
-    if (range <= 0) return 0.5; // Default if no range established
+  /**
+   * Normalize COP value using adaptive range with clamping
+   * @param cop COP value to normalize
+   * @param type Type of COP ('heating' | 'hotwater')
+   * @returns Normalized COP (0-1)
+   */
+  private normalizeCOP(cop: number, type: 'heating' | 'hotwater' = 'heating'): number {
+    const range = type === 'heating' ? this.heatingCOPRange : this.hotWaterCOPRange;
+    const rangeSpan = range.maxObserved - range.minObserved;
+
+    if (rangeSpan <= 0) return 0.5; // Default if no range established
 
     // Clamp input COP to learned range, then normalize to 0-1
-    const clampedCOP = Math.min(Math.max(cop, this.copRange.minObserved), this.copRange.maxObserved);
+    const clampedCOP = Math.min(Math.max(cop, range.minObserved), range.maxObserved);
     return Math.min(Math.max(
-      (clampedCOP - this.copRange.minObserved) / range, 0
+      (clampedCOP - range.minObserved) / rangeSpan, 0
     ), 1);
   }
 
@@ -1396,8 +1472,8 @@ export class Optimizer {
         : derivedHotWaterCOP;
 
       // Update COP ranges with current values
-      if (realHeatingCOP > 0) this.updateCOPRange(realHeatingCOP);
-      if (realHotWaterCOP > 0) this.updateCOPRange(realHotWaterCOP);
+      if (realHeatingCOP > 0) this.updateCOPRange(realHeatingCOP, 'heating');
+      if (realHotWaterCOP > 0) this.updateCOPRange(realHotWaterCOP, 'hotwater');
 
       // Get daily energy totals
       const energyData = enhancedCOPData.daily;
@@ -1433,8 +1509,8 @@ export class Optimizer {
       const dailyEnergyConsumption = (heatingConsumed + hotWaterConsumed) / sampledDays;
 
       // Calculate efficiency scores using adaptive COP normalization
-      const heatingEfficiency = this.normalizeCOP(realHeatingCOP);
-      const hotWaterEfficiency = this.normalizeCOP(realHotWaterCOP);
+      const heatingEfficiency = this.normalizeCOP(realHeatingCOP, 'heating');
+      const hotWaterEfficiency = this.normalizeCOP(realHotWaterCOP, 'hotwater');
 
       // Enhanced seasonal mode detection using real energy patterns and trends
       let seasonalMode: 'summer' | 'winter' | 'transition';
@@ -1488,7 +1564,8 @@ export class Optimizer {
         optimizationFocus,
         heatingTrend: trends.heatingTrend,
         hotWaterTrend: trends.hotWaterTrend,
-        copRange: `${this.copRange.minObserved.toFixed(1)}-${this.copRange.maxObserved.toFixed(1)} (${this.copRange.updateCount} obs)`
+        heatingCOPRange: `${this.heatingCOPRange.minObserved.toFixed(1)}-${this.heatingCOPRange.maxObserved.toFixed(1)} (${this.heatingCOPRange.updateCount} obs)`,
+        hotWaterCOPRange: `${this.hotWaterCOPRange.minObserved.toFixed(1)}-${this.hotWaterCOPRange.maxObserved.toFixed(1)} (${this.hotWaterCOPRange.updateCount} obs)`
       });
       return metrics;
     } catch (error) {
