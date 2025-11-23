@@ -166,50 +166,50 @@ graph TB
 
 ```mermaid
 sequenceDiagram
-    participant App as HeatOptimizerApp
-    participant Opt as Optimizer
-    participant PA as PriceAnalyzer
-    participant TC as ThermalController
-    participant MEL as MelCloudApi
-    participant Acc as AccountingService
+    participant App
+    participant Optimizer
+    participant PriceAnalyzer
+    participant ThermalController
+    participant MelCloudApi
+    participant AccountingService
     
-    App->>Opt: runHourlyOptimization()
-    Opt->>MEL: getDeviceState()
-    MEL-->>Opt: Current temp, outdoor temp
+    App->>Optimizer: runHourlyOptimization()
+    Optimizer->>MelCloudApi: getDeviceState()
+    MelCloudApi-->>Optimizer: Current temp, outdoor temp
     
-    Opt->>PA: getCurrentPrice()
-    PA-->>Opt: Current price, level
+    Optimizer->>PriceAnalyzer: getCurrentPrice()
+    PriceAnalyzer-->>Optimizer: Current price, level
     
-    Opt->>PA: getPriceLevel(percentile)
-    PA-->>Opt: CHEAP/MODERATE/EXPENSIVE
+    Optimizer->>PriceAnalyzer: getPriceLevel(percentile)
+    PriceAnalyzer-->>Optimizer: CHEAP/MODERATE/EXPENSIVE
     
-    Opt->>TC: calculateThermalMassStrategy()
-    TC-->>Opt: preheat/coast/maintain/boost
+    Optimizer->>ThermalController: calculateThermalMassStrategy()
+    ThermalController-->>Optimizer: preheat/coast/maintain/boost
     
-    Opt->>Opt: Calculate optimal temp
-    Opt->>MEL: setDeviceTemperature()
+    Optimizer->>Optimizer: Calculate optimal temp
+    Optimizer->>MelCloudApi: setDeviceTemperature()
     
-    Opt->>Acc: recordOptimization()
-    Acc-->>App: Savings updated
+    Optimizer->>AccountingService: recordOptimization()
+    AccountingService-->>App: Savings updated
 ```
 
 ### Weekly Calibration Flow
 
 ```mermaid
 sequenceDiagram
-    participant App as HeatOptimizerApp
-    participant Opt as Optimizer
-    participant TC as ThermalController
-    participant TM as ThermalModelService
+    participant App
+    participant Optimizer
+    participant ThermalController
+    participant ThermalModelService
     
-    App->>Opt: runWeeklyCalibration()
-    Opt->>TM: getCharacteristics()
-    TM-->>Opt: heatingRate, coolingRate, thermalMass
+    App->>Optimizer: runWeeklyCalibration()
+    Optimizer->>ThermalModelService: getCharacteristics()
+    ThermalModelService-->>Optimizer: heatingRate, coolingRate, thermalMass
     
-    Opt->>TC: setThermalModel(K, S)
-    TC-->>Opt: Model updated
+    Optimizer->>ThermalController: setThermalModel(K, S)
+    ThermalController-->>Optimizer: Model updated
     
-    Opt-->>App: Calibration results
+    Optimizer-->>App: Calibration results
 ```
 
 ---
