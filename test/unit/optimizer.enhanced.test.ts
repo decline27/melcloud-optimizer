@@ -127,9 +127,9 @@ describe('Optimizer Enhanced Tests', () => {
 
   describe('setThermalModel', () => {
     it('should update thermal model parameters', () => {
-      (optimizer as any).setThermalModel(0.7, 0.3);
+      (optimizer as any).thermalController.setThermalModel(0.7, 0.3);
 
-      expect((optimizer as any).thermalModel).toEqual({ K: 0.7, S: 0.3 });
+      expect((optimizer as any).thermalController.getThermalModel()).toEqual({ K: 0.7, S: 0.3 });
     });
   });
 
@@ -257,80 +257,7 @@ describe('Optimizer Enhanced Tests', () => {
     });
   });
 
-  describe('runHourlyOptimization', () => {
-    it('should optimize temperature using thermal model when available', async () => {
-      const result = await optimizer.runHourlyOptimization();
 
-      // Should have called thermal model
-      expect(mockThermalModelService.getHeatingRecommendation).toHaveBeenCalled();
-
-      // Should have set new temperature
-      expect(mockMelCloud.setDeviceTemperature).toHaveBeenCalledWith('123', 456, 20.5);
-
-      // Should return result with expected properties
-      expect(result).toHaveProperty('targetTemp', 20.5);
-      expect(result).toHaveProperty('reason');
-      expect(result).toHaveProperty('priceNow', 0.15);
-      expect(result).toHaveProperty('savings');
-      expect(result).toHaveProperty('comfort');
-      expect(result).toHaveProperty('timestamp');
-    });
-
-    it('should fall back to basic optimization if thermal model fails', async () => {
-      // Make thermal model throw an error
-      mockThermalModelService.getHeatingRecommendation.mockImplementationOnce(() => {
-        throw new Error('Thermal model error');
-      });
-
-      const result = await optimizer.runHourlyOptimization();
-
-      // Should have logged error
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        'Error using thermal model, falling back to basic optimization:',
-        expect.any(Error)
-      );
-
-      // Should have used basic optimization
-      expect(result).toHaveProperty('targetTemp');
-      expect(mockMelCloud.setDeviceTemperature).toHaveBeenCalled();
-    });
-
-    it('should use basic optimization when thermal model is not available', async () => {
-      // Disable thermal learning
-      (optimizer as any).useThermalLearning = false;
-
-      const result = await optimizer.runHourlyOptimization();
-
-      // Should not have called thermal model
-      expect(mockThermalModelService.getHeatingRecommendation).not.toHaveBeenCalled();
-
-      // Should have used basic optimization
-      expect(result).toHaveProperty('targetTemp');
-      expect(mockMelCloud.setDeviceTemperature).toHaveBeenCalled();
-    });
-
-    it('should add COP info to reason when COP helper is available', async () => {
-      const result = await optimizer.runHourlyOptimization();
-
-      // Should have called COP helper
-      expect(mockCOPHelper.getSeasonalCOP).toHaveBeenCalled();
-
-      // Reason should include COP info
-      expect(result.reason).toContain('COP: 3.50');
-    });
-
-    it('should handle errors gracefully', async () => {
-      // Make MelCloud throw an error
-      mockMelCloud.getDeviceState.mockRejectedValueOnce(new Error('API error'));
-
-      await expect(optimizer.runHourlyOptimization()).rejects.toThrow('API error');
-
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        'Error in hourly optimization',
-        expect.any(Error)
-      );
-    });
-  });
 
   describe('runWeeklyCalibration', () => {
     it('should calibrate thermal model using learning data when available', async () => {

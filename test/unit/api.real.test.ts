@@ -75,7 +75,7 @@ describe('api.js — real module tests using __test helpers', () => {
     expect(melCloudMock.getDevices).toHaveBeenCalled();
   });
 
-  test('getRunHourlyOptimizer calls optimizer.runEnhancedOptimization and returns result', async () => {
+  test('getRunHourlyOptimizer calls optimizer.runOptimization and returns result', async () => {
     const fakeResult = {
       action: 'temperature_adjusted',
       fromTemp: 20,
@@ -87,7 +87,7 @@ describe('api.js — real module tests using __test helpers', () => {
     const melCloudMock = { getDevices: jest.fn().mockResolvedValue([]) };
     const tibberMock = { getPrices: jest.fn().mockResolvedValue({ prices: [] }) };
     const optimizerMock = {
-      runEnhancedOptimization: jest.fn().mockResolvedValue(fakeResult),
+      runOptimization: jest.fn().mockResolvedValue(fakeResult),
       setTemperatureConstraints: jest.fn(),
       setZone2TemperatureConstraints: jest.fn(),
       setTankTemperatureConstraints: jest.fn(),
@@ -104,7 +104,7 @@ describe('api.js — real module tests using __test helpers', () => {
     const res = await apiModule.getRunHourlyOptimizer({ homey });
 
     expect(res.success).toBe(true);
-    expect(optimizerMock.runEnhancedOptimization).toHaveBeenCalled();
+    expect(optimizerMock.runOptimization).toHaveBeenCalled();
     // The returned wrapper includes the real optimizer result under `result`
     expect(res.result).toEqual(fakeResult);
   });

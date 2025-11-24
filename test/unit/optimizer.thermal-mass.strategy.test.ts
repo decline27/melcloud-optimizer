@@ -20,7 +20,7 @@ const tibber: any = { getPrices: jest.fn() };
  * a method on the Optimizer class. It has been refactored into the ThermalController service.
  * 
  * The functionality is still tested through:
- * 1. Integration tests that call runEnhancedOptimization (which uses ThermalController internally)
+ * 1. Integration tests that call runOptimization (which uses ThermalController internally)
  * 2. Direct tests of ThermalController in thermal-controller.test.ts (if needed)
  * 
  * The refactoring improved separation of concerns by moving thermal strategy calculation

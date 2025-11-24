@@ -1,36 +1,38 @@
 import { randomUUID } from 'crypto';
-import { MelCloudApi } from './melcloud-api';
-import { ThermalModelService } from './thermal-model';
-import { COPHelper } from './cop-helper';
-import { validateNumber, validateBoolean } from '../util/validation';
-import {
-  MelCloudDevice,
-  TibberPriceInfo,
-  PriceProvider,
-  WeatherData,
-  ThermalModel,
-  OptimizationResult,
-  HomeyApp,
-  RealEnergyData,
-  OptimizationMetrics,
-  ThermalMassModel,
-  ThermalStrategy,
-  HotWaterUsagePattern,
-  HotWaterSchedule,
-  SchedulePoint,
-  EnhancedOptimizationResult,
-  SecondaryZoneResult,
-  TankOptimizationResult
-} from '../types';
-import { isError } from '../util/error-handler';
-import { EnhancedSavingsCalculator, OptimizationData, SavingsCalculationResult } from '../util/enhanced-savings-calculator';
 import { HomeyLogger } from '../util/logger';
-import { TimeZoneHelper } from '../util/time-zone-helper';
-import { applySetpointConstraints } from '../util/setpoint-constraints';
-import { computePlanningBias, updateThermalResponse } from './planning-utils';
-import { AdaptiveParametersLearner } from './adaptive-parameters';
+import { MelCloudApi } from './melcloud-api';
 import { PriceAnalyzer } from './price-analyzer';
 import { ThermalController } from './thermal-controller';
+import { COPHelper } from './cop-helper';
+import { ThermalModelService } from './thermal-model';
+import { EnhancedSavingsCalculator, SavingsCalculationResult, OptimizationData } from '../util/enhanced-savings-calculator';
+import { HotWaterOptimizer } from './hot-water-optimizer';
+import { ZoneOptimizer } from './zone-optimizer';
+import { TimeZoneHelper } from '../util/time-zone-helper';
+import {
+  OptimizationMetrics,
+  SchedulePoint,
+  TankOptimizationResult,
+  SecondaryZoneResult,
+  OptimizationResult,
+  EnhancedOptimizationResult,
+  HotWaterUsagePattern,
+  PriceProvider,
+  WeatherData,
+  HomeyApp,
+  RealEnergyData,
+  ThermalModel,
+  ThermalMassModel,
+  HotWaterSchedule,
+  MelCloudDevice
+} from '../types';
+import { validateNumber, validateBoolean } from '../util/validation';
+import { isError } from '../util/error-handler';
+import { computePlanningBias, updateThermalResponse } from './planning-utils';
+import { applySetpointConstraints } from '../util/setpoint-constraints';
+
+import { AdaptiveParametersLearner } from './adaptive-parameters';
+import { COP_THRESHOLDS, DEFAULT_WEIGHTS, COMFORT_CONSTANTS, OPTIMIZATION_CONSTANTS } from '../constants';
 
 const DEFAULT_HOT_WATER_PEAK_HOURS = [6, 7, 8]; // Morning fallback window when usage data is flat
 const MIN_SAVINGS_FOR_LEARNING = 0.05; // Minimum savings (SEK-equivalent) to trigger learning on no-change path
@@ -43,29 +45,35 @@ const MIN_SAVINGS_FOR_LEARNING = 0.05; // Minimum savings (SEK-equivalent) to tr
 export class Optimizer {
   private priceAnalyzer: PriceAnalyzer;
   private thermalController: ThermalController;
+  private hotWaterOptimizer: HotWaterOptimizer;
+  private zoneOptimizer: ZoneOptimizer;
 
-  private minTemp: number = 18;
-  private maxTemp: number = 22;
-  private tempStep: number = 0.5;
-  private deadband: number = 0.3; // Minimum temperature change to trigger adjustment
-  // Safety: avoid frequent setpoint changes (anti–short-cycling proxy)
-  private minSetpointChangeMinutes: number = 30;
+  private minTemp: number = COMFORT_CONSTANTS.DEFAULT_MIN_TEMP;
+  private maxTemp: number = COMFORT_CONSTANTS.DEFAULT_MAX_TEMP;
+  private tempStep: number = COMFORT_CONSTANTS.DEFAULT_TEMP_STEP;
+  private deadband: number = COMFORT_CONSTANTS.DEFAULT_DEADBAND;
+  private minSetpointChangeMinutes: number = COMFORT_CONSTANTS.DEFAULT_MIN_SETPOINT_CHANGE_MINUTES;
+
+  // ... (keeping other properties) ...
   private lastSetpointChangeMs: number | null = null;
   private lastIssuedSetpointC: number | null = null;
   private lastZone2SetpointChangeMs: number | null = null;
   private lastZone2IssuedSetpointC: number | null = null;
   private lastTankSetpointChangeMs: number | null = null;
   private lastTankIssuedSetpointC: number | null = null;
+
   // Secondary zone constraints
   private enableZone2: boolean = false;
-  private minTempZone2: number = 18;
-  private maxTempZone2: number = 22;
-  private tempStepZone2: number = 0.5;
+  private minTempZone2: number = COMFORT_CONSTANTS.DEFAULT_MIN_TEMP_ZONE2;
+  private maxTempZone2: number = COMFORT_CONSTANTS.DEFAULT_MAX_TEMP_ZONE2;
+  private tempStepZone2: number = COMFORT_CONSTANTS.DEFAULT_TEMP_STEP_ZONE2;
+
   // Hot water tank constraints
   private enableTankControl: boolean = false;
-  private minTankTemp: number = 40;
-  private maxTankTemp: number = 50;
-  private tankTempStep: number = 0.5;
+  private minTankTemp: number = COMFORT_CONSTANTS.DEFAULT_MIN_TANK_TEMP;
+  private maxTankTemp: number = COMFORT_CONSTANTS.DEFAULT_MAX_TANK_TEMP;
+  private tankTempStep: number = COMFORT_CONSTANTS.DEFAULT_TANK_TEMP_STEP;
+
   private thermalModelService: ThermalModelService | null = null;
   private useThermalLearning: boolean = false;
   private copHelper: COPHelper | null = null;
@@ -81,25 +89,15 @@ export class Optimizer {
   private occupied: boolean = true;
 
   private hotWaterUsagePattern: HotWaterUsagePattern = {
-    hourlyDemand: new Array(24).fill(0.5), // Default: 0.5 kWh per hour
-    peakHours: [7, 8, 18, 19, 20],         // Default: Morning and evening peaks
-    minimumBuffer: 2.0,                     // Default: 2 kWh minimum
+    hourlyDemand: new Array(24).fill(0.5),
+    peakHours: [7, 8, 18, 19, 20],
+    minimumBuffer: 2.0,
     lastLearningUpdate: new Date(),
     dataPoints: 0
   };
 
   private adaptiveParametersLearner?: AdaptiveParametersLearner;
 
-  /**
-   * Constructor
-   * @param melCloud MELCloud API instance
-   * @param priceProvider Price provider instance
-   * @param deviceId MELCloud device ID
-   * @param buildingId MELCloud building ID
-   * @param logger Logger instance
-   * @param weatherApi Weather API instance (optional)
-   * @param homey Homey app instance (optional, required for thermal learning)
-   */
   constructor(
     private readonly melCloud: MelCloudApi,
     priceProvider: PriceProvider | null,
@@ -119,23 +117,30 @@ export class Optimizer {
     this.priceAnalyzer = new PriceAnalyzer(this.logger, this.adaptiveParametersLearner);
     this.priceAnalyzer.setPriceProvider(priceProvider);
 
+    // Initialize ThermalController first (needed by ZoneOptimizer)
+    this.thermalController = new ThermalController(
+      this.logger,
+      this.thermalModelService || undefined, // thermalModelService is null here, so it will be undefined
+      this.adaptiveParametersLearner
+    );
+
+    this.hotWaterOptimizer = new HotWaterOptimizer(this.logger, this.priceAnalyzer);
+    this.zoneOptimizer = new ZoneOptimizer(this.logger, this.melCloud, this.priceAnalyzer, this.thermalController);
+
     // Initialize thermal learning model if homey instance is provided
     if (homey) {
       try {
         this.thermalModelService = new ThermalModelService(homey);
         this.useThermalLearning = true;
         this.logger.log('Thermal learning model initialized');
+        // Note: thermalController already initialized with undefined and will handle missing thermalModelService correctly
       } catch (error) {
         this.logger.error('Failed to initialize thermal learning model:', error);
         this.useThermalLearning = false;
       }
+    } else {
+      this.useThermalLearning = false;
     }
-
-    this.thermalController = new ThermalController(
-      this.logger,
-      this.thermalModelService || undefined,
-      this.adaptiveParametersLearner
-    );
 
     // Initialize COP helper
     if (homey) {
@@ -152,7 +157,7 @@ export class Optimizer {
         const preheatPercentile = Number(homey.settings.get('preheat_cheap_percentile'));
         this.priceAnalyzer.setThresholds(preheatPercentile);
 
-        this.logger.log(`COP settings loaded - Weight: ${this.copWeight}, Auto Seasonal: ${this.autoSeasonalMode}, Summer Mode: ${this.summerMode}`);
+        this.logger.log(`COP settings loaded - Weight: ${this.copWeight}, Auto Seasonal: ${this.autoSeasonalMode}, Summer Mode: ${this.summerMode} `);
 
         // Initialize TimeZoneHelper with user settings
         const tzOffset = homey.settings.get('time_zone_offset') || 1; // Settings page default: UTC+01:00
@@ -201,7 +206,7 @@ export class Optimizer {
           this.tempStepZone2 = tempStepZone2;
         }
 
-        this.logger.log(`Temperature constraint settings loaded - Main: ${this.minTemp}°C-${this.maxTemp}°C (${this.tempStep}°C), Zone2: ${this.minTempZone2}°C-${this.maxTempZone2}°C (${this.tempStepZone2}°C)`);
+        this.logger.log(`Temperature constraint settings loaded - Main: ${this.minTemp}°C - ${this.maxTemp}°C(${this.tempStep}°C), Zone2: ${this.minTempZone2}°C - ${this.maxTempZone2}°C(${this.tempStepZone2}°C)`);
 
         // Load hot water tank settings
         this.enableTankControl = homey.settings.get('enable_tank_control') !== false;
@@ -238,13 +243,13 @@ export class Optimizer {
           if (typeof copGuards.updateCount === 'number') {
             this.copRange.updateCount = copGuards.updateCount;
           }
-          this.logger.log(`COP guards restored - Range: ${this.copRange.minObserved.toFixed(2)}-${this.copRange.maxObserved.toFixed(2)}, ${this.copRange.history.length} samples`);
+          this.logger.log(`COP guards restored - Range: ${this.copRange.minObserved.toFixed(2)} -${this.copRange.maxObserved.toFixed(2)}, ${this.copRange.history.length} samples`);
         }
 
         // Load home/away state
         const occupiedSetting = homey.settings.get('occupied');
         this.occupied = occupiedSetting !== false; // Default to true if not set
-        this.logger.log(`Home/Away state loaded - Currently: ${this.occupied ? 'Home (Occupied)' : 'Away'}`);
+        this.logger.log(`Home / Away state loaded - Currently: ${this.occupied ? 'Home (Occupied)' : 'Away'} `);
 
         // Initialize thermal mass model from historical data (async, non-blocking)
         this.initializeThermalMassFromHistory().catch(error => {
@@ -380,7 +385,7 @@ export class Optimizer {
 
     // Ensure maxTemp is greater than minTemp
     if (this.maxTemp <= this.minTemp) {
-      throw new Error(`Invalid temperature range: maxTemp (${maxTemp}) must be greater than minTemp (${minTemp})`);
+      throw new Error(`Invalid temperature range: maxTemp(${maxTemp}) must be greater than minTemp(${minTemp})`);
     }
 
     this.tempStep = validateNumber(tempStep, 'tempStep', { min: 0.1, max: 1 });
@@ -397,7 +402,7 @@ export class Optimizer {
     this.maxTempZone2 = validateNumber(maxTempZone2, 'maxTempZone2', { min: 10, max: 30 });
 
     if (this.maxTempZone2 <= this.minTempZone2) {
-      throw new Error(`Invalid Zone2 temperature range: max (${maxTempZone2}) must be greater than min (${minTempZone2})`);
+      throw new Error(`Invalid Zone2 temperature range: max(${maxTempZone2}) must be greater than min(${minTempZone2})`);
     }
 
     this.tempStepZone2 = validateNumber(tempStepZone2 || 0.5, 'tempStepZone2', { min: 0.1, max: 2 });
@@ -417,7 +422,7 @@ export class Optimizer {
       this.homey.settings.set('occupied', occupied);
     }
 
-    this.logger.log(`Home/Away state changed: ${wasOccupied ? 'Home' : 'Away'} → ${occupied ? 'Home (Occupied)' : 'Away'}`);
+    this.logger.log(`Home / Away state changed: ${wasOccupied ? 'Home' : 'Away'} → ${occupied ? 'Home (Occupied)' : 'Away'} `);
   }
 
   /**
@@ -431,7 +436,7 @@ export class Optimizer {
 
     if (newOccupied !== this.occupied) {
       this.occupied = newOccupied;
-      this.logger.log(`Home/Away state refreshed from settings: ${this.occupied ? 'Home (Occupied)' : 'Away'}`);
+      this.logger.log(`Home / Away state refreshed from settings: ${this.occupied ? 'Home (Occupied)' : 'Away'} `);
     }
   }
 
@@ -486,7 +491,7 @@ export class Optimizer {
     this.maxTankTemp = validateNumber(maxTankTemp, 'maxTankTemp', { min: 30, max: 70 });
 
     if (this.maxTankTemp <= this.minTankTemp) {
-      throw new Error(`Invalid tank temperature range: max (${maxTankTemp}) must be greater than min (${minTankTemp})`);
+      throw new Error(`Invalid tank temperature range: max(${maxTankTemp}) must be greater than min(${minTankTemp})`);
     }
 
     this.tankTempStep = validateNumber(tankTempStep || 1, 'tankTempStep', { min: 0.5, max: 5 });
@@ -530,7 +535,7 @@ export class Optimizer {
   private updateCOPRange(cop: number): void {
     // Guard: reject non-finite, out-of-bounds values
     if (!Number.isFinite(cop) || cop < 0.5 || cop > 6.0) {
-      this.logger.warn(`COP outlier rejected: ${cop} (valid range: 0.5-6.0)`);
+      this.logger.warn(`COP outlier rejected: ${cop} (valid range: 0.5 - 6.0)`);
       return;
     }
 
@@ -729,183 +734,11 @@ export class Optimizer {
 
   /**
    * Optimize hot water scheduling based on usage patterns
-   * @param currentHour Current hour (0-23)
-   * @param priceData Next 24 hours price data
-   * @param hotWaterCOP Current hot water COP
-   * @returns Hot water schedule recommendation
-   */
-  private optimizeHotWaterSchedulingByPattern(
-    currentHour: number,
-    priceData: any[],
-    hotWaterCOP: number,
-    referenceTimeMs?: number
-  ): HotWaterSchedule {
-    try {
-      const nowMs = typeof referenceTimeMs === 'number' && Number.isFinite(referenceTimeMs)
-        ? referenceTimeMs
-        : Date.now();
-      const upcomingPrices = priceData.filter(pricePoint => {
-        const ts = Date.parse(pricePoint.time);
-        if (!Number.isFinite(ts)) {
-          return true;
-        }
-        return ts >= nowMs;
-      });
-      const priceWindow = upcomingPrices.length > 0 ? upcomingPrices : priceData;
-      const next24h = priceWindow.slice(0, 24);
-      const schedulePoints: SchedulePoint[] = [];
-
-      // For each peak demand hour, find optimal heating time
-      this.hotWaterUsagePattern.peakHours.forEach(peakHour => {
-        // Calculate when to start heating (2 hours before peak)
-        const heatingDuration = 2;
-        const startHour = (peakHour - heatingDuration + 24) % 24;
-
-        // Find valid heating window (4 hours before peak)
-        const validHours = [];
-        for (let i = 0; i < 4; i++) {
-          const hour = (peakHour - i + 24) % 24;
-          if (hour >= currentHour || hour < currentHour - 12) { // Future hours only
-            validHours.push(hour);
-          }
-        }
-
-        if (validHours.length > 0) {
-          // Find cheapest hour in valid window
-          const cheapestHour = validHours.reduce((min, hour) => {
-            const priceIndex = (hour - currentHour + 24) % 24;
-            const minPriceIndex = (min - currentHour + 24) % 24;
-
-            if (priceIndex < next24h.length && minPriceIndex < next24h.length) {
-              return next24h[priceIndex].price < next24h[minPriceIndex].price ? hour : min;
-            }
-            return min;
-          });
-
-          const priceIndex = (cheapestHour - currentHour + 24) % 24;
-          const pricePercentile = next24h.filter(p => p.price <= next24h[priceIndex].price).length / next24h.length;
-
-          schedulePoints.push({
-            hour: cheapestHour,
-            reason: `Prepare for peak demand at ${peakHour}:00`,
-            priority: this.hotWaterUsagePattern.hourlyDemand[peakHour],
-            cop: hotWaterCOP,
-            pricePercentile
-          });
-        }
-      });
-
-      // Sort by priority (highest first)
-      schedulePoints.sort((a, b) => b.priority - a.priority);
-
-      // Determine current action
-      const currentAction = this.determineCurrentHotWaterAction(
-        currentHour,
-        schedulePoints,
-        hotWaterCOP,
-        next24h
-      );
-
-      // Calculate estimated savings
-      const estimatedSavings = this.calculateHotWaterScheduleSavings(
-        schedulePoints,
-        hotWaterCOP,
-        next24h
-      );
-
-      return {
-        schedulePoints,
-        currentAction,
-        reasoning: `Predictive scheduling based on usage pattern (peaks: ${this.hotWaterUsagePattern.peakHours.join(', ')}h)`,
-        estimatedSavings
-      };
-
-    } catch (error) {
-      this.logger.error('Error optimizing hot water scheduling:', error);
-      return {
-        schedulePoints: [],
-        currentAction: 'maintain',
-        reasoning: 'Error in scheduling - maintaining current operation',
-        estimatedSavings: 0
-      };
-    }
-  }
-
-  /**
-   * Determine current hot water action based on schedule
-   */
-  private determineCurrentHotWaterAction(
-    currentHour: number,
-    schedulePoints: SchedulePoint[],
-    hotWaterCOP: number,
-    priceData: any[]
-  ): 'heat_now' | 'delay' | 'maintain' {
-
-    // Check if current hour is a scheduled heating time
-    const isScheduledNow = schedulePoints.some(point => point.hour === currentHour);
-
-    if (isScheduledNow) {
-      return 'heat_now';
-    }
-
-    // Check if we're approaching a peak and haven't heated yet
-    const nextPeak = this.hotWaterUsagePattern.peakHours.find(peak => {
-      const hoursUntilPeak = (peak - currentHour + 24) % 24;
-      return hoursUntilPeak <= 2 && hoursUntilPeak > 0;
-    });
-
-    if (nextPeak && hotWaterCOP > 0) {
-      // Emergency heating before peak
-      return 'heat_now';
-    }
-
-    // Check if current price is exceptional
-    const currentPrice = priceData[0]?.price || 0;
-    const avgPrice = priceData.reduce((sum, p) => sum + p.price, 0) / priceData.length;
-
-    // Convert user's cheap percentile to price ratio threshold (cheap percentile of 0.25 -> price ratio of ~0.75)
-    const priceRatioThreshold = 1.0 - (this.priceAnalyzer.getCheapPercentile() * 1.2); // Slightly more aggressive for hot water
-
-    if (currentPrice < avgPrice * priceRatioThreshold && hotWaterCOP > 2.5) {
       // Cheap electricity (based on user's threshold) + decent COP
       return 'heat_now';
     }
 
     return 'maintain';
-  }
-
-  /**
-   * Calculate estimated savings from hot water schedule
-   */
-  private calculateHotWaterScheduleSavings(
-    schedulePoints: SchedulePoint[],
-    hotWaterCOP: number,
-    priceData: any[]
-  ): number {
-    try {
-      if (schedulePoints.length === 0) return 0;
-
-      const avgPrice = priceData.reduce((sum, p) => sum + p.price, 0) / priceData.length;
-
-      let totalSavings = 0;
-      schedulePoints.forEach(point => {
-        const hourIndex = Math.min(point.hour, priceData.length - 1);
-        const scheduledPrice = priceData[hourIndex]?.price || avgPrice;
-
-        // Savings from scheduling during cheaper time
-        const priceSavings = (avgPrice - scheduledPrice) * 2; // 2 kWh typical heating
-
-        // COP efficiency bonus
-        const copEfficiency = this.normalizeCOP(point.cop);
-        const efficiencyBonus = 2 * 0.1 * copEfficiency; // Energy * rate * efficiency
-
-        totalSavings += (priceSavings + efficiencyBonus) * point.priority;
-      });
-
-      return Math.max(totalSavings, 0);
-    } catch (error) {
-      return 0;
-    }
   }
 
   /**
@@ -932,7 +765,7 @@ export class Optimizer {
       }
     }
 
-    this.logger.log(`COP settings updated - Weight: ${this.copWeight}, Auto Seasonal: ${this.autoSeasonalMode}, Summer Mode: ${this.summerMode}`);
+    this.logger.log(`COP settings updated - Weight: ${this.copWeight}, Auto Seasonal: ${this.autoSeasonalMode}, Summer Mode: ${this.summerMode} `);
   }
 
 
@@ -1047,7 +880,7 @@ export class Optimizer {
       const heatingEfficiencyDisplay = realHeatingCOP > 0 ? (heatingEfficiency * 100).toFixed(0) + '%' : 'n/a';
       const hotWaterEfficiencyDisplay = realHotWaterCOP > 0 ? (hotWaterEfficiency * 100).toFixed(0) + '%' : 'n/a';
 
-      this.logger.log(`Enhanced energy metrics calculated:`, {
+      this.logger.log(`Enhanced energy metrics calculated: `, {
         heatingCOP: heatingCOPDisplay,
         hotWaterCOP: hotWaterCOPDisplay,
         heatingEfficiency: heatingEfficiencyDisplay,
@@ -1057,7 +890,7 @@ export class Optimizer {
         optimizationFocus,
         heatingTrend: trends.heatingTrend,
         hotWaterTrend: trends.hotWaterTrend,
-        copRange: `${this.copRange.minObserved.toFixed(1)}-${this.copRange.maxObserved.toFixed(1)} (${this.copRange.updateCount} obs)`
+        copRange: `${this.copRange.minObserved.toFixed(1)} -${this.copRange.maxObserved.toFixed(1)} (${this.copRange.updateCount} obs)`
       });
 
       return metrics;
@@ -1159,7 +992,7 @@ export class Optimizer {
       }
 
       targetTemp = midTemp + priceAdjustment + efficiencyAdjustment;
-      reason = `Summer mode: Hot water COP ${metrics.realHotWaterCOP.toFixed(2)} (${(hotWaterEfficiency * 100).toFixed(0)}% efficiency), price ${normalizedPrice > 0.6 ? 'high' : normalizedPrice < 0.4 ? 'low' : 'moderate'}`;
+      reason = `Summer mode: Hot water COP ${metrics.realHotWaterCOP.toFixed(2)} (${(hotWaterEfficiency * 100).toFixed(0)}% efficiency), price ${normalizedPrice > 0.6 ? 'high' : normalizedPrice < 0.4 ? 'low' : 'moderate'} `;
 
     } else if (metrics.seasonalMode === 'winter') {
       // Winter optimization: Balance heating efficiency with comfort and prices
@@ -1200,7 +1033,7 @@ export class Optimizer {
       const outdoorAdjustment = outdoorTemp < 5 ? 0.5 : outdoorTemp > 15 ? -0.3 : 0;
 
       targetTemp = midTemp + priceAdjustment + efficiencyAdjustment + outdoorAdjustment;
-      reason = `Winter mode: Heating COP ${metrics.realHeatingCOP.toFixed(2)} (${(heatingEfficiency * 100).toFixed(0)}% efficiency), outdoor ${outdoorTemp}°C, price ${normalizedPrice > 0.6 ? 'high' : normalizedPrice < 0.4 ? 'low' : 'moderate'}`;
+      reason = `Winter mode: Heating COP ${metrics.realHeatingCOP.toFixed(2)} (${(heatingEfficiency * 100).toFixed(0)}% efficiency), outdoor ${outdoorTemp}°C, price ${normalizedPrice > 0.6 ? 'high' : normalizedPrice < 0.4 ? 'low' : 'moderate'} `;
 
     } else {
       // Transition mode: Balanced approach using both COPs
@@ -1233,76 +1066,21 @@ export class Optimizer {
     if (metrics.optimizationFocus === 'hotwater' && metrics.realHotWaterCOP > 3) {
       // Excellent hot water performance allows more aggressive optimization
       targetTemp += 0.2;
-      reason += `, excellent hot water COP (+0.2°C)`;
+      reason += `, excellent hot water COP(+0.2°C)`;
     } else if (metrics.optimizationFocus === 'both' && metrics.realHeatingCOP > 2) {
       // Good heating performance
       targetTemp += 0.3;
-      reason += `, good heating COP (+0.3°C)`;
+      reason += `, good heating COP(+0.3°C)`;
     } else if (metrics.realHeatingCOP < 1.5 && metrics.realHeatingCOP > 0) {
       // Poor heating performance - be more conservative
       targetTemp -= 0.5;
-      reason += `, low heating COP (-0.5°C)`;
+      reason += `, low heating COP(-0.5°C)`;
     }
 
     return { targetTemp, reason, metrics };
   }
 
   /**
-   * Enhanced hot water optimization using real COP data
-   * @param currentPrice Current electricity price
-   * @param priceData Full price data for scheduling
-   * @returns Hot water optimization recommendation
-   */
-  private async optimizeHotWaterScheduling(currentPrice: number, priceData: any, metricsOverride?: OptimizationMetrics | null): Promise<{
-    action: 'heat_now' | 'delay' | 'maintain';
-    reason: string;
-    scheduledTime?: string;
-  }> {
-    const metrics = metricsOverride ?? await this.getRealEnergyMetrics();
-
-    if (!metrics || !this.lastEnergyData) {
-      return { action: 'maintain', reason: 'No real energy data available for hot water optimization' };
-    }
-
-    // Calculate hot water efficiency score
-    const hotWaterCOP = metrics.realHotWaterCOP;
-    const dailyHotWaterConsumption = this.lastEnergyData.TotalHotWaterConsumed / 7; // kWh per day
-
-    // Find cheapest hours in the next 24 hours
-    const referenceTimeMs = priceData.current?.time ? Date.parse(priceData.current.time) : NaN;
-    const nowMs = Number.isFinite(referenceTimeMs) ? referenceTimeMs : Date.now();
-    const upcomingPrices = priceData.prices.filter((pricePoint: any) => {
-      const ts = Date.parse(pricePoint.time);
-      if (!Number.isFinite(ts)) {
-        return true;
-      }
-      return ts >= nowMs;
-    });
-    const prices = (upcomingPrices.length > 0 ? upcomingPrices : priceData.prices).slice(0, 24); // Next 24 hours
-    const sortedPrices = [...prices].sort((a: any, b: any) => a.price - b.price);
-    const cheapestHours = sortedPrices.slice(0, 4); // Top 4 cheapest hours
-
-    // Update COP range for adaptive normalization
-    this.updateCOPRange(hotWaterCOP);
-    const hotWaterEfficiency = this.normalizeCOP(hotWaterCOP);
-
-    // Current price percentile
-    const currentPercentile = prices.filter((p: any) => p.price <= currentPrice).length / prices.length;
-
-    // Improved COP-based hot water optimization
-    if (hotWaterEfficiency > 0.8) {
-      // Excellent hot water COP (>80th percentile): More flexible timing  
-      if (currentPercentile <= (this.priceAnalyzer.getCheapPercentile() * 1.6)) { // User's cheap threshold * 1.6 for hot water flexibility
-        return {
-          action: 'heat_now',
-          reason: `Excellent hot water COP (${hotWaterCOP.toFixed(2)}, ${(hotWaterEfficiency * 100).toFixed(0)}th percentile) + reasonable electricity price (${(currentPercentile * 100).toFixed(0)}th percentile)`
-        };
-      } else if (currentPercentile >= (1.0 - this.priceAnalyzer.getCheapPercentile() * 0.8)) { // Mirror of cheap threshold
-        const nextCheapHour = cheapestHours[0];
-        return {
-          action: 'delay',
-          reason: `High COP but very expensive electricity - delay to ${nextCheapHour.time}`,
-          scheduledTime: nextCheapHour.time
         };
       }
     } else if (hotWaterEfficiency > 0.5) {
@@ -1310,7 +1088,7 @@ export class Optimizer {
       if (currentPercentile <= 0.3) { // Only during cheapest 30%
         return {
           action: 'heat_now',
-          reason: `Good hot water COP (${hotWaterCOP.toFixed(2)}, ${(hotWaterEfficiency * 100).toFixed(0)}th percentile) + cheap electricity (${(currentPercentile * 100).toFixed(0)}th percentile)`
+          reason: `Good hot water COP(${ hotWaterCOP.toFixed(2) }, ${(hotWaterEfficiency * 100).toFixed(0)}th percentile) + cheap electricity(${(currentPercentile * 100).toFixed(0)}th percentile)`
         };
       }
     } else if (hotWaterEfficiency > 0.2) {
@@ -1318,13 +1096,13 @@ export class Optimizer {
       if (currentPercentile <= 0.15) { // Only during cheapest 15%
         return {
           action: 'heat_now',
-          reason: `Poor hot water COP (${hotWaterCOP.toFixed(2)}, ${(hotWaterEfficiency * 100).toFixed(0)}th percentile) - only during cheapest electricity (${(currentPercentile * 100).toFixed(0)}th percentile)`
+          reason: `Poor hot water COP(${ hotWaterCOP.toFixed(2) }, ${(hotWaterEfficiency * 100).toFixed(0)}th percentile) - only during cheapest electricity(${(currentPercentile * 100).toFixed(0)}th percentile)`
         };
       } else {
         const nextCheapHour = cheapestHours[0];
         return {
           action: 'delay',
-          reason: `Poor COP - wait for cheapest electricity at ${nextCheapHour.time}`,
+          reason: `Poor COP - wait for cheapest electricity at ${ nextCheapHour.time } `,
           scheduledTime: nextCheapHour.time
         };
       }
@@ -1333,13 +1111,13 @@ export class Optimizer {
       if (currentPercentile <= 0.1) { // Only during cheapest 10%
         return {
           action: 'heat_now',
-          reason: `Very poor hot water COP (${hotWaterCOP.toFixed(2)}) - emergency heating during absolute cheapest electricity`
+          reason: `Very poor hot water COP(${ hotWaterCOP.toFixed(2) }) - emergency heating during absolute cheapest electricity`
         };
       } else {
         const nextCheapHour = cheapestHours[0];
         return {
           action: 'delay',
-          reason: `Very poor COP - critical: wait for absolute cheapest electricity at ${nextCheapHour.time}`,
+          reason: `Very poor COP - critical: wait for absolute cheapest electricity at ${ nextCheapHour.time } `,
           scheduledTime: nextCheapHour.time
         };
       }
@@ -1358,268 +1136,27 @@ export class Optimizer {
       if (process.env.NODE_ENV === 'test') {
         throw error;
       } else {
-        throw new Error(`API error: ${error.message}`);
+        throw new Error(`API error: ${error.message} `);
       }
     } else {
       this.logger.error('Unknown API error:', String(error));
-      throw new Error(`Unknown API error: ${String(error)}`);
+      throw new Error(`Unknown API error: ${String(error)} `);
     }
   }
 
-  /**
-   * Run hourly optimization
-   * @returns Promise resolving to optimization result
-   */
-  async runHourlyOptimization(): Promise<OptimizationResult> {
-    this.logger.log('Starting hourly optimization');
 
-    try {
-      // Get current device state
-      const deviceState = await this.melCloud.getDeviceState(this.deviceId, this.buildingId);
-      const currentTemp = deviceState.RoomTemperature || deviceState.RoomTemperatureZone1;
-      const currentTarget = deviceState.SetTemperature || deviceState.SetTemperatureZone1;
-      const outdoorTemp = deviceState.OutdoorTemperature || 0;
-
-      // Check if temperature data is missing and log an error
-      if (currentTemp === undefined && deviceState.RoomTemperature === undefined && deviceState.RoomTemperatureZone1 === undefined) {
-        this.logger.error('Missing indoor temperature data in device state', deviceState);
-      }
-
-      if (currentTarget === undefined && deviceState.SetTemperature === undefined && deviceState.SetTemperatureZone1 === undefined) {
-        this.logger.error('Missing target temperature data in device state', deviceState);
-      }
-
-      // Get electricity prices
-      // Get electricity prices
-      if (!this.priceAnalyzer.hasPriceProvider()) {
-        throw new Error('Price provider not initialized');
-      }
-      const priceData = await this.priceAnalyzer.getPriceData();
-      const currentPrice = priceData.current.price;
-
-      // Calculate price statistics
-      const prices = priceData.prices.map((p: any) => p.price);
-      const priceAvg = prices.reduce((sum: number, price: number) => sum + price, 0) / prices.length;
-      const priceMin = Math.min(...prices);
-      const priceMax = Math.max(...prices);
-
-      // Get weather data if available
-      let weatherConditions = {
-        temperature: outdoorTemp,
-        windSpeed: 0,
-        humidity: 50,
-        cloudCover: 50,
-        precipitation: 0
-      };
-
-      if (this.weatherApi) {
-        try {
-          const weather = await this.weatherApi.getCurrentWeather();
-          weatherConditions = {
-            temperature: weather.temperature || outdoorTemp,
-            windSpeed: weather.windSpeed || 0,
-            humidity: weather.humidity || 50,
-            cloudCover: weather.cloudCover || 50,
-            precipitation: weather.precipitation || 0
-          };
-        } catch (weatherError) {
-          this.logger.error('Error getting weather data:', weatherError);
-        }
-      }
-
-      // Collect thermal data point if thermal learning is enabled
-      if (this.useThermalLearning && this.thermalModelService) {
-        try {
-          // Create data point
-          const dataPoint = {
-            timestamp: new Date().toISOString(),
-            indoorTemperature: currentTemp ?? 20,
-            outdoorTemperature: outdoorTemp,
-            targetTemperature: currentTarget ?? 20,
-            heatingActive: !deviceState.IdleZone1,
-            weatherConditions: {
-              windSpeed: weatherConditions.windSpeed,
-              humidity: weatherConditions.humidity,
-              cloudCover: weatherConditions.cloudCover,
-              precipitation: weatherConditions.precipitation
-            }
-          };
-
-          // Add to collector
-          this.thermalModelService.collectDataPoint(dataPoint);
-        } catch (error) {
-          this.logger.error('Error collecting thermal data point:', error);
-        }
-      }
-
-      let newTarget: number;
-      let reason: string;
-      let additionalInfo: any = {};
-
-      // Use thermal learning model if available
-      if (this.useThermalLearning && this.thermalModelService) {
-        try {
-          // Get comfort profile from user settings (using settings page defaults)
-          const comfortProfile = {
-            dayStart: Number(this.homey?.settings.get('day_start_hour')) || 6,     // Settings page default: value="6"
-            dayEnd: Number(this.homey?.settings.get('day_end_hour')) || 22,        // Settings page default: value="22"
-            nightTempReduction: Number(this.homey?.settings.get('night_temp_reduction')) || 2,
-            preHeatHours: Number(this.homey?.settings.get('pre_heat_hours')) || 1  // Settings page default: value="1"
-          };
-
-          // Get thermal model recommendation
-          const recommendation = this.thermalModelService.getHeatingRecommendation(
-            priceData.prices,
-            currentTarget ?? 20,
-            currentTemp ?? 20,
-            outdoorTemp,
-            weatherConditions,
-            comfortProfile
-          );
-
-          newTarget = recommendation.recommendedTemperature;
-          reason = recommendation.explanation;
-
-          // Get time to target prediction
-          const timeToTarget = this.thermalModelService.getTimeToTarget(
-            currentTemp ?? 20,
-            newTarget,
-            outdoorTemp,
-            weatherConditions
-          );
-
-          // Add thermal model data to result
-          additionalInfo = {
-            thermalModel: {
-              characteristics: this.thermalModelService.getThermalCharacteristics(),
-              timeToTarget: timeToTarget.timeToTarget,
-              confidence: timeToTarget.confidence,
-              recommendation: recommendation
-            }
-          };
-
-          this.logger.log(`Thermal model recommendation: ${newTarget}°C (${reason})`);
-
-        } catch (modelError) {
-          this.logger.error('Error using thermal model, falling back to basic optimization:', modelError);
-          // Fall back to basic optimization
-          newTarget = await this.calculateOptimalTemperature(currentPrice, priceAvg, priceMin, priceMax, currentTemp ?? 20);
-          reason = newTarget < (currentTarget ?? 20) ? 'Price is above average, reducing temperature' :
-            newTarget > (currentTarget ?? 20) ? 'Price is below average, increasing temperature' :
-              'No change needed';
-        }
-      } else {
-        // Use basic optimization
-        newTarget = await this.calculateOptimalTemperature(currentPrice, priceAvg, priceMin, priceMax, currentTemp ?? 20);
-        reason = newTarget < (currentTarget ?? 20) ? 'Price is above average, reducing temperature' :
-          newTarget > (currentTarget ?? 20) ? 'Price is below average, increasing temperature' :
-            'No change needed';
-      }
-
-      // If COP helper is available, add COP info to the reason
-      if (this.copHelper && this.copWeight > 0) {
-        try {
-          const seasonalCOP = await this.copHelper.getSeasonalCOP();
-          if (seasonalCOP > 0) {
-            // Add COP info to the reason
-            reason += ` (COP: ${seasonalCOP.toFixed(2)})`;
-          }
-        } catch (error) {
-          this.logger.error('Error getting COP data for reason:', error);
-        }
-      }
-
-      // Apply constraints - use user-configurable comfort bands
-      const constraints = this.getCurrentComfortBand();
-      newTarget = Math.max(constraints.minTemp, Math.min(constraints.maxTemp, newTarget));
-
-      // Apply step constraint (don't change by more than tempStep)
-      const maxChange = this.tempStep;
-      const safeCurrentTarget = currentTarget ?? 20;
-      if (Math.abs(newTarget - safeCurrentTarget) > maxChange) {
-        newTarget = safeCurrentTarget + (newTarget > safeCurrentTarget ? maxChange : -maxChange);
-      }
-
-      // Round to nearest step
-      newTarget = Math.round(newTarget / this.tempStep) * this.tempStep;
-
-      // Calculate savings and comfort impact
-      const savings = this.calculateSavings(safeCurrentTarget, newTarget, currentPrice);
-      const comfort = this.calculateComfortImpact(safeCurrentTarget, newTarget);
-
-      // Set new temperature if different
-      if (newTarget !== safeCurrentTarget) {
-        try {
-          await this.melCloud.setDeviceTemperature(this.deviceId, this.buildingId, newTarget);
-          this.logger.log(`Changed temperature from ${safeCurrentTarget}°C to ${newTarget}°C: ${reason}`);
-        } catch (error) {
-          this.logger.error('Failed to set MELCloud target temperature:', error);
-          const errMsg = (error instanceof Error) ? error.message : String(error);
-          reason = `Temperature change requested but MELCloud rejected: ${errMsg}`;
-          newTarget = safeCurrentTarget;
-        }
-      } else {
-        this.logger.log(`Keeping temperature at ${safeCurrentTarget}°C: ${reason}`);
-      }
-
-      // Get COP data if available
-      let copData = null;
-      if (this.copHelper) {
-        try {
-          const seasonalCOP = await this.copHelper.getSeasonalCOP();
-          const latestCOP = await this.copHelper.getLatestCOP();
-          const isSummerMode = this.autoSeasonalMode ? this.copHelper.isSummerSeason() : this.summerMode;
-
-          copData = {
-            heating: latestCOP.heating,
-            hotWater: latestCOP.hotWater,
-            seasonal: seasonalCOP,
-            weight: this.copWeight,
-            isSummerMode,
-            autoSeasonalMode: this.autoSeasonalMode
-          };
-        } catch (error) {
-          this.logger.error('Error getting COP data for result:', error);
-        }
-      }
-
-      // Return result
-      return {
-        targetTemp: newTarget,
-        reason,
-        priceNow: currentPrice,
-        priceAvg,
-        priceMin,
-        priceMax,
-        indoorTemp: currentTemp,
-        outdoorTemp: deviceState.OutdoorTemperature,
-        targetOriginal: currentTarget,
-        savings,
-        comfort,
-        timestamp: new Date().toISOString(),
-        kFactor: this.thermalController.getThermalModel().K,
-        cop: copData,
-        ...additionalInfo
-      };
-    } catch (error) {
-      this.logger.error('Error in hourly optimization', error);
-      this.handleApiError(error);
-      throw error;
-    }
-    throw new Error('Enhanced optimization exited without producing a result');
-  }
 
   /**
    * Enhanced optimization using real energy data - complements the existing optimization
    * @returns Promise resolving to enhanced optimization result
    */
-  async runEnhancedOptimization(): Promise<EnhancedOptimizationResult> {
+  async runOptimization(): Promise<EnhancedOptimizationResult> {
     const correlationId = randomUUID();
     const logDecision = (event: string, payload: Record<string, unknown>) => {
       if (this.logger && typeof (this.logger as any).optimization === 'function') {
         (this.logger as any).optimization(event, { correlationId, ...payload });
       } else if (this.logger && typeof this.logger.log === 'function') {
-        this.logger.log(`${event}: ${JSON.stringify({ correlationId, ...payload })}`);
+        this.logger.log(`${event}: ${JSON.stringify({ correlationId, ...payload })} `);
       }
     };
     logDecision('optimizer.run.start', {
@@ -1735,7 +1272,7 @@ export class Optimizer {
         const t = (priceData.current && (priceData.current as any).time) ? new Date((priceData.current as any).time).getTime() : NaN;
         const ageMin = Number.isFinite(t) ? (Date.now() - t) / 60000 : Infinity;
         if (!(ageMin >= 0 && ageMin <= 65)) {
-          this.logger.warn(`Price data appears stale or in the future (age=${ageMin.toFixed(1)} min). Holding setpoint.`);
+          this.logger.warn(`Price data appears stale or in the future(age = ${ageMin.toFixed(1)} min).Holding setpoint.`);
           return {
             success: true,
             action: 'no_change',
@@ -1877,7 +1414,7 @@ export class Optimizer {
         lastChangeMs: this.lastSetpointChangeMs
       });
       adjustmentReason += zone1ConstraintsInitial.reason !== 'within constraints'
-        ? ` | ${zone1ConstraintsInitial.reason}`
+        ? ` | ${zone1ConstraintsInitial.reason} `
         : '';
       logDecision('constraints.zone1.initial', {
         proposed: targetTemp,
@@ -1908,7 +1445,7 @@ export class Optimizer {
         duplicateTarget,
         adjustmentReason,
         priceNormalized: priceNormalizedValue.toFixed(2),
-        pricePercentile: `${pricePercentile.toFixed(0)}%`
+        pricePercentile: `${pricePercentile.toFixed(0)}% `
       };
 
       if (optimizationResult.metrics) {
@@ -1951,7 +1488,7 @@ export class Optimizer {
           // Apply thermal strategy to target temperature
           if (thermalStrategy.action !== 'maintain') {
             targetTemp = thermalStrategy.targetTemp;
-            adjustmentReason += ` + Thermal mass ${thermalStrategy.action}: ${thermalStrategy.reasoning}`;
+            adjustmentReason += ` + Thermal mass ${thermalStrategy.action}: ${thermalStrategy.reasoning} `;
 
             this.logger.log('Thermal mass strategy applied:', {
               action: thermalStrategy.action,
@@ -1966,11 +1503,12 @@ export class Optimizer {
           // Use pattern-based hot water scheduling if we have usage data
           if (this.hotWaterUsagePattern && this.hotWaterUsagePattern.dataPoints >= 14) {
             const currentHour = this.timeZoneHelper.getLocalTime().hour;
-            const hotWaterSchedule = this.optimizeHotWaterSchedulingByPattern(
+            // Use HotWaterOptimizer service for pattern-based scheduling
+            const hotWaterSchedule = this.hotWaterOptimizer.optimizeHotWaterSchedulingByPattern(
               currentHour,
               priceData.prices,
               optimizationResult.metrics.realHotWaterCOP,
-              planningReferenceTimeMs
+              this.hotWaterUsagePattern
             );
 
             hotWaterAction = {
@@ -1987,19 +1525,22 @@ export class Optimizer {
             });
           } else {
             // Fallback to price/COP based optimization
-            const hotWaterOpt = await this.optimizeHotWaterScheduling(
+            const hotWaterOpt = await this.hotWaterOptimizer.optimizeHotWaterScheduling(
               currentPrice,
               priceData,
-              optimizationResult.metrics ?? cachedMetrics ?? undefined
+              optimizationResult.metrics ?? cachedMetrics ?? null,
+              this.lastEnergyData
             );
             hotWaterAction = hotWaterOpt;
           }
         } else {
           // Fallback to simple price/COP based optimization
-          const hotWaterOpt = await this.optimizeHotWaterScheduling(
+          // Use HotWaterOptimizer service
+          const hotWaterOpt = await this.hotWaterOptimizer.optimizeHotWaterScheduling(
             currentPrice,
             priceData,
-            optimizationResult.metrics ?? cachedMetrics ?? undefined
+            optimizationResult.metrics ?? cachedMetrics ?? null,
+            this.lastEnergyData
           );
           hotWaterAction = hotWaterOpt;
         }
@@ -2034,7 +1575,7 @@ export class Optimizer {
         zone1FinalConstraints.reason !== 'within constraints' &&
         !adjustmentReason.includes(zone1FinalConstraints.reason)
       ) {
-        adjustmentReason += ` | ${zone1FinalConstraints.reason}`;
+        adjustmentReason += ` | ${zone1FinalConstraints.reason} `;
       }
       targetTemp = zone1FinalConstraints.constrainedC;
       const rawExpectedDelta = zone1FinalConstraints.changed ? zone1FinalConstraints.deltaC : 0;
@@ -2055,7 +1596,7 @@ export class Optimizer {
 
       logDecision('optimizer.run.summary', logData);
       this.logger.log(
-        `[ThermalModel] Adaptive interpretation: priceNormalized=${priceNormalizedValue.toFixed(2)}, percentile=${pricePercentile.toFixed(1)}% → '${priceLevel}' (thermal inertia thresholds).`,
+        `[ThermalModel] Adaptive interpretation: priceNormalized = ${priceNormalizedValue.toFixed(2)}, percentile = ${pricePercentile.toFixed(1)}% → '${priceLevel}'(thermal inertia thresholds).`,
         { thresholds: priceClassification.thresholds }
       );
       this.logger.log('Enhanced optimization result:', logData);
@@ -2066,95 +1607,60 @@ export class Optimizer {
         this.logger.log('WARNING: Zone2 temperature optimization enabled in settings, but device does not expose Zone2');
       }
 
-      let zone2Result: SecondaryZoneResult | null = null;
-      if (this.enableZone2 && deviceSupportsZone2) {
-        try {
-          const currentTempZone2 = deviceState.RoomTemperatureZone2 ?? currentTemp ?? 21;
-          const currentTargetZone2 = deviceState.SetTemperatureZone2 ?? currentTempZone2;
+      // Handle Zone 2 optimization if enabled
+      let zone2Result: any = null;
+      if (this.enableZone2) {
+        const currentZone2Target = deviceState.SetTemperatureZone2;
+        const currentZone2Temp = deviceState.RoomTemperatureZone2 || currentTemp;
+        if (currentZone2Target !== undefined) {
+          try {
+            // Pass Zone 1's calculated target, thermal strategy, and metrics to Zone 2
+            const zone2Opt = await this.zoneOptimizer.optimizeZone2(
+              this.deviceId,
+              this.buildingId,
+              currentZone2Temp,
+              currentZone2Target,
+              targetTemp, // Zone 1's calculated target as baseline
+              weatherInfo ? {
+                adjustment: weatherInfo.tempAdjustment || 0,
+                reason: weatherInfo.condition || 'weather condition'
+              } : null,
+              priceLevel,
+              null, // Thermal strategy not available from optimizationResult
+              optimizationResult.metrics || null, // Pass COP and energy metrics
+              {
+                minTemp: this.minTempZone2,
+                maxTemp: this.maxTempZone2,
+                tempStep: this.tempStep,
+                deadband: this.deadband,
+                minChangeMinutes: this.minSetpointChangeMinutes,
+                lastChangeMs: this.lastZone2SetpointChangeMs || 0
+              }
+            );
 
-          let zone2Target = await this.calculateOptimalTemperature(
-            currentPrice,
-            avgPrice,
-            minPrice,
-            maxPrice,
-            currentTempZone2
-          );
+            if (zone2Opt.changed) {
+              this.lastZone2SetpointChangeMs = Date.now();
+              this.lastZone2IssuedSetpointC = zone2Opt.toTemp;
+              // Persist state
+              if (this.homey) {
+                this.homey.settings.set('last_zone2_setpoint_change_ms', this.lastZone2SetpointChangeMs);
+              }
+            }
 
-          if (weatherAdjustment && Math.abs(weatherAdjustment.adjustment) >= 0.1) {
-            zone2Target += weatherAdjustment.adjustment;
+            zone2Result = {
+              success: zone2Opt.success,
+              action: zone2Opt.changed ? 'changed' : 'hold',
+              targetTemp: zone2Opt.toTemp,
+              fromTemp: zone2Opt.fromTemp,
+              toTemp: zone2Opt.toTemp,
+              reason: zone2Opt.reason
+            };
+          } catch (error) {
+            this.logger.error('Zone 2 optimization failed', error);
           }
-
-          const zone2Deadband = Math.max(0.1, this.tempStepZone2 / 2);
-          const zone2Constraints = applySetpointConstraints({
-            proposedC: zone2Target,
-            currentTargetC: currentTargetZone2,
-            minC: this.minTempZone2,
-            maxC: this.maxTempZone2,
-            stepC: this.tempStepZone2,
-            deadbandC: zone2Deadband,
-            minChangeMinutes: this.minSetpointChangeMinutes,
-            lastChangeMs: this.lastZone2SetpointChangeMs
-          });
-          logDecision('constraints.zone2.final', {
-            proposed: zone2Target,
-            currentTarget: currentTargetZone2,
-            result: zone2Constraints
-          });
-
-          zone2Target = zone2Constraints.constrainedC;
-          const zone2Change = Math.abs(zone2Constraints.deltaC);
-          const zone2Lockout = zone2Constraints.lockoutActive;
-
-          let zone2Reason = 'No change needed';
-          if (zone2Target < currentTargetZone2) {
-            zone2Reason = weatherAdjustment && typeof weatherAdjustment.reason === 'string'
-              ? `Tibber price level ${priceLevel} and ${weatherAdjustment.reason.toLowerCase()} – reducing Zone2 temperature`
-              : `Tibber price level ${priceLevel} – reducing Zone2 temperature`;
-          } else if (zone2Target > currentTargetZone2) {
-            zone2Reason = weatherAdjustment && typeof weatherAdjustment.reason === 'string'
-              ? `Tibber price level ${priceLevel} and ${weatherAdjustment.reason.toLowerCase()} – increasing Zone2 temperature`
-              : `Tibber price level ${priceLevel} – increasing Zone2 temperature`;
-          }
-
-          if (
-            zone2Constraints.reason !== 'within constraints' &&
-            !zone2Reason.includes(zone2Constraints.reason)
-          ) {
-            zone2Reason += ` | ${zone2Constraints.reason}`;
-          }
-
-          const zone2Duplicate = this.lastZone2IssuedSetpointC !== null &&
-            Math.abs((this.lastZone2IssuedSetpointC as number) - zone2Target) < 1e-4;
-          const zone2ShouldApply = zone2Constraints.changed && !zone2Lockout && !zone2Duplicate;
-
-          if (zone2ShouldApply) {
-            await this.melCloud.setZoneTemperature(this.deviceId, this.buildingId, zone2Target, 2);
-            this.logger.log(`Zone2 temperature adjusted from ${currentTargetZone2.toFixed(1)}°C to ${zone2Target.toFixed(1)}°C`);
-            this.lastZone2SetpointChangeMs = zone2Constraints.evaluatedAtMs;
-            this.lastZone2IssuedSetpointC = zone2Target;
-          } else {
-            const zone2HoldReason = zone2Duplicate
-              ? 'duplicate target'
-              : zone2Lockout
-                ? `lockout ${this.minSetpointChangeMinutes}m`
-                : `change ${zone2Change.toFixed(2)}°C below deadband ${zone2Deadband.toFixed(2)}°C`;
-            this.logger.log(`Zone2 hold (${zone2HoldReason}) – keeping ${currentTargetZone2.toFixed(1)}°C`);
-          }
-
-          zone2Result = {
-            fromTemp: currentTargetZone2,
-            toTemp: zone2Target,
-            reason: zone2Reason,
-            targetOriginal: currentTargetZone2,
-            targetTemp: zone2Target,
-            indoorTemp: currentTempZone2,
-            success: zone2ShouldApply,
-            changed: zone2ShouldApply
-          };
-        } catch (zone2Error) {
-          this.logger.error('Zone2 optimization failed', zone2Error as Error);
         }
       }
+
 
       // Handle hot water tank optimization
       let tankResult: TankOptimizationResult | null = null;
@@ -2173,7 +1679,7 @@ export class Optimizer {
                 currentPrice,
                 priceLevel
               );
-              tankReason = `Optimized using learned hot water usage patterns with Tibber price level ${priceLevel}`;
+              tankReason = `Optimized using learned hot water usage patterns with Tibber price level ${priceLevel} `;
             } catch (hwErr) {
               this.logger.error('Hot water service optimization failed, falling back to price heuristics', hwErr as Error);
             }
@@ -2182,18 +1688,18 @@ export class Optimizer {
           if (tankTarget === currentTankTarget) {
             if (priceLevel === 'VERY_CHEAP' || priceLevel === 'CHEAP') {
               tankTarget = this.maxTankTemp;
-              tankReason = `Tibber price level ${priceLevel}, pre-heating tank`;
+              tankReason = `Tibber price level ${priceLevel}, pre - heating tank`;
             } else if (priceLevel === 'EXPENSIVE' || priceLevel === 'VERY_EXPENSIVE') {
               tankTarget = this.minTankTemp;
               tankReason = `Tibber price level ${priceLevel}, conserving energy`;
             } else {
               tankTarget = (this.minTankTemp + this.maxTankTemp) / 2;
-              tankReason = `Tibber price level ${priceLevel}, maintaining mid-range tank temperature`;
+              tankReason = `Tibber price level ${priceLevel}, maintaining mid - range tank temperature`;
             }
           }
 
           this.logger.log(
-            `[HotWaterModel] Adaptive interpretation: percentile=${pricePercentile.toFixed(1)}% → '${priceLevel}' (learned hot water sensitivity thresholds).`,
+            `[HotWaterModel] Adaptive interpretation: percentile = ${pricePercentile.toFixed(1)}% → '${priceLevel}'(learned hot water sensitivity thresholds).`,
             { thresholds: priceClassification.thresholds }
           );
 
@@ -2226,7 +1732,7 @@ export class Optimizer {
             tankConstraints.reason !== 'within constraints' &&
             !tankReason.includes(tankConstraints.reason)
           ) {
-            tankReason += ` | ${tankConstraints.reason}`;
+            tankReason += ` | ${tankConstraints.reason} `;
           }
 
           const tankDuplicate = this.lastTankIssuedSetpointC !== null &&
@@ -2263,9 +1769,9 @@ export class Optimizer {
             const tankHoldReason = tankDuplicate
               ? 'duplicate target'
               : tankLockout
-                ? `lockout ${this.minSetpointChangeMinutes}m`
+                ? `lockout ${this.minSetpointChangeMinutes} m`
                 : `change ${tankChange.toFixed(2)}°C below deadband ${tankDeadband.toFixed(2)}°C`;
-            this.logger.log(`Tank hold (${tankHoldReason}) – keeping ${currentTankTarget.toFixed(1)}°C`);
+            this.logger.log(`Tank hold(${tankHoldReason}) – keeping ${currentTankTarget.toFixed(1)}°C`);
             tankStatus = { setpointApplied: false, error: tankHoldReason };
             tankResult = {
               fromTemp: currentTankTarget,
@@ -2290,7 +1796,7 @@ export class Optimizer {
         const sinceMin = last > 0 ? (Date.now() - last) / 60000 : Infinity;
         lockoutActive = sinceMin < this.minSetpointChangeMinutes;
         if (lockoutActive) {
-          this.logger.log(`Setpoint change lockout active (${sinceMin.toFixed(1)}m since last < ${this.minSetpointChangeMinutes}m)`);
+          this.logger.log(`Setpoint change lockout active(${sinceMin.toFixed(1)}m since last < ${this.minSetpointChangeMinutes}m)`);
         }
       } catch { }
 
@@ -2456,16 +1962,16 @@ export class Optimizer {
       }
 
       const failureOrHoldReason = !melCloudSetpointApplied && melCloudSetpointError
-        ? `Temperature change requested but MELCloud rejected: ${melCloudSetpointError}`
+        ? `Temperature change requested but MELCloud rejected: ${melCloudSetpointError} `
         : lockoutActive
-          ? `Setpoint change lockout (${this.minSetpointChangeMinutes}m) to prevent cycling`
+          ? `Setpoint change lockout(${this.minSetpointChangeMinutes}m) to prevent cycling`
           : duplicateTarget
             ? 'Duplicate target – already applied recently'
             : `Temperature difference ${tempDifference.toFixed(1)}°C below deadband ${this.deadband}°C`;
 
       if (!setpointApplied) {
         // No change either due to small delta or lockout
-        this.logger.log(`No enhanced temperature adjustment applied: ${failureOrHoldReason}`);
+        this.logger.log(`No enhanced temperature adjustment applied: ${failureOrHoldReason} `);
         logDecision('optimizer.setpoint.hold', {
           reason: failureOrHoldReason
         });
@@ -2534,7 +2040,7 @@ export class Optimizer {
         ) {
           const currentCOP = optimizationResult?.metrics?.realHeatingCOP ?? optimizationResult?.metrics?.realHotWaterCOP ?? null;
           this.learnFromOptimizationOutcome(savingsNumericNoChange, 0, currentCOP ?? undefined);
-          this.logger.log(`Learned from hold: savings=${savingsNumericNoChange.toFixed(3)}, COP=${currentCOP?.toFixed(2) ?? 'N/A'}`);
+          this.logger.log(`Learned from hold: savings = ${savingsNumericNoChange.toFixed(3)}, COP = ${currentCOP?.toFixed(2) ?? 'N/A'} `);
         }
 
         updateThermalResponseIfPossible();
@@ -2586,7 +2092,7 @@ export class Optimizer {
         action: 'no_change',
         fromTemp: errorBand.minTemp,
         toTemp: errorBand.minTemp,
-        reason: `Enhanced optimization failed: ${message}`,
+        reason: `Enhanced optimization failed: ${message} `,
         priceData: {
           current: 0,
           average: 0,

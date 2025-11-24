@@ -742,7 +742,7 @@ const apiHandlers: ApiHandlers = {
 
       try {
         // Run the enhanced optimization with real API data
-        const result = await activeOptimizer.runEnhancedOptimization() as AugmentedOptimizationResult;
+        const result = await activeOptimizer.runOptimization() as AugmentedOptimizationResult;
 
         // Calculate enhanced savings with baseline comparison early for timeline (using result.savings)
         let enhancedSavingsData = null;

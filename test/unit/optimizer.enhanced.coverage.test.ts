@@ -46,20 +46,26 @@ describe('Optimizer hotwater & enhanced edge cases', () => {
   });
 
   test('optimizeHotWaterScheduling handles missing metrics and returns maintain', async () => {
-    // Manually call optimizeHotWaterScheduling via any-cast
-    const res = await (optimizer as any).optimizeHotWaterScheduling(0.5, { prices: new Array(24).fill({ price: 0.5 }) });
+    // Access through the hotWaterOptimizer service
+    const res = await (optimizer as any).hotWaterOptimizer.optimizeHotWaterScheduling(
+      0.5,
+      { current: { price: 0.5, time: new Date().toISOString() }, prices: new Array(24).fill({ price: 0.5, time: new Date().toISOString() }) },
+      null, // No metrics
+      null  // No last energy data
+    );
     expect(res).toBeDefined();
     expect(['maintain', 'heat_now', 'delay']).toContain(res.action);
+    expect(res.action).toBe('maintain'); // Should return maintain when no metrics
   });
 
-  test('runEnhancedOptimization returns no_change when difference below deadband', async () => {
+  test('runOptimization returns no_change when difference below deadband', async () => {
     // Last energy data will be zeros -> metrics indicate summer -> small diff
-    const result = await optimizer.runEnhancedOptimization();
+    const result = await optimizer.runOptimization();
     expect(result).toBeDefined();
     expect(result.action).toMatch(/no_change|temperature_adjusted/);
   });
 
-  test('runEnhancedOptimization includes zone2 data when zone2 enabled', async () => {
+  test('runOptimization includes zone2 data when zone2 enabled', async () => {
     optimizer.setZone2TemperatureConstraints(true, 18, 22, 0.5);
     mockMel.getDeviceState.mockResolvedValue({
       RoomTemperature: 20,
@@ -71,11 +77,11 @@ describe('Optimizer hotwater & enhanced edge cases', () => {
       SetTemperatureZone2: 21
     });
 
-    const result = await optimizer.runEnhancedOptimization();
+    const result = await optimizer.runOptimization();
     expect(result.zone2Data).toBeDefined();
   });
 
-  test('runEnhancedOptimization includes tank data when tank control enabled', async () => {
+  test('runOptimization includes tank data when tank control enabled', async () => {
     optimizer.setTankTemperatureConstraints(true, 40, 50, 1);
     mockMel.getDeviceState.mockResolvedValue({
       RoomTemperature: 20,
@@ -86,7 +92,7 @@ describe('Optimizer hotwater & enhanced edge cases', () => {
       SetTankWaterTemperature: 48
     });
 
-    const result = await optimizer.runEnhancedOptimization();
+    const result = await optimizer.runOptimization();
     expect(result.tankData).toBeDefined();
   });
 

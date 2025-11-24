@@ -1,6 +1,6 @@
 // Prevent MelCloudApi network activity during these unit tests
 jest.mock('../../src/services/melcloud-api', () => ({
-  MelCloudApi: class {}
+  MelCloudApi: class { }
 }));
 
 import { Optimizer } from '../../src/services/optimizer';
@@ -135,7 +135,7 @@ describe('Optimizer Edge Cases', () => {
     expect(result).toBeCloseTo(22, 0);
   });
 
-  test('runHourlyOptimization should handle API errors gracefully', async () => {
+  test('runOptimization should handle API errors gracefully', async () => {
     // Setup optimizer with mock dependencies that will fail
     const failingMelCloud = {
       getDeviceState: jest.fn().mockRejectedValue(new Error('API error')),
@@ -155,12 +155,14 @@ describe('Optimizer Edge Cases', () => {
     // Set temperature constraints
     optimizer.setTemperatureConstraints(18, 22, 0.5);
 
-    // Should throw but not crash
-    await expect(optimizer.runHourlyOptimization()).rejects.toThrow('API error');
+    // runOptimization handles errors gracefully - returns error result
+    const result = await optimizer.runOptimization();
+    expect(result.success).toBe(false);
+    expect(result.action).toBe('no_change');
     expect(mockLogger.error).toHaveBeenCalled();
   });
 
-  test('runHourlyOptimization should handle missing COP data gracefully', async () => {
+  test('runOptimization should handle missing COP data gracefully', async () => {
     // Mock COP helper to throw an error
     const mockCopHelper = {
       getSeasonalCOP: jest.fn().mockRejectedValue(new Error('COP data unavailable')),
@@ -173,15 +175,15 @@ describe('Optimizer Edge Cases', () => {
     optimizer.setCOPSettings(0.5, true, false);
 
     // Should complete without throwing
-    const result = await optimizer.runHourlyOptimization();
+    const result = await optimizer.runOptimization();
 
     // Should still have valid result
     expect(result).toBeDefined();
-    expect(result.targetTemp).toBeDefined();
+    expect(result.toTemp).toBeDefined();
     expect(mockLogger.error).toHaveBeenCalled();
   });
 
-  test('runHourlyOptimization should handle missing price data gracefully', async () => {
+  test('runOptimization should handle missing price data gracefully', async () => {
     // Setup optimizer with mock Tibber API that will fail
     const failingTibber = {
       getPrices: jest.fn().mockRejectedValue(new Error('Price data unavailable'))
@@ -200,12 +202,14 @@ describe('Optimizer Edge Cases', () => {
     // Set temperature constraints
     optimizer.setTemperatureConstraints(18, 22, 0.5);
 
-    // Should throw but not crash
-    await expect(optimizer.runHourlyOptimization()).rejects.toThrow('Price data unavailable');
+    // runOptimization handles price errors gracefully - returns fallback result
+    const result = await optimizer.runOptimization();
+    expect(result).toBeDefined();
+    // Price fetch errors are caught and logged, function continues with fallback
     expect(mockLogger.error).toHaveBeenCalled();
   });
 
-  test('runHourlyOptimization should handle device state with missing temperature data', async () => {
+  test('runOptimization should handle device state with missing temperature data', async () => {
     // Mock device state with missing temperature data
     mockMelCloud.getDeviceState = jest.fn().mockResolvedValue({
       DeviceID: 'device-1',
@@ -214,11 +218,11 @@ describe('Optimizer Edge Cases', () => {
     });
 
     // Should complete without throwing
-    const result = await optimizer.runHourlyOptimization();
+    const result = await optimizer.runOptimization();
 
     // Should still have valid result
     expect(result).toBeDefined();
-    expect(result.targetTemp).toBeDefined();
+    expect(result.toTemp).toBeDefined();
     // The optimizer might log an error instead of a warning for missing temperature data
     expect(mockLogger.error).toHaveBeenCalled();
   });

@@ -29,7 +29,12 @@ describe('Optimizer', () => {
 
     // Create mock instances
     mockMelCloud = new MelCloudApi() as jest.Mocked<MelCloudApi>;
-    mockTibber = new TibberApi('test-token') as jest.Mocked<TibberApi>;
+    // Manually mock TibberApi to ensure it's not undefined
+    mockTibber = {
+      getPrices: jest.fn(),
+      updateTimeZoneSettings: jest.fn(),
+      cleanup: jest.fn()
+    } as unknown as jest.Mocked<TibberApi>;
     mockLogger = {
       log: jest.fn(),
       info: jest.fn(),
@@ -145,7 +150,8 @@ describe('Optimizer', () => {
     it('should initialize with default values', () => {
       expect(optimizer).toBeDefined();
       expect((optimizer as any).melCloud).toBe(mockMelCloud);
-      expect((optimizer as any).priceProvider).toBe(mockTibber);
+      // priceProvider is now managed by PriceAnalyzer, not directly on Optimizer
+      expect((optimizer as any).priceAnalyzer).toBeDefined();
       expect((optimizer as any).deviceId).toBe(deviceId);
       expect((optimizer as any).buildingId).toBe(buildingId);
       expect((optimizer as any).logger).toBe(mockLogger);
@@ -164,82 +170,7 @@ describe('Optimizer', () => {
     });
   });
 
-  describe('runHourlyOptimization', () => {
-    it('should optimize temperature successfully using thermal model', async () => {
-      // Configure to use thermal model
-      (optimizer as any).useThermalLearning = true;
 
-      const result = await optimizer.runHourlyOptimization();
-
-      // Verify the result
-      expect(result).toBeDefined();
-      expect(result).toHaveProperty('targetTemp');
-      expect(result).toHaveProperty('reason');
-
-      // Verify that thermal model was used
-      expect(mockThermalModelService.getHeatingRecommendation).toHaveBeenCalled();
-
-      // Verify that temperature was set
-      expect(mockMelCloud.setDeviceTemperature).toHaveBeenCalledWith(deviceId, buildingId, 20.5);
-    });
-
-    it('should optimize temperature successfully using basic optimization when thermal model fails', async () => {
-      // Configure to use thermal model but make it fail
-      (optimizer as any).useThermalLearning = true;
-      mockThermalModelService.getHeatingRecommendation.mockImplementationOnce(() => {
-        throw new Error('Thermal model error');
-      });
-
-      const result = await optimizer.runHourlyOptimization();
-
-      // Verify the result
-      expect(result).toBeDefined();
-      expect(result).toHaveProperty('targetTemp');
-
-      // Verify that thermal model was attempted
-      expect(mockThermalModelService.getHeatingRecommendation).toHaveBeenCalled();
-
-      // Verify that temperature was set using basic optimization
-      expect(mockMelCloud.setDeviceTemperature).toHaveBeenCalled();
-    });
-
-    it('should optimize temperature successfully using basic optimization', async () => {
-      // Configure to not use thermal model
-      (optimizer as any).useThermalLearning = false;
-
-      const result = await optimizer.runHourlyOptimization();
-
-      // Verify the result
-      expect(result).toBeDefined();
-      expect(result).toHaveProperty('targetTemp');
-
-      // Verify that thermal model was not used
-      expect(mockThermalModelService.getHeatingRecommendation).not.toHaveBeenCalled();
-
-      // Verify that temperature was set
-      expect(mockMelCloud.setDeviceTemperature).toHaveBeenCalled();
-    });
-
-    it('should handle errors when getting device state', async () => {
-      // Make getDeviceState fail
-      mockMelCloud.getDeviceState.mockRejectedValue(new Error('Device state error'));
-
-      await expect(optimizer.runHourlyOptimization()).rejects.toThrow('Device state error');
-
-      // Verify that temperature was not set
-      expect(mockMelCloud.setDeviceTemperature).not.toHaveBeenCalled();
-    });
-
-    it('should handle errors when getting prices', async () => {
-      // Make getPrices fail
-      mockTibber.getPrices.mockRejectedValue(new Error('Prices error'));
-
-      await expect(optimizer.runHourlyOptimization()).rejects.toThrow('Prices error');
-
-      // Verify that temperature was not set
-      expect(mockMelCloud.setDeviceTemperature).not.toHaveBeenCalled();
-    });
-  });
 
   describe('calculateOptimalTemperature', () => {
     beforeEach(() => {

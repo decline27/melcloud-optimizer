@@ -174,7 +174,7 @@ describe('Optimization Workflow Integration', () => {
 
   test('Complete optimization workflow', async () => {
     // Run the optimization
-    const result = await optimizer.runHourlyOptimization();
+    const result = await optimizer.runOptimization();
 
     // Verify the result
     expect(result).toBeDefined();
@@ -222,7 +222,7 @@ describe('Optimization Workflow Integration', () => {
     optimizer.setCOPSettings(0.7, true, false);
 
     // Run the optimization
-    const result = await optimizer.runHourlyOptimization();
+    const result = await optimizer.runOptimization();
 
     // Verify the result
     expect(result).toBeDefined();
@@ -249,7 +249,7 @@ describe('Optimization Workflow Integration', () => {
     });
 
     // Run the optimization
-    const result = await optimizer.runHourlyOptimization();
+    const result = await optimizer.runOptimization();
 
     // Verify the result
     expect(result).toBeDefined();
@@ -264,7 +264,7 @@ describe('Optimization Workflow Integration', () => {
     tibber.getPrices = jest.fn().mockRejectedValue(new Error('Tibber API error'));
 
     // Run the optimization and expect it to throw
-    await expect(optimizer.runHourlyOptimization()).rejects.toThrow('Tibber API error');
+    await expect(optimizer.runOptimization()).rejects.toThrow('Tibber API error');
 
     // Verify error logging
     expect(mockLogger.error).toHaveBeenCalled();

@@ -324,6 +324,7 @@ export interface SecondaryZoneResult {
   indoorTemp?: number;
   success?: boolean;
   changed?: boolean;
+  action?: 'changed' | 'hold';
 }
 
 export interface TankOptimizationResult {
