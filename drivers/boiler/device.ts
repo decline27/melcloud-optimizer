@@ -1356,16 +1356,27 @@ module.exports = class BoilerDevice extends Homey.Device {
    * Get main operation mode state
    */
   private getOperationModeState(operationMode: number): string {
-    // Reference: https://github.com/OlivierZal/melcloud-api/blob/master/src/enums.ts (OperationModeState)
-    switch (operationMode) {
-      case 0: return 'idle';
-      case 1: return 'dhw';         // Domestic hot water
-      case 2: return 'heating';
-      case 3: return 'cooling';
-      case 5: return 'defrost';
-      case 6: return 'legionella';
-      default: return 'idle';
+    // MELCloud OperationMode values (ATW):
+    // 0 = idle, 1 = hot water, 2 = heating zones, 3 = cooling,
+    // 4 = hot water storage, 6 = legionella, 7 = heating eco, 11 = heating up
+    if (operationMode === 3) {
+      return 'cooling';
     }
+
+    if (operationMode === 5) {
+      return 'defrost';
+    }
+
+    if (operationMode === 0) {
+      return 'idle';
+    }
+
+    // Treat DHW/legionella/heating variants as heating for the main state capability
+    if ([1, 2, 4, 6, 7, 11].includes(operationMode)) {
+      return 'heating';
+    }
+
+    return 'idle';
   }
 
   /**
@@ -1377,7 +1388,7 @@ module.exports = class BoilerDevice extends Homey.Device {
     }
     
     // Check if hot water is actively being produced
-    if (deviceState.OperationMode === 5) { // DHW mode
+    if (deviceState.OperationMode === 1 || deviceState.OperationMode === 4) { // DHW / storage modes
       return 'dhw';
     }
     
