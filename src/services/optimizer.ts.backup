@@ -471,11 +471,8 @@ export class Optimizer {
    * @returns Currency code (defaults to 'NOK' if not set)
    */
   private getCurrency(): string {
-    if (this.settingsLoader) {
-      return this.settingsLoader.getCurrency();
-    }
     if (!this.homey) {
-      return 'NOK';
+      return 'NOK'; // Default
     }
 
     const currency = this.homey.settings.get('currency') ||
@@ -489,9 +486,6 @@ export class Optimizer {
    * @returns Grid fee per kWh (defaults to 0 if not set or invalid)
    */
   private getGridFee(): number {
-    if (this.settingsLoader) {
-      return this.settingsLoader.getGridFee();
-    }
     if (!this.homey) {
       return 0;
     }
@@ -596,39 +590,34 @@ export class Optimizer {
    */
   setTemperatureConstraints(minTemp: number, maxTemp: number, tempStep: number): void {
     // Validate inputs
-    const validMin = validateNumber(minTemp, 'minTemp', { min: 10, max: 30 });
-    const validMax = validateNumber(maxTemp, 'maxTemp', { min: 10, max: 30 });
+    this.minTemp = validateNumber(minTemp, 'minTemp', { min: 10, max: 30 });
+    this.maxTemp = validateNumber(maxTemp, 'maxTemp', { min: 10, max: 30 });
 
     // Ensure maxTemp is greater than minTemp
-    if (validMax <= validMin) {
+    if (this.maxTemp <= this.minTemp) {
       throw new Error(`Invalid temperature range: maxTemp(${maxTemp}) must be greater than minTemp(${minTemp})`);
     }
 
-    const validStep = validateNumber(tempStep, 'tempStep', { min: 0.1, max: 1 });
+    this.tempStep = validateNumber(tempStep, 'tempStep', { min: 0.1, max: 1 });
 
-    // Use ConstraintManager to set constraints
-    this.constraintManager.setZone1Constraints(validMin, validMax, validStep);
-
-    this.logger.log(`Temperature constraints set - Min: ${validMin}°C, Max: ${validMax}°C, Step: ${validStep}°C`);
+    this.logger.log(`Temperature constraints set - Min: ${this.minTemp}°C, Max: ${this.maxTemp}°C, Step: ${this.tempStep}°C`);
   }
 
   /**
    * Configure Zone2 temperature constraints and enablement
    */
   setZone2TemperatureConstraints(enableZone2: boolean, minTempZone2: number, maxTempZone2: number, tempStepZone2: number): void {
-    const validMin = validateNumber(minTempZone2, 'minTempZone2', { min: 10, max: 30 });
-    const validMax = validateNumber(maxTempZone2, 'maxTempZone2', { min: 10, max: 30 });
+    this.enableZone2 = enableZone2;
+    this.minTempZone2 = validateNumber(minTempZone2, 'minTempZone2', { min: 10, max: 30 });
+    this.maxTempZone2 = validateNumber(maxTempZone2, 'maxTempZone2', { min: 10, max: 30 });
 
-    if (validMax <= validMin) {
+    if (this.maxTempZone2 <= this.minTempZone2) {
       throw new Error(`Invalid Zone2 temperature range: max(${maxTempZone2}) must be greater than min(${minTempZone2})`);
     }
 
-    const validStep = validateNumber(tempStepZone2 || 0.5, 'tempStepZone2', { min: 0.1, max: 2 });
+    this.tempStepZone2 = validateNumber(tempStepZone2 || 0.5, 'tempStepZone2', { min: 0.1, max: 2 });
 
-    // Use ConstraintManager to set constraints
-    this.constraintManager.setZone2Constraints(enableZone2, validMin, validMax, validStep);
-
-    this.logger.log(`Zone2 constraints updated - Enabled: ${enableZone2}, Min: ${validMin}°C, Max: ${validMax}°C, Step: ${validStep}°C`);
+    this.logger.log(`Zone2 constraints updated - Enabled: ${enableZone2}, Min: ${this.minTempZone2}°C, Max: ${this.maxTempZone2}°C, Step: ${this.tempStepZone2}°C`);
   }
 
   /**
@@ -676,7 +665,7 @@ export class Optimizer {
   private getCurrentComfortBand(): { minTemp: number; maxTemp: number } {
     if (!this.homey) {
       // Fallback to default constraints if no homey instance
-      return { minTemp: this.getZone1Constraints().minTemp, maxTemp: this.getZone1Constraints().maxTemp };
+      return { minTemp: this.minTemp, maxTemp: this.maxTemp };
     }
 
     const toNumber = (value: unknown): number | null => {
@@ -707,17 +696,17 @@ export class Optimizer {
    * Configure hot water tank control constraints and enablement
    */
   setTankTemperatureConstraints(enableTankControl: boolean, minTankTemp: number, maxTankTemp: number, tankTempStep: number): void {
-    this.getTankConstraints().enabled = enableTankControl;
-    this.getTankConstraints().minTemp = validateNumber(minTankTemp, 'minTankTemp', { min: 30, max: 70 });
-    this.getTankConstraints().maxTemp = validateNumber(maxTankTemp, 'maxTankTemp', { min: 30, max: 70 });
+    this.enableTankControl = enableTankControl;
+    this.minTankTemp = validateNumber(minTankTemp, 'minTankTemp', { min: 30, max: 70 });
+    this.maxTankTemp = validateNumber(maxTankTemp, 'maxTankTemp', { min: 30, max: 70 });
 
-    if (this.getTankConstraints().maxTemp <= this.getTankConstraints().minTemp) {
+    if (this.maxTankTemp <= this.minTankTemp) {
       throw new Error(`Invalid tank temperature range: max(${maxTankTemp}) must be greater than min(${minTankTemp})`);
     }
 
-    this.getTankConstraints().tempStep = validateNumber(tankTempStep || 1, 'tankTempStep', { min: 0.5, max: 5 });
+    this.tankTempStep = validateNumber(tankTempStep || 1, 'tankTempStep', { min: 0.5, max: 5 });
 
-    this.logger.log(`Tank constraints updated - Enabled: ${enableTankControl}, Min: ${this.getTankConstraints().minTemp}°C, Max: ${this.getTankConstraints().maxTemp}°C, Step: ${this.getTankConstraints().tempStep}°C`);
+    this.logger.log(`Tank constraints updated - Enabled: ${enableTankControl}, Min: ${this.minTankTemp}°C, Max: ${this.maxTankTemp}°C, Step: ${this.tankTempStep}°C`);
   }
 
   /**
@@ -1709,10 +1698,10 @@ export class Optimizer {
       currentTargetC: safeCurrentTarget,
       minC: constraintsBand.minTemp,
       maxC: constraintsBand.maxTemp,
-      stepC: this.getZone1Constraints().tempStep,
-      deadbandC: this.getZone1Constraints().deadband,
+      stepC: this.tempStep,
+      deadbandC: this.deadband,
       minChangeMinutes: this.minSetpointChangeMinutes,
-      lastChangeMs: this.getZone1State().timestamp
+      lastChangeMs: this.lastSetpointChangeMs
     });
     adjustmentReason += zone1ConstraintsInitial.reason !== 'within constraints'
       ? ` | ${zone1ConstraintsInitial.reason} `
@@ -1730,8 +1719,8 @@ export class Optimizer {
 
     const priceRange = Math.max(priceStats.maxPrice - priceStats.minPrice, 0.0001);
     const priceNormalizedValue = Math.min(Math.max((priceStats.currentPrice - priceStats.minPrice) / priceRange, 0), 1);
-    let duplicateTarget = this.getZone1State().setpoint !== null &&
-      Math.abs((this.getZone1State().setpoint as number) - targetTemp) < 1e-4;
+    let duplicateTarget = this.lastIssuedSetpointC !== null &&
+      Math.abs((this.lastIssuedSetpointC as number) - targetTemp) < 1e-4;
 
     const logData: any = {
       targetTemp: targetTemp.toFixed(1),
@@ -1853,10 +1842,10 @@ export class Optimizer {
       currentTargetC: safeCurrentTarget,
       minC: finalConstraintsBand.minTemp,
       maxC: finalConstraintsBand.maxTemp,
-      stepC: this.getZone1Constraints().tempStep,
-      deadbandC: this.getZone1Constraints().deadband,
+      stepC: this.tempStep,
+      deadbandC: this.deadband,
       minChangeMinutes: this.minSetpointChangeMinutes,
-      lastChangeMs: this.getZone1State().timestamp
+      lastChangeMs: this.lastSetpointChangeMs
     });
     logger('constraints.zone1.final', {
       proposed: targetTemp,
@@ -1882,8 +1871,8 @@ export class Optimizer {
     logData.tempDifference = tempDifference.toFixed(2);
     logData.isSignificantChange = isSignificantChange;
     logData.lockoutActive = lockoutActive;
-    duplicateTarget = this.getZone1State().setpoint !== null &&
-      Math.abs((this.getZone1State().setpoint as number) - targetTemp) < 1e-4;
+    duplicateTarget = this.lastIssuedSetpointC !== null &&
+      Math.abs((this.lastIssuedSetpointC as number) - targetTemp) < 1e-4;
     logData.duplicateTarget = duplicateTarget;
     logData.planningBias = scaledPlanningBias.toFixed(2);
     logData.thermalResponse = thermalResponse.toFixed(2);
@@ -1923,11 +1912,11 @@ export class Optimizer {
     logger: DecisionLogger
   ): Promise<SecondaryZoneResult | null> {
     const deviceSupportsZone2 = inputs.deviceState.SetTemperatureZone2 !== undefined;
-    if (this.getZone2Constraints().enabled && !deviceSupportsZone2) {
+    if (this.enableZone2 && !deviceSupportsZone2) {
       this.logger.log('WARNING: Zone2 temperature optimization enabled in settings, but device does not expose Zone2');
     }
 
-    if (!this.getZone2Constraints().enabled) {
+    if (!this.enableZone2) {
       return null;
     }
 
@@ -1952,19 +1941,20 @@ export class Optimizer {
         zone1Result.thermalStrategy || null,
         zone1Result.metrics || null,
         {
-          minTemp: this.getZone2Constraints().minTemp,
-          maxTemp: this.getZone2Constraints().maxTemp,
-          tempStep: this.getZone2Constraints().tempStep,
-          deadband: this.getZone1Constraints().deadband,
+          minTemp: this.minTempZone2,
+          maxTemp: this.maxTempZone2,
+          tempStep: this.tempStepZone2,
+          deadband: this.deadband,
           minChangeMinutes: this.minSetpointChangeMinutes,
-          lastChangeMs: this.getZone2State().timestamp || 0
+          lastChangeMs: this.lastZone2SetpointChangeMs || 0
         }
       );
 
       if (zone2Opt.changed) {
-        this.stateManager.recordZone2Change(zone2Opt.toTemp);
+        this.lastZone2SetpointChangeMs = Date.now();
+        this.lastZone2IssuedSetpointC = zone2Opt.toTemp;
         if (this.homey) {
-          this.stateManager.saveToSettings(this.homey);
+          this.homey.settings.set('last_zone2_setpoint_change_ms', this.lastZone2SetpointChangeMs);
         }
       }
 
@@ -1992,7 +1982,7 @@ export class Optimizer {
 
   private async optimizeTank(inputs: OptimizationInputs, logger: DecisionLogger): Promise<TankOptimizationPlan | null> {
     const currentTankTarget = inputs.deviceState.SetTankWaterTemperature;
-    if (!this.getTankConstraints().enabled || currentTankTarget === undefined) {
+    if (!this.enableTankControl || currentTankTarget === undefined) {
       return null;
     }
 
@@ -2004,8 +1994,8 @@ export class Optimizer {
       if (hotWaterService) {
         try {
           tankTarget = hotWaterService.getOptimalTankTemperature(
-            this.getTankConstraints().minTemp,
-            this.getTankConstraints().maxTemp,
+            this.minTankTemp,
+            this.maxTankTemp,
             inputs.priceStats.currentPrice,
             inputs.priceStats.priceLevel
           );
@@ -2017,13 +2007,13 @@ export class Optimizer {
 
       if (tankTarget === currentTankTarget) {
         if (inputs.priceStats.priceLevel === 'VERY_CHEAP' || inputs.priceStats.priceLevel === 'CHEAP') {
-          tankTarget = this.getTankConstraints().maxTemp;
+          tankTarget = this.maxTankTemp;
           tankReason = `Tibber price level ${inputs.priceStats.priceLevel}, pre - heating tank`;
         } else if (inputs.priceStats.priceLevel === 'EXPENSIVE' || inputs.priceStats.priceLevel === 'VERY_EXPENSIVE') {
-          tankTarget = this.getTankConstraints().minTemp;
+          tankTarget = this.minTankTemp;
           tankReason = `Tibber price level ${inputs.priceStats.priceLevel}, conserving energy`;
         } else {
-          tankTarget = (this.getTankConstraints().minTemp + this.getTankConstraints().maxTemp) / 2;
+          tankTarget = (this.minTankTemp + this.maxTankTemp) / 2;
           tankReason = `Tibber price level ${inputs.priceStats.priceLevel}, maintaining mid - range tank temperature`;
         }
       }
@@ -2033,16 +2023,16 @@ export class Optimizer {
         { thresholds: inputs.priceClassification.thresholds }
       );
 
-      const tankDeadband = Math.max(0.5, this.getTankConstraints().tempStep);
+      const tankDeadband = Math.max(0.5, this.tankTempStep);
       const tankConstraints = applySetpointConstraints({
         proposedC: tankTarget,
         currentTargetC: currentTankTarget,
-        minC: this.getTankConstraints().minTemp,
-        maxC: this.getTankConstraints().maxTemp,
-        stepC: this.getTankConstraints().tempStep,
+        minC: this.minTankTemp,
+        maxC: this.maxTankTemp,
+        stepC: this.tankTempStep,
         deadbandC: tankDeadband,
         minChangeMinutes: this.minSetpointChangeMinutes,
-        lastChangeMs: this.getTankState().timestamp
+        lastChangeMs: this.lastTankSetpointChangeMs
       });
       logger('constraints.tank.final', {
         proposed: tankTarget,
@@ -2061,8 +2051,8 @@ export class Optimizer {
         tankReason += ` | ${tankConstraints.reason} `;
       }
 
-      const tankDuplicate = this.getTankState().setpoint !== null &&
-        Math.abs((this.getTankState().setpoint as number) - tankTarget) < 1e-4;
+      const tankDuplicate = this.lastTankIssuedSetpointC !== null &&
+        Math.abs((this.lastTankIssuedSetpointC as number) - tankTarget) < 1e-4;
       const changeApplied = tankConstraints.changed && !tankLockout && !tankDuplicate;
       const tankHoldReason = tankDuplicate
         ? 'duplicate target'
@@ -2112,7 +2102,7 @@ export class Optimizer {
 
     let lockoutActive = zone1Result.lockoutActive;
     try {
-      const last = (this.homey && Number(this.homey.settings.get('last_setpoint_change_ms'))) || this.getZone1State().timestamp || 0;
+      const last = (this.homey && Number(this.homey.settings.get('last_setpoint_change_ms'))) || this.lastSetpointChangeMs || 0;
       const sinceMin = last > 0 ? (Date.now() - last) / 60000 : Infinity;
       lockoutActive = lockoutActive || sinceMin < this.minSetpointChangeMinutes;
       if (lockoutActive && sinceMin < this.minSetpointChangeMinutes) {
@@ -2128,10 +2118,11 @@ export class Optimizer {
         await this.melCloud.setDeviceTemperature(this.deviceId, this.buildingId, zone1Result.targetTemp);
         changes.zone1Applied = true;
 
-        this.stateManager.recordZone1Change(zone1Result.targetTemp);
+        this.lastSetpointChangeMs = Date.now();
+        this.lastIssuedSetpointC = zone1Result.targetTemp;
 
         if (this.homey) {
-          this.stateManager.saveToSettings(this.homey);
+          this.homey.settings.set('last_setpoint_change_ms', this.lastSetpointChangeMs);
         }
 
         const latencyMs = Date.now() - apiStart;
@@ -2169,7 +2160,7 @@ export class Optimizer {
           ? `Setpoint change lockout(${this.minSetpointChangeMinutes}m) to prevent cycling`
           : zone1Result.duplicateTarget
             ? 'Duplicate target – already applied recently'
-            : `Temperature difference ${zone1Result.tempDifference.toFixed(1)}°C below deadband ${this.getZone1Constraints().deadband}°C`;
+            : `Temperature difference ${zone1Result.tempDifference.toFixed(1)}°C below deadband ${this.deadband}°C`;
     }
 
     if (!changes.zone1Applied && changes.zone1HoldReason) {
@@ -2182,7 +2173,8 @@ export class Optimizer {
         await this.melCloud.setTankTemperature(this.deviceId, this.buildingId, tankResult.toTemp);
         changes.tankApplied = true;
 
-        this.stateManager.recordTankChange(tankResult.toTemp, tankResult.evaluatedAtMs ?? Date.now());
+        this.lastTankSetpointChangeMs = tankResult.evaluatedAtMs ?? Date.now();
+        this.lastTankIssuedSetpointC = tankResult.toTemp;
 
         logger('tank.applied', {
           fromTemp: tankResult.fromTemp,
@@ -2280,8 +2272,8 @@ export class Optimizer {
     }
 
     try {
-      if (zone2Result && this.getZone2Constraints().enabled) {
-        const zone2BaselineTarget = this.getZone2Constraints().maxTemp;
+      if (zone2Result && this.enableZone2) {
+        const zone2BaselineTarget = this.maxTempZone2;
         if (zone2BaselineTarget > zone2Result.toTemp + 0.1) {
           savings.zone2 += await this.calculateRealHourlySavings(
             zone2BaselineTarget,
@@ -2292,8 +2284,8 @@ export class Optimizer {
           );
         }
       }
-      if (tankResult && this.getTankConstraints().enabled) {
-        const tankBaselineTarget = this.getTankConstraints().maxTemp;
+      if (tankResult && this.enableTankControl) {
+        const tankBaselineTarget = this.maxTankTemp;
         if (tankBaselineTarget > tankResult.toTemp + 0.5) {
           savings.tank += await this.calculateRealHourlySavings(
             tankBaselineTarget,

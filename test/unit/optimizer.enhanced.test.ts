@@ -140,9 +140,11 @@ describe('Optimizer Enhanced Tests', () => {
     it('should update temperature constraints', () => {
       (optimizer as any).setTemperatureConstraints(17, 23, 0.5);
 
-      expect((optimizer as any).minTemp).toBe(17);
-      expect((optimizer as any).maxTemp).toBe(23);
-      expect((optimizer as any).tempStep).toBe(0.5);
+      // With the new service architecture, constraints are managed by ConstraintManager
+      const constraints = (optimizer as any).constraintManager.getZone1Constraints();
+      expect(constraints.minTemp).toBe(17);
+      expect(constraints.maxTemp).toBe(23);
+      expect(constraints.tempStep).toBe(0.5);
     });
   });
 
