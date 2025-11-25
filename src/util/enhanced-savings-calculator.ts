@@ -54,7 +54,7 @@ export class EnhancedSavingsCalculator {
   private fixedBaselineCalculator?: FixedBaselineCalculator;
 
   constructor(
-    logger: Logger, 
+    logger: Logger,
     thermalModelService?: ThermalModelService,
     hotWaterService?: HotWaterService,
     copHelper?: COPHelper
@@ -63,7 +63,7 @@ export class EnhancedSavingsCalculator {
     this.thermalModelService = thermalModelService;
     this.hotWaterService = hotWaterService;
     this.copHelper = copHelper;
-    
+
     // Initialize fixed baseline calculator if we have the required services
     if (logger) {
       this.fixedBaselineCalculator = new FixedBaselineCalculator(
@@ -110,7 +110,7 @@ export class EnhancedSavingsCalculator {
   private getEnhancedMethod(): string {
     const hasThermal = !!this.thermalModelService;
     const hasHotWater = !!this.hotWaterService;
-    
+
     if (hasThermal && hasHotWater) {
       return 'thermal_and_usage_aware';
     } else if (hasThermal) {
@@ -208,7 +208,7 @@ export class EnhancedSavingsCalculator {
       // Filter optimizations from today only
       const todayMidnight = new Date();
       todayMidnight.setHours(0, 0, 0, 0);
-      
+
       const todayOptimizations = historicalOptimizations.filter(opt => {
         const optDate = new Date(opt.timestamp);
         return optDate >= todayMidnight && optDate.getHours() < currentHour;
@@ -226,24 +226,24 @@ export class EnhancedSavingsCalculator {
 
       // Calculate projected savings for remaining hours
       const remainingHours = 24 - (todayOptimizations.length + 1); // +1 for current hour
-    const projectedSavings = this.calculateProjectedSavings(
-      currentHourSavings,
-      todayOptimizations,
-      remainingHours,
-      currentHour,
-      futurePriceFactors
-    );
+      const projectedSavings = this.calculateProjectedSavings(
+        currentHourSavings,
+        todayOptimizations,
+        remainingHours,
+        currentHour,
+        futurePriceFactors
+      );
 
-    // Calculate total daily savings
-    const totalDailySavings = actualSavings + currentHourSavings + projectedSavings;
+      // Calculate total daily savings
+      const totalDailySavings = actualSavings + currentHourSavings + projectedSavings;
 
-    // Clamp projection to avoid overly optimistic numbers
-    const avgRecent = todayOptimizations.length > 0
-      ? todayOptimizations.reduce((sum, opt) => sum + (opt.savings || 0), 0) / todayOptimizations.length
-      : currentHourSavings;
-    const maxProjection = Math.max(0, avgRecent) * remainingHours * 1.1;
-    const clampedProjected = Math.min(Math.max(projectedSavings, 0), maxProjection);
-    const clampedTotal = actualSavings + currentHourSavings + clampedProjected;
+      // Clamp projection to avoid overly optimistic numbers
+      const avgRecent = todayOptimizations.length > 0
+        ? todayOptimizations.reduce((sum, opt) => sum + (opt.savings || 0), 0) / todayOptimizations.length
+        : currentHourSavings;
+      const maxProjection = Math.max(0, avgRecent) * remainingHours * 1.1;
+      const clampedProjected = Math.min(Math.max(projectedSavings, 0), maxProjection);
+      const clampedTotal = actualSavings + currentHourSavings + clampedProjected;
 
       // Calculate confidence based on data quality and amount
       const confidence = this.calculateConfidence(todayOptimizations, currentHour);
@@ -252,19 +252,19 @@ export class EnhancedSavingsCalculator {
       const method = this.getCalculationMethod(todayOptimizations, currentHour, futurePriceFactors);
       const enhancedMethod = this.getEnhancedMethod();
 
-    const result: SavingsCalculationResult = {
-      dailySavings: clampedTotal,
-      compoundedSavings: compoundedSavings,
-      projectedSavings: clampedProjected,
-      confidence: confidence,
-      method: enhancedMethod !== 'basic_enhanced' ? `${method}_${enhancedMethod}` : method,
-      breakdown: {
-        actualSavings: actualSavings,
-        currentHourSavings: currentHourSavings,
-        projectedHours: remainingHours,
-        projectedAmount: clampedProjected
-      }
-    };
+      const result: SavingsCalculationResult = {
+        dailySavings: clampedTotal,
+        compoundedSavings: compoundedSavings,
+        projectedSavings: clampedProjected,
+        confidence: confidence,
+        method: enhancedMethod !== 'basic_enhanced' ? `${method}_${enhancedMethod}` : method,
+        breakdown: {
+          actualSavings: actualSavings,
+          currentHourSavings: currentHourSavings,
+          projectedHours: remainingHours,
+          projectedAmount: clampedProjected
+        }
+      };
 
       this.safeDebug('Enhanced daily savings calculation:', {
         currentHour,
@@ -282,7 +282,7 @@ export class EnhancedSavingsCalculator {
       return result;
     } catch (error) {
       this.safeError('Error in enhanced daily savings calculation:', error);
-      
+
       // Fallback to simple calculation
       return {
         dailySavings: currentHourSavings * 24,
@@ -308,26 +308,29 @@ export class EnhancedSavingsCalculator {
     currentHourSavings: number,
     currentHour: number
   ): number {
-    const baselineProjection = currentHourSavings * 24;
-
     if (todayOptimizations.length === 0) {
-      return baselineProjection; // No history yet; project a full day at current rate
+      // Early hour with no history: use conservative projection window
+      // Hour 0-2: Project 6 hours ahead
+      // Hour 3-5: Project 12 hours ahead
+      // Hour 6+: Full day projection
+      const conservativeHours = currentHour < 3 ? 6 : currentHour < 6 ? 12 : 24;
+      return currentHourSavings * conservativeHours;
     }
 
     // Calculate thermal inertia factor based on temperature changes
     const thermalInertiaFactor = this.calculateThermalInertiaFactor(todayOptimizations);
-    
+
     // Calculate cumulative effect factor
     const cumulativeEffectFactor = this.calculateCumulativeEffectFactor(todayOptimizations, currentHour);
-    
+
     // Base savings from actual optimizations
     const baseSavings = todayOptimizations.reduce((sum, opt) => sum + (opt.savings || 0), 0);
-    
+
     // Apply compounding factors conservatively and cap
     const compoundedSavings = baseSavings * (1 + Math.min(thermalInertiaFactor + cumulativeEffectFactor, 0.05)); // max +5%
-    
+
     // Add current hour only once; projections are handled separately
-    return Math.max(compoundedSavings + currentHourSavings, baselineProjection);
+    return compoundedSavings + currentHourSavings;
   }
 
   /**
@@ -346,15 +349,15 @@ export class EnhancedSavingsCalculator {
     if (this.thermalModelService) {
       try {
         const characteristics = this.thermalModelService.getThermalCharacteristics();
-        
+
         // Issue #6 fix: Use graduated blending instead of binary 0.3 cutoff
         // Old: if (confidence > 0.3) use learned, else use 0.02 hardcoded
         // New: Blend learned and default based on confidence level
         // Rationale: Rewards early learning, provides smooth UX, no sudden jumps
-        
+
         const confidence = Math.min(1, Math.max(0, characteristics.modelConfidence));
         const thermalMassMultiplier = characteristics.thermalMass * 0.15; // Max 15%
-        
+
         // Blend learned factor (based on thermal mass) with default factor (0.02)
         // At confidence=0: pure default (0.02)
         // At confidence=0.5: 50% learned + 50% default
@@ -362,7 +365,7 @@ export class EnhancedSavingsCalculator {
         const learnedFactor = thermalMassMultiplier * confidence;
         const defaultFactor = 0.02 * (1 - confidence);
         const blendedMultiplier = learnedFactor + defaultFactor;
-        
+
         this.safeDebug('Using blended thermal characteristics for inertia calculation:', {
           avgTempChange: avgTempChange.toFixed(2),
           thermalMass: characteristics.thermalMass.toFixed(3),
@@ -370,7 +373,7 @@ export class EnhancedSavingsCalculator {
           blendedMultiplier: blendedMultiplier.toFixed(4),
           calculatedBonus: (avgTempChange * blendedMultiplier).toFixed(4)
         });
-        
+
         // Cap the result, but use learned thermalMassMultiplier as ceiling when confidence is high
         const maxCap = Math.max(0.05, thermalMassMultiplier); // cap thermal bonus at 5%+
         return Math.min(avgTempChange * blendedMultiplier, maxCap);
@@ -394,16 +397,16 @@ export class EnhancedSavingsCalculator {
     // Calculate consistency of optimization direction
     let consistentOptimizations = 0;
     for (let i = 1; i < optimizations.length; i++) {
-      const prevChange = optimizations[i-1].targetTemp - optimizations[i-1].targetOriginal;
+      const prevChange = optimizations[i - 1].targetTemp - optimizations[i - 1].targetOriginal;
       const currChange = optimizations[i].targetTemp - optimizations[i].targetOriginal;
-      
+
       if (Math.sign(prevChange) === Math.sign(currChange)) {
         consistentOptimizations++;
       }
     }
 
     const consistencyRatio = consistentOptimizations / (optimizations.length - 1);
-    
+
     // Consistent optimizations in the same direction provide cumulative benefits
     return consistencyRatio * 0.05; // Max 5% bonus for full consistency
   }
@@ -428,11 +431,11 @@ export class EnhancedSavingsCalculator {
     if (todayOptimizations.length >= 2) {
       const recentOptimizations = todayOptimizations.slice(-3); // Last 3 hours
       const avgRecentSavings = recentOptimizations.reduce((sum, opt) => sum + (opt.savings || 0), 0) / recentOptimizations.length;
-      
+
       // Weight recent savings more heavily than current hour
       const weightedSavings = (avgRecentSavings * 0.7) + (currentHourSavings * 0.3);
       const base = Math.max(0, weightedSavings);
-      
+
       if (usePriceFactors) {
         // Sum factors for the remaining hours (pad/truncate as needed)
         const factors = futurePriceFactors!.slice(0, remainingHours);
@@ -458,7 +461,7 @@ export class EnhancedSavingsCalculator {
 
     // Apply weather-aware adjustments if thermal model is available
     const weatherAdjustedSavings = this.applyWeatherAdjustments(baseSavings, todayOptimizations);
-    
+
     return weatherAdjustedSavings;
   }
 
@@ -472,7 +475,7 @@ export class EnhancedSavingsCalculator {
 
     try {
       const characteristics = this.thermalModelService.getThermalCharacteristics();
-      
+
       if (characteristics.modelConfidence < 0.3) {
         return baseSavings; // Not enough confidence in weather impact data
       }
@@ -488,18 +491,18 @@ export class EnhancedSavingsCalculator {
 
       // Calculate temperature trend (getting warmer or colder)
       const tempTrend = outdoorTemps[outdoorTemps.length - 1] - outdoorTemps[0];
-      
+
       // Apply weather adjustment based on thermal characteristics
       let weatherMultiplier = 1.0;
-      
+
       // If it's getting colder, heating will be more important = higher savings potential
       // If it's getting warmer, heating will be less important = lower savings potential
       const tempImpact = tempTrend * characteristics.outdoorTempImpact;
       weatherMultiplier += tempImpact * 0.1; // Scale the impact
-      
+
       // Ensure reasonable bounds
       weatherMultiplier = Math.max(0.9, Math.min(1.1, weatherMultiplier));
-      
+
       this.safeDebug('Applied weather adjustments to projected savings:', {
         baseSavings: baseSavings.toFixed(4),
         tempTrend: tempTrend.toFixed(2),
@@ -509,7 +512,7 @@ export class EnhancedSavingsCalculator {
       });
 
       return baseSavings * weatherMultiplier;
-      
+
     } catch (error) {
       this.safeError('Error applying weather adjustments:', error);
       return baseSavings;
@@ -525,28 +528,28 @@ export class EnhancedSavingsCalculator {
     if (this.hotWaterService) {
       try {
         const patterns = (this.hotWaterService as any).getUsagePatterns?.();
-        
+
         if (patterns && patterns.hourlyUsagePattern && patterns.confidence > 30) {
           let totalFactor = 0;
-          
+
           for (let i = 0; i < remainingHours; i++) {
             const hour = (currentHour + 1 + i) % 24;
             const usageLevel = patterns.hourlyUsagePattern[hour] || 1;
-            
+
             // Convert usage pattern to savings multiplier
             // Higher usage typically correlates with higher savings potential
             // Scale usage (typically 0.5-3.0) to factor range (0.6-1.4)
             const usageFactor = 0.6 + (Math.min(usageLevel, 3) * 0.27);
             totalFactor += usageFactor;
           }
-          
+
           this.safeDebug('Using learned usage patterns for time-of-day factors:', {
             currentHour,
             remainingHours,
             patternsConfidence: patterns.confidence,
             avgFactor: (totalFactor / remainingHours).toFixed(3)
           });
-          
+
           return totalFactor / remainingHours;
         }
       } catch (error) {
@@ -557,11 +560,11 @@ export class EnhancedSavingsCalculator {
     // Fallback to original hardcoded time-of-day calculation
     // Peak hours (17-21) typically have higher electricity prices
     // Off-peak hours (23-06) typically have lower prices
-    
+
     let totalFactor = 0;
     for (let i = 0; i < remainingHours; i++) {
       const hour = (currentHour + 1 + i) % 24;
-      
+
       if (hour >= 17 && hour <= 21) {
         totalFactor += 1.02; // Peak hours - mild uplift
       } else if (hour >= 23 || hour <= 6) {
@@ -570,7 +573,7 @@ export class EnhancedSavingsCalculator {
         totalFactor += 1.0; // Normal hours
       }
     }
-    
+
     return totalFactor / remainingHours;
   }
 
@@ -598,7 +601,7 @@ export class EnhancedSavingsCalculator {
 
     // Enhance with real model confidence from services
     const serviceConfidences: number[] = [];
-    
+
     // Add thermal model confidence
     if (this.thermalModelService) {
       try {
@@ -626,10 +629,10 @@ export class EnhancedSavingsCalculator {
     // Blend service confidences with basic confidence
     if (serviceConfidences.length > 0) {
       const avgServiceConfidence = serviceConfidences.reduce((sum, conf) => sum + conf, 0) / serviceConfidences.length;
-      
+
       // Weight: 70% basic calculation, 30% service models (softer)
       confidence = (confidence * 0.7) + (avgServiceConfidence * 0.3);
-      
+
       this.safeDebug('Enhanced confidence calculation:', {
         basicConfidence: confidence.toFixed(3),
         serviceConfidences: serviceConfidences.map(c => c.toFixed(3)),
@@ -683,7 +686,7 @@ export class EnhancedSavingsCalculator {
     let operatingProfile: 'always_on' | '24_7' | 'schedule' = 'schedule';
     let assumedHeatingCOP = 2.2;
     let assumedHotWaterCOP = 1.8;
-    
+
     // If we have learned COP data, use more conservative versions
     if (this.copHelper) {
       try {
@@ -696,7 +699,7 @@ export class EnhancedSavingsCalculator {
         // Use defaults if COP data unavailable
       }
     }
-    
+
     // If we have hot water patterns, determine if user likely uses scheduling
     if (this.hotWaterService) {
       try {
@@ -705,10 +708,10 @@ export class EnhancedSavingsCalculator {
           // Analyze if usage shows clear day/night patterns
           const nightHours = [0, 1, 2, 3, 4, 5, 22, 23];
           const dayHours = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21];
-          
+
           const nightUsage = nightHours.reduce((sum, h) => sum + (patterns.hourlyUsagePattern[h] || 0), 0) / nightHours.length;
           const dayUsage = dayHours.reduce((sum, h) => sum + (patterns.hourlyUsagePattern[h] || 0), 0) / dayHours.length;
-          
+
           // If day usage is significantly higher than night, assume scheduling is used
           if (dayUsage > nightUsage * 1.5) {
             operatingProfile = 'schedule';
@@ -721,7 +724,7 @@ export class EnhancedSavingsCalculator {
         // Use default if analysis fails
       }
     }
-    
+
     return {
       heatingSetpoint: 21.0,      // EU standard comfort temperature
       hotWaterSetpoint: 60.0,     // Legionella prevention requirement

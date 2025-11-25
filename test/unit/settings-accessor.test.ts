@@ -47,4 +47,57 @@ describe('SettingsAccessor', () => {
     accessor.set('example', 123);
     expect(mockHomey.settings.set).toHaveBeenCalledWith('example', 123);
   });
+
+  describe('Type Coercion', () => {
+    it('coerces numeric strings to numbers', () => {
+      mockHomey.settings.get.mockReturnValue('21.5');
+      expect(accessor.getNumber('temp', 20)).toBe(21.5);
+
+      mockHomey.settings.get.mockReturnValue('42');
+      expect(accessor.getNumber('count', 0)).toBe(42);
+    });
+
+    it('handles invalid numeric strings', () => {
+      mockHomey.settings.get.mockReturnValue('not-a-number');
+      expect(accessor.getNumber('temp', 20)).toBe(20); // default
+    });
+
+    it('coerces boolean strings', () => {
+      mockHomey.settings.get.mockReturnValue('true');
+      expect(accessor.getBoolean('flag', false)).toBe(true);
+
+      mockHomey.settings.get.mockReturnValue('false');
+      expect(accessor.getBoolean('flag', true)).toBe(false);
+
+      mockHomey.settings.get.mockReturnValue('1');
+      expect(accessor.getBoolean('flag', false)).toBe(true);
+
+      mockHomey.settings.get.mockReturnValue('0');
+      expect(accessor.getBoolean('flag', true)).toBe(false);
+    });
+
+    it('coerces numbers to booleans', () => {
+      mockHomey.settings.get.mockReturnValue(1);
+      expect(accessor.getBoolean('flag', false)).toBe(true);
+
+      mockHomey.settings.get.mockReturnValue(0);
+      expect(accessor.getBoolean('flag', true)).toBe(false);
+
+      mockHomey.settings.get.mockReturnValue(42);
+      expect(accessor.getBoolean('flag', false)).toBe(true);
+    });
+
+    it('validates ranges after string coercion', () => {
+      mockHomey.settings.get.mockReturnValue('200');
+      expect(accessor.getNumber('temp', 20, { max: 100 })).toBe(20); // default due to range
+
+      mockHomey.settings.get.mockReturnValue('5');
+      expect(accessor.getNumber('temp', 20, { min: 10 })).toBe(20); // default due to range
+    });
+
+    it('accepts valid coerced values within range', () => {
+      mockHomey.settings.get.mockReturnValue('50');
+      expect(accessor.getNumber('temp', 20, { min: 10, max: 100 })).toBe(50);
+    });
+  });
 });

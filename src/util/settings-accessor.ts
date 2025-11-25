@@ -7,7 +7,7 @@ export class SettingsAccessor {
   constructor(
     private readonly homey: HomeyApp,
     private readonly logger?: Pick<HomeyLogger, 'warn' | 'log'>
-  ) {}
+  ) { }
 
   /**
    * Get setting with type safety and default value.
@@ -31,38 +31,79 @@ export class SettingsAccessor {
   }
 
   /**
-   * Get number setting with optional range validation.
+   * Get number setting with optional range validation and type coercion.
    */
   getNumber(
     key: string,
     defaultValue: number,
     options?: { min?: number; max?: number }
   ): number {
-    const value = this.get(key, defaultValue);
+    const rawValue = this.homey.settings.get(key);
 
-    if (!Number.isFinite(value)) {
+    if (rawValue === null || rawValue === undefined) {
       return defaultValue;
     }
 
-    if (options) {
-      if (options.min !== undefined && value < options.min) {
-        this.logWarning(`Setting '${key}' below minimum (${options.min}); using default ${defaultValue}.`);
-        return defaultValue;
-      }
-      if (options.max !== undefined && value > options.max) {
-        this.logWarning(`Setting '${key}' above maximum (${options.max}); using default ${defaultValue}.`);
-        return defaultValue;
+    // Accept numbers directly
+    if (typeof rawValue === 'number') {
+      return this.validateNumberRange(rawValue, defaultValue, options, key);
+    }
+
+    // Coerce strings to numbers (backward compatibility)
+    if (typeof rawValue === 'string') {
+      const parsed = Number(rawValue);
+      if (Number.isFinite(parsed)) {
+        this.logInfo(`Setting '${key}' coerced from string "${rawValue}" to number ${parsed}`);
+        return this.validateNumberRange(parsed, defaultValue, options, key);
       }
     }
 
-    return value;
+    // Invalid type - use default
+    this.logWarning(
+      `Setting '${key}' has invalid type: expected number, got ${typeof rawValue}. Using default.`
+    );
+    return defaultValue;
   }
 
   /**
-   * Get boolean setting.
+   * Get boolean setting with type coercion.
    */
   getBoolean(key: string, defaultValue: boolean): boolean {
-    return this.get(key, defaultValue);
+    const rawValue = this.homey.settings.get(key);
+
+    if (rawValue === null || rawValue === undefined) {
+      return defaultValue;
+    }
+
+    // Accept booleans directly
+    if (typeof rawValue === 'boolean') {
+      return rawValue;
+    }
+
+    // Coerce strings to booleans (backward compatibility)
+    if (typeof rawValue === 'string') {
+      const lower = rawValue.toLowerCase().trim();
+      if (lower === 'true' || lower === '1') {
+        this.logInfo(`Setting '${key}' coerced from string "${rawValue}" to boolean true`);
+        return true;
+      }
+      if (lower === 'false' || lower === '0' || lower === '') {
+        this.logInfo(`Setting '${key}' coerced from string "${rawValue}" to boolean false`);
+        return false;
+      }
+    }
+
+    // Coerce numbers to booleans (0 = false, non-zero = true)
+    if (typeof rawValue === 'number') {
+      this.logInfo(`Setting '${key}' coerced from number ${rawValue} to boolean ${rawValue !== 0}`);
+      return rawValue !== 0;
+    }
+
+    // Invalid type - use default
+    this.logWarning(
+      `Setting '${key}' has invalid type: expected boolean, got ${typeof rawValue}. Using default.`
+    );
+    return defaultValue;
   }
 
   /**
@@ -99,6 +140,45 @@ export class SettingsAccessor {
       void this.homey.settings.set(key, value);
     } catch (error) {
       this.logWarning(`Failed to persist setting '${key}': ${String(error)}`);
+    }
+  }
+
+  /**
+   * Validate number is within specified range.
+   */
+  private validateNumberRange(
+    value: number,
+    defaultValue: number,
+    options: { min?: number; max?: number } | undefined,
+    key: string
+  ): number {
+    if (!Number.isFinite(value)) {
+      return defaultValue;
+    }
+
+    if (options) {
+      if (options.min !== undefined && value < options.min) {
+        this.logWarning(
+          `Setting '${key}' value ${value} below minimum (${options.min}); using default ${defaultValue}.`
+        );
+        return defaultValue;
+      }
+      if (options.max !== undefined && value > options.max) {
+        this.logWarning(
+          `Setting '${key}' value ${value} above maximum (${options.max}); using default ${defaultValue}.`
+        );
+        return defaultValue;
+      }
+    }
+
+    return value;
+  }
+
+  private logInfo(message: string): void {
+    if (this.logger?.log) {
+      this.logger.log(message);
+    } else {
+      this.homey.log(message);
     }
   }
 

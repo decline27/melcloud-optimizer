@@ -1080,7 +1080,21 @@ export class Optimizer {
         TotalCoolingConsumed: 0,
         TotalCoolingProduced: 0,
         CoP: Array.isArray(energyData.CoP)
-          ? energyData.CoP.filter((value): value is number => typeof value === 'number')
+          ? energyData.CoP
+            .map((value): number | null => {
+              // Plain number - use as-is
+              if (typeof value === 'number') {
+                return value;
+              }
+              // Object with value property - extract it
+              if (value && typeof value === 'object' && 'value' in value) {
+                const copValue = (value as { value: unknown }).value;
+                return typeof copValue === 'number' ? copValue : null;
+              }
+              // Invalid format - skip
+              return null;
+            })
+            .filter((value): value is number => value !== null && Number.isFinite(value))
           : [],
         // Prefer explicit COP fields when present in the daily report
         heatingCOP: derivedHeatingCOP,
@@ -1965,7 +1979,127 @@ export class Optimizer {
     };
   }
 
+  /**
+   * Apply Zone 2 fallback with proper constraint checking and error handling
+   * Prevents API spam by applying deadband, lockout, and duplicate detection
+   */
+  private async applyZone2Fallback(
+    currentTarget: number,
+    currentTemp: number,
+    zone1Target: number,
+    reason: string,
+    logger: DecisionLogger
+  ): Promise<SecondaryZoneResult | null> {
+    const constraints = this.getZone2Constraints();
+
+    // Calculate proposed target based on Zone 1
+    const clampedTarget = Math.max(
+      constraints.minTemp,
+      Math.min(constraints.maxTemp, zone1Target)
+    );
+
+    // Apply full setpoint constraints (deadband, lockout, step rounding, etc.)
+    const constraintResult = applySetpointConstraints({
+      proposedC: clampedTarget,
+      currentTargetC: currentTarget,
+      minC: constraints.minTemp,
+      maxC: constraints.maxTemp,
+      stepC: constraints.tempStep,
+      deadbandC: this.getZone1Constraints().deadband,
+      minChangeMinutes: this.minSetpointChangeMinutes,
+      lastChangeMs: this.getZone2State().timestamp || 0
+    });
+
+    const fallbackTarget = constraintResult.constrainedC;
+    const shouldApply = constraintResult.changed && !constraintResult.lockoutActive;
+
+    // Check for duplicate target
+    const isDuplicate = this.getZone2State().setpoint !== null &&
+      Math.abs((this.getZone2State().setpoint as number) - fallbackTarget) < 1e-4;
+
+    logger('zone2.fallback', {
+      proposed: clampedTarget,
+      constrained: fallbackTarget,
+      changed: constraintResult.changed,
+      lockout: constraintResult.lockoutActive,
+      duplicate: isDuplicate,
+      reason: constraintResult.reason
+    });
+
+    if (shouldApply && !isDuplicate) {
+      try {
+        await this.melCloud.setZoneTemperature(
+          this.deviceId,
+          this.buildingId,
+          fallbackTarget,
+          2
+        );
+
+        this.stateManager.recordZone2Change(fallbackTarget);
+        if (this.homey) {
+          this.stateManager.saveToSettings(this.homey);
+        }
+
+        this.logger.log(
+          `Zone2 fallback: ${currentTarget.toFixed(1)}°C → ${fallbackTarget.toFixed(1)}°C (${reason})`
+        );
+
+        return {
+          fromTemp: currentTarget,
+          toTemp: fallbackTarget,
+          targetTemp: fallbackTarget,
+          targetOriginal: currentTarget,
+          indoorTemp: currentTemp,
+          reason,
+          success: true,
+          changed: true,
+          action: 'changed'
+        };
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        this.logger.error('Zone2 fallback temperature change failed', error);
+        logger('zone2.fallback.error', { error: errorMsg });
+
+        // Return error result but don't abort optimization
+        return {
+          fromTemp: currentTarget,
+          toTemp: currentTarget,
+          targetTemp: fallbackTarget,
+          targetOriginal: currentTarget,
+          indoorTemp: currentTemp,
+          reason: `${reason} | Error: ${errorMsg}`,
+          success: false,
+          changed: false,
+          action: 'hold'
+        };
+      }
+    } else {
+      const holdReason = isDuplicate
+        ? 'duplicate target'
+        : constraintResult.lockoutActive
+          ? `lockout ${this.minSetpointChangeMinutes}m`
+          : constraintResult.reason;
+
+      this.logger.log(
+        `Zone2 fallback hold (${holdReason}) – keeping ${currentTarget.toFixed(1)}°C`
+      );
+
+      return {
+        fromTemp: currentTarget,
+        toTemp: currentTarget,
+        targetTemp: fallbackTarget,
+        targetOriginal: currentTarget,
+        indoorTemp: currentTemp,
+        reason: `${reason} | ${holdReason}`,
+        success: true,
+        changed: false,
+        action: 'hold'
+      };
+    }
+  }
+
   public async optimizeZone2(
+
     inputs: OptimizationInputs,
     zone1Result: Zone1OptimizationResult,
     logger: DecisionLogger
@@ -1985,23 +2119,15 @@ export class Optimizer {
       return null;
     }
 
-    // Handle missing price data gracefully with a simple fallback
+    // Handle missing price data gracefully with a guarded fallback
     if (!inputs.priceData.prices || inputs.priceData.prices.length === 0) {
-      const constraints = this.getZone2Constraints();
-      const clampedTarget = Math.max(constraints.minTemp, Math.min(constraints.maxTemp, zone1Result.targetTemp));
-      const fallbackTarget = Math.round(clampedTarget / constraints.tempStep) * constraints.tempStep;
-      await this.melCloud.setZoneTemperature(this.deviceId, this.buildingId, fallbackTarget, 2);
-      return {
-        fromTemp: currentZone2Target,
-        toTemp: fallbackTarget,
-        targetTemp: fallbackTarget,
-        targetOriginal: currentZone2Target,
-        indoorTemp: currentZone2Temp,
-        reason: 'Zone2 fallback applied (no price data)',
-        success: true,
-        changed: true,
-        action: 'changed'
-      };
+      return await this.applyZone2Fallback(
+        currentZone2Target,
+        currentZone2Temp,
+        zone1Result.targetTemp,
+        'Zone2 fallback applied (no price data)',
+        logger
+      );
     }
 
     try {
@@ -2029,21 +2155,13 @@ export class Optimizer {
       );
 
       if (!zone2Opt) {
-        const constraints = this.getZone2Constraints();
-        const rawTarget = zone1Result.targetTemp;
-        const clampedTarget = Math.max(constraints.minTemp, Math.min(constraints.maxTemp, rawTarget));
-        const fallbackTarget = Math.round(clampedTarget / constraints.tempStep) * constraints.tempStep;
-        await this.melCloud.setZoneTemperature(this.deviceId, this.buildingId, fallbackTarget, 2);
-
-        return {
-          success: true,
-          action: 'changed',
-          targetTemp: fallbackTarget,
-          fromTemp: currentZone2Target,
-          toTemp: fallbackTarget,
-          reason: 'Zone2 fallback applied',
-          changed: true
-        };
+        return await this.applyZone2Fallback(
+          currentZone2Target,
+          currentZone2Temp,
+          zone1Result.targetTemp,
+          'Zone2 fallback applied (optimizer returned null)',
+          logger
+        );
       }
 
       if (zone2Opt.changed) {
