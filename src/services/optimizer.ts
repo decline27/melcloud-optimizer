@@ -351,7 +351,7 @@ export class Optimizer {
    * Async initialization - must be called after construction
    * @returns Promise that resolves when initialization is complete
    */
-  async initialize(): Promise<void> {
+  initialize(): Promise<void> {
     // Prevent multiple simultaneous initializations
     if (this.initializationPromise) {
       return this.initializationPromise;
@@ -363,23 +363,25 @@ export class Optimizer {
     }
 
     // Create initialization promise
-    this.initializationPromise = this.performAsyncInitialization();
-
-    try {
-      await this.initializationPromise;
-      const thermalReady = this.thermalController.getThermalMassModel() !== null;
-      if (!thermalReady) {
-        throw new Error('Thermal mass model not initialized');
+    this.initializationPromise = (async () => {
+      try {
+        await this.performAsyncInitialization();
+        const thermalReady = this.thermalController.getThermalMassModel() !== null;
+        if (!thermalReady) {
+          throw new Error('Thermal mass model not initialized');
+        }
+        this.initialized = true;
+        this.logger.log('Optimizer initialization complete');
+      } catch (error) {
+        this.logger.error('Optimizer initialization failed:', error);
+        // Don't set initialized = true, allow retry on next ensureInitialized()
+        throw error;
+      } finally {
+        this.initializationPromise = null;
       }
-      this.initialized = true;
-      this.logger.log('Optimizer initialization complete');
-    } catch (error) {
-      this.logger.error('Optimizer initialization failed:', error);
-      // Don't set initialized = true, allow retry on next ensureInitialized()
-      throw error;
-    } finally {
-      this.initializationPromise = null;
-    }
+    })();
+
+    return this.initializationPromise;
   }
 
   /**
