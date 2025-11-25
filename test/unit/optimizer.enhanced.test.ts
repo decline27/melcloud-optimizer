@@ -20,7 +20,7 @@ describe('Optimizer Enhanced Tests', () => {
   let mockThermalModelService: jest.Mocked<ThermalModelService>;
   let mockCOPHelper: jest.Mocked<COPHelper>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     // Create mock MelCloud API
     mockMelCloud = new MelCloudApi() as jest.Mocked<MelCloudApi>;
     mockMelCloud.getDeviceState = jest.fn().mockResolvedValue({
@@ -118,6 +118,9 @@ describe('Optimizer Enhanced Tests', () => {
       mockWeatherApi,
       mockHomey
     );
+
+    // Initialize optimizer (ensures thermal mass loading completes)
+    await optimizer.initialize();
 
     // Set private properties for testing
     (optimizer as any).thermalModelService = mockThermalModelService;

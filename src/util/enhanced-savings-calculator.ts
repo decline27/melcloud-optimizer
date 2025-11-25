@@ -226,16 +226,24 @@ export class EnhancedSavingsCalculator {
 
       // Calculate projected savings for remaining hours
       const remainingHours = 24 - (todayOptimizations.length + 1); // +1 for current hour
-      const projectedSavings = this.calculateProjectedSavings(
-        currentHourSavings,
-        todayOptimizations,
-        remainingHours,
-        currentHour,
-        futurePriceFactors
-      );
+    const projectedSavings = this.calculateProjectedSavings(
+      currentHourSavings,
+      todayOptimizations,
+      remainingHours,
+      currentHour,
+      futurePriceFactors
+    );
 
-      // Calculate total daily savings
-      const totalDailySavings = actualSavings + currentHourSavings + projectedSavings;
+    // Calculate total daily savings
+    const totalDailySavings = actualSavings + currentHourSavings + projectedSavings;
+
+    // Clamp projection to avoid overly optimistic numbers
+    const avgRecent = todayOptimizations.length > 0
+      ? todayOptimizations.reduce((sum, opt) => sum + (opt.savings || 0), 0) / todayOptimizations.length
+      : currentHourSavings;
+    const maxProjection = Math.max(0, avgRecent) * remainingHours * 1.1;
+    const clampedProjected = Math.min(Math.max(projectedSavings, 0), maxProjection);
+    const clampedTotal = actualSavings + currentHourSavings + clampedProjected;
 
       // Calculate confidence based on data quality and amount
       const confidence = this.calculateConfidence(todayOptimizations, currentHour);
@@ -244,19 +252,19 @@ export class EnhancedSavingsCalculator {
       const method = this.getCalculationMethod(todayOptimizations, currentHour, futurePriceFactors);
       const enhancedMethod = this.getEnhancedMethod();
 
-      const result: SavingsCalculationResult = {
-        dailySavings: totalDailySavings,
-        compoundedSavings: compoundedSavings,
-        projectedSavings: projectedSavings,
-        confidence: confidence,
-        method: enhancedMethod !== 'basic_enhanced' ? `${method}_${enhancedMethod}` : method,
-        breakdown: {
-          actualSavings: actualSavings,
-          currentHourSavings: currentHourSavings,
-          projectedHours: remainingHours,
-          projectedAmount: projectedSavings
-        }
-      };
+    const result: SavingsCalculationResult = {
+      dailySavings: clampedTotal,
+      compoundedSavings: compoundedSavings,
+      projectedSavings: clampedProjected,
+      confidence: confidence,
+      method: enhancedMethod !== 'basic_enhanced' ? `${method}_${enhancedMethod}` : method,
+      breakdown: {
+        actualSavings: actualSavings,
+        currentHourSavings: currentHourSavings,
+        projectedHours: remainingHours,
+        projectedAmount: clampedProjected
+      }
+    };
 
       this.safeDebug('Enhanced daily savings calculation:', {
         currentHour,
@@ -301,7 +309,7 @@ export class EnhancedSavingsCalculator {
     currentHour: number
   ): number {
     if (todayOptimizations.length === 0) {
-      return currentHourSavings * 24;
+      return currentHourSavings; // No history yet; don't extrapolate a full day here
     }
 
     // Calculate thermal inertia factor based on temperature changes
@@ -313,15 +321,11 @@ export class EnhancedSavingsCalculator {
     // Base savings from actual optimizations
     const baseSavings = todayOptimizations.reduce((sum, opt) => sum + (opt.savings || 0), 0);
     
-    // Apply compounding factors
-    const compoundedSavings = baseSavings * (1 + thermalInertiaFactor + cumulativeEffectFactor);
+    // Apply compounding factors conservatively and cap
+    const compoundedSavings = baseSavings * (1 + Math.min(thermalInertiaFactor + cumulativeEffectFactor, 0.05)); // max +5%
     
-    // Add current hour and project remaining hours with compounding
-    const remainingHours = 24 - (todayOptimizations.length + 1);
-    const projectedWithCompounding = (currentHourSavings + (currentHourSavings * remainingHours)) * 
-                                   (1 + thermalInertiaFactor * 0.5); // Reduced factor for projections
-    
-    return compoundedSavings + projectedWithCompounding;
+    // Add current hour only once; projections are handled separately
+    return compoundedSavings + currentHourSavings;
   }
 
   /**
@@ -366,7 +370,7 @@ export class EnhancedSavingsCalculator {
         });
         
         // Cap the result, but use learned thermalMassMultiplier as ceiling when confidence is high
-        const maxCap = Math.max(0.1, thermalMassMultiplier);
+        const maxCap = Math.max(0.05, thermalMassMultiplier); // cap thermal bonus at 5%+
         return Math.min(avgTempChange * blendedMultiplier, maxCap);
       } catch (error) {
         this.safeError('Error getting thermal characteristics, using fallback:', error);
@@ -376,7 +380,7 @@ export class EnhancedSavingsCalculator {
     // Fallback to original hardcoded calculation
     // Thermal inertia provides additional savings when temperature changes are larger
     // because the building retains the temperature longer
-    return Math.min(avgTempChange * 0.02, 0.1); // Max 10% bonus
+    return Math.min(avgTempChange * 0.02, 0.05); // Max 5% bonus
   }
 
   /**
@@ -421,20 +425,21 @@ export class EnhancedSavingsCalculator {
     // Use weighted average of today's optimizations if available
     if (todayOptimizations.length >= 2) {
       const recentOptimizations = todayOptimizations.slice(-3); // Last 3 hours
-      const avgRecentSavings = recentOptimizations.reduce((sum, opt) => sum + opt.savings, 0) / recentOptimizations.length;
+      const avgRecentSavings = recentOptimizations.reduce((sum, opt) => sum + (opt.savings || 0), 0) / recentOptimizations.length;
       
       // Weight recent savings more heavily than current hour
       const weightedSavings = (avgRecentSavings * 0.7) + (currentHourSavings * 0.3);
+      const base = Math.max(0, weightedSavings);
       
       if (usePriceFactors) {
         // Sum factors for the remaining hours (pad/truncate as needed)
         const factors = futurePriceFactors!.slice(0, remainingHours);
-        const sumFactors = factors.reduce((s, f) => s + (Number.isFinite(f) ? f : 1), 0);
-        return weightedSavings * sumFactors;
+        const sumFactors = factors.reduce((s, f) => s + (Number.isFinite(f) ? Math.max(f, 0) : 1), 0);
+        return base * Math.min(sumFactors, remainingHours * 1.1);
       } else {
         // Apply time-of-day factor (evening hours typically have higher prices)
         const timeOfDayFactor = this.getTimeOfDayFactor(currentHour, remainingHours);
-        return weightedSavings * remainingHours * timeOfDayFactor;
+        return base * remainingHours * timeOfDayFactor;
       }
     }
 
@@ -442,11 +447,11 @@ export class EnhancedSavingsCalculator {
     let baseSavings: number;
     if (usePriceFactors) {
       const factors = futurePriceFactors!.slice(0, remainingHours);
-      const sumFactors = factors.reduce((s, f) => s + (Number.isFinite(f) ? f : 1), 0);
-      baseSavings = currentHourSavings * sumFactors;
+      const sumFactors = factors.reduce((s, f) => s + (Number.isFinite(f) ? Math.max(f, 0) : 1), 0);
+      baseSavings = Math.max(0, currentHourSavings) * Math.min(sumFactors, remainingHours * 1.1);
     } else {
       const timeOfDayFactor = this.getTimeOfDayFactor(currentHour, remainingHours);
-      baseSavings = currentHourSavings * remainingHours * timeOfDayFactor;
+      baseSavings = Math.max(0, currentHourSavings) * remainingHours * timeOfDayFactor;
     }
 
     // Apply weather-aware adjustments if thermal model is available
@@ -491,7 +496,7 @@ export class EnhancedSavingsCalculator {
       weatherMultiplier += tempImpact * 0.1; // Scale the impact
       
       // Ensure reasonable bounds
-      weatherMultiplier = Math.max(0.8, Math.min(1.3, weatherMultiplier));
+      weatherMultiplier = Math.max(0.9, Math.min(1.1, weatherMultiplier));
       
       this.safeDebug('Applied weather adjustments to projected savings:', {
         baseSavings: baseSavings.toFixed(4),
@@ -556,9 +561,9 @@ export class EnhancedSavingsCalculator {
       const hour = (currentHour + 1 + i) % 24;
       
       if (hour >= 17 && hour <= 21) {
-        totalFactor += 1.2; // Peak hours - 20% higher savings potential
+        totalFactor += 1.02; // Peak hours - mild uplift
       } else if (hour >= 23 || hour <= 6) {
-        totalFactor += 0.8; // Off-peak hours - 20% lower savings potential
+        totalFactor += 0.98; // Off-peak hours - mild reduction
       } else {
         totalFactor += 1.0; // Normal hours
       }
@@ -579,7 +584,7 @@ export class EnhancedSavingsCalculator {
     confidence += dataPointsFactor;
 
     // Increase confidence based on time of day (more data = higher confidence)
-    const timeOfDayFactor = Math.min(currentHour / 24, 1) * 0.2; // Max 20% from time progression
+    const timeOfDayFactor = Math.min(currentHour / 24, 1) * 0.15; // Max 15% from time progression (softer)
     confidence += timeOfDayFactor;
 
     // Decrease confidence if savings are highly variable
@@ -620,18 +625,18 @@ export class EnhancedSavingsCalculator {
     if (serviceConfidences.length > 0) {
       const avgServiceConfidence = serviceConfidences.reduce((sum, conf) => sum + conf, 0) / serviceConfidences.length;
       
-      // Weight: 60% basic calculation, 40% service models
-      confidence = (confidence * 0.6) + (avgServiceConfidence * 0.4);
+      // Weight: 70% basic calculation, 30% service models (softer)
+      confidence = (confidence * 0.7) + (avgServiceConfidence * 0.3);
       
       this.safeDebug('Enhanced confidence calculation:', {
-        basicConfidence: (confidence / (0.6 + 0.4 * avgServiceConfidence) * 0.6).toFixed(3),
+        basicConfidence: confidence.toFixed(3),
         serviceConfidences: serviceConfidences.map(c => c.toFixed(3)),
         avgServiceConfidence: avgServiceConfidence.toFixed(3),
         finalConfidence: confidence.toFixed(3)
       });
     }
 
-    return Math.max(0.1, Math.min(1.0, confidence));
+    return Math.max(0.1, Math.min(0.9, confidence)); // cap at 0.9 to avoid overconfidence
   }
 
   /**

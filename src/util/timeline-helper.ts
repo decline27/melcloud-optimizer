@@ -372,7 +372,8 @@ export class TimelineHelper {
             toTempC: additionalData.targetTemp ?? 20,
             tankFromC: additionalData.tankOriginal,
             tankToC: additionalData.tankTemp,
-            projectedDailySavingsSEK: additionalData.dailySavings ?? (additionalData.savings ? additionalData.savings * 24 : undefined),
+            // Use provided daily projection only; avoid multiplying single-hour savings into a full day
+            projectedDailySavingsSEK: additionalData.dailySavings,
             reasonCode: this.extractReasonCodeFromDetails(details),
             planningShiftHours: typeof additionalData.planningShiftHours === 'number' ? additionalData.planningShiftHours : undefined,
             // Add technical parameters if available
@@ -751,8 +752,10 @@ export class TimelineHelper {
       const currency = CurrencyDetector.getCurrencyWithFallback(this.homey);
       const savingsAmount = additionalData.dailySavings !== undefined ?
         additionalData.dailySavings :
-        (additionalData.savings * 24);
-      segments.push(`Projected daily savings: ${savingsAmount.toFixed(2)} ${currency}/day`);
+        additionalData.savings;
+      if (savingsAmount !== undefined) {
+        segments.push(`Projected daily savings: ${savingsAmount.toFixed(2)} ${currency}${additionalData.dailySavings !== undefined ? '/day' : ''}`);
+      }
     }
 
     return segments.length > 0 ? segments.join(' | ') : 'Temperature optimized based on electricity prices';

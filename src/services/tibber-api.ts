@@ -257,6 +257,7 @@ export class TibberApi extends BaseApiService {
         prices: hourlyPrices.length > 0 ? hourlyPrices : quarterHourlyPrices,
         quarterHourly: quarterHourlyPrices,
         intervalMinutes,
+        priceLevel: priceInfo.current?.level || priceInfo.current?.priceLevel || undefined
       };
 
       this.logger.log(

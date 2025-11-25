@@ -85,6 +85,7 @@ export interface TibberPriceInfo {
   intervalMinutes?: number;
   currencyCode?: string;
   baseCurrency?: string;
+  priceLevel?: string; // Optional native Tibber price level (very cheap...very expensive)
 }
 
 export interface PriceProvider {
@@ -673,3 +674,6 @@ export interface ApiHandlers {
   getModelConfidence(context: ApiHandlerContext): Promise<GetModelConfidenceResponse>;
   'hot-water': HotWaterHandlers;
 }
+
+// Homey extensions - type-safe service access
+export { HotWaterService, HomeyWithOptimizer, hasHotWaterService } from './homey-extensions';

@@ -239,7 +239,7 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
   const priceSource = typeof priceSourceSetting === 'string' && priceSourceSetting.toLowerCase() === 'entsoe'
     ? 'entsoe'
     : 'tibber';
-  
+
   // Get timezone settings for all services
   const timeZoneOffset = homey.settings.get('time_zone_offset') || 2;
   const useDST = homey.settings.get('use_dst') || false;
@@ -292,47 +292,47 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
       homey.app.log(`Device: ${device.name} (ID: ${device.id}, Building ID: ${device.buildingId})`);
     });
     homey.app.log('=============================');
-    
+
     // Automatic device ID resolution for initial setup
     let resolvedDeviceId = deviceId;
     let resolvedBuildingId = buildingId;
     let deviceResolved = false;
-    
+
     // Check if we need to resolve device IDs (placeholder values or invalid numeric IDs)
     const needsResolution = (
       deviceId === 'Boiler' || // Default placeholder
       buildingId === 456 || // Default placeholder
       !devices.some((device: any) => device.id?.toString() === deviceId.toString()) // Device ID doesn't exist
     );
-    
+
     if (needsResolution) {
       // Try to find device by name match first
-      let targetDevice = devices.find((device: any) => 
+      let targetDevice = devices.find((device: any) =>
         String(device.name || '').toLowerCase() === deviceId.toLowerCase()
       );
-      
+
       // If no name match, try by numeric ID
       if (!targetDevice) {
-        targetDevice = devices.find((device: any) => 
+        targetDevice = devices.find((device: any) =>
           device.id?.toString() === deviceId.toString()
         );
       }
-      
+
       // If still no match, use the first available device
       if (!targetDevice && devices.length > 0) {
         targetDevice = devices[0];
         homey.app.log(`WARNING: Configured device ID "${deviceId}" not found. Auto-resolving to first available device.`);
       }
-      
+
       if (targetDevice) {
         resolvedDeviceId = targetDevice.id.toString();
         resolvedBuildingId = targetDevice.buildingId;
         deviceResolved = true;
-        
+
         // Update settings with resolved IDs
         homey.settings.set('device_id', resolvedDeviceId);
         homey.settings.set('building_id', resolvedBuildingId);
-        
+
         homey.app.log(`🔄 AUTO-RESOLVED DEVICE IDs:`);
         homey.app.log(`- Original: Device ID "${deviceId}", Building ID "${buildingId}"`);
         homey.app.log(`- Resolved: Device ID "${resolvedDeviceId}", Building ID "${resolvedBuildingId}"`);
@@ -350,7 +350,7 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
         homey.app.log(`WARNING: Configured device ID "${deviceId}" not found. Consider using ${fallback.name} (ID: ${fallback.id}).`);
       }
     }
-    
+
     // Update the variables for subsequent service initialization
     if (deviceResolved) {
       deviceId = resolvedDeviceId;
@@ -400,6 +400,12 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
     serviceState.weather as any, // weatherApi
     homey as any // homey instance for thermal learning
   );
+
+  // Initialize optimizer in the background to avoid blocking startup on MELCloud history fetch
+  optimizer.initialize()
+    .then(() => homey.app.log('Optimizer initialization complete'))
+    .catch(error => homey.app.error('Optimizer initialization failed (non-blocking):', error));
+
   serviceState.optimizer = optimizer;
   (global as any).optimizer = optimizer;
 
@@ -487,7 +493,7 @@ export async function updateOptimizerSettings(homey: HomeyLike): Promise<void> {
 
   // Check current occupancy state to select appropriate comfort band
   const currentlyOccupied = homey.settings.get('occupied') !== false; // Default to true if not set
-  
+
   const derivedMin = currentlyOccupied ? comfortLowerOccupied : comfortLowerAway;
   let derivedMax = currentlyOccupied ? comfortUpperOccupied : comfortUpperAway;
 

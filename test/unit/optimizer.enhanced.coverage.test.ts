@@ -39,7 +39,8 @@ describe('Optimizer hotwater & enhanced edge cases', () => {
     const nowIso = new Date().toISOString();
     mockTibber.getPrices.mockResolvedValue({
       current: { price: 0.5, time: nowIso },
-      prices: new Array(24).fill(0).map((_, i) => ({ price: 0.5, time: new Date(Date.now() + i * 3600000).toISOString() }))
+      prices: new Array(24).fill(0).map((_, i) => ({ price: 0.5, time: new Date(Date.now() + i * 3600000).toISOString() })),
+      priceLevel: 'CHEAP'
     });
 
     optimizer = new Optimizer(mockMel, mockTibber, 'device-1', 1, logger as any);
@@ -79,6 +80,48 @@ describe('Optimizer hotwater & enhanced edge cases', () => {
 
     const result = await optimizer.runOptimization();
     expect(result.zone2Data).toBeDefined();
+  });
+
+  test('Zone2 honors its own temperature step when rounding', async () => {
+    optimizer.setZone2TemperatureConstraints(true, 18, 25, 0.1); // Zone2 step differs from Zone1 (0.5)
+    (optimizer as any).deadband = 0.1; // Ensure small deltas still trigger a change
+
+    const inputs: any = {
+      deviceState: {
+        SetTemperatureZone2: 20,
+        RoomTemperatureZone2: 20,
+        RoomTemperature: 20,
+        SetTemperature: 20,
+        OutdoorTemperature: 5
+      },
+      currentTemp: 20,
+      currentTarget: 20,
+      outdoorTemp: 5,
+      priceData: { current: { price: 0.5, time: new Date().toISOString() }, prices: [] },
+      priceStats: { priceLevel: 'CHEAP' },
+      priceClassification: { thresholds: {} },
+      priceForecast: null,
+      planningReferenceTime: new Date(),
+      planningReferenceTimeMs: Date.now(),
+      thermalResponse: 1,
+      previousIndoorTemp: null,
+      previousIndoorTempTs: null,
+      constraintsBand: { minTemp: 18, maxTemp: 22 },
+      safeCurrentTarget: 20
+    };
+
+    const zone1Result: any = {
+      targetTemp: 21.44, // Should round to 21.4 using Zone2 step of 0.1
+      weatherInfo: null,
+      thermalStrategy: null,
+      metrics: null
+    };
+
+    const result = await (optimizer as any).optimizeZone2(inputs, zone1Result, jest.fn());
+
+    const [, , issuedTarget] = mockMel.setZoneTemperature.mock.calls[0];
+    expect(issuedTarget).toBeCloseTo(21.4, 2);
+    expect(result.toTemp).toBeCloseTo(21.4, 2);
   });
 
   test('runOptimization includes tank data when tank control enabled', async () => {

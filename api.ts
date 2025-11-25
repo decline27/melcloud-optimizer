@@ -937,21 +937,20 @@ const apiHandlers: ApiHandlers = {
             let projectedDailySavings = hourlySavings * 24;
             let savingsType = 'incremental';
 
-            if (typeof activeOptimizer.calculateDailySavings === 'function') {
+            // Prefer the conservative enhanced daily savings if available
+            if (enhancedSavingsData?.dailySavings !== undefined) {
+              projectedDailySavings = enhancedSavingsData.dailySavings;
+            } else if (typeof activeOptimizer.calculateDailySavings === 'function') {
               try {
                 const val = await activeOptimizer.calculateDailySavings(hourlySavings, historicalData?.optimizations || []);
                 if (Number.isFinite(val)) projectedDailySavings = val;
               } catch (_: any) { }
             }
 
-            // Check if we have enhanced savings with baseline comparison and use the larger value
+            // Attach baseline data for reference but do not override projection
             if (enhancedSavingsData?.baselineComparison) {
               const baselineSavings = enhancedSavingsData.baselineComparison.baselineSavings;
-              if (Number.isFinite(baselineSavings) && baselineSavings > 1 && baselineSavings > projectedDailySavings) {
-                projectedDailySavings = baselineSavings;
-                savingsType = 'vs manual operation';
-
-                // Add baseline data to additional data
+              if (Number.isFinite(baselineSavings)) {
                 additionalData.baselineSavings = baselineSavings;
                 additionalData.baselinePercentage = enhancedSavingsData.baselineComparison.baselinePercentage;
                 additionalData.enhancedSavings = enhancedSavingsData;
@@ -1094,6 +1093,11 @@ const apiHandlers: ApiHandlers = {
                 const entry = entryIndex >= 0 ? { ...displayHistory[entryIndex] } : { date: todayStr };
                 const hasStoredBaseline = Number.isFinite(entry?.baselineMinor) && Number.isFinite(entry?.optimizedMinor);
 
+                // Use projected daily savings (conservative) for widget display
+                const projectedDailySavings = (enhancedSavingsData?.dailySavings !== undefined)
+                  ? Number(enhancedSavingsData.dailySavings)
+                  : (Number.isFinite(computedSavings) ? Number(computedSavings) : 0);
+
                 let baselineCostMajor: number | null = null;
                 let optimizedCostMajor: number | null = null;
                 let baselineSource: 'optimizer' | 'stored' | 'fallback' | null = null;
@@ -1177,12 +1181,21 @@ const apiHandlers: ApiHandlers = {
                 const seasonModeValue = result.energyMetrics?.seasonalMode;
                 let entryUpdated = false;
 
+                // Always store projected daily savings for widget display
+                if (Number.isFinite(projectedDailySavings)) {
+                  entry.currency = currencyCode;
+                  entry.decimals = decimals;
+                  entry.valueMajor = projectedDailySavings;
+                  entry.optimizedMinor = toMinor(Math.max(0, projectedDailySavings));
+                  entryUpdated = true;
+                }
+
                 if ((baselineSource === 'optimizer' || baselineSource === 'fallback') &&
                   baselineCostMajor !== null && optimizedCostMajor !== null) {
                   entry.currency = currencyCode;
                   entry.decimals = decimals;
                   entry.baselineMinor = toMinor(Math.max(0, baselineCostMajor));
-                  entry.optimizedMinor = toMinor(Math.max(0, optimizedCostMajor));
+                  // Keep baseline cost; optimizedMinor already set to savings above
                   entryUpdated = true;
                 } else if (!hasStoredBaseline && baselineSource !== 'stored') {
                   homey.app.log('Skipping display_savings_history update: no baseline data available for today');
@@ -2708,7 +2721,9 @@ const apiHandlers: ApiHandlers = {
           const todayHistory = historyEntries.find(entry => entry.date === todayIso);
           if (todayHistory) {
             if (typeof todayHistory.valueMajor === 'number') {
-              smartSavingsDisplay.today = todayHistory.valueMajor;
+              // Prefer optimized/standard savings over baseline deltas when both are present
+              const optimizedValue = typeof todayHistory.optimizedMajor === 'number' ? todayHistory.optimizedMajor : todayHistory.valueMajor;
+              smartSavingsDisplay.today = optimizedValue;
             }
             if (todayHistory.seasonMode) {
               smartSavingsDisplay.seasonMode = todayHistory.seasonMode;

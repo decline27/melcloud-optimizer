@@ -699,6 +699,11 @@ export default class HeatOptimizerApp extends App {
                 additionalData.todaySoFar = todaySavings;
                 additionalData.costImpactToday = costImpactToday;
               }
+
+              // Prefer conservative daily projection (standardSavings) if provided
+              if ((result.data as any)?.dailySavings !== undefined) {
+                additionalData.dailySavings = (result.data as any).dailySavings;
+              }
             }
 
             // Add any other relevant data

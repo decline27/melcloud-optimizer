@@ -112,6 +112,62 @@ export class HotWaterOptimizer {
     }
 
     /**
+     * Calculate estimated savings from pattern-based scheduling
+     * Compares scheduled cheap-hour heating vs on-demand heating cost
+     */
+    private calculatePatternSavings(
+        schedulePoints: SchedulePoint[],
+        currentHour: number,
+        priceData: any[],
+        options: { gridFeePerKwh?: number; estimatedDailyHotWaterKwh?: number } = {}
+    ): number {
+        if (schedulePoints.length === 0 || priceData.length === 0) {
+            return 0;
+        }
+
+        const gridFee = Number.isFinite(options.gridFeePerKwh) ? (options.gridFeePerKwh as number) : 0;
+
+        // Derive a kWh scale from pattern priorities to avoid hard-coded constants.
+        // Treat priorities as relative weights and scale by an estimated daily kWh if provided.
+        const totalPriority = schedulePoints.reduce((sum, p) => sum + Math.max(p.priority, 0), 0);
+        const dailyKwh = Number.isFinite(options.estimatedDailyHotWaterKwh)
+            ? (options.estimatedDailyHotWaterKwh as number)
+            : 0;
+        if (totalPriority === 0 || dailyKwh <= 0) {
+            return 0; // No meaningful estimate available
+        }
+
+        // Calculate cost of scheduled heating (during cheap hours)
+        let scheduledCost = 0;
+        let totalDemand = 0;
+
+        for (const point of schedulePoints) {
+            const hoursAhead = (point.hour - currentHour + 24) % 24;
+
+            if (hoursAhead < priceData.length) {
+                const hourPrice = priceData[hoursAhead].price;
+                const estimatedKWh = (Math.max(point.priority, 0) / totalPriority) * dailyKwh;
+
+                scheduledCost += (hourPrice + gridFee) * estimatedKWh;
+                totalDemand += estimatedKWh;
+            }
+        }
+
+        if (totalDemand === 0) {
+            return 0;
+        }
+
+        // Calculate cost of on-demand heating at average price
+        const avgPrice = priceData.reduce((sum, p) => sum + p.price, 0) / priceData.length;
+        const onDemandCost = (avgPrice + gridFee) * totalDemand;
+
+        // Savings = what it would cost on-demand minus scheduled cost
+        const savings = Math.max(0, onDemandCost - scheduledCost);
+
+        return Number(savings.toFixed(3));
+    }
+
+    /**
      * Optimize hot water scheduling based on usage patterns
      */
     public optimizeHotWaterSchedulingByPattern(
@@ -119,7 +175,8 @@ export class HotWaterOptimizer {
         priceData: any[],
         hotWaterCOP: number,
         usagePattern: { peakHours: number[], hourlyDemand: number[] },
-        referenceTimeMs?: number
+        referenceTimeMs?: number,
+        options: { currencyCode?: string; gridFeePerKwh?: number; estimatedDailyHotWaterKwh?: number } = {}
     ): {
         schedulePoints: SchedulePoint[];
         currentAction: 'heat_now' | 'delay' | 'maintain';
@@ -212,13 +269,29 @@ export class HotWaterOptimizer {
                 }
             }
 
-            // Calculate estimated savings (simplified)
-            const estimatedSavings = 0; // Placeholder
+            // Calculate estimated savings
+            const estimatedSavings = this.calculatePatternSavings(
+                schedulePoints,
+                currentHour,
+                next24h,
+                {
+                    gridFeePerKwh: options.gridFeePerKwh,
+                    estimatedDailyHotWaterKwh: options.estimatedDailyHotWaterKwh
+                }
+            );
+
+            const currencyCode = options.currencyCode || 'NOK';
+
+            this.logger.log('Pattern-based hot water savings calculated', {
+                schedulePoints: schedulePoints.length,
+                totalDemand: schedulePoints.reduce((sum, p) => sum + Math.max(p.priority, 0), 0),
+                estimatedSavings
+            });
 
             return {
                 schedulePoints,
                 currentAction,
-                reasoning: `Predictive scheduling based on usage pattern(peaks: ${usagePattern.peakHours.join(', ')}h)`,
+                reasoning: `Predictive scheduling based on usage pattern (peaks: ${usagePattern.peakHours.join(', ')}h, saves ${estimatedSavings.toFixed(2)} ${currencyCode})`,
                 estimatedSavings
             };
 

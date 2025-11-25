@@ -48,14 +48,62 @@ export class PriceAnalyzer {
         return this.priceProvider.getPrices();
     }
 
-    public analyzePrice(currentPrice: number, futurePrices: any[]): PriceClassificationStats {
-        const adaptiveThresholds = this.adaptiveLearner?.getStrategyThresholds();
-
-        return classifyPriceUnified(futurePrices, currentPrice, {
+  public analyzePrice(currentPrice: number, futurePrices: any[]): PriceClassificationStats {
+    // If the price provider is Tibber and supplies a native price level, map it directly
+    if (this.priceProvider && (this.priceProvider as any).constructor?.name === 'TibberApi') {
+      const maybePriceInfo = futurePrices as any;
+      const nativeLevel: string | undefined = (maybePriceInfo as any)?.priceLevel;
+      if (nativeLevel) {
+        const mapped = this.mapTibberLevel(nativeLevel);
+        return {
+          label: mapped,
+          percentile: this.estimatePercentileFromLevel(mapped),
+          thresholds: resolvePriceThresholds({
             cheapPercentile: this.preheatCheapPercentile,
-            veryCheapMultiplier: adaptiveThresholds?.veryChepMultiplier
-        });
+            veryCheapMultiplier: this.adaptiveLearner?.getStrategyThresholds()?.veryChepMultiplier
+          }),
+          normalized: NaN,
+          min: NaN,
+          max: NaN,
+          avg: NaN
+        };
+      }
     }
+
+    const adaptiveThresholds = this.adaptiveLearner?.getStrategyThresholds();
+
+    return classifyPriceUnified(futurePrices, currentPrice, {
+      cheapPercentile: this.preheatCheapPercentile,
+      veryCheapMultiplier: adaptiveThresholds?.veryChepMultiplier
+    });
+  }
+
+  /**
+   * Map Tibber native level to our PriceLevel enum
+   */
+  private mapTibberLevel(level: string): PriceLevel {
+    const normalized = level.toLowerCase();
+    if (normalized.includes('very') && normalized.includes('cheap')) return 'VERY_CHEAP';
+    if (normalized.includes('cheap')) return 'CHEAP';
+    if (normalized.includes('very') && normalized.includes('expensive')) return 'VERY_EXPENSIVE';
+    if (normalized.includes('expensive')) return 'EXPENSIVE';
+    return 'NORMAL';
+  }
+
+  /**
+   * Rough percentile estimate based on Tibber level for logging/compatibility.
+   * Tibber level definitions are provider-specific; we map to typical percentile bands.
+   */
+  private estimatePercentileFromLevel(level: PriceLevel): number {
+    switch (level) {
+      case 'VERY_CHEAP': return 10;
+      case 'CHEAP': return 25;
+      case 'NORMAL': return 50;
+      case 'EXPENSIVE': return 75;
+      case 'VERY_EXPENSIVE': return 90;
+      default: return 50;
+    }
+  }
 
     public getPriceLevel(percentile: number): PriceLevel {
         const adaptiveThresholds = this.adaptiveLearner?.getStrategyThresholds();
