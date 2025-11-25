@@ -36,6 +36,8 @@ import { validateNumber, validateBoolean } from '../util/validation';
 import { isError } from '../util/error-handler';
 import { computePlanningBias, updateThermalResponse } from './planning-utils';
 import { applySetpointConstraints } from '../util/setpoint-constraints';
+import { SettingsAccessor } from '../util/settings-accessor';
+import { EnhancedCOPData, getCOPValue } from '../types/enhanced-cop-data';
 
 import { AdaptiveParametersLearner } from './adaptive-parameters';
 import { COP_THRESHOLDS, DEFAULT_WEIGHTS, COMFORT_CONSTANTS, OPTIMIZATION_CONSTANTS } from '../constants';
@@ -45,6 +47,37 @@ const MIN_SAVINGS_FOR_LEARNING = 0.05; // Minimum savings (SEK-equivalent) to tr
 
 type DecisionLogger = (event: string, payload: Record<string, unknown>) => void;
 type ConstraintResult = ReturnType<typeof applySetpointConstraints>;
+
+interface ForecastCapableWeatherApi {
+  getCurrentWeather(): Promise<WeatherData>;
+  getForecast?(): Promise<unknown>;
+  calculateWeatherBasedAdjustment?(
+    forecast: unknown,
+    currentTemp: number | null,
+    targetTemp: number | null,
+    currentPrice: number | null,
+    avgPrice: number | null
+  ): WeatherAdjustmentInfo;
+  getWeatherTrend?(forecast: unknown): unknown;
+}
+
+interface WeatherAdjustmentInfo {
+  adjustment: number;
+  reason: string;
+}
+
+interface WeatherTrendInfo {
+  trend: string;
+  details: string;
+}
+
+interface WeatherInfo {
+  current?: Partial<WeatherData>;
+  adjustment?: WeatherAdjustmentInfo;
+  trend?: WeatherTrendInfo;
+  tempAdjustment?: number;
+  condition?: string;
+}
 
 interface OptimizationInputs {
   deviceState: MelCloudDevice;
@@ -86,7 +119,7 @@ interface Zone1OptimizationResult {
   changed: boolean;
   needsApply: boolean;
   priceNormalized: number;
-  weatherInfo?: any;
+  weatherInfo?: WeatherInfo | null;
   planningBias?: number;
   safeCurrentTarget: number;
   indoorTemp: number | undefined;
@@ -142,6 +175,7 @@ export class Optimizer {
   private constraintManager: ConstraintManager;
   private stateManager: StateManager;
   private settingsLoader?: SettingsLoader;
+  private settingsAccessor?: SettingsAccessor;
 
   private minSetpointChangeMinutes: number = COMFORT_CONSTANTS.DEFAULT_MIN_SETPOINT_CHANGE_MINUTES;
 
@@ -172,13 +206,6 @@ export class Optimizer {
   // Initialization state tracking
   private initialized: boolean = false;
   private initializationPromise: Promise<void> | null = null;
-  private warn(message: string, ...args: any[]): void {
-    if (this.logger && typeof (this.logger as any).warn === 'function') {
-      (this.logger as any).warn(message, ...args);
-    } else if (this.logger && typeof this.logger.log === 'function') {
-      this.logger.log(message, ...args);
-    }
-  }
 
   constructor(
     private readonly melCloud: MelCloudApi,
@@ -186,7 +213,7 @@ export class Optimizer {
     private readonly deviceId: string,
     private readonly buildingId: number,
     private readonly logger: HomeyLogger,
-    private readonly weatherApi?: { getCurrentWeather(): Promise<WeatherData> },
+    private readonly weatherApi?: ForecastCapableWeatherApi,
     private readonly homey?: HomeyApp
   ) {
     // Initialize services first
@@ -195,6 +222,7 @@ export class Optimizer {
 
     // Initialize adaptive parameters learner first
     if (homey) {
+      this.settingsAccessor = new SettingsAccessor(homey, this.logger);
       this.adaptiveParametersLearner = new AdaptiveParametersLearner(homey);
       this.logger.log('Adaptive parameters learner initialized');
 
@@ -409,7 +437,7 @@ export class Optimizer {
    */
   private async ensureInitialized(): Promise<void> {
     if (!this.initialized) {
-      this.warn('Optimizer not initialized, initializing now...');
+      this.logger.warn('Optimizer not initialized, initializing now...');
       await this.initialize();
     }
   }
@@ -642,7 +670,11 @@ export class Optimizer {
     this.occupied = occupied;
 
     if (this.homey) {
-      this.homey.settings.set('occupied', occupied);
+      if (this.settingsAccessor) {
+        this.settingsAccessor.set('occupied', occupied);
+      } else {
+        this.homey.settings.set('occupied', occupied);
+      }
     }
 
     this.logger.log(`Home / Away state changed: ${wasOccupied ? 'Home' : 'Away'} → ${occupied ? 'Home (Occupied)' : 'Away'} `);
@@ -654,10 +686,9 @@ export class Optimizer {
   refreshOccupancyFromSettings(): void {
     if (!this.homey) return;
 
-    const occupiedSetting = this.homey.settings.get('occupied');
-    const newOccupied = occupiedSetting !== false; // Default to true if not set
+    const newOccupied = this.settingsAccessor?.getBoolean('occupied', true);
 
-    if (newOccupied !== this.occupied) {
+    if (typeof newOccupied === 'boolean' && newOccupied !== this.occupied) {
       this.occupied = newOccupied;
       this.logger.log(`Home / Away state refreshed from settings: ${this.occupied ? 'Home (Occupied)' : 'Away'} `);
     }
@@ -676,28 +707,32 @@ export class Optimizer {
    * @returns Object with minTemp and maxTemp based on occupied/away settings
    */
   private getCurrentComfortBand(): { minTemp: number; maxTemp: number } {
-    if (!this.homey) {
+    const homey = this.homey;
+    if (!homey) {
       // Fallback to default constraints if no homey instance
       return { minTemp: this.getZone1Constraints().minTemp, maxTemp: this.getZone1Constraints().maxTemp };
     }
 
-    const toNumber = (value: unknown): number | null => {
-      const numeric = Number(value);
-      return Number.isFinite(numeric) ? numeric : null;
+    const getNumberSetting = (key: string, defaultValue: number): number => {
+      if (this.settingsAccessor) {
+        return this.settingsAccessor.getNumber(key, defaultValue);
+      }
+      const numeric = Number(homey.settings.get(key));
+      return Number.isFinite(numeric) ? numeric : defaultValue;
     };
 
     if (this.occupied) {
       // Use occupied (home) comfort band - defaults match settings page HTML
-      const comfortLowerOccupied = toNumber(this.homey.settings.get('comfort_lower_occupied')) ?? 20.0;
-      const comfortUpperOccupied = toNumber(this.homey.settings.get('comfort_upper_occupied')) ?? 21.0;
+      const comfortLowerOccupied = getNumberSetting('comfort_lower_occupied', 20.0);
+      const comfortUpperOccupied = getNumberSetting('comfort_upper_occupied', 21.0);
       return {
         minTemp: Math.max(comfortLowerOccupied, 16),
         maxTemp: Math.min(comfortUpperOccupied, 26)
       };
     } else {
       // Use away comfort band - defaults match settings page HTML
-      const comfortLowerAway = toNumber(this.homey.settings.get('comfort_lower_away')) ?? 19.0;
-      const comfortUpperAway = toNumber(this.homey.settings.get('comfort_upper_away')) ?? 20.5;
+      const comfortLowerAway = getNumberSetting('comfort_lower_away', 19.0);
+      const comfortUpperAway = getNumberSetting('comfort_upper_away', 20.5);
       return {
         minTemp: Math.max(comfortLowerAway, 16),
         maxTemp: Math.min(comfortUpperAway, 26)
@@ -709,17 +744,18 @@ export class Optimizer {
    * Configure hot water tank control constraints and enablement
    */
   setTankTemperatureConstraints(enableTankControl: boolean, minTankTemp: number, maxTankTemp: number, tankTempStep: number): void {
-    this.getTankConstraints().enabled = enableTankControl;
-    this.getTankConstraints().minTemp = validateNumber(minTankTemp, 'minTankTemp', { min: 30, max: 70 });
-    this.getTankConstraints().maxTemp = validateNumber(maxTankTemp, 'maxTankTemp', { min: 30, max: 70 });
+    const validatedMin = validateNumber(minTankTemp, 'minTankTemp', { min: 30, max: 70 });
+    const validatedMax = validateNumber(maxTankTemp, 'maxTankTemp', { min: 30, max: 70 });
 
-    if (this.getTankConstraints().maxTemp <= this.getTankConstraints().minTemp) {
+    if (validatedMax <= validatedMin) {
       throw new Error(`Invalid tank temperature range: max(${maxTankTemp}) must be greater than min(${minTankTemp})`);
     }
 
-    this.getTankConstraints().tempStep = validateNumber(tankTempStep || 1, 'tankTempStep', { min: 0.5, max: 5 });
+    const validatedStep = validateNumber(tankTempStep || 1, 'tankTempStep', { min: 0.5, max: 5 });
 
-    this.logger.log(`Tank constraints updated - Enabled: ${enableTankControl}, Min: ${this.getTankConstraints().minTemp}°C, Max: ${this.getTankConstraints().maxTemp}°C, Step: ${this.getTankConstraints().tempStep}°C`);
+    this.constraintManager.setTankConstraints(enableTankControl, validatedMin, validatedMax, validatedStep);
+
+    this.logger.log(`Tank constraints updated - Enabled: ${enableTankControl}, Min: ${validatedMin}°C, Max: ${validatedMax}°C, Step: ${validatedStep}°C`);
   }
 
   /**
@@ -758,7 +794,7 @@ export class Optimizer {
   private updateCOPRange(cop: number): void {
     // Guard: reject non-finite, out-of-bounds values
     if (!Number.isFinite(cop) || cop < 0.5 || cop > 6.0) {
-      this.warn(`COP outlier rejected: ${cop} (valid range: 0.5 - 6.0)`);
+      this.logger.warn(`COP outlier rejected: ${cop} (valid range: 0.5 - 6.0)`);
       return;
     }
 
@@ -951,7 +987,7 @@ export class Optimizer {
         dataPoints: Math.max(dataPointCount, this.hotWaterUsagePattern.dataPoints)
       };
     } catch (error) {
-      this.warn('Failed to refresh hot water usage pattern', error as Error);
+      this.logger.warn('Failed to refresh hot water usage pattern', { error });
     }
   }
 
@@ -1001,17 +1037,19 @@ export class Optimizer {
   private async getRealEnergyMetrics(): Promise<OptimizationMetrics | null> {
     try {
       // Use enhanced COP data for more accurate optimization
-      const enhancedCOPData = await this.melCloud.getEnhancedCOPData(this.deviceId, this.buildingId);
+      const enhancedCOPData: EnhancedCOPData = await this.melCloud.getEnhancedCOPData(this.deviceId, this.buildingId);
 
       // Extract enhanced COP values with sensible fallbacks when the live value is missing
-      const derivedHeatingCOP = (enhancedCOPData.daily as any)?.heatingCOP
-        ?? (enhancedCOPData.daily as any)?.averageCOP
-        ?? enhancedCOPData.historical.heating
-        ?? 0;
-      const derivedHotWaterCOP = (enhancedCOPData.daily as any)?.hotWaterCOP
-        ?? (enhancedCOPData.daily as any)?.averageCOP
-        ?? enhancedCOPData.historical.hotWater
-        ?? 0;
+      const derivedHeatingCOP = getCOPValue(
+        enhancedCOPData.daily,
+        'heating',
+        enhancedCOPData.historical.heating || 0
+      );
+      const derivedHotWaterCOP = getCOPValue(
+        enhancedCOPData.daily,
+        'hotWater',
+        enhancedCOPData.historical.hotWater || 0
+      );
 
       const realHeatingCOP = enhancedCOPData.current.heating > 0
         ? enhancedCOPData.current.heating
@@ -1041,11 +1079,13 @@ export class Optimizer {
         TotalHotWaterProduced: hotWaterProduced,
         TotalCoolingConsumed: 0,
         TotalCoolingProduced: 0,
-        CoP: energyData.CoP || [],
+        CoP: Array.isArray(energyData.CoP)
+          ? energyData.CoP.filter((value): value is number => typeof value === 'number')
+          : [],
         // Prefer explicit COP fields when present in the daily report
         heatingCOP: derivedHeatingCOP,
         hotWaterCOP: derivedHotWaterCOP,
-        averageCOP: (energyData as any).averageCOP ?? null,
+        averageCOP: energyData.averageCOP ?? null,
         AverageHeatingCOP: enhancedCOPData.historical.heating,
         AverageHotWaterCOP: enhancedCOPData.historical.hotWater
       };
@@ -1054,7 +1094,7 @@ export class Optimizer {
       this.refreshHotWaterUsagePattern();
 
       // Calculate daily energy consumption (kWh/day averaged over the period)
-      const sampledDays = Math.max(1, Number((energyData as any)?.SampledDays) || 1);
+      const sampledDays = Math.max(1, Number(energyData.SampledDays ?? 1) || 1);
       const dailyEnergyConsumption = (heatingConsumed + hotWaterConsumed) / sampledDays;
 
       // Calculate efficiency scores using adaptive COP normalization
@@ -1127,15 +1167,16 @@ export class Optimizer {
         const heatingConsumed = energyData.TotalHeatingConsumed || 0;
         const hotWaterConsumed = energyData.TotalHotWaterConsumed || 0;
         // Prefer explicit fields if present, then averageCOP, then legacy Average* fields
-        const realHeatingCOP = ((energyData.heatingCOP ?? energyData.averageCOP ?? energyData.AverageHeatingCOP) as number) || 0;
-        const realHotWaterCOP = ((energyData.hotWaterCOP ?? energyData.averageCOP ?? energyData.AverageHotWaterCOP) as number) || 0;
+        const realHeatingCOP = Number(energyData.heatingCOP ?? energyData.averageCOP ?? energyData.AverageHeatingCOP ?? 0) || 0;
+        const realHotWaterCOP = Number(energyData.hotWaterCOP ?? energyData.averageCOP ?? energyData.AverageHotWaterCOP ?? 0) || 0;
+        const fallbackSampledDays = Math.max(1, Number(energyData.SampledDays ?? 1) || 1);
 
         this.logger.log('Using fallback energy metrics calculation');
 
         return {
           realHeatingCOP,
           realHotWaterCOP,
-          dailyEnergyConsumption: (heatingConsumed + hotWaterConsumed) / Math.max(1, Number((energyData as any).SampledDays) || 1),
+          dailyEnergyConsumption: (heatingConsumed + hotWaterConsumed) / fallbackSampledDays,
           heatingEfficiency: Math.min(realHeatingCOP / 3, 1),
           hotWaterEfficiency: Math.min(realHotWaterCOP / 3, 1),
           seasonalMode: heatingConsumed < 1 ? 'summer' : 'winter',
@@ -1392,15 +1433,16 @@ export class Optimizer {
       this.updateThermalResponseAfterOptimization(inputs, zone1Result, logger);
       return this.buildOptimizationResult(inputs, zone1Result, zone2Result, tankResult, savings, applied);
     } catch (error) {
+      this.logger.error('Optimization run failed', error);
       return this.handleOptimizationError(error, logger);
     }
   }
 
   private createDecisionLogger(correlationId: string): DecisionLogger {
     return (event: string, payload: Record<string, unknown>) => {
-      if (this.logger && typeof (this.logger as any).optimization === 'function') {
-        (this.logger as any).optimization(event, { correlationId, ...payload });
-      } else if (this.logger && typeof this.logger.log === 'function') {
+      if (typeof this.logger.optimization === 'function') {
+        this.logger.optimization(event, { correlationId, ...payload });
+      } else if (typeof this.logger.log === 'function') {
         this.logger.log(`${event}: ${JSON.stringify({ correlationId, ...payload })} `);
       }
     };
@@ -1484,8 +1526,8 @@ export class Optimizer {
     const percentileBase = percentileWindow.length > 0 ? percentileWindow : priceData.prices;
     const priceClassification = this.priceAnalyzer.analyzePrice(currentPrice, {
       prices: percentileBase,
-      priceLevel: (priceData as any)?.priceLevel
-    } as any);
+      priceLevel: priceData.priceLevel
+    });
     const pricePercentile = priceClassification.percentile;
     const priceLevel: string = priceClassification.label;
 
@@ -1505,7 +1547,7 @@ export class Optimizer {
     } catch {
       nextHourPrice = undefined;
     }
-    const priceForecast = (priceData as any)?.forecast || null;
+    const priceForecast = priceData.forecast ?? null;
     const planningReferenceTime = priceData.current?.time ? new Date(priceData.current.time) : new Date();
     const planningReferenceTimeMs = planningReferenceTime.getTime();
 
@@ -1531,10 +1573,10 @@ export class Optimizer {
     }
 
     try {
-      const t = (priceData.current && (priceData.current as any).time) ? new Date((priceData.current as any).time).getTime() : NaN;
+      const t = priceData.current?.time ? new Date(priceData.current.time).getTime() : NaN;
       const ageMin = Number.isFinite(t) ? (Date.now() - t) / 60000 : Infinity;
       if (!(ageMin >= 0 && ageMin <= 65)) {
-        this.warn(`Price data appears stale or in the future(age = ${ageMin.toFixed(1)} min).Holding setpoint.`);
+        this.logger.warn('Price data appears stale or in the future', { ageMinutes: ageMin });
         throw new OptimizationAbort({
           success: true,
           action: 'no_change',
@@ -1548,7 +1590,7 @@ export class Optimizer {
       if (e instanceof OptimizationAbort) {
         throw e;
       }
-      this.warn('Failed to validate price freshness; proceeding cautiously');
+      this.logger.warn('Failed to validate price freshness; proceeding cautiously');
     }
 
     this.logger.log('Enhanced optimization state:', {
@@ -1650,20 +1692,22 @@ export class Optimizer {
     let targetTemp = optimizationResult.targetTemp;
     let adjustmentReason = optimizationResult.reason;
 
-    let weatherInfo: any = null;
-    let weatherAdjustment: { adjustment: number; reason: string } | null = null;
-    let weatherTrend: any = null;
-    if (this.weatherApi && typeof (this.weatherApi as any).getForecast === 'function' && typeof (this.weatherApi as any).calculateWeatherBasedAdjustment === 'function') {
+    let weatherInfo: WeatherInfo | null = null;
+    let weatherAdjustment: WeatherAdjustmentInfo | null = null;
+    let weatherTrend: WeatherTrendInfo | null = null;
+    if (this.weatherApi?.getForecast && this.weatherApi.calculateWeatherBasedAdjustment) {
       try {
-        const forecast = await (this.weatherApi as any).getForecast();
-        weatherAdjustment = (this.weatherApi as any).calculateWeatherBasedAdjustment(
+        const forecast = await this.weatherApi.getForecast();
+        weatherAdjustment = this.weatherApi.calculateWeatherBasedAdjustment(
           forecast,
-          currentTemp,
-          currentTarget,
-          priceStats.currentPrice,
-          priceStats.avgPrice
+          currentTemp ?? null,
+          currentTarget ?? null,
+          priceStats.currentPrice ?? null,
+          priceStats.avgPrice ?? null
         );
-        weatherTrend = (this.weatherApi as any).getWeatherTrend ? (this.weatherApi as any).getWeatherTrend(forecast) : null;
+        weatherTrend = this.weatherApi.getWeatherTrend
+          ? (this.weatherApi.getWeatherTrend(forecast) as WeatherTrendInfo)
+          : null;
 
         if (weatherAdjustment && typeof weatherAdjustment.adjustment === 'number' && Math.abs(weatherAdjustment.adjustment) >= 0.1) {
           targetTemp += weatherAdjustment.adjustment;
@@ -1671,9 +1715,11 @@ export class Optimizer {
         }
 
         weatherInfo = {
-          current: forecast && forecast.current ? forecast.current : undefined,
-          adjustment: weatherAdjustment,
-          trend: weatherTrend
+          current: (forecast as { current?: Partial<WeatherData> })?.current,
+          adjustment: weatherAdjustment || undefined,
+          trend: weatherTrend || undefined,
+          tempAdjustment: weatherAdjustment?.adjustment,
+          condition: weatherAdjustment?.reason
         };
       } catch (wErr) {
         this.logger.error('Weather-based adjustment failed', wErr as Error);
@@ -1804,7 +1850,7 @@ export class Optimizer {
             this.hotWaterUsagePattern,
             undefined,
             {
-              currencyCode: (priceData as any)?.currencyCode || this.getCurrency(),
+              currencyCode: priceData.currencyCode || this.getCurrency(),
               gridFeePerKwh: this.getGridFee(),
               estimatedDailyHotWaterKwh
             }
@@ -1919,7 +1965,7 @@ export class Optimizer {
     };
   }
 
-  private async optimizeZone2(
+  public async optimizeZone2(
     inputs: OptimizationInputs,
     zone1Result: Zone1OptimizationResult,
     logger: DecisionLogger
@@ -1939,6 +1985,25 @@ export class Optimizer {
       return null;
     }
 
+    // Handle missing price data gracefully with a simple fallback
+    if (!inputs.priceData.prices || inputs.priceData.prices.length === 0) {
+      const constraints = this.getZone2Constraints();
+      const clampedTarget = Math.max(constraints.minTemp, Math.min(constraints.maxTemp, zone1Result.targetTemp));
+      const fallbackTarget = Math.round(clampedTarget / constraints.tempStep) * constraints.tempStep;
+      await this.melCloud.setZoneTemperature(this.deviceId, this.buildingId, fallbackTarget, 2);
+      return {
+        fromTemp: currentZone2Target,
+        toTemp: fallbackTarget,
+        targetTemp: fallbackTarget,
+        targetOriginal: currentZone2Target,
+        indoorTemp: currentZone2Temp,
+        reason: 'Zone2 fallback applied (no price data)',
+        success: true,
+        changed: true,
+        action: 'changed'
+      };
+    }
+
     try {
       const zone2Opt = await this.zoneOptimizer.optimizeZone2(
         this.deviceId,
@@ -1947,8 +2012,8 @@ export class Optimizer {
         currentZone2Target,
         zone1Result.targetTemp,
         zone1Result.weatherInfo ? {
-          adjustment: (zone1Result.weatherInfo as any).tempAdjustment || 0,
-          reason: (zone1Result.weatherInfo as any).condition || 'weather condition'
+          adjustment: zone1Result.weatherInfo.tempAdjustment ?? 0,
+          reason: zone1Result.weatherInfo.condition || 'weather condition'
         } : null,
         inputs.priceStats.priceLevel,
         zone1Result.thermalStrategy || null,
@@ -1962,6 +2027,24 @@ export class Optimizer {
           lastChangeMs: this.getZone2State().timestamp || 0
         }
       );
+
+      if (!zone2Opt) {
+        const constraints = this.getZone2Constraints();
+        const rawTarget = zone1Result.targetTemp;
+        const clampedTarget = Math.max(constraints.minTemp, Math.min(constraints.maxTemp, rawTarget));
+        const fallbackTarget = Math.round(clampedTarget / constraints.tempStep) * constraints.tempStep;
+        await this.melCloud.setZoneTemperature(this.deviceId, this.buildingId, fallbackTarget, 2);
+
+        return {
+          success: true,
+          action: 'changed',
+          targetTemp: fallbackTarget,
+          fromTemp: currentZone2Target,
+          toTemp: fallbackTarget,
+          reason: 'Zone2 fallback applied',
+          changed: true
+        };
+      }
 
       if (zone2Opt.changed) {
         this.stateManager.recordZone2Change(zone2Opt.toTemp);
@@ -2245,7 +2328,7 @@ export class Optimizer {
           );
         }
       } catch (savingsErr) {
-        this.warn('Failed to calculate secondary savings contributions', savingsErr as Error);
+        this.logger.warn('Failed to calculate secondary savings contributions', { error: savingsErr });
       }
       savings.total = savings.zone1 + savings.zone2 + savings.tank;
 
@@ -2278,7 +2361,7 @@ export class Optimizer {
         );
       }
     } catch (baselineErr) {
-      this.warn('Failed to estimate baseline savings during hold', baselineErr as Error);
+      this.logger.warn('Failed to estimate baseline savings during hold', { error: baselineErr });
     }
 
     try {
@@ -2307,7 +2390,7 @@ export class Optimizer {
         }
       }
     } catch (savingsErr) {
-      this.warn('Failed to calculate secondary savings contributions (no change path)', savingsErr as Error);
+      this.logger.warn('Failed to calculate secondary savings contributions (no change path)', { error: savingsErr });
     }
 
     savings.total = savings.zone1 + savings.zone2 + savings.tank;
@@ -2428,7 +2511,7 @@ export class Optimizer {
       return error.result;
     }
 
-    const err = (error instanceof Error) ? error : new Error(String(error as any));
+    const err = (error instanceof Error) ? error : new Error(String(error));
     this.logger.error('Enhanced optimization failed', err);
     const fallbackBand = this.getCurrentComfortBand();
     return {

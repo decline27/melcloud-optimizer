@@ -1,5 +1,5 @@
 import { HomeyLogger } from '../util/logger';
-import { PriceProvider, TibberPriceInfo } from '../types';
+import { PricePoint, PriceProvider, TibberPriceInfo } from '../types';
 import { classifyPriceUnified, PriceClassificationStats, PriceLevel, resolvePriceThresholds } from './price-classifier';
 import { AdaptiveParametersLearner } from './adaptive-parameters';
 
@@ -48,31 +48,30 @@ export class PriceAnalyzer {
         return this.priceProvider.getPrices();
     }
 
-  public analyzePrice(currentPrice: number, futurePrices: any[]): PriceClassificationStats {
+  public analyzePrice(currentPrice: number, futurePrices: PricePoint[] | Pick<TibberPriceInfo, 'prices' | 'priceLevel'>): PriceClassificationStats {
+    const priceList = Array.isArray(futurePrices) ? futurePrices : futurePrices.prices;
+    const nativeLevel = Array.isArray(futurePrices) ? undefined : futurePrices.priceLevel;
+
     // If the price provider is Tibber and supplies a native price level, map it directly
-    if (this.priceProvider && (this.priceProvider as any).constructor?.name === 'TibberApi') {
-      const maybePriceInfo = futurePrices as any;
-      const nativeLevel: string | undefined = (maybePriceInfo as any)?.priceLevel;
-      if (nativeLevel) {
-        const mapped = this.mapTibberLevel(nativeLevel);
-        return {
-          label: mapped,
-          percentile: this.estimatePercentileFromLevel(mapped),
-          thresholds: resolvePriceThresholds({
-            cheapPercentile: this.preheatCheapPercentile,
-            veryCheapMultiplier: this.adaptiveLearner?.getStrategyThresholds()?.veryChepMultiplier
-          }),
-          normalized: NaN,
-          min: NaN,
-          max: NaN,
-          avg: NaN
-        };
-      }
+    if (this.priceProvider?.constructor?.name === 'TibberApi' && nativeLevel) {
+      const mapped = this.mapTibberLevel(nativeLevel);
+      return {
+        label: mapped,
+        percentile: this.estimatePercentileFromLevel(mapped),
+        thresholds: resolvePriceThresholds({
+          cheapPercentile: this.preheatCheapPercentile,
+          veryCheapMultiplier: this.adaptiveLearner?.getStrategyThresholds()?.veryChepMultiplier
+        }),
+        normalized: NaN,
+        min: NaN,
+        max: NaN,
+        avg: NaN
+      };
     }
 
     const adaptiveThresholds = this.adaptiveLearner?.getStrategyThresholds();
 
-    return classifyPriceUnified(futurePrices, currentPrice, {
+    return classifyPriceUnified(priceList, currentPrice, {
       cheapPercentile: this.preheatCheapPercentile,
       veryCheapMultiplier: adaptiveThresholds?.veryChepMultiplier
     });

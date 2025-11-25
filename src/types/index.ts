@@ -86,6 +86,7 @@ export interface TibberPriceInfo {
   currencyCode?: string;
   baseCurrency?: string;
   priceLevel?: string; // Optional native Tibber price level (very cheap...very expensive)
+  forecast?: unknown;
 }
 
 export interface PriceProvider {
@@ -674,6 +675,9 @@ export interface ApiHandlers {
   getModelConfidence(context: ApiHandlerContext): Promise<GetModelConfidenceResponse>;
   'hot-water': HotWaterHandlers;
 }
+
+// Enhanced COP helpers
+export { EnhancedCOPData, DailyCOPData, getCOPValue, isEnhancedCOPData } from './enhanced-cop-data';
 
 // Homey extensions - type-safe service access
 export { HotWaterService, HomeyWithOptimizer, hasHotWaterService } from './homey-extensions';

@@ -26,11 +26,15 @@ export interface HomeyWithOptimizer extends HomeyApp {
 export function hasHotWaterService(
     homey: HomeyApp | undefined
 ): homey is HomeyWithOptimizer {
-    return Boolean(
-        homey &&
-        'hotWaterService' in homey &&
-        typeof (homey as any).hotWaterService?.getUsageStatistics === 'function'
-    );
+    if (!homey || !('hotWaterService' in homey)) {
+        return false;
+    }
+
+    const service = homey.hotWaterService;
+    const hasStatsMethod = (svc: unknown): svc is { getUsageStatistics: (...args: unknown[]) => unknown } =>
+        typeof (svc as { getUsageStatistics?: unknown }).getUsageStatistics === 'function';
+
+    return Boolean(service && hasStatsMethod(service));
 }
 
 // Re-export HotWaterService type for convenience

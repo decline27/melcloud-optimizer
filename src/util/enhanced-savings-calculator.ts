@@ -308,8 +308,10 @@ export class EnhancedSavingsCalculator {
     currentHourSavings: number,
     currentHour: number
   ): number {
+    const baselineProjection = currentHourSavings * 24;
+
     if (todayOptimizations.length === 0) {
-      return currentHourSavings; // No history yet; don't extrapolate a full day here
+      return baselineProjection; // No history yet; project a full day at current rate
     }
 
     // Calculate thermal inertia factor based on temperature changes
@@ -325,7 +327,7 @@ export class EnhancedSavingsCalculator {
     const compoundedSavings = baseSavings * (1 + Math.min(thermalInertiaFactor + cumulativeEffectFactor, 0.05)); // max +5%
     
     // Add current hour only once; projections are handled separately
-    return compoundedSavings + currentHourSavings;
+    return Math.max(compoundedSavings + currentHourSavings, baselineProjection);
   }
 
   /**

@@ -2,6 +2,7 @@ import * as https from 'https';
 import { URL } from 'url';
 import { Logger, createFallbackLogger } from '../util/logger';
 import { DeviceInfo, MelCloudDevice, HomeySettings } from '../types';
+import { DailyCOPData, EnhancedCOPData } from '../types/enhanced-cop-data';
 import { ErrorHandler, AppError, ErrorCategory } from '../util/error-handler';
 import { BaseApiService } from './base-api-service';
 import { TimeZoneHelper } from '../util/time-zone-helper';
@@ -663,27 +664,7 @@ export class MelCloudApi extends BaseApiService {
    * @param buildingId Building ID
    * @returns Enhanced COP data with current values, trends and predictions
    */
-  public async getEnhancedCOPData(deviceId: string, buildingId: number): Promise<{
-    current: {
-      heating: number;
-      hotWater: number;
-      outdoor: number;
-      timestamp: Date;
-    };
-    daily: any;
-    historical: any;
-    trends: {
-      heatingTrend: 'improving' | 'stable' | 'declining';
-      hotWaterTrend: 'improving' | 'stable' | 'declining';
-      averageHeating: number;
-      averageHotWater: number;
-    };
-    predictions: {
-      nextHourHeating: number;
-      nextHourHotWater: number;
-      confidenceLevel: number;
-    };
-  }> {
+  public async getEnhancedCOPData(deviceId: string, buildingId: number): Promise<EnhancedCOPData> {
     try {
       // Get all required data in parallel for efficiency
       const [deviceState, energyTotals] = await Promise.all([
@@ -1199,24 +1180,7 @@ export class MelCloudApi extends BaseApiService {
    * @param buildingId Building ID
    * @returns Daily energy totals
    */
-  public async getDailyEnergyTotals(deviceId: string, buildingId: number): Promise<{
-    TotalHeatingConsumed?: number;
-    TotalHeatingProduced?: number;
-    TotalHotWaterConsumed?: number;
-    TotalHotWaterProduced?: number;
-    TotalCoolingConsumed?: number;
-    TotalCoolingProduced?: number;
-    CoP?: number[];  // Include CoP array from API
-    AverageHeatingCOP?: number;  // Calculated average heating COP
-    AverageHotWaterCOP?: number; // Calculated average hot water COP
-  // New explicit COP fields (preferred)
-  heatingCOP?: number | null;
-  hotWaterCOP?: number | null;
-  coolingCOP?: number | null;
-  averageCOP?: number | null;
-    HasZone2?: boolean; // Include Zone 2 support flag from API
-    SampledDays?: number;
-  }> {
+  public async getDailyEnergyTotals(deviceId: string, buildingId: number): Promise<DailyCOPData> {
     try {
       // Validate device ID - must be numeric
       const numericDeviceId = parseInt(deviceId, 10);
@@ -1229,17 +1193,18 @@ export class MelCloudApi extends BaseApiService {
           TotalHotWaterConsumed: 0,
           TotalHotWaterProduced: 0,
           TotalCoolingConsumed: 0,
-          TotalCoolingProduced: 0,
-          CoP: [],
-          AverageHeatingCOP: 0,
-          AverageHotWaterCOP: 0,
-          heatingCOP: null,
-          hotWaterCOP: null,
-          coolingCOP: null,
-          averageCOP: null,
-          HasZone2: false
-        };
-      }
+        TotalCoolingProduced: 0,
+        CoP: [],
+        AverageHeatingCOP: 0,
+        AverageHotWaterCOP: 0,
+        heatingCOP: null,
+        hotWaterCOP: null,
+        coolingCOP: null,
+        averageCOP: null,
+        HasZone2: false,
+        SampledDays: 1
+      };
+    }
       // Try with a broader date range - last 7 days to increase chances of getting data
       const today = new Date();
       const oneWeekAgo = new Date(today);
@@ -1282,17 +1247,21 @@ export class MelCloudApi extends BaseApiService {
       
       // Extract energy totals from the response
       // The exact structure will depend on the API response format
-      const result = {
+      const result: DailyCOPData = {
         TotalHeatingConsumed: energyData?.TotalHeatingConsumed || 0,
         TotalHeatingProduced: energyData?.TotalHeatingProduced || 0,
         TotalHotWaterConsumed: energyData?.TotalHotWaterConsumed || 0,
         TotalHotWaterProduced: energyData?.TotalHotWaterProduced || 0,
         TotalCoolingConsumed: energyData?.TotalCoolingConsumed || 0,
         TotalCoolingProduced: energyData?.TotalCoolingProduced || 0,
-        CoP: energyData?.CoP || [],
+        CoP: Array.isArray(energyData?.CoP) ? energyData.CoP : [],
         AverageHeatingCOP: 0,
         AverageHotWaterCOP: 0,
         HasZone2: energyData?.HasZone2 || false,
+        heatingCOP: null,
+        hotWaterCOP: null,
+        coolingCOP: null,
+        averageCOP: null,
       };
 
       // Preferred: calculate COP from totals (skip categories where consumption is 0)
@@ -1324,16 +1293,16 @@ export class MelCloudApi extends BaseApiService {
       }
 
       // Round and store both the new fields and preserve legacy Average* fields for compatibility
-      result.CoP = energyData?.CoP || [];
+      result.CoP = Array.isArray(energyData?.CoP) ? energyData.CoP : [];
       result.AverageHeatingCOP = heatingCOP !== null && !Number.isNaN(heatingCOP) ? Math.round(heatingCOP * 100) / 100 : (averageCOP !== null ? Math.round(averageCOP * 100) / 100 : 0);
       result.AverageHotWaterCOP = hotWaterCOP !== null && !Number.isNaN(hotWaterCOP) ? Math.round(hotWaterCOP * 100) / 100 : (averageCOP !== null ? Math.round(averageCOP * 100) / 100 : 0);
 
       // Add the new explicit COP fields requested
       const rounded = (v: number | null) => (v === null || Number.isNaN(v) ? null : Math.round(v * 100) / 100);
-      (result as any).heatingCOP = rounded(heatingCOP);
-      (result as any).hotWaterCOP = rounded(hotWaterCOP);
-      (result as any).coolingCOP = rounded(coolingCOP);
-      (result as any).averageCOP = averageCOP !== null && !Number.isNaN(averageCOP) ? Math.round(averageCOP * 100) / 100 : null;
+      result.heatingCOP = rounded(heatingCOP);
+      result.hotWaterCOP = rounded(hotWaterCOP);
+      result.coolingCOP = rounded(coolingCOP);
+      result.averageCOP = averageCOP !== null && !Number.isNaN(averageCOP) ? Math.round(averageCOP * 100) / 100 : null;
       
       const effectiveDays = (() => {
         const parseDate = (value: string): number => {
@@ -1354,7 +1323,7 @@ export class MelCloudApi extends BaseApiService {
         }
         return 1;
       })();
-      (result as any).SampledDays = effectiveDays;
+      result.SampledDays = effectiveDays;
 
       return result;
     } catch (error) {
