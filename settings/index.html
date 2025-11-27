@@ -416,6 +416,17 @@
         <input class="homey-form-input" id="tibber_token" type="password" value="" />
         <p class="homey-form-helper">Get your token from <a href="https://developer.tibber.com/" target="_blank">https://developer.tibber.com/</a></p>
       </div>
+      <div class="homey-form-group" id="tibber_home_group">
+        <label class="homey-form-label" for="tibber_home_id">Select Home</label>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <select class="homey-form-input" id="tibber_home_id" style="flex: 1;">
+            <option value="">-- Fetch homes to select --</option>
+          </select>
+          <button type="button" class="homey-button-secondary" id="refresh_tibber_homes">Refresh Homes</button>
+        </div>
+        <p class="homey-form-helper">If you have multiple homes in Tibber, select which one to use for electricity prices. Click "Refresh Homes" after entering your API token.</p>
+        <span id="tibber_home_status" class="homey-form-helper" aria-live="polite"></span>
+      </div>
     </details>
 
 
@@ -1131,6 +1142,9 @@
         const manualDeviceIdElement = document.getElementById("manual_device_id");
         const manualBuildingIdElement = document.getElementById("manual_building_id");
         const tibberTokenElement = document.getElementById("tibber_token");
+        const tibberHomeIdElement = document.getElementById("tibber_home_id");
+        const refreshTibberHomesButton = document.getElementById("refresh_tibber_homes");
+        const tibberHomeStatusElement = document.getElementById("tibber_home_status");
         const priceSourceTibberElement = document.getElementById("price_source_tibber");
         const priceSourceEntsoeElement = document.getElementById("price_source_entsoe");
         const priceSourceStatusElement = document.getElementById("price_source_status");
@@ -2115,6 +2129,130 @@
           if (value) tibberTokenElement.value = value;
         });
 
+        // Load saved Tibber home ID
+        Homey.get("tibber_home_id", function (err, value) {
+          if (!err && value) {
+            // Add the saved value as an option until we refresh the full list
+            const option = document.createElement('option');
+            option.value = value;
+            option.text = 'Saved home (refresh to see all homes)';
+            option.selected = true;
+            tibberHomeIdElement.innerHTML = '<option value="">-- Refresh homes to see list --</option>';
+            tibberHomeIdElement.add(option);
+          }
+        });
+
+        // Function to load Tibber homes
+        function loadTibberHomes() {
+          if (!tibberTokenElement || !tibberTokenElement.value) {
+            if (tibberHomeStatusElement) {
+              tibberHomeStatusElement.textContent = 'Enter a Tibber API token first';
+              tibberHomeStatusElement.style.color = '#b00';
+            }
+            return;
+          }
+
+          if (tibberHomeStatusElement) {
+            tibberHomeStatusElement.textContent = 'Loading homes...';
+            tibberHomeStatusElement.style.color = '#666';
+          }
+
+          if (refreshTibberHomesButton) {
+            refreshTibberHomesButton.disabled = true;
+          }
+
+          // Save the token first so the API can use the latest value when fetching homes
+          // This is necessary because the API reads from settings, not the form
+          Homey.set("tibber_token", tibberTokenElement.value.trim(), function(saveErr) {
+            if (saveErr) {
+              console.error('Error saving Tibber token:', saveErr);
+            }
+
+            // Now fetch homes
+            HomeyInstance.api('GET', '/getTibberHomes', {}, function(err, result) {
+              if (refreshTibberHomesButton) {
+                refreshTibberHomesButton.disabled = false;
+              }
+
+              if (err) {
+                console.error('Error fetching Tibber homes:', err);
+                if (tibberHomeStatusElement) {
+                  tibberHomeStatusElement.textContent = 'Error: ' + (err.message || 'Failed to fetch homes');
+                  tibberHomeStatusElement.style.color = '#b00';
+                }
+                return;
+              }
+
+              if (!result.success) {
+                if (tibberHomeStatusElement) {
+                  tibberHomeStatusElement.textContent = result.error || 'Failed to fetch homes';
+                  tibberHomeStatusElement.style.color = '#b00';
+                }
+                return;
+              }
+
+              const homes = result.homes || [];
+              
+              // Clear existing options
+              tibberHomeIdElement.innerHTML = '';
+              
+              if (homes.length === 0) {
+                const option = document.createElement('option');
+                option.value = '';
+                option.text = 'No homes found';
+                tibberHomeIdElement.add(option);
+                if (tibberHomeStatusElement) {
+                  tibberHomeStatusElement.textContent = 'No homes found in your Tibber account';
+                  tibberHomeStatusElement.style.color = '#b00';
+                }
+                return;
+              }
+
+              if (homes.length === 1) {
+                // Only one home, auto-select it
+                const option = document.createElement('option');
+                option.value = homes[0].id;
+                option.text = homes[0].name;
+                option.selected = true;
+                tibberHomeIdElement.add(option);
+                if (tibberHomeStatusElement) {
+                  tibberHomeStatusElement.textContent = '✓ Found 1 home';
+                  tibberHomeStatusElement.style.color = '#00aa44';
+                }
+              } else {
+                // Multiple homes, show dropdown with option to select
+                const defaultOption = document.createElement('option');
+                defaultOption.value = '';
+                defaultOption.text = '-- Select a home --';
+                tibberHomeIdElement.add(defaultOption);
+                
+                homes.forEach(function(home) {
+                  const option = document.createElement('option');
+                  option.value = home.id;
+                  option.text = home.name;
+                  if (home.selected) {
+                    option.selected = true;
+                  }
+                  tibberHomeIdElement.add(option);
+                });
+                
+                if (tibberHomeStatusElement) {
+                  tibberHomeStatusElement.textContent = '✓ Found ' + homes.length + ' homes - please select one';
+                  tibberHomeStatusElement.style.color = '#00aa44';
+                }
+              }
+            });
+          });
+        }
+
+        // Add event listener for the refresh Tibber homes button
+        if (refreshTibberHomesButton) {
+          refreshTibberHomesButton.addEventListener('click', function(e) {
+            e.preventDefault();
+            loadTibberHomes();
+          });
+        }
+
         Homey.get('entsoe_area_eic', function (err, value) {
           if (!err && typeof value === 'string') {
             updateEntsoeZoneInput(value);
@@ -2710,6 +2848,14 @@
           // Do not persist UI-only manual entry settings
 
           if (tibberTokenElement) persistSetting('tibber_token', tibberTokenElement.value, { trimString: true });
+          
+          // Save Tibber home ID
+          if (tibberHomeIdElement) {
+            const homeId = tibberHomeIdElement.value || null;
+            Homey.set("tibber_home_id", homeId, function (err) { 
+              if (err) console.error('Error saving tibber_home_id:', err); 
+            });
+          }
 
           // Save costs & consumption
           if (gridFeeElement) {

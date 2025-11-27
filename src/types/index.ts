@@ -652,6 +652,17 @@ export interface HotWaterHandlers {
   'clear-data'(context: ApiHandlerContext): Promise<HotWaterResponse>;
 }
 
+export interface TibberHomeInfo {
+  id: string;
+  name: string;
+  selected?: boolean;
+}
+
+export type GetTibberHomesResponse = ApiResult<{
+  homes: TibberHomeInfo[];
+  selectedHomeId: string | null;
+}>;
+
 export interface ApiHandlers {
   updateOptimizerSettings(context: ApiHandlerContext): Promise<UpdateOptimizerSettingsResponse>;
   postHotWaterResetPatterns(context: ApiHandlerContext): Promise<HotWaterResponse>;
@@ -668,6 +679,7 @@ export interface ApiHandlers {
   getWeeklyAverageCOP(context: ApiHandlerContext): Promise<GetWeeklyAverageCopResponse>;
   getMelCloudStatus(context: ApiHandlerContext): Promise<ConnectionStatusResponse>;
   getTibberStatus(context: ApiHandlerContext): Promise<ConnectionStatusResponse>;
+  getTibberHomes(context: ApiHandlerContext): Promise<GetTibberHomesResponse>;
   runSystemHealthCheck(context: ApiHandlerContext): Promise<SystemHealthCheckResult>;
   runThermalDataCleanup(context: ApiHandlerContext): Promise<RunThermalDataCleanupResponse>;
   internalCleanup(context: ApiHandlerContext): Promise<InternalCleanupResponse>;

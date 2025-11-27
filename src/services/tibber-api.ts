@@ -10,20 +10,37 @@ declare global {
 }
 
 /**
+ * Tibber Home information
+ */
+export interface TibberHome {
+  id: string;
+  appNickname: string | null;
+  address: {
+    address1: string | null;
+    city: string | null;
+    postalCode: string | null;
+    country: string | null;
+  } | null;
+}
+
+/**
  * Tibber API Service
  * Handles communication with the Tibber API to get electricity prices
  */
 export class TibberApi extends BaseApiService {
+  private static readonly CACHE_KEY_PRICES = 'tibber_prices';
   private apiEndpoint = 'https://api.tibber.com/v1-beta/gql';
   private token: string;
   private timeZoneHelper: TimeZoneHelper;
+  private homeId: string | null = null;
 
   /**
    * Constructor
    * @param token Tibber API token
    * @param logger Logger instance
+   * @param homeId Optional home ID to use for fetching prices (if user has multiple homes)
    */
-  constructor(token: string, logger?: Logger) {
+  constructor(token: string, logger?: Logger, homeId?: string) {
     // Ensure we have a valid logger - use fallback if none provided
     const safeLogger = logger || (global.logger as Logger) || createFallbackLogger('Tibber');
     
@@ -36,11 +53,94 @@ export class TibberApi extends BaseApiService {
     });
 
     this.token = token;
+    this.homeId = homeId || null;
 
     // Initialize time zone helper
     this.timeZoneHelper = new TimeZoneHelper(this.logger);
 
-    this.logger.api('Tibber API service initialized', { token: token ? '***' : 'not provided' });
+    this.logger.api('Tibber API service initialized', { 
+      token: token ? '***' : 'not provided',
+      homeId: homeId || 'not specified (will use first home)'
+    });
+  }
+
+  /**
+   * Set the home ID to use for fetching prices
+   * @param homeId The Tibber home ID to use
+   */
+  public setHomeId(homeId: string | null): void {
+    this.homeId = homeId;
+    this.logger.info(`Tibber home ID set to: ${homeId || 'default (first home)'}`);
+    // Clear cache when home ID changes to ensure fresh data is fetched
+    this.cache.delete(TibberApi.CACHE_KEY_PRICES);
+  }
+
+  /**
+   * Get the current home ID
+   * @returns The current home ID or null if using first home
+   */
+  public getHomeId(): string | null {
+    return this.homeId;
+  }
+
+  /**
+   * Get list of available homes from Tibber account
+   * @returns Promise resolving to array of TibberHome objects
+   */
+  async getHomes(): Promise<TibberHome[]> {
+    const query = `{
+      viewer {
+        homes {
+          id
+          appNickname
+          address {
+            address1
+            city
+            postalCode
+            country
+          }
+        }
+      }
+    }`;
+
+    try {
+      const data = await this.retryableRequest(
+        () => this.throttledApiCall<any>(query)
+      );
+
+      if (data.errors) {
+        const errorMessage = `Tibber API error: ${data.errors[0].message}`;
+        throw this.createApiError(new Error(errorMessage), {
+          operation: 'getHomes',
+          graphqlErrors: data.errors
+        });
+      }
+
+      const homes = data.data?.viewer?.homes || [];
+      this.logger.info(`Found ${homes.length} Tibber home(s)`);
+      
+      return homes.map((home: any) => ({
+        id: home.id,
+        appNickname: home.appNickname || null,
+        address: home.address ? {
+          address1: home.address.address1 || null,
+          city: home.address.city || null,
+          postalCode: home.address.postalCode || null,
+          country: home.address.country || null
+        } : null
+      }));
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      const appError = this.createApiError(error, {
+        operation: 'getHomes'
+      });
+
+      this.errorHandler.logError(appError);
+      throw appError;
+    }
   }
 
   /**
@@ -117,7 +217,7 @@ export class TibberApi extends BaseApiService {
    */
   async getPrices(): Promise<TibberPriceInfo> {
     // Check cache first
-    const cacheKey = 'tibber_prices';
+    const cacheKey = TibberApi.CACHE_KEY_PRICES;
     const cachedData = this.getCachedData<any>(cacheKey);
 
     if (cachedData) {
@@ -227,7 +327,21 @@ export class TibberApi extends BaseApiService {
         throw new Error(errorMessage);
       }
 
-      const priceInfo = homes[0].currentSubscription?.priceInfo;
+      // Find the selected home by ID, or fall back to first home
+      let selectedHome = homes[0];
+      if (this.homeId) {
+        const matchingHome = homes.find((home: any) => home.id === this.homeId);
+        if (matchingHome) {
+          selectedHome = matchingHome;
+          this.logger.debug(`Using selected Tibber home: ${this.homeId}`);
+        } else {
+          this.logger.warn(`Configured Tibber home ID '${this.homeId}' not found. Using first home instead.`);
+        }
+      } else if (homes.length > 1) {
+        this.logger.info(`Multiple Tibber homes found (${homes.length}). Using first home. Consider setting tibber_home_id in settings.`);
+      }
+
+      const priceInfo = selectedHome.currentSubscription?.priceInfo;
       if (!priceInfo) {
         const errorMessage = 'No price information available';
         this.logger.error(errorMessage);

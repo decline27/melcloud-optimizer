@@ -528,4 +528,253 @@ describe('TibberApi', () => {
       );
     });
   });
+
+  describe('getHomes', () => {
+    it('should get list of homes successfully', async () => {
+      // Mock successful homes response
+      const mockHomesData = {
+        data: {
+          viewer: {
+            homes: [
+              {
+                id: 'home-1',
+                appNickname: 'My House',
+                address: {
+                  address1: '123 Main St',
+                  city: 'Stockholm',
+                  postalCode: '12345',
+                  country: 'SE'
+                }
+              },
+              {
+                id: 'home-2',
+                appNickname: 'Summer Cottage',
+                address: {
+                  address1: '456 Lake Rd',
+                  city: 'Gotland',
+                  postalCode: '67890',
+                  country: 'SE'
+                }
+              }
+            ]
+          }
+        }
+      };
+
+      mockedFetch.mockResolvedValueOnce({
+        json: jest.fn().mockResolvedValueOnce(mockHomesData),
+        ok: true
+      } as any);
+
+      const homes = await tibberApi.getHomes();
+
+      expect(homes).toHaveLength(2);
+      expect(homes[0].id).toBe('home-1');
+      expect(homes[0].appNickname).toBe('My House');
+      expect(homes[0].address?.city).toBe('Stockholm');
+      expect(homes[1].id).toBe('home-2');
+      expect(homes[1].appNickname).toBe('Summer Cottage');
+    });
+
+    it('should handle empty homes list', async () => {
+      mockedFetch.mockResolvedValueOnce({
+        json: jest.fn().mockResolvedValueOnce({
+          data: {
+            viewer: {
+              homes: []
+            }
+          }
+        }),
+        ok: true
+      } as any);
+
+      const homes = await tibberApi.getHomes();
+
+      expect(homes).toHaveLength(0);
+    });
+
+    it('should handle API errors in getHomes', async () => {
+      mockedFetch.mockResolvedValueOnce({
+        json: jest.fn().mockResolvedValueOnce({
+          errors: [
+            {
+              message: 'Unauthorized'
+            }
+          ]
+        }),
+        ok: true
+      } as any);
+
+      await expect(tibberApi.getHomes()).rejects.toThrow('Tibber API error: Unauthorized');
+    });
+  });
+
+  describe('setHomeId', () => {
+    it('should set and get home ID', () => {
+      expect(tibberApi.getHomeId()).toBeNull();
+      
+      tibberApi.setHomeId('home-123');
+      
+      expect(tibberApi.getHomeId()).toBe('home-123');
+    });
+
+    it('should clear home ID when set to null', () => {
+      tibberApi.setHomeId('home-123');
+      expect(tibberApi.getHomeId()).toBe('home-123');
+      
+      tibberApi.setHomeId(null);
+      
+      expect(tibberApi.getHomeId()).toBeNull();
+    });
+
+    it('should use selected home when fetching prices', async () => {
+      // Create a TibberApi with a specific home ID
+      const tibberWithHome = new TibberApi(mockToken, mockLogger, 'home-2');
+      
+      const mockMultiHomeData = {
+        data: {
+          viewer: {
+            homes: [
+              {
+                id: 'home-1',
+                currentSubscription: {
+                  priceInfo: {
+                    current: {
+                      total: 0.10,
+                      startsAt: new Date().toISOString()
+                    },
+                    today: [
+                      { total: 0.10, startsAt: new Date().toISOString() }
+                    ],
+                    tomorrow: []
+                  }
+                }
+              },
+              {
+                id: 'home-2',
+                currentSubscription: {
+                  priceInfo: {
+                    current: {
+                      total: 0.25,
+                      startsAt: new Date().toISOString()
+                    },
+                    today: [
+                      { total: 0.25, startsAt: new Date().toISOString() }
+                    ],
+                    tomorrow: []
+                  }
+                }
+              }
+            ]
+          }
+        }
+      };
+
+      mockedFetch.mockResolvedValueOnce({
+        json: jest.fn().mockResolvedValueOnce(mockMultiHomeData),
+        ok: true
+      } as any);
+
+      const prices = await tibberWithHome.getPrices();
+
+      // Should use home-2 price (0.25) instead of home-1 (0.10)
+      expect(prices.current.price).toBe(0.25);
+    });
+
+    it('should fall back to first home if selected home not found', async () => {
+      const tibberWithInvalidHome = new TibberApi(mockToken, mockLogger, 'non-existent-home');
+      
+      const mockData = {
+        data: {
+          viewer: {
+            homes: [
+              {
+                id: 'home-1',
+                currentSubscription: {
+                  priceInfo: {
+                    current: {
+                      total: 0.10,
+                      startsAt: new Date().toISOString()
+                    },
+                    today: [
+                      { total: 0.10, startsAt: new Date().toISOString() }
+                    ],
+                    tomorrow: []
+                  }
+                }
+              }
+            ]
+          }
+        }
+      };
+
+      mockedFetch.mockResolvedValueOnce({
+        json: jest.fn().mockResolvedValueOnce(mockData),
+        ok: true
+      } as any);
+
+      const prices = await tibberWithInvalidHome.getPrices();
+
+      // Should fall back to first home
+      expect(prices.current.price).toBe(0.10);
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('not found')
+      );
+    });
+
+    it('should log info when multiple homes found but none selected', async () => {
+      // No home ID set
+      const mockMultiHomeData = {
+        data: {
+          viewer: {
+            homes: [
+              {
+                id: 'home-1',
+                currentSubscription: {
+                  priceInfo: {
+                    current: {
+                      total: 0.10,
+                      startsAt: new Date().toISOString()
+                    },
+                    today: [
+                      { total: 0.10, startsAt: new Date().toISOString() }
+                    ],
+                    tomorrow: []
+                  }
+                }
+              },
+              {
+                id: 'home-2',
+                currentSubscription: {
+                  priceInfo: {
+                    current: {
+                      total: 0.25,
+                      startsAt: new Date().toISOString()
+                    },
+                    today: [
+                      { total: 0.25, startsAt: new Date().toISOString() }
+                    ],
+                    tomorrow: []
+                  }
+                }
+              }
+            ]
+          }
+        }
+      };
+
+      mockedFetch.mockResolvedValueOnce({
+        json: jest.fn().mockResolvedValueOnce(mockMultiHomeData),
+        ok: true
+      } as any);
+
+      const prices = await tibberApi.getPrices();
+
+      // Should use first home
+      expect(prices.current.price).toBe(0.10);
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        expect.stringContaining('Multiple Tibber homes found')
+      );
+    });
+  });
 });
