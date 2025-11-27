@@ -225,7 +225,7 @@ export class EnhancedSavingsCalculator {
       );
 
       // Calculate projected savings for remaining hours
-      const remainingHours = 24 - (todayOptimizations.length + 1); // +1 for current hour
+      const remainingHours = Math.max(0, 24 - (currentHour + 1));
       const projectedSavings = this.calculateProjectedSavings(
         currentHourSavings,
         todayOptimizations,

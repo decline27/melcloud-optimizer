@@ -97,6 +97,21 @@ describe('EnhancedSavingsCalculator', () => {
     expect(logger.error).toHaveBeenCalled();
   });
 
+  describe('Regression Tests', () => {
+    it('should correctly calculate remaining hours when history is missing at late hour (Fix #82)', () => {
+      const logger = makeLogger();
+      const calc = new EnhancedSavingsCalculator(logger);
+
+      // Hour 20 (8 PM), no history, 2.5 SEK current savings
+      // Bug: calculated 23 remaining hours -> 2.5 * 23 = 57.5 SEK projection
+      // Correct: 3 remaining hours (21, 22, 23) -> 2.5 * 3 = 7.5 SEK projection
+      const result = calc.calculateEnhancedDailySavings(2.5, [], 20);
+
+      expect(result.projectedSavings).toBeLessThan(10.0); // Should be around 7.5
+      expect(result.dailySavings).toBeLessThan(15.0); // 2.5 (current) + ~7.5 (projected) = ~10
+    });
+  });
+
   describe('Early Hour Conservative Projection', () => {
     it('uses 6-hour window for hours 0-2 with no history', () => {
       const logger = makeLogger();
