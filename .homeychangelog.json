@@ -181,5 +181,8 @@
   },
   "14.0.23": {
     "en": "Improved the optimasation and o"
+  },
+  "14.0.24": {
+    "en": "fix to the tibber api for people having multi home"
   }
 }

@@ -1,6 +1,6 @@
 {
   "id": "com.melcloud.optimize",
-  "version": "14.0.23",
+  "version": "14.0.24",
   "compatibility": ">=12.2.0",
   "sdk": 3,
   "platforms": [
@@ -242,6 +242,10 @@
     "getTibberStatus": {
       "method": "GET",
       "path": "/getTibberStatus"
+    },
+    "getTibberHomes": {
+      "method": "GET",
+      "path": "/getTibberHomes"
     },
     "runSystemHealthCheck": {
       "method": "GET",
