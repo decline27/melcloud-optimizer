@@ -28,6 +28,7 @@ export interface TibberHome {
  * Handles communication with the Tibber API to get electricity prices
  */
 export class TibberApi extends BaseApiService {
+  private static readonly CACHE_KEY_PRICES = 'tibber_prices';
   private apiEndpoint = 'https://api.tibber.com/v1-beta/gql';
   private token: string;
   private timeZoneHelper: TimeZoneHelper;
@@ -71,7 +72,7 @@ export class TibberApi extends BaseApiService {
     this.homeId = homeId;
     this.logger.info(`Tibber home ID set to: ${homeId || 'default (first home)'}`);
     // Clear cache when home ID changes to ensure fresh data is fetched
-    this.cache.delete('tibber_prices');
+    this.cache.delete(TibberApi.CACHE_KEY_PRICES);
   }
 
   /**
@@ -116,7 +117,7 @@ export class TibberApi extends BaseApiService {
       }
 
       const homes = data.data?.viewer?.homes || [];
-      this.logger.log(`Found ${homes.length} Tibber home(s)`);
+      this.logger.info(`Found ${homes.length} Tibber home(s)`);
       
       return homes.map((home: any) => ({
         id: home.id,
@@ -216,7 +217,7 @@ export class TibberApi extends BaseApiService {
    */
   async getPrices(): Promise<TibberPriceInfo> {
     // Check cache first
-    const cacheKey = 'tibber_prices';
+    const cacheKey = TibberApi.CACHE_KEY_PRICES;
     const cachedData = this.getCachedData<any>(cacheKey);
 
     if (cachedData) {

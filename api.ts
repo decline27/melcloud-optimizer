@@ -2141,8 +2141,11 @@ const apiHandlers: ApiHandlers = {
 
       try {
         // Create a temporary TibberApi instance to fetch homes
+        // Use app logger if available for consistent logging
         const { TibberApi } = require('./src/services/tibber-api');
-        const tempTibber = new TibberApi(tibberToken);
+        const appLogger = (homey.app as any)?.logger;
+        const tibberLogger = (appLogger && typeof appLogger.api === 'function') ? appLogger : undefined;
+        const tempTibber = new TibberApi(tibberToken, tibberLogger);
         const homes = await tempTibber.getHomes();
         
         // Get the currently selected home ID

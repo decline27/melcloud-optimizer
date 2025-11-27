@@ -2161,7 +2161,8 @@
             refreshTibberHomesButton.disabled = true;
           }
 
-          // First save the token in case it changed
+          // Save the token first so the API can use the latest value when fetching homes
+          // This is necessary because the API reads from settings, not the form
           Homey.set("tibber_token", tibberTokenElement.value.trim(), function(saveErr) {
             if (saveErr) {
               console.error('Error saving Tibber token:', saveErr);
