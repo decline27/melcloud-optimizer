@@ -184,5 +184,8 @@
   },
   "14.0.24": {
     "en": "fix to the tibber api for people having multi home"
+  },
+  "14.0.25": {
+    "en": "Bug fix"
   }
 }
