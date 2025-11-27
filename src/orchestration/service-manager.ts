@@ -63,18 +63,23 @@ function selectPriceProvider(
   timeZoneOffset: number,
   useDST: boolean,
   timeZoneName?: string | null,
-  appLogger?: any
+  appLogger?: any,
+  tibberHomeId?: string | null
 ): PriceProvider | null {
   if (priceSource === 'tibber') {
     if (tibberToken) {
       const tibberLogger = (appLogger && typeof appLogger.api === 'function') ? appLogger : undefined;
-      const tibberApi = new TibberApi(tibberToken, tibberLogger);
+      const homeId = typeof tibberHomeId === 'string' && tibberHomeId.length > 0 ? tibberHomeId : undefined;
+      const tibberApi = new TibberApi(tibberToken, tibberLogger, homeId);
       tibberApi.updateTimeZoneSettings(
         timeZoneOffset,
         useDST,
         typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined
       );
       homey.app.log?.('Tibber price provider initialized');
+      if (homeId) {
+        homey.app.log?.(`Using Tibber home ID: ${homeId}`);
+      }
       return tibberApi;
     }
     homey.app.warn?.('Tibber selected as price source but token not configured. Falling back to ENTSO-E.');
@@ -232,6 +237,7 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
   const melcloudUser = homey.settings.get('melcloud_user') || homey.settings.get('melcloudUser');
   const melcloudPass = homey.settings.get('melcloud_pass') || homey.settings.get('melcloudPass');
   const tibberToken = homey.settings.get('tibber_token') || homey.settings.get('tibberToken');
+  const tibberHomeId = homey.settings.get('tibber_home_id');
   let deviceId = homey.settings.get('device_id') || homey.settings.get('deviceId') || 'Boiler';
   let buildingIdRaw = homey.settings.get('building_id') || homey.settings.get('buildingId') || '456';
   const useWeatherData = homey.settings.get('use_weather_data') !== false;
@@ -367,7 +373,8 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
     timeZoneOffset,
     useDST,
     typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined,
-    appLogger
+    appLogger,
+    tibberHomeId || null
   );
 
   serviceState.tibber = priceProvider;
@@ -444,6 +451,7 @@ export function refreshPriceProvider(homey: HomeyLike): PriceProvider | null {
     ? 'entsoe'
     : 'tibber';
   const tibberToken = homey.settings.get('tibber_token') || homey.settings.get('tibberToken') || null;
+  const tibberHomeId = homey.settings.get('tibber_home_id') || null;
   const timeZoneOffset = homey.settings.get('time_zone_offset') || 2;
   const useDST = homey.settings.get('use_dst') || false;
   const timeZoneName = homey.settings.get('time_zone_name');
@@ -455,7 +463,8 @@ export function refreshPriceProvider(homey: HomeyLike): PriceProvider | null {
     timeZoneOffset,
     useDST,
     typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined,
-    appLogger
+    appLogger,
+    tibberHomeId
   );
 
   serviceState.tibber = priceProvider;

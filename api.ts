@@ -45,6 +45,7 @@ import {
   RunThermalDataCleanupResponse,
   InternalCleanupResponse,
   GetModelConfidenceResponse,
+  GetTibberHomesResponse,
   HotWaterServiceLike,
   HotWaterResponse,
   HotWaterClearRequest,
@@ -2120,6 +2121,71 @@ const apiHandlers: ApiHandlers = {
     } catch (err: any) {
       console.error('Error in getTibberStatus:', err);
       return { connected: false, error: err.message };
+    }
+  },
+
+  getTibberHomes: async ({ homey }: ApiHandlerContext) => {
+    try {
+      console.log('API method getTibberHomes called');
+      homey.app.log('API method getTibberHomes called');
+
+      // Get the Tibber token from settings
+      const tibberToken = homey.settings.get('tibber_token') || homey.settings.get('tibberToken');
+      if (!tibberToken) {
+        return {
+          success: false,
+          error: 'Tibber API token not configured',
+          homes: []
+        };
+      }
+
+      try {
+        // Create a temporary TibberApi instance to fetch homes
+        const { TibberApi } = require('./src/services/tibber-api');
+        const tempTibber = new TibberApi(tibberToken);
+        const homes = await tempTibber.getHomes();
+        
+        // Get the currently selected home ID
+        const selectedHomeId = homey.settings.get('tibber_home_id') || null;
+        
+        // Format homes for the dropdown
+        const formattedHomes = homes.map((home: any) => {
+          let displayName = home.appNickname || 'Unnamed Home';
+          if (home.address) {
+            const addressParts = [
+              home.address.address1,
+              home.address.city,
+              home.address.postalCode
+            ].filter(Boolean);
+            if (addressParts.length > 0) {
+              displayName += ` (${addressParts.join(', ')})`;
+            }
+          }
+          return {
+            id: home.id,
+            name: displayName,
+            selected: home.id === selectedHomeId
+          };
+        });
+
+        homey.app.log(`Found ${formattedHomes.length} Tibber home(s)`);
+        
+        return {
+          success: true,
+          homes: formattedHomes,
+          selectedHomeId
+        };
+      } catch (error: any) {
+        homey.app.error('Error fetching Tibber homes:', error);
+        return {
+          success: false,
+          error: error.message || 'Failed to fetch Tibber homes',
+          homes: []
+        };
+      }
+    } catch (err: any) {
+      console.error('Error in getTibberHomes:', err);
+      return { success: false, error: err.message, homes: [] };
     }
   },
 

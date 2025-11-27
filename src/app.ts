@@ -402,17 +402,17 @@ export default class HeatOptimizerApp extends App {
       }
       this.validateSettings();
     }
-    else if (['melcloud_user', 'melcloud_pass', 'tibber_token', 'tibberToken'].includes(key)) {
+    else if (['melcloud_user', 'melcloud_pass', 'tibber_token', 'tibberToken', 'tibber_home_id'].includes(key)) {
       this.log(`Credential setting '${key}' changed, re-validating settings`);
       // Re-run validation on credential change
       this.validateSettings();
-      if (key === 'tibber_token') {
+      if (key === 'tibber_token' || key === 'tibber_home_id') {
         try {
           const api = require('../api.js');
           await api.updatePriceProvider(this.homey);
-          this.log('Price provider refreshed after tibber token change');
+          this.log(`Price provider refreshed after ${key} change`);
         } catch (error) {
-          this.error('Failed to refresh price provider after Tibber token change:', error as Error);
+          this.error(`Failed to refresh price provider after ${key} change:`, error as Error);
         }
       }
     }
