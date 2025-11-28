@@ -15,6 +15,7 @@
  */
 
 import { HotWaterUsagePattern, HotWaterService } from '../types';
+import { HotWaterAnalyzer } from './hot-water/hot-water-analyzer';
 
 /**
  * Default peak hours for hot water usage when no learned data is available
@@ -107,53 +108,11 @@ export class HotWaterUsageLearner {
 
   /**
    * Learn hot water usage patterns from historical data
-   *
-   * @param usageHistory - Array of usage events with timestamp and amount
-   * @returns true if learning was successful, false if insufficient data
+   * @deprecated Not supported in adapter mode. Use HotWaterAnalyzer persistence.
    */
   learnFromHistory(usageHistory: UsageHistoryEntry[]): boolean {
-    try {
-      if (!usageHistory || usageHistory.length < HOT_WATER_LEARNER_CONFIG.MIN_DATA_POINTS_FOR_LEARNING) {
-        this.logger?.warn('Insufficient hot water usage data for learning', {
-          dataPoints: usageHistory?.length ?? 0,
-          required: HOT_WATER_LEARNER_CONFIG.MIN_DATA_POINTS_FOR_LEARNING,
-        });
-        return false;
-      }
-
-      // Calculate hourly demand
-      const hourlyDemand = this.calculateHourlyDemand(usageHistory);
-
-      // Identify peak hours
-      const peakHours = this.identifyPeakHours(hourlyDemand);
-
-      // Calculate minimum buffer
-      const maxDemand = Math.max(...hourlyDemand);
-      const minimumBuffer = maxDemand > 0
-        ? maxDemand * HOT_WATER_LEARNER_CONFIG.BUFFER_MULTIPLIER
-        : this.pattern.minimumBuffer;
-
-      // Update pattern
-      this.pattern = {
-        hourlyDemand,
-        peakHours,
-        minimumBuffer,
-        lastLearningUpdate: new Date(),
-        dataPoints: usageHistory.length,
-      };
-
-      this.logger?.log('Hot water usage pattern updated from history', {
-        dataPoints: usageHistory.length,
-        peakHours: peakHours.join(', '),
-        maxDemand: maxDemand.toFixed(2),
-        minimumBuffer: minimumBuffer.toFixed(2),
-      });
-
-      return true;
-    } catch (error) {
-      this.logger?.error('Error learning hot water usage pattern from history', error);
-      return false;
-    }
+    this.logger?.warn('learnFromHistory is deprecated and has no effect in adapter mode');
+    return false;
   }
 
   /**
@@ -170,6 +129,22 @@ export class HotWaterUsageLearner {
       }
 
       const stats = service.getUsageStatistics(daysToAnalyze);
+      
+      // Use patterns from analyzer if available
+      if (stats && stats.patterns) {
+        const patterns = stats.patterns;
+        
+        this.pattern = {
+            hourlyDemand: patterns.hourlyUsagePattern,
+            peakHours: this.derivePeakHours(patterns.hourlyUsagePattern),
+            minimumBuffer: this.pattern.minimumBuffer, // Preserve existing or default
+            lastLearningUpdate: new Date(patterns.lastUpdated),
+            dataPoints: patterns.confidence * 1.68 // Approx conversion
+        };
+        return true;
+      }
+
+      // Fallback to legacy statistics if patterns not available
       const usageByHour = stats?.statistics?.usageByHourOfDay;
       const dataPointCount = Number(stats?.statistics?.dataPointCount) || 0;
 
@@ -179,7 +154,7 @@ export class HotWaterUsageLearner {
       }
 
       const hourlyDemand = usageByHour.map((value: unknown) => Number(value) || 0);
-      const peakHours = this.identifyPeakHours(hourlyDemand);
+      const peakHours = this.derivePeakHours(hourlyDemand);
 
       const maxDemand = Math.max(...hourlyDemand, 0);
       const minimumBuffer = maxDemand > 0
@@ -202,34 +177,9 @@ export class HotWaterUsageLearner {
   }
 
   /**
-   * Calculate average hourly demand from usage history
+   * Derive peak hours from hourly demand
    */
-  private calculateHourlyDemand(usageHistory: UsageHistoryEntry[]): number[] {
-    const hourlyDemand = new Array(24).fill(0);
-    const hourlyCount = new Array(24).fill(0);
-
-    usageHistory.forEach(usage => {
-      const date = new Date(usage.timestamp);
-      const hour = date.getHours();
-      hourlyDemand[hour] += usage.amount;
-      hourlyCount[hour]++;
-    });
-
-    // Calculate average demand per hour
-    for (let i = 0; i < 24; i++) {
-      if (hourlyCount[i] > 0) {
-        hourlyDemand[i] = hourlyDemand[i] / hourlyCount[i];
-      }
-    }
-
-    return hourlyDemand;
-  }
-
-  /**
-   * Identify peak hours from hourly demand data
-   * Returns top 20% of non-zero demand hours, or defaults if none found
-   */
-  private identifyPeakHours(hourlyDemand: number[]): number[] {
+  private derivePeakHours(hourlyDemand: number[]): number[] {
     const ranked = hourlyDemand
       .map((demand, hour) => ({ demand, hour }))
       .filter(({ demand }) => demand > 0)

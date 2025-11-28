@@ -617,13 +617,7 @@ export class Optimizer {
       const recentData = await this.melCloud.getEnergyData(this.deviceId, this.buildingId, fromDate, toDate);
 
       if (recentData && Array.isArray(recentData) && recentData.length > 0) {
-        // Learn hot water usage patterns
-        const hotWaterHistory = recentData.map(day => ({
-          timestamp: day.Date || new Date().toISOString(),
-          amount: day.TotalHotWaterConsumed || 0
-        }));
 
-        this.learnHotWaterUsage(hotWaterHistory);
 
         // Calibrate thermal mass based on energy consumption patterns
         const avgHeatingConsumption = recentData.reduce((sum, day) => sum + (day.TotalHeatingConsumed || 0), 0) / recentData.length;
@@ -880,14 +874,7 @@ export class Optimizer {
 
 
 
-  /**
-   * Learn hot water usage patterns from historical data
-   * @param usageHistory Array of hot water usage events
-   */
-  private learnHotWaterUsage(usageHistory: Array<{ timestamp: string; amount: number }>): void {
-    // Delegate to HotWaterUsageLearner service
-    this.hotWaterUsageLearner.learnFromHistory(usageHistory);
-  }
+
 
   /**
    * Refresh hot water usage pattern from the dedicated hot water service when available
@@ -2000,7 +1987,7 @@ export class Optimizer {
     };
 
     if (applied.zone1Applied) {
-      savings.zone1 = await this.calculateRealHourlySavings(
+      savings.zone1 = await this.savingsService.calculateRealHourlySavings(
         zone1Result.safeCurrentTarget,
         zone1Result.targetTemp,
         inputs.priceStats.currentPrice,
@@ -2009,7 +1996,7 @@ export class Optimizer {
       );
       try {
         if (zone2Result && typeof zone2Result.fromTemp === 'number' && typeof zone2Result.toTemp === 'number') {
-          savings.zone2 = await this.calculateRealHourlySavings(
+          savings.zone2 = await this.savingsService.calculateRealHourlySavings(
             zone2Result.fromTemp,
             zone2Result.toTemp,
             inputs.priceStats.currentPrice,
@@ -2018,7 +2005,7 @@ export class Optimizer {
           );
         }
         if (tankResult && typeof tankResult.fromTemp === 'number' && typeof tankResult.toTemp === 'number') {
-          savings.tank = await this.calculateRealHourlySavings(
+          savings.tank = await this.savingsService.calculateRealHourlySavings(
             tankResult.fromTemp,
             tankResult.toTemp,
             inputs.priceStats.currentPrice,
@@ -2036,7 +2023,7 @@ export class Optimizer {
       this.learnFromOptimizationOutcome(savings.total, comfortViolations, currentCOP);
       this.logger.log(`Enhanced temperature adjusted from ${zone1Result.safeCurrentTarget.toFixed(1)}°C to ${zone1Result.targetTemp.toFixed(1)}°C`, {
         reason: zone1Result.reason,
-        savingsEstimated: this.estimateCostSavings(
+        savingsEstimated: this.savingsService.estimateCostSavings(
           zone1Result.targetTemp,
           zone1Result.safeCurrentTarget,
           inputs.priceStats.currentPrice,
@@ -2051,7 +2038,7 @@ export class Optimizer {
     try {
       const baselineSetpoint = inputs.constraintsBand.maxTemp;
       if (baselineSetpoint > zone1Result.safeCurrentTarget + 0.1) {
-        savings.zone1 += await this.calculateRealHourlySavings(
+        savings.zone1 += await this.savingsService.calculateRealHourlySavings(
           baselineSetpoint,
           zone1Result.safeCurrentTarget,
           inputs.priceStats.currentPrice,
@@ -2067,7 +2054,7 @@ export class Optimizer {
       if (zone2Result && this.getZone2Constraints().enabled) {
         const zone2BaselineTarget = this.getZone2Constraints().maxTemp;
         if (zone2BaselineTarget > zone2Result.toTemp + 0.1) {
-          savings.zone2 += await this.calculateRealHourlySavings(
+          savings.zone2 += await this.savingsService.calculateRealHourlySavings(
             zone2BaselineTarget,
             zone2Result.toTemp,
             inputs.priceStats.currentPrice,
@@ -2079,7 +2066,7 @@ export class Optimizer {
       if (tankResult && this.getTankConstraints().enabled) {
         const tankBaselineTarget = this.getTankConstraints().maxTemp;
         if (tankBaselineTarget > tankResult.toTemp + 0.5) {
-          savings.tank += await this.calculateRealHourlySavings(
+          savings.tank += await this.savingsService.calculateRealHourlySavings(
             tankBaselineTarget,
             tankResult.toTemp,
             inputs.priceStats.currentPrice,
@@ -2228,45 +2215,7 @@ export class Optimizer {
     };
   }
 
-  /**
-   * Estimate cost savings from temperature adjustment using real energy data
-   * @deprecated Use savingsService.estimateCostSavings() directly for new code
-   */
-  private estimateCostSavings(
-    newTemp: number,
-    oldTemp: number,
-    currentPrice: number,
-    avgPrice: number,
-    metrics?: OptimizationMetrics
-  ): string {
-    return this.savingsService.estimateCostSavings(newTemp, oldTemp, currentPrice, avgPrice, metrics);
-  }
 
-  /**
-   * Calculate hourly cost savings using real energy metrics (numeric result)
-   * Falls back to simple heuristic when metrics are not available
-   * @deprecated Use savingsService.calculateRealHourlySavings() directly for new code
-   */
-  public async calculateRealHourlySavings(
-    oldTemp: number,
-    newTemp: number,
-    currentPrice: number,
-    metrics?: OptimizationMetrics,
-    kind: 'zone1' | 'zone2' | 'tank' = 'zone1'
-  ): Promise<number> {
-    return this.savingsService.calculateRealHourlySavings(oldTemp, newTemp, currentPrice, metrics, kind);
-  }
-
-  /**
-   * Project daily savings using Tibber price data and historical optimizations
-   * @deprecated Use savingsService.calculateDailySavings() directly for new code
-   */
-  public async calculateDailySavings(
-    hourlySavings: number,
-    historicalOptimizations: OptimizationData[] = []
-  ): Promise<number> {
-    return this.savingsService.calculateDailySavings(hourlySavings, historicalOptimizations);
-  }
 
   /**
    * Force cleanup/aggregation in the thermal model service
@@ -2346,58 +2295,7 @@ export class Optimizer {
     return this.savingsService.calculateSavings(oldTemp, newTemp, currentPrice, kind);
   }
 
-  /**
-   * Calculate enhanced daily savings using historical data and compounding effects
-   * @param currentHourSavings Current hour's savings
-   * @param historicalOptimizations Historical optimization data
-   * @param futurePriceFactors Optional array of future price factors relative to current price
-   * @returns Enhanced savings calculation result
-   * @deprecated Use savingsService.calculateEnhancedDailySavings() directly for new code
-   */
-  calculateEnhancedDailySavings(
-    currentHourSavings: number,
-    historicalOptimizations: OptimizationData[] = [],
-    futurePriceFactors?: number[]
-  ): SavingsCalculationResult {
-    return this.savingsService.calculateEnhancedDailySavings(currentHourSavings, historicalOptimizations, futurePriceFactors);
-  }
 
-  /**
-   * Calculate enhanced daily savings using the configured price provider (price-aware projection)
-   * @deprecated Use savingsService.calculateEnhancedDailySavingsUsingPriceProvider() directly for new code
-   */
-  async calculateEnhancedDailySavingsUsingTibber(
-    currentHourSavings: number,
-    historicalOptimizations: OptimizationData[] = []
-  ): Promise<SavingsCalculationResult> {
-    return this.savingsService.calculateEnhancedDailySavingsUsingPriceProvider(currentHourSavings, historicalOptimizations);
-  }
-
-  /**
-   * Calculate enhanced daily savings with fixed baseline comparison
-   * @param currentHourSavings Current hour's savings
-   * @param historicalOptimizations Historical optimization data
-   * @param actualConsumptionKWh Actual energy consumption for baseline comparison
-   * @param actualCost Actual cost for baseline comparison
-   * @param enableBaseline Whether to enable baseline comparison
-   * @returns Enhanced savings calculation result with baseline comparison
-   * @deprecated Use savingsService.calculateEnhancedDailySavingsWithBaseline() directly for new code
-   */
-  async calculateEnhancedDailySavingsWithBaseline(
-    currentHourSavings: number,
-    historicalOptimizations: OptimizationData[] = [],
-    actualConsumptionKWh: number = 1.0,
-    actualCost: number = currentHourSavings,
-    enableBaseline: boolean = true
-  ): Promise<SavingsCalculationResult> {
-    return this.savingsService.calculateEnhancedDailySavingsWithBaseline(
-      currentHourSavings,
-      historicalOptimizations,
-      actualConsumptionKWh,
-      actualCost,
-      enableBaseline
-    );
-  }
 
   /**
    * Cleanup method to properly stop thermal model service and other resources

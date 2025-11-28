@@ -65,18 +65,7 @@ describe('Optimizer private helpers', () => {
   });
   */
 
-  it('learnHotWaterUsage updates pattern data via HotWaterUsageLearner', () => {
-    const history = Array.from({ length: 7 }, (_, d) => ({ timestamp: `2025-08-${10 + d}T07:00:00`, amount: d % 3 === 0 ? 5 : 0.5 }));
 
-    // Access the learner directly through the optimizer instance
-    const hotWaterUsageLearner = optimizer.hotWaterUsageLearner;
-    hotWaterUsageLearner.learnFromHistory(history);
-
-    // Access the learner's pattern through the getter method
-    const pattern = hotWaterUsageLearner.getPattern();
-    expect(pattern.dataPoints).toBeGreaterThan(0);
-    expect(Array.isArray(pattern.peakHours)).toBe(true);
-  });
 
   it('estimateCostSavings returns strings for different seasons via SavingsService', () => {
     const summerMetrics = { seasonalMode: 'summer', dailyEnergyConsumption: 10, realHeatingCOP: 0, realHotWaterCOP: 0 };

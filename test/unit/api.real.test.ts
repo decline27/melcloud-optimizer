@@ -96,7 +96,12 @@ describe('api.js — real module tests using __test helpers', () => {
       setPriceThresholds: jest.fn(),
       refreshOccupancyFromSettings: jest.fn(),
       thermalModel: { K: 0.5 },
-      thermalModelService: { getMemoryUsage: jest.fn().mockReturnValue({}) }
+      thermalModelService: { getMemoryUsage: jest.fn().mockReturnValue({}) },
+      getSavingsService: jest.fn().mockReturnValue({
+        getEnhancedSavingsCalculator: jest.fn().mockReturnValue({
+          hasBaselineCapability: jest.fn().mockReturnValue(false)
+        })
+      })
     };
 
     apiModule.__test.setServices({ melCloud: melCloudMock, tibber: tibberMock, optimizer: optimizerMock, weather: {} });

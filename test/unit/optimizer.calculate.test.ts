@@ -75,9 +75,9 @@ describe('Optimizer calculateOptimalTemperature and savings branches', () => {
       realHotWaterCOP: 2.0
     } as any;
 
-    const s1 = (optimizer as any).estimateCostSavings(22, 20, 1.2, 1.0, metricsSummer);
-    const s2 = (optimizer as any).estimateCostSavings(20, 22, 1.2, 1.0, metricsWinter);
-    const s3 = (optimizer as any).estimateCostSavings(21, 20, 1.2, 1.0, metricsTrans);
+    const s1 = optimizer.getSavingsService().estimateCostSavings(22, 20, 1.2, 1.0, metricsSummer);
+    const s2 = optimizer.getSavingsService().estimateCostSavings(20, 22, 1.2, 1.0, metricsWinter);
+    const s3 = optimizer.getSavingsService().estimateCostSavings(21, 20, 1.2, 1.0, metricsTrans);
 
     expect(typeof s1).toBe('string');
     expect(typeof s2).toBe('string');

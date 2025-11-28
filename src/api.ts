@@ -140,7 +140,7 @@ export class Api {
         opt.timestamp && opt.timestamp.startsWith(today)
       );
 
-      const result = await api.optimizer.calculateEnhancedDailySavingsWithBaseline(
+      const result = await api.optimizer.getSavingsService().calculateEnhancedDailySavingsWithBaseline(
         currentHourSavings,
         todayOptimizations,
         actualConsumptionKWh,
@@ -178,7 +178,7 @@ export class Api {
         };
       }
 
-      const enhancedCalculator = api.optimizer.getEnhancedSavingsCalculator();
+      const enhancedCalculator = api.optimizer.getSavingsService().getEnhancedSavingsCalculator();
       const hasCapability = enhancedCalculator?.hasBaselineCapability() || false;
       const intelligentConfig = hasCapability 
         ? enhancedCalculator.getDefaultBaselineConfig()

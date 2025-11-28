@@ -141,7 +141,7 @@ describe('Optimizer hotwater & enhanced edge cases', () => {
 
   test('calculateDailySavings falls back to non-price-aware calculation on Tibber error', async () => {
     mockTibber.getPrices.mockRejectedValueOnce(new Error('boom'));
-    const projection = await optimizer.calculateDailySavings(1);
+    const projection = await optimizer.getSavingsService().calculateDailySavings(1);
     // On error, it falls back to the enhanced savings calculator which calculates based on
     // remaining hours in the day and applies clamping. The result should still be a positive number.
     expect(projection).toBeGreaterThan(0);

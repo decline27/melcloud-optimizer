@@ -6,6 +6,7 @@ import { Optimizer } from '../services/optimizer';
 import { COPHelper } from '../services/cop-helper';
 import type { PriceProvider } from '../types';
 import { DefaultComfortConfig } from '../config/comfort-defaults';
+import { HomeyLogger } from '../util/logger';
 
 export interface HomeyLikeSettings {
   get(key: string): any;
@@ -224,7 +225,11 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
   }
 
   const appLogger = (homey.app as any)?.logger;
-  if (appLogger && typeof appLogger.api === 'function') {
+  // Ensure we have a valid logger instance with methods, not just a serialized object
+  const isValidLogger = appLogger && typeof appLogger.warn === 'function';
+  const sharedLogger = isValidLogger ? appLogger : new HomeyLogger(homey.app);
+
+  if (isValidLogger && typeof appLogger.api === 'function') {
     (global as any).logger = appLogger;
   }
 
@@ -277,7 +282,7 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
   homey.app.log('- Timezone Name:', timeZoneName || 'n/a');
   homey.app.log('- DST Enabled:', useDST ? '✓ Yes' : '✗ No');
 
-  const melCloudLogger = (appLogger && typeof appLogger.api === 'function') ? appLogger : undefined;
+  const melCloudLogger = sharedLogger;
   const melCloud = new MelCloudApi(melCloudLogger);
   // Set timezone settings after construction
   melCloud.updateTimeZoneSettings(
@@ -373,7 +378,7 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
     timeZoneOffset,
     useDST,
     typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined,
-    appLogger,
+    sharedLogger,
     tibberHomeId || null
   );
 
@@ -397,7 +402,7 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
     serviceState.weather = null;
   }
 
-  const optimizerLogger = appLogger || (homey.app as any);
+  const optimizerLogger = sharedLogger;
   const optimizer = new Optimizer(
     melCloud,
     priceProvider,
@@ -446,6 +451,9 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
 
 export function refreshPriceProvider(homey: HomeyLike): PriceProvider | null {
   const appLogger = (homey.app as any)?.logger;
+  const isValidLogger = appLogger && typeof appLogger.warn === 'function';
+  const sharedLogger = isValidLogger ? appLogger : new HomeyLogger(homey.app);
+
   const priceSourceSetting = (homey.settings.get('price_data_source') || 'tibber') as string;
   const priceSource = typeof priceSourceSetting === 'string' && priceSourceSetting.toLowerCase() === 'entsoe'
     ? 'entsoe'
@@ -463,7 +471,7 @@ export function refreshPriceProvider(homey: HomeyLike): PriceProvider | null {
     timeZoneOffset,
     useDST,
     typeof timeZoneName === 'string' && timeZoneName.length > 0 ? timeZoneName : undefined,
-    appLogger,
+    sharedLogger,
     tibberHomeId
   );
 

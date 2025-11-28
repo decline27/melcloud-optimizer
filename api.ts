@@ -734,9 +734,7 @@ const apiHandlers: ApiHandlers = {
       // Run hourly optimization
       const activeOptimizer = requireOptimizer();
       const melCloudService = requireMelCloud();
-      const enhancedCalculator = typeof activeOptimizer.getEnhancedSavingsCalculator === 'function'
-        ? activeOptimizer.getEnhancedSavingsCalculator()
-        : null;
+      const enhancedCalculator = activeOptimizer.getSavingsService().getEnhancedSavingsCalculator();
       const baselineComparisonEnabled = homey.settings.get('enable_baseline_comparison') !== false;
       homey.app.log('Starting hourly optimization');
       homey.app.log('===== HOURLY OPTIMIZATION STARTED =====');
@@ -764,7 +762,7 @@ const apiHandlers: ApiHandlers = {
               opt.timestamp && opt.timestamp.startsWith(today)
             );
 
-            enhancedSavingsData = await activeOptimizer.calculateEnhancedDailySavingsWithBaseline(
+            enhancedSavingsData = await activeOptimizer.getSavingsService().calculateEnhancedDailySavingsWithBaseline(
               initialSavings,
               todayOptimizations,
               actualConsumptionKWh,
@@ -1000,26 +998,16 @@ const apiHandlers: ApiHandlers = {
             try {
               const p = result.priceData?.current || 0;
               const metrics = result.energyMetrics;
+              const savingsService = activeOptimizer.getSavingsService();
+
               if (result.fromTemp !== undefined && result.toTemp !== undefined) {
-                if (typeof activeOptimizer.calculateRealHourlySavings === 'function') {
-                  computedSavings += await activeOptimizer.calculateRealHourlySavings(result.fromTemp, result.toTemp, p, metrics, 'zone1');
-                } else {
-                  computedSavings += activeOptimizer.calculateSavings(result.fromTemp, result.toTemp, p, 'zone1');
-                }
+                computedSavings += await savingsService.calculateRealHourlySavings(result.fromTemp, result.toTemp, p, metrics, 'zone1');
               }
               if (result.zone2Data && result.zone2Data.fromTemp !== undefined && result.zone2Data.toTemp !== undefined) {
-                if (typeof activeOptimizer.calculateRealHourlySavings === 'function') {
-                  computedSavings += await activeOptimizer.calculateRealHourlySavings(result.zone2Data.fromTemp, result.zone2Data.toTemp, p, metrics, 'zone2');
-                } else {
-                  computedSavings += activeOptimizer.calculateSavings(result.zone2Data.fromTemp, result.zone2Data.toTemp, p, 'zone2');
-                }
+                computedSavings += await savingsService.calculateRealHourlySavings(result.zone2Data.fromTemp, result.zone2Data.toTemp, p, metrics, 'zone2');
               }
               if (result.tankData && result.tankData.fromTemp !== undefined && result.tankData.toTemp !== undefined) {
-                if (typeof activeOptimizer.calculateRealHourlySavings === 'function') {
-                  computedSavings += await activeOptimizer.calculateRealHourlySavings(result.tankData.fromTemp, result.tankData.toTemp, p, metrics, 'tank');
-                } else {
-                  computedSavings += activeOptimizer.calculateSavings(result.tankData.fromTemp, result.tankData.toTemp, p, 'tank');
-                }
+                computedSavings += await savingsService.calculateRealHourlySavings(result.tankData.fromTemp, result.tankData.toTemp, p, metrics, 'tank');
               }
             } catch (_: any) { }
           }
@@ -1865,7 +1853,7 @@ const apiHandlers: ApiHandlers = {
           homey.app.log('COP Helper not initialized, creating instance');
 
           // Import the COPHelper class
-          const { COPHelper } = require('./services/cop-helper');
+          const { COPHelper } = require('./src/services/cop-helper');
 
           // Create a new instance
           global.copHelper = new COPHelper(homey, homey.app);
@@ -1939,7 +1927,7 @@ const apiHandlers: ApiHandlers = {
           homey.app.log('COP Helper not initialized, creating instance');
 
           // Import the COPHelper class
-          const { COPHelper } = require('./services/cop-helper');
+          const { COPHelper } = require('./src/services/cop-helper');
 
           // Create a new instance
           global.copHelper = new COPHelper(homey, homey.app);
@@ -2855,7 +2843,7 @@ const apiHandlers: ApiHandlers = {
 
           // Calculate enhanced savings with baseline comparison (READ-ONLY)
           const currentHourSavings = hasSavingsData ? savingsMetrics.todaySavings! : 0;
-          const result = await optimizer.calculateEnhancedDailySavingsWithBaseline(
+          const result = await optimizer.getSavingsService().calculateEnhancedDailySavingsWithBaseline(
             currentHourSavings,
             historicalOptimizations,
             actualConsumptionKWh,

@@ -27,12 +27,12 @@ describe('Optimizer setters and savings', () => {
   });
 
   test('calculateSavings returns positive for lowered temp', () => {
-    const s = (optimizer as any).calculateSavings(22, 20, 1.5);
+    const s = optimizer.getSavingsService().calculateSavings(22, 20, 1.5);
     expect(s).toBeGreaterThan(0);
   });
 
   test('estimateCostSavings returns message if no metrics', () => {
-    const msg = (optimizer as any).estimateCostSavings(20, 21, 1, 1);
+    const msg = optimizer.getSavingsService().estimateCostSavings(20, 21, 1, 1);
     expect(msg).toContain('No real energy data');
   });
 });

@@ -424,6 +424,26 @@ export class HotWaterAnalyzer {
   }
 
   /**
+   * Get peak usage hours based on learned patterns
+   * @param percentile Top percentile to consider as peak (default 0.2 for top 20%)
+   * @returns Array of hour indices (0-23) sorted by usage (highest first)
+   */
+  public getPeakHours(percentile: number = 0.2): number[] {
+    const hourlyUsage = this.patterns.hourlyUsagePattern;
+    const ranked = hourlyUsage
+      .map((usage, hour) => ({ usage, hour }))
+      .filter(({ usage }) => usage > 0)
+      .sort((a, b) => b.usage - a.usage);
+
+    if (ranked.length === 0) {
+      return [6, 7, 8]; // Default morning peak
+    }
+
+    const topCount = Math.max(1, Math.round(ranked.length * percentile));
+    return ranked.slice(0, topCount).map(item => item.hour);
+  }
+
+  /**
    * Reset hot water usage patterns to defaults
    */
   public resetPatterns(): void {
