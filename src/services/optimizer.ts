@@ -847,15 +847,6 @@ export class Optimizer {
   }
 
   /**
-   * Calculate price level based on percentile (works for both Tibber and ENTSO-E APIs)
-   * @param percentile Price percentile (0-100)
-   * @returns Price level string
-   */
-  private calculatePriceLevel(percentile: number): string {
-    return this.priceAnalyzer.getPriceLevel(percentile);
-  }
-
-  /**
    * Set price threshold settings
    * @param preheatCheapPercentile Percentile threshold for considering prices "cheap" (0.05-0.5)
    * @throws Error if validation fails
@@ -989,15 +980,6 @@ export class Optimizer {
     } catch (error) {
       this.logger.warn('Failed to refresh hot water usage pattern', { error });
     }
-  }
-
-  /**
-   * Optimize hot water scheduling based on usage patterns
-      // Cheap electricity (based on user's threshold) + decent COP
-      return 'heat_now';
-    }
-
-    return 'maintain';
   }
 
   /**
@@ -3203,22 +3185,6 @@ export class Optimizer {
       // Fallback to standard calculation
       return this.calculateEnhancedDailySavings(currentHourSavings, historicalOptimizations);
     }
-  }
-
-  /**
-   * Calculate comfort impact of temperature change
-   * @param oldTemp Original temperature
-   * @param newTemp New temperature
-   * @returns Comfort impact (-1 to 1, negative means less comfortable)
-   */
-  private calculateComfortImpact(oldTemp: number, newTemp: number): number {
-    // Simple model: deviation from 21°C reduces comfort
-    const idealTemp = 21;
-    const oldDeviation = Math.abs(oldTemp - idealTemp);
-    const newDeviation = Math.abs(newTemp - idealTemp);
-
-    // Positive means improved comfort, negative means reduced comfort
-    return oldDeviation - newDeviation;
   }
 
   /**

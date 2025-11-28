@@ -236,37 +236,6 @@ describe('Optimizer', () => {
     });
   });
 
-  describe('calculateComfortImpact', () => {
-    it('should calculate comfort impact correctly', () => {
-      const currentTarget = 21.0;
-      const newTarget = 20.0;
-
-      const result = (optimizer as any).calculateComfortImpact(currentTarget, newTarget);
-
-      // Verify the result
-      expect(result).toBeDefined();
-      expect(typeof result).toBe('number');
-      expect(result).toBeLessThan(0); // Negative impact when lowering temperature
-    });
-
-    it('should return zero impact when targets are the same', () => {
-      const currentTarget = 21.0;
-      const newTarget = 21.0;
-
-      const result = (optimizer as any).calculateComfortImpact(currentTarget, newTarget);
-
-      // Verify the result
-      expect(result).toBe(0);
-    });
-
-    it('should return positive impact when increasing temperature', () => {
-      const currentTarget = 21.0;
-      const newTarget = 22.0;
-
-      const result = (optimizer as any).calculateComfortImpact(currentTarget, newTarget);
-
-      // Verify the result
-      expect(result).toBeLessThan(0); // Negative impact when raising temperature (our implementation is inverted)
-    });
-  });
+  // Note: calculateComfortImpact tests removed - method was unused dead code
+  // Comfort impact calculation is now handled by the StateManager
 });

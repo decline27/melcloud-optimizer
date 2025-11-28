@@ -240,27 +240,8 @@ describe('Optimizer Enhanced Tests', () => {
     });
   });
 
-  describe('calculateComfortImpact', () => {
-    it('should calculate positive comfort impact when moving closer to ideal temp', () => {
-      const oldTemp = 19.0; // Further from ideal (21)
-      const newTemp = 20.0; // Closer to ideal
-
-      const comfort = (optimizer as any).calculateComfortImpact(oldTemp, newTemp);
-
-      // Comfort should be positive (improved)
-      expect(comfort).toBe(1);
-    });
-
-    it('should calculate negative comfort impact when moving away from ideal temp', () => {
-      const oldTemp = 21.0; // At ideal
-      const newTemp = 22.0; // Away from ideal
-
-      const comfort = (optimizer as any).calculateComfortImpact(oldTemp, newTemp);
-
-      // Comfort should be negative (reduced)
-      expect(comfort).toBe(-1);
-    });
-  });
+  // Note: calculateComfortImpact tests removed - method was unused dead code
+  // Comfort impact calculation is now handled by the StateManager
 
 
 
