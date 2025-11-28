@@ -10,7 +10,6 @@ describe('Optimizer -Zone 2 Fallback', () => {
     let optimizer: Optimizer;
     let mockMelCloud: jest.Mocked<MelCloudApi>;
     let mockLogger: jest.Mocked<HomeyLogger>;
-    let mockHomey: any;
 
     beforeEach(() => {
         // Mock MELCloud API
@@ -30,34 +29,23 @@ describe('Optimizer -Zone 2 Fallback', () => {
             info: jest.fn()
         } as any;
 
-        // Mock Homey
-        mockHomey = {
-            settings: {
-                get: jest.fn((key: string) => {
-                    if (key === 'zone2_enabled') return true;
-                    if (key === 'zone2_min_temp') return 18;
-                    if (key === 'zone2_max_temp') return 24;
-                    if (key === 'zone2_temp_step') return 0.5;
-                    if (key === 'comfort_min_temp') return 20;
-                    if (key === 'comfort_max_temp') return 23;
-                    if (key === 'zone1_deadband') return 0.5;
-                    if (key === 'min_setpoint_change_minutes') return 30;
-                    return null;
-                }),
-                set: jest.fn()
-            },
-            log: jest.fn()
-        };
-
-        // Create optimizer with mocked dependencies
+        // Create optimizer with mocked dependencies (no homey, so we can manually configure)
         optimizer = new Optimizer(
             mockMelCloud,
             {} as any, // priceProvider - not needed for these tests
             '123',
             1,
-            mockLogger,
-            mockHomey
+            mockLogger
         );
+
+        // Enable Zone 2 with proper constraints
+        optimizer.setZone2TemperatureConstraints(true, 18, 24, 0.5);
+        
+        // Access constraint manager directly to set Zone 1 deadband
+        (optimizer as any).constraintManager.setZone1Deadband(0.5);
+        
+        // Set min setpoint change minutes
+        (optimizer as any).minSetpointChangeMinutes = 30;
 
         // Initialize the optimizer
         (optimizer as any).initialized = true;
@@ -124,7 +112,7 @@ describe('Optimizer -Zone 2 Fallback', () => {
             // Set recent Zone 2 change timestamp (10 minutes ago)
             const recentTimestamp = Date.now() - 10 * 60 * 1000;
             (optimizer as any).stateManager = {
-                getZone2State: () => ({ timestamp: recentTimestamp, setpoint: 21 }),
+                getZone2LastChange: () => ({ timestamp: recentTimestamp, setpoint: 21 }),
                 recordZone2Change: jest.fn(),
                 saveToSettings: jest.fn()
             };
@@ -195,7 +183,7 @@ describe('Optimizer -Zone 2 Fallback', () => {
         it('should skip duplicate targets to prevent repeated commands', async () => {
             // Set Zone 2 state with same setpoint as proposed
             (optimizer as any).stateManager = {
-                getZone2State: () => ({ timestamp: 0, setpoint: 22.5 }),
+                getZone2LastChange: () => ({ timestamp: 0, setpoint: 22.5 }),
                 recordZone2Change: jest.fn(),
                 saveToSettings: jest.fn()
             };

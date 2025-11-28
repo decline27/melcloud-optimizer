@@ -795,6 +795,30 @@ const apiHandlers: ApiHandlers = {
           homey.app.error('Error calculating enhanced savings with baseline (early):', enhancedErr.message || String(enhancedErr));
         }
 
+        // ============================================================
+        // SINGLE SOURCE OF TRUTH: Calculate finalDailySavings ONCE
+        // This value is used for BOTH timeline and widget display
+        // ============================================================
+        let finalDailySavings: number = 0;
+        {
+          const hourlySavings = Number(result.savings || 0);
+          // Default: project hourly savings to daily
+          let projectedDaily = hourlySavings * 24;
+
+          // Prefer enhanced daily savings calculation if available
+          if (enhancedSavingsData?.dailySavings !== undefined && Number.isFinite(enhancedSavingsData.dailySavings)) {
+            projectedDaily = enhancedSavingsData.dailySavings;
+          }
+
+          // Use baseline savings if available (comparison vs traditional 21°C heat pump)
+          if (enhancedSavingsData?.baselineComparison?.baselineSavings !== undefined &&
+              Number.isFinite(enhancedSavingsData.baselineComparison.baselineSavings)) {
+            finalDailySavings = enhancedSavingsData.baselineComparison.baselineSavings;
+          } else {
+            finalDailySavings = projectedDaily;
+          }
+        }
+
         // Quick-win DHW scheduling: toggle forced hot-water when cheap
         try {
           const enableTank = homey.settings.get('enable_tank_control') === true;
@@ -932,43 +956,21 @@ const apiHandlers: ApiHandlers = {
             }
           }
 
-          // Calculate daily savings for timeline - use baseline savings if available and larger
+          // Use the single source of truth for daily savings (calculated earlier)
+          additionalData.dailySavings = finalDailySavings;
+
+          // Attach baseline metadata for reference (without re-calculating)
+          if (enhancedSavingsData?.baselineComparison) {
+            additionalData.baselineSavings = enhancedSavingsData.baselineComparison.baselineSavings;
+            additionalData.baselinePercentage = enhancedSavingsData.baselineComparison.baselinePercentage;
+            additionalData.enhancedSavings = enhancedSavingsData;
+          }
+
           try {
-            const hourlySavings = Number(result.savings || 0);
-            let projectedDailySavings = hourlySavings * 24;
-            let savingsType = 'incremental';
-
-            // Prefer the conservative enhanced daily savings if available
-            if (enhancedSavingsData?.dailySavings !== undefined) {
-              projectedDailySavings = enhancedSavingsData.dailySavings;
-            } else if (typeof activeOptimizer.calculateDailySavings === 'function') {
-              try {
-                const val = await activeOptimizer.calculateDailySavings(hourlySavings, historicalData?.optimizations || []);
-                if (Number.isFinite(val)) projectedDailySavings = val;
-              } catch (_: any) { }
-            }
-
-            // Attach baseline data for reference but do not override projection
-            if (enhancedSavingsData?.baselineComparison) {
-              const baselineSavings = enhancedSavingsData.baselineComparison.baselineSavings;
-              if (Number.isFinite(baselineSavings)) {
-                additionalData.baselineSavings = baselineSavings;
-                additionalData.baselinePercentage = enhancedSavingsData.baselineComparison.baselinePercentage;
-                additionalData.enhancedSavings = enhancedSavingsData;
-              }
-            }
-
-            additionalData.dailySavings = projectedDailySavings;
-            additionalData.savingsType = savingsType;
-
-            try {
-              const currencyCode = homey.settings.get('currency') || homey.settings.get('currency_code') || 'NOK';
-              homey.app.log(`Hourly optimization projected daily savings: ${projectedDailySavings.toFixed(2)} ${currencyCode}/day (${savingsType})`);
-            } catch (_: any) {
-              homey.app.log(`Hourly optimization projected daily savings: ${projectedDailySavings.toFixed(2)} /day (${savingsType})`);
-            }
-          } catch (calcErr: any) {
-            homey.app.error('Error calculating projected daily savings (timeline):', calcErr);
+            const currencyCode = homey.settings.get('currency') || homey.settings.get('currency_code') || 'NOK';
+            homey.app.log(`Daily savings (single source): ${finalDailySavings.toFixed(2)} ${currencyCode}/day`);
+          } catch (_: any) {
+            homey.app.log(`Daily savings (single source): ${finalDailySavings.toFixed(2)} /day`);
           }
 
           // Create the timeline entry using our standardized helper
@@ -1085,6 +1087,7 @@ const apiHandlers: ApiHandlers = {
             } catch (_: any) { }
 
             // Update display_savings_history (read-only estimates for UI)
+            // Uses finalDailySavings (single source of truth) calculated earlier
             try {
               const calculatorHasBaseline = enhancedCalculator && typeof enhancedCalculator.calculateEnhancedDailySavingsWithBaseline === 'function';
               if (optimizerCostSnapshot || calculatorHasBaseline) {
@@ -1093,11 +1096,6 @@ const apiHandlers: ApiHandlers = {
                 const entryIndex = displayHistory.findIndex((item: any) => item && item.date === todayStr);
                 const entry = entryIndex >= 0 ? { ...displayHistory[entryIndex] } : { date: todayStr };
                 const hasStoredBaseline = Number.isFinite(entry?.baselineMinor) && Number.isFinite(entry?.optimizedMinor);
-
-                // Use projected daily savings (conservative) for widget display
-                const projectedDailySavings = (enhancedSavingsData?.dailySavings !== undefined)
-                  ? Number(enhancedSavingsData.dailySavings)
-                  : (Number.isFinite(computedSavings) ? Number(computedSavings) : 0);
 
                 let baselineCostMajor: number | null = null;
                 let optimizedCostMajor: number | null = null;
@@ -1182,12 +1180,12 @@ const apiHandlers: ApiHandlers = {
                 const seasonModeValue = result.energyMetrics?.seasonalMode;
                 let entryUpdated = false;
 
-                // Always store projected daily savings for widget display
-                if (Number.isFinite(projectedDailySavings)) {
+                // Use finalDailySavings (single source of truth) for widget display
+                if (Number.isFinite(finalDailySavings)) {
                   entry.currency = currencyCode;
                   entry.decimals = decimals;
-                  entry.valueMajor = projectedDailySavings;
-                  entry.optimizedMinor = toMinor(Math.max(0, projectedDailySavings));
+                  entry.valueMajor = finalDailySavings;
+                  entry.optimizedMinor = toMinor(Math.max(0, finalDailySavings));
                   entryUpdated = true;
                 }
 
@@ -2147,10 +2145,10 @@ const apiHandlers: ApiHandlers = {
         const tibberLogger = (appLogger && typeof appLogger.api === 'function') ? appLogger : undefined;
         const tempTibber = new TibberApi(tibberToken, tibberLogger);
         const homes = await tempTibber.getHomes();
-        
+
         // Get the currently selected home ID
         const selectedHomeId = homey.settings.get('tibber_home_id') || null;
-        
+
         // Format homes for the dropdown
         const formattedHomes = homes.map((home: any) => {
           let displayName = home.appNickname || 'Unnamed Home';
@@ -2172,7 +2170,7 @@ const apiHandlers: ApiHandlers = {
         });
 
         homey.app.log(`Found ${formattedHomes.length} Tibber home(s)`);
-        
+
         return {
           success: true,
           homes: formattedHomes,
@@ -2861,7 +2859,7 @@ const apiHandlers: ApiHandlers = {
             currentHourSavings,
             historicalOptimizations,
             actualConsumptionKWh,
-            actualCost,
+            0, // actualCost - set to 0 to get full baseline cost as savings potential
             true // enable baseline
           );
 
@@ -2881,32 +2879,44 @@ const apiHandlers: ApiHandlers = {
               confidence: result.baselineComparison.confidenceLevel,
               projectedMonthly: result.projectedSavings * 30
             };
-          }
+          };
 
-          // Get seasonal mode (read-only)
-          const summerMode = homey.settings.get('summer_mode');
-          const autoSeasonalMode = homey.settings.get('auto_seasonal_mode');
-          if (autoSeasonalMode && serviceState?.weather) {
-            try {
-              const weather = await serviceState.weather.getCurrentWeather();
-              if (weather && weather.temperature !== undefined && weather.temperature !== null) {
-                const temp = weather.temperature;
-                if (temp > 15) {
-                  seasonalMode = 'summer';
-                } else if (temp > 5) {
-                  seasonalMode = 'transition';
-                } else {
-                  seasonalMode = 'winter';
-                }
-              }
-            } catch (weatherErr) {
-              homey.app.error('Error getting weather for seasonal mode:', weatherErr);
-            }
-          } else if (summerMode) {
-            seasonalMode = 'summer';
-          } else {
-            seasonalMode = 'winter'; // Default assumption
+          // NOTE: Do NOT override smartSavingsDisplay.today here!
+          // The value was already correctly set from display_savings_history,
+          // which contains finalDailySavings computed in getRunHourlyOptimizer.
+          // This ensures timeline and widget show the same number.
+          // 
+          // Only update projection if we don't have one yet from history
+          if (smartSavingsDisplay.projection === null && enhancedSavings?.baselineSavings !== undefined) {
+            const decimals = smartSavingsDisplay.decimals || 2;
+            smartSavingsDisplay.projection = Number((enhancedSavings.baselineSavings * 30).toFixed(decimals));
+            homey.app.log(`[getModelConfidence] Set projection from baseline (no history): ${smartSavingsDisplay.projection}`);
           }
+        }
+
+        // Get seasonal mode (read-only)
+        const summerMode = homey.settings.get('summer_mode');
+        const autoSeasonalMode = homey.settings.get('auto_seasonal_mode');
+        if (autoSeasonalMode && serviceState?.weather) {
+          try {
+            const weather = await serviceState.weather.getCurrentWeather();
+            if (weather && weather.temperature !== undefined && weather.temperature !== null) {
+              const temp = weather.temperature;
+              if (temp > 15) {
+                seasonalMode = 'summer';
+              } else if (temp > 5) {
+                seasonalMode = 'transition';
+              } else {
+                seasonalMode = 'winter';
+              }
+            }
+          } catch (weatherErr) {
+            homey.app.error('Error getting weather for seasonal mode:', weatherErr);
+          }
+        } else if (summerMode) {
+          seasonalMode = 'summer';
+        } else {
+          seasonalMode = 'winter'; // Default assumption
         }
       } catch (baselineErr) {
         homey.app.error('Error calculating baseline savings (non-critical):', baselineErr);
