@@ -24,12 +24,17 @@ describe('Optimizer private helpers', () => {
     optimizer = new Optimizer({} as any, {} as any, 'device', 1, logger);
   });
 
-  it('updateCOPRange and normalizeCOP produce expected normalization', () => {
-    // initial range is 1..5
-    optimizer.updateCOPRange(2);
-    optimizer.updateCOPRange(5);
-    const normalizedLow = optimizer.normalizeCOP(1);
-    const normalizedHigh = optimizer.normalizeCOP(5);
+  it('COP normalization via CopNormalizer produces expected results', () => {
+    // Access the copNormalizer through the optimizer instance
+    const copNormalizer = optimizer.copNormalizer;
+    
+    // Update range with valid values
+    copNormalizer.updateRange(2);
+    copNormalizer.updateRange(5);
+    
+    // Normalize values within and outside the range
+    const normalizedLow = copNormalizer.normalize(1);
+    const normalizedHigh = copNormalizer.normalize(5);
 
     expect(typeof normalizedLow).toBe('number');
     expect(typeof normalizedHigh).toBe('number');
@@ -60,23 +65,30 @@ describe('Optimizer private helpers', () => {
   });
   */
 
-  it('learnHotWaterUsage updates pattern data and peakHours', () => {
+  it('learnHotWaterUsage updates pattern data via HotWaterUsageLearner', () => {
     const history = Array.from({ length: 7 }, (_, d) => ({ timestamp: `2025-08-${10 + d}T07:00:00`, amount: d % 3 === 0 ? 5 : 0.5 }));
 
-    optimizer.learnHotWaterUsage(history);
+    // Access the learner directly through the optimizer instance
+    const hotWaterUsageLearner = optimizer.hotWaterUsageLearner;
+    hotWaterUsageLearner.learnFromHistory(history);
 
-    expect(optimizer.hotWaterUsagePattern.dataPoints).toBeGreaterThan(0);
-    expect(Array.isArray(optimizer.hotWaterUsagePattern.peakHours)).toBe(true);
+    // Access the learner's pattern through the getter method
+    const pattern = hotWaterUsageLearner.getPattern();
+    expect(pattern.dataPoints).toBeGreaterThan(0);
+    expect(Array.isArray(pattern.peakHours)).toBe(true);
   });
 
-  it('estimateCostSavings returns strings for different seasons', () => {
+  it('estimateCostSavings returns strings for different seasons via SavingsService', () => {
     const summerMetrics = { seasonalMode: 'summer', dailyEnergyConsumption: 10, realHeatingCOP: 0, realHotWaterCOP: 0 };
     const winterMetrics = { seasonalMode: 'winter', dailyEnergyConsumption: 10, realHeatingCOP: 3, realHotWaterCOP: 2 };
     const transitionMetrics = { seasonalMode: 'transition', dailyEnergyConsumption: 10, realHeatingCOP: 1.5, realHotWaterCOP: 1.5 };
 
-    const s1 = optimizer.estimateCostSavings(21, 20, 1, 2, summerMetrics);
-    const s2 = optimizer.estimateCostSavings(21, 20, 1, 2, winterMetrics);
-    const s3 = optimizer.estimateCostSavings(21, 20, 1, 2, transitionMetrics);
+    // Access savings service through the optimizer's public getter
+    const savingsService = optimizer.getSavingsService();
+    
+    const s1 = savingsService.estimateCostSavings(21, 20, 1, 2, summerMetrics as any);
+    const s2 = savingsService.estimateCostSavings(21, 20, 1, 2, winterMetrics as any);
+    const s3 = savingsService.estimateCostSavings(21, 20, 1, 2, transitionMetrics as any);
 
     expect(typeof s1).toBe('string');
     expect(s1).toMatch(/NOK\/week/);

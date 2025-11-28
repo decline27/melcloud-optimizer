@@ -2,6 +2,7 @@ import { HomeyLogger } from '../util/logger';
 import { PriceAnalyzer } from './price-analyzer';
 import { OptimizationMetrics, SchedulePoint } from '../types';
 import { COP_THRESHOLDS } from '../constants';
+import { CopNormalizer } from './cop-normalizer';
 
 export interface HotWaterAction {
     action: 'heat_now' | 'delay' | 'maintain';
@@ -45,8 +46,9 @@ export class HotWaterOptimizer {
         const sortedPrices = [...prices].sort((a: any, b: any) => a.price - b.price);
         const cheapestHours = sortedPrices.slice(0, 4); // Top 4 cheapest hours
 
-        // Normalize COP (simplified version of what was in Optimizer, assuming 0-5 range typical)
-        const hotWaterEfficiency = Math.min(Math.max(hotWaterCOP / 4.0, 0), 1);
+        // Use CopNormalizer.roughNormalize for consistent COP normalization
+        // Hot water COP typically ranges lower than heating, so use 4.0 as assumedMax
+        const hotWaterEfficiency = CopNormalizer.roughNormalize(hotWaterCOP, 4.0);
 
         // Current price percentile
         const currentPercentile = prices.filter((p: any) => p.price <= currentPrice).length / prices.length;

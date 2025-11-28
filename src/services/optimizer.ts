@@ -12,14 +12,17 @@ import { ConstraintManager } from './constraint-manager';
 import { StateManager } from './state-manager';
 import { SettingsLoader } from './settings-loader';
 import { TimeZoneHelper } from '../util/time-zone-helper';
+import { CopNormalizer } from './cop-normalizer';
+import { HotWaterUsageLearner, HotWaterLearnerLogger } from './hot-water-usage-learner';
+import { EnergyMetricsService } from './energy-metrics-service';
+import { TemperatureOptimizer, PriceStats, ComfortBand } from './temperature-optimizer';
+import { SavingsService } from './savings-service';
+import { CalibrationService, CalibrationResult } from './calibration-service';
 import {
   OptimizationMetrics,
-  SchedulePoint,
   TankOptimizationResult,
   SecondaryZoneResult,
-  OptimizationResult,
   EnhancedOptimizationResult,
-  HotWaterUsagePattern,
   PriceProvider,
   TibberPriceInfo,
   WeatherData,
@@ -27,22 +30,18 @@ import {
   RealEnergyData,
   ThermalModel,
   ThermalMassModel,
-  HotWaterSchedule,
   MelCloudDevice,
   HotWaterService,
   hasHotWaterService
 } from '../types';
 import { validateNumber, validateBoolean } from '../util/validation';
-import { isError } from '../util/error-handler';
 import { computePlanningBias, updateThermalResponse } from './planning-utils';
 import { applySetpointConstraints } from '../util/setpoint-constraints';
 import { SettingsAccessor } from '../util/settings-accessor';
-import { EnhancedCOPData, getCOPValue } from '../types/enhanced-cop-data';
-
 import { AdaptiveParametersLearner } from './adaptive-parameters';
-import { COP_THRESHOLDS, DEFAULT_WEIGHTS, COMFORT_CONSTANTS, OPTIMIZATION_CONSTANTS } from '../constants';
+import { COMFORT_CONSTANTS } from '../constants';
 
-const DEFAULT_HOT_WATER_PEAK_HOURS = [6, 7, 8]; // Morning fallback window when usage data is flat
+// Removed: DEFAULT_HOT_WATER_PEAK_HOURS now comes from HotWaterUsageLearner
 const MIN_SAVINGS_FOR_LEARNING = 0.05; // Minimum savings (SEK-equivalent) to trigger learning on no-change path
 
 type DecisionLogger = (event: string, payload: Record<string, unknown>) => void;
@@ -186,22 +185,23 @@ export class Optimizer {
   private autoSeasonalMode: boolean = true;
   private summerMode: boolean = false;
   private enhancedSavingsCalculator: EnhancedSavingsCalculator;
-  private lastEnergyData: RealEnergyData | null = null;
-  private optimizationMetrics: OptimizationMetrics | null = null;
+  private savingsService!: SavingsService;
+  // lastEnergyData and optimizationMetrics are now provided via getters from energyMetricsService
   private timeZoneHelper!: TimeZoneHelper;
 
   // Home/Away state management
   private occupied: boolean = true;
 
-  private hotWaterUsagePattern: HotWaterUsagePattern = {
-    hourlyDemand: new Array(24).fill(0.5),
-    peakHours: [7, 8, 18, 19, 20],
-    minimumBuffer: 2.0,
-    lastLearningUpdate: new Date(),
-    dataPoints: 0
-  };
+  /** Hot water usage learning service - replaces inline hotWaterUsagePattern */
+  private hotWaterUsageLearner: HotWaterUsageLearner;
 
   private adaptiveParametersLearner?: AdaptiveParametersLearner;
+
+  /** Temperature optimizer service - handles temperature calculations */
+  private temperatureOptimizer!: TemperatureOptimizer;
+
+  /** Calibration service - handles thermal model calibration and learning */
+  private calibrationService!: CalibrationService;
 
   // Initialization state tracking
   private initialized: boolean = false;
@@ -216,6 +216,31 @@ export class Optimizer {
     private readonly weatherApi?: ForecastCapableWeatherApi,
     private readonly homey?: HomeyApp
   ) {
+    // Initialize COP Normalizer first (handles its own persistence)
+    this.copNormalizer = new CopNormalizer(homey, this.logger);
+
+    // Initialize Hot Water Usage Learner (provides pattern learning for hot water optimization)
+    const learnerLogger: HotWaterLearnerLogger = {
+      log: (msg, data) => this.logger.log(`[HotWaterLearner] ${msg}`, data),
+      warn: (msg, data) => this.logger.warn(`[HotWaterLearner] ${msg}`, data),
+      error: (msg, err) => this.logger.error(`[HotWaterLearner] ${msg}`, err)
+    };
+    this.hotWaterUsageLearner = new HotWaterUsageLearner(learnerLogger);
+
+    // Initialize Energy Metrics Service (provides real energy data and optimization metrics)
+    const metricsLogger = {
+      log: (msg: string, data?: Record<string, unknown>) => this.logger.log(`[EnergyMetrics] ${msg}`, data),
+      warn: (msg: string, data?: Record<string, unknown>) => this.logger.warn(`[EnergyMetrics] ${msg}`, data),
+      error: (msg: string, err?: unknown) => this.logger.error(`[EnergyMetrics] ${msg}`, err)
+    };
+    this.energyMetricsService = new EnergyMetricsService({
+      melCloud: this.melCloud,
+      copNormalizer: this.copNormalizer,
+      hotWaterUsageLearner: this.hotWaterUsageLearner,
+      logger: metricsLogger,
+      getHotWaterService: () => this.getHotWaterService()
+    });
+
     // Initialize services first
     this.constraintManager = new ConstraintManager(this.logger);
     this.stateManager = new StateManager(this.logger);
@@ -300,6 +325,59 @@ export class Optimizer {
       this.copHelper || undefined
     );
 
+    // Initialize Savings Service (wraps EnhancedSavingsCalculator with optimizer context)
+    const savingsLogger = {
+      log: (msg: string, data?: Record<string, unknown>) => this.logger.log(`[SavingsService] ${msg}`, data),
+      warn: (msg: string, data?: Record<string, unknown>) => this.logger.warn(`[SavingsService] ${msg}`, data),
+      error: (msg: string, err?: unknown) => this.logger.error(`[SavingsService] ${msg}`, err)
+    };
+    this.savingsService = new SavingsService({
+      enhancedSavingsCalculator: this.enhancedSavingsCalculator,
+      priceAnalyzer: this.priceAnalyzer,
+      timeZoneHelper: this.timeZoneHelper,
+      logger: savingsLogger,
+      settingsAccessor: {
+        getGridFee: () => this.getGridFee(),
+        getCurrency: () => this.getCurrency()
+      },
+      metricsAccessor: {
+        getOptimizationMetrics: () => this.optimizationMetrics
+      },
+      weatherApi: this.weatherApi
+    });
+    this.logger.log('Savings service initialized');
+
+    // Initialize Temperature Optimizer service
+    const tempOptimizerLogger = {
+      log: (msg: string, data?: Record<string, unknown>) => this.logger.log(`[TempOptimizer] ${msg}`, data),
+      warn: (msg: string, data?: Record<string, unknown>) => this.logger.warn(`[TempOptimizer] ${msg}`, data),
+      error: (msg: string, err?: unknown) => this.logger.error(`[TempOptimizer] ${msg}`, err)
+    };
+    this.temperatureOptimizer = new TemperatureOptimizer({
+      copNormalizer: this.copNormalizer,
+      copHelper: this.copHelper,
+      adaptiveParametersLearner: this.adaptiveParametersLearner || null,
+      logger: tempOptimizerLogger,
+      copWeight: this.copWeight,
+      autoSeasonalMode: this.autoSeasonalMode,
+      summerMode: this.summerMode
+    });
+    this.logger.log('Temperature optimizer initialized');
+
+    // Initialize Calibration Service
+    const calibrationLogger = {
+      log: (msg: string, data?: Record<string, unknown>) => this.logger.log(`[Calibration] ${msg}`, data),
+      error: (msg: string, err?: unknown) => this.logger.error(`[Calibration] ${msg}`, err)
+    };
+    this.calibrationService = new CalibrationService(
+      calibrationLogger,
+      this.thermalController,
+      this.thermalModelService,
+      this.adaptiveParametersLearner || null,
+      this.useThermalLearning
+    );
+    this.logger.log('Calibration service initialized');
+
     this.logger.log('Optimizer constructed (call initialize() for async setup)');
     this.logger.log('Enhanced savings calculator initialized with services:', {
       thermalService: !!this.thermalModelService,
@@ -353,23 +431,8 @@ export class Optimizer {
     // Load state from settings
     this.stateManager.loadFromSettings(this.homey);
 
-    // Load COP guards state from settings
-    const copGuards = this.homey.settings.get('cop_guards_v1');
-    if (copGuards && typeof copGuards === 'object') {
-      if (Array.isArray(copGuards.history)) {
-        this.copRange.history = copGuards.history.slice(-100); // Ensure max 100
-      }
-      if (typeof copGuards.minObserved === 'number') {
-        this.copRange.minObserved = copGuards.minObserved;
-      }
-      if (typeof copGuards.maxObserved === 'number') {
-        this.copRange.maxObserved = copGuards.maxObserved;
-      }
-      if (typeof copGuards.updateCount === 'number') {
-        this.copRange.updateCount = copGuards.updateCount;
-      }
-      this.logger.log(`COP guards restored - Range: ${this.copRange.minObserved.toFixed(2)} - ${this.copRange.maxObserved.toFixed(2)}, ${this.copRange.history.length} samples`);
-    }
+    // COP guards are now handled by CopNormalizer (initialized in constructor)
+    // which automatically restores from settings
 
     // Load home/away state
     this.occupied = settings.occupancy.occupied;
@@ -767,84 +830,30 @@ export class Optimizer {
 
   /**
    * Get the enhanced savings calculator instance
+   * @deprecated Use getSavingsService() for new code
    */
   public getEnhancedSavingsCalculator(): EnhancedSavingsCalculator {
     return this.enhancedSavingsCalculator;
   }
 
   /**
-   * COP range tracking for adaptive normalization with outlier guards
+   * Get the savings service instance for direct access to savings calculations
    */
-  private copRange: {
-    minObserved: number;
-    maxObserved: number;
-    updateCount: number;
-    history: number[];
-  } = {
-      minObserved: 1,
-      maxObserved: 5,
-      updateCount: 0,
-      history: []
-    };
-
-  /**
-   * Update COP range based on observed values with outlier filtering
-   * @param cop Observed COP value
-   */
-  private updateCOPRange(cop: number): void {
-    // Guard: reject non-finite, out-of-bounds values
-    if (!Number.isFinite(cop) || cop < 0.5 || cop > 6.0) {
-      this.logger.warn(`COP outlier rejected: ${cop} (valid range: 0.5 - 6.0)`);
-      return;
-    }
-
-    // Add to rolling history (max 100 entries)
-    this.copRange.history.push(cop);
-    if (this.copRange.history.length > 100) {
-      this.copRange.history.shift();
-    }
-    this.copRange.updateCount++;
-
-    // Recompute min/max using 5th and 95th percentile
-    if (this.copRange.history.length >= 5) {
-      const sorted = [...this.copRange.history].sort((a, b) => a - b);
-      const p5Index = Math.floor(sorted.length * 0.05);
-      const p95Index = Math.floor(sorted.length * 0.95);
-      this.copRange.minObserved = sorted[p5Index];
-      this.copRange.maxObserved = sorted[p95Index];
-    }
-
-    // Persist to settings
-    if (this.homey) {
-      this.homey.settings.set('cop_guards_v1', {
-        minObserved: this.copRange.minObserved,
-        maxObserved: this.copRange.maxObserved,
-        updateCount: this.copRange.updateCount,
-        history: this.copRange.history
-      });
-    }
-
-    // Log range updates periodically
-    if (this.copRange.updateCount % 50 === 0) {
-      this.logger.log(`COP range updated after ${this.copRange.updateCount} observations: ${this.copRange.minObserved.toFixed(2)} - ${this.copRange.maxObserved.toFixed(2)} (${this.copRange.history.length} samples)`);
-    }
+  public getSavingsService(): SavingsService {
+    return this.savingsService;
   }
 
   /**
-   * Normalize COP value using adaptive range with clamping
-   * @param cop COP value to normalize
-   * @returns Normalized COP (0-1)
+   * COP Normalizer for adaptive COP normalization with outlier guards
+   * Handles persistence, range learning, and normalization
    */
-  private normalizeCOP(cop: number): number {
-    const range = this.copRange.maxObserved - this.copRange.minObserved;
-    if (range <= 0) return 0.5; // Default if no range established
+  private readonly copNormalizer: CopNormalizer;
 
-    // Clamp input COP to learned range, then normalize to 0-1
-    const clampedCOP = Math.min(Math.max(cop, this.copRange.minObserved), this.copRange.maxObserved);
-    return Math.min(Math.max(
-      (clampedCOP - this.copRange.minObserved) / range, 0
-    ), 1);
-  }
+  /**
+   * Energy Metrics Service for real energy data and optimization metrics
+   * Handles MELCloud energy data, seasonal mode detection, and COP efficiency
+   */
+  private readonly energyMetricsService: EnergyMetricsService;
 
   /**
    * Set price threshold settings
@@ -876,64 +885,8 @@ export class Optimizer {
    * @param usageHistory Array of hot water usage events
    */
   private learnHotWaterUsage(usageHistory: Array<{ timestamp: string; amount: number }>): void {
-    try {
-      if (!usageHistory || usageHistory.length < 7) {
-        // Need at least a week of data
-        return;
-      }
-
-      // Reset hourly demand
-      const hourlyDemand = new Array(24).fill(0);
-      const hourlyCount = new Array(24).fill(0);
-
-      // Analyze usage patterns
-      usageHistory.forEach(usage => {
-        const date = new Date(usage.timestamp);
-        const hour = date.getHours();
-
-        hourlyDemand[hour] += usage.amount;
-        hourlyCount[hour]++;
-      });
-
-      // Calculate average demand per hour
-      for (let i = 0; i < 24; i++) {
-        if (hourlyCount[i] > 0) {
-          hourlyDemand[i] = hourlyDemand[i] / hourlyCount[i];
-        }
-      }
-
-      // Identify top 20% non-zero demand hours
-      const ranked = hourlyDemand
-        .map((demand, hour) => ({ demand, hour }))
-        .filter(({ demand }) => demand > 0)
-        .sort((a, b) => b.demand - a.demand);
-      const topCount = ranked.length > 0 ? Math.max(1, Math.round(ranked.length * 0.2)) : 0;
-      const peakHours = topCount > 0 ? ranked.slice(0, topCount).map(item => item.hour) : [];
-      const selectedPeakHours = peakHours.length > 0 ? peakHours : DEFAULT_HOT_WATER_PEAK_HOURS;
-
-      // Calculate minimum buffer (120% of peak demand)
-      const maxDemand = Math.max(...hourlyDemand);
-      const minimumBuffer = maxDemand > 0 ? maxDemand * 1.2 : (this.hotWaterUsagePattern?.minimumBuffer ?? 0);
-
-      // Update pattern
-      this.hotWaterUsagePattern = {
-        hourlyDemand,
-        peakHours: selectedPeakHours,
-        minimumBuffer,
-        lastLearningUpdate: new Date(),
-        dataPoints: usageHistory.length
-      };
-
-      this.logger.log('Hot water usage pattern updated:', {
-        dataPoints: usageHistory.length,
-        peakHours: selectedPeakHours.join(', '),
-        maxDemand: maxDemand.toFixed(2),
-        minimumBuffer: minimumBuffer.toFixed(2)
-      });
-
-    } catch (error) {
-      this.logger.error('Error learning hot water usage pattern:', error);
-    }
+    // Delegate to HotWaterUsageLearner service
+    this.hotWaterUsageLearner.learnFromHistory(usageHistory);
   }
 
   /**
@@ -941,45 +894,9 @@ export class Optimizer {
    * Provides ongoing updates beyond the initial historical seeding.
    */
   private refreshHotWaterUsagePattern(): void {
-    try {
-      const service = this.getHotWaterService();
-      if (!service) {
-        return;
-      }
-      const stats = service.getUsageStatistics(14);
-      const usageByHour: unknown = stats?.statistics?.usageByHourOfDay;
-      const dataPointCount: number = Number(stats?.statistics?.dataPointCount) || 0;
-
-      if (!Array.isArray(usageByHour) || usageByHour.length !== 24 || dataPointCount < 12) {
-        return;
-      }
-
-      const hourlyDemand = usageByHour.map((value: unknown) => Number(value) || 0);
-      const ranked = hourlyDemand
-        .map((demand, hour) => ({ demand, hour }))
-        .filter(({ demand }) => demand > 0)
-        .sort((a, b) => b.demand - a.demand);
-      const topCount = ranked.length > 0 ? Math.max(1, Math.round(ranked.length * 0.2)) : 0;
-      const peakHoursRaw = topCount > 0 ? ranked.slice(0, topCount).map(entry => entry.hour) : [];
-      const previousPeakHours = Array.isArray(this.hotWaterUsagePattern?.peakHours)
-        ? this.hotWaterUsagePattern.peakHours
-        : [];
-      const fallbackPeakHours = previousPeakHours.length > 0 ? previousPeakHours : DEFAULT_HOT_WATER_PEAK_HOURS;
-      const peakHours = peakHoursRaw.length > 0 ? peakHoursRaw : fallbackPeakHours;
-
-      const maxDemand = Math.max(...hourlyDemand, 0);
-      const minimumBuffer = maxDemand > 0 ? maxDemand * 1.2 : this.hotWaterUsagePattern.minimumBuffer;
-
-      this.hotWaterUsagePattern = {
-        hourlyDemand,
-        peakHours,
-        minimumBuffer,
-        lastLearningUpdate: new Date(),
-        dataPoints: Math.max(dataPointCount, this.hotWaterUsagePattern.dataPoints)
-      };
-    } catch (error) {
-      this.logger.warn('Failed to refresh hot water usage pattern', { error });
-    }
+    // Delegate to HotWaterUsageLearner service
+    const service = this.getHotWaterService();
+    this.hotWaterUsageLearner.refreshFromService(service);
   }
 
   /**
@@ -994,6 +911,9 @@ export class Optimizer {
     this.copWeight = validateNumber(copWeight, 'copWeight', { min: 0, max: 1 });
     this.autoSeasonalMode = validateBoolean(autoSeasonalMode, 'autoSeasonalMode');
     this.summerMode = validateBoolean(summerMode, 'summerMode');
+
+    // Update temperature optimizer with new settings
+    this.temperatureOptimizer.updateCOPSettings(this.copWeight, this.autoSeasonalMode, this.summerMode);
 
     // Save to Homey settings if available
     if (this.homey) {
@@ -1013,180 +933,32 @@ export class Optimizer {
 
   /**
    * Get real energy data from MELCloud API and calculate optimization metrics
-   * Uses enhanced COP data with real-time calculations and predictions
+   * Delegates to EnergyMetricsService for actual data retrieval and processing
    * @returns Promise resolving to optimization metrics
    */
   private async getRealEnergyMetrics(): Promise<OptimizationMetrics | null> {
-    try {
-      // Use enhanced COP data for more accurate optimization
-      const enhancedCOPData: EnhancedCOPData = await this.melCloud.getEnhancedCOPData(this.deviceId, this.buildingId);
+    return this.energyMetricsService.getRealEnergyMetrics(this.deviceId, this.buildingId);
+  }
 
-      // Extract enhanced COP values with sensible fallbacks when the live value is missing
-      const derivedHeatingCOP = getCOPValue(
-        enhancedCOPData.daily,
-        'heating',
-        enhancedCOPData.historical.heating || 0
-      );
-      const derivedHotWaterCOP = getCOPValue(
-        enhancedCOPData.daily,
-        'hotWater',
-        enhancedCOPData.historical.hotWater || 0
-      );
+  /**
+   * Get the last energy data retrieved (from EnergyMetricsService cache)
+   * @returns Last energy data or null if none available
+   */
+  private get lastEnergyData(): RealEnergyData | null {
+    return this.energyMetricsService.getLastEnergyData();
+  }
 
-      const realHeatingCOP = enhancedCOPData.current.heating > 0
-        ? enhancedCOPData.current.heating
-        : derivedHeatingCOP;
-      const realHotWaterCOP = enhancedCOPData.current.hotWater > 0
-        ? enhancedCOPData.current.hotWater
-        : derivedHotWaterCOP;
-
-      // Update COP ranges with current values
-      if (realHeatingCOP > 0) this.updateCOPRange(realHeatingCOP);
-      if (realHotWaterCOP > 0) this.updateCOPRange(realHotWaterCOP);
-
-      // Get daily energy totals
-      const energyData = enhancedCOPData.daily;
-
-      // Extract energy consumption data
-      const heatingConsumed = energyData.TotalHeatingConsumed || 0;
-      const heatingProduced = energyData.TotalHeatingProduced || 0;
-      const hotWaterConsumed = energyData.TotalHotWaterConsumed || 0;
-      const hotWaterProduced = energyData.TotalHotWaterProduced || 0;
-
-      // Create type-safe energy data object
-      const safeEnergyData: RealEnergyData = {
-        TotalHeatingConsumed: heatingConsumed,
-        TotalHeatingProduced: heatingProduced,
-        TotalHotWaterConsumed: hotWaterConsumed,
-        TotalHotWaterProduced: hotWaterProduced,
-        TotalCoolingConsumed: 0,
-        TotalCoolingProduced: 0,
-        CoP: Array.isArray(energyData.CoP)
-          ? energyData.CoP
-            .map((value): number | null => {
-              // Plain number - use as-is
-              if (typeof value === 'number') {
-                return value;
-              }
-              // Object with value property - extract it
-              if (value && typeof value === 'object' && 'value' in value) {
-                const copValue = (value as { value: unknown }).value;
-                return typeof copValue === 'number' ? copValue : null;
-              }
-              // Invalid format - skip
-              return null;
-            })
-            .filter((value): value is number => value !== null && Number.isFinite(value))
-          : [],
-        // Prefer explicit COP fields when present in the daily report
-        heatingCOP: derivedHeatingCOP,
-        hotWaterCOP: derivedHotWaterCOP,
-        averageCOP: energyData.averageCOP ?? null,
-        AverageHeatingCOP: enhancedCOPData.historical.heating,
-        AverageHotWaterCOP: enhancedCOPData.historical.hotWater
-      };
-
-      this.lastEnergyData = safeEnergyData;
-      this.refreshHotWaterUsagePattern();
-
-      // Calculate daily energy consumption (kWh/day averaged over the period)
-      const sampledDays = Math.max(1, Number(energyData.SampledDays ?? 1) || 1);
-      const dailyEnergyConsumption = (heatingConsumed + hotWaterConsumed) / sampledDays;
-
-      // Calculate efficiency scores using adaptive COP normalization
-      const heatingEfficiency = this.normalizeCOP(realHeatingCOP);
-      const hotWaterEfficiency = this.normalizeCOP(realHotWaterCOP);
-
-      // Enhanced seasonal mode detection using real energy patterns and trends
-      let seasonalMode: 'summer' | 'winter' | 'transition';
-      let optimizationFocus: 'heating' | 'hotwater' | 'both';
-
-      // Use trend analysis from enhanced COP data
-      const trends = enhancedCOPData.trends;
-
-      if (heatingConsumed < 1) { // Less than 1 kWh heating in 7 days
-        seasonalMode = 'summer';
-        optimizationFocus = 'hotwater';
-      } else if (heatingConsumed > hotWaterConsumed * 2) {
-        seasonalMode = 'winter';
-        optimizationFocus = trends.heatingTrend === 'declining' ? 'both' : 'heating';
-      } else {
-        seasonalMode = 'transition';
-        // Use trend analysis to determine focus
-        if (trends.heatingTrend === 'improving' && trends.hotWaterTrend === 'stable') {
-          optimizationFocus = 'heating';
-        } else if (trends.hotWaterTrend === 'improving' && trends.heatingTrend === 'stable') {
-          optimizationFocus = 'hotwater';
-        } else {
-          optimizationFocus = 'both';
-        }
-      }
-
-      const metrics: OptimizationMetrics = {
-        realHeatingCOP,
-        realHotWaterCOP,
-        dailyEnergyConsumption,
-        heatingEfficiency,
-        hotWaterEfficiency,
-        seasonalMode,
-        optimizationFocus
-      };
-
-      this.optimizationMetrics = metrics;
-
-      const heatingCOPDisplay = realHeatingCOP > 0 ? realHeatingCOP.toFixed(2) : 'n/a';
-      const hotWaterCOPDisplay = realHotWaterCOP > 0 ? realHotWaterCOP.toFixed(2) : 'n/a';
-      const heatingEfficiencyDisplay = realHeatingCOP > 0 ? (heatingEfficiency * 100).toFixed(0) + '%' : 'n/a';
-      const hotWaterEfficiencyDisplay = realHotWaterCOP > 0 ? (hotWaterEfficiency * 100).toFixed(0) + '%' : 'n/a';
-
-      this.logger.log(`Enhanced energy metrics calculated: `, {
-        heatingCOP: heatingCOPDisplay,
-        hotWaterCOP: hotWaterCOPDisplay,
-        heatingEfficiency: heatingEfficiencyDisplay,
-        hotWaterEfficiency: hotWaterEfficiencyDisplay,
-        dailyConsumption: dailyEnergyConsumption.toFixed(1) + ' kWh/day',
-        seasonalMode,
-        optimizationFocus,
-        heatingTrend: trends.heatingTrend,
-        hotWaterTrend: trends.hotWaterTrend,
-        copRange: `${this.copRange.minObserved.toFixed(1)} -${this.copRange.maxObserved.toFixed(1)} (${this.copRange.updateCount} obs)`
-      });
-
-      return metrics;
-    } catch (error) {
-      this.logger.error('Error getting enhanced energy metrics:', error);
-
-      // Fallback to basic energy data if enhanced version fails
-      try {
-        const energyData = await this.melCloud.getDailyEnergyTotals(this.deviceId, this.buildingId);
-
-        const heatingConsumed = energyData.TotalHeatingConsumed || 0;
-        const hotWaterConsumed = energyData.TotalHotWaterConsumed || 0;
-        // Prefer explicit fields if present, then averageCOP, then legacy Average* fields
-        const realHeatingCOP = Number(energyData.heatingCOP ?? energyData.averageCOP ?? energyData.AverageHeatingCOP ?? 0) || 0;
-        const realHotWaterCOP = Number(energyData.hotWaterCOP ?? energyData.averageCOP ?? energyData.AverageHotWaterCOP ?? 0) || 0;
-        const fallbackSampledDays = Math.max(1, Number(energyData.SampledDays ?? 1) || 1);
-
-        this.logger.log('Using fallback energy metrics calculation');
-
-        return {
-          realHeatingCOP,
-          realHotWaterCOP,
-          dailyEnergyConsumption: (heatingConsumed + hotWaterConsumed) / fallbackSampledDays,
-          heatingEfficiency: Math.min(realHeatingCOP / 3, 1),
-          hotWaterEfficiency: Math.min(realHotWaterCOP / 3, 1),
-          seasonalMode: heatingConsumed < 1 ? 'summer' : 'winter',
-          optimizationFocus: 'both'
-        };
-      } catch (fallbackError) {
-        this.logger.error('Error with fallback energy metrics:', fallbackError);
-        return null;
-      }
-    }
+  /**
+   * Get the last calculated optimization metrics (from EnergyMetricsService cache)
+   * @returns Last optimization metrics or null if none calculated
+   */
+  private get optimizationMetrics(): OptimizationMetrics | null {
+    return this.energyMetricsService.getOptimizationMetrics();
   }
 
   /**
    * Calculate enhanced temperature optimization using real energy data
+   * Delegates to TemperatureOptimizer service for calculations
    * @param currentPrice Current electricity price
    * @param avgPrice Average electricity price
    * @param minPrice Minimum electricity price
@@ -1208,203 +980,28 @@ export class Optimizer {
     // Get real energy metrics
     const metrics = precomputedMetrics ?? await this.getRealEnergyMetrics();
 
-    if (!metrics) {
-      // Fall back to basic optimization if no real data available
-      const basicTarget = await this.calculateOptimalTemperature(currentPrice, avgPrice, minPrice, maxPrice, currentTemp);
-      return {
-        targetTemp: basicTarget,
-        reason: 'Using basic optimization (no real energy data available)'
-      };
-    }
-
-    // Cache frequently used values - use user-configurable comfort bands instead of hardcoded values
+    // Get comfort band for constraints
     const comfortBand = this.getCurrentComfortBand();
-    const tempRange = comfortBand.maxTemp - comfortBand.minTemp;
-    const midTemp = (comfortBand.maxTemp + comfortBand.minTemp) / 2;
 
-    // Normalize price between 0 and 1
-    const normalizedPrice = maxPrice === minPrice
-      ? 0.5
-      : (currentPrice - minPrice) / (maxPrice - minPrice);
+    // Build price stats
+    const priceStats: PriceStats = {
+      currentPrice,
+      avgPrice,
+      minPrice,
+      maxPrice
+    };
 
-    // Calculate base target based on seasonal mode and real performance
-    let targetTemp: number;
-    let reason: string;
-
-    if (metrics.seasonalMode === 'summer') {
-      // Summer optimization: Focus on hot water efficiency and minimal heating
-      const adaptiveParams = this.adaptiveParametersLearner?.getParameters();
-      const priceWeight = adaptiveParams?.priceWeightSummer || 0.7; // Learned or fallback
-
-      // Update COP range and normalize
-      this.updateCOPRange(metrics.realHotWaterCOP);
-      const hotWaterEfficiency = this.normalizeCOP(metrics.realHotWaterCOP);
-
-      // Price adjustment (inverted: low price = higher temp)
-      const priceAdjustment = (0.5 - normalizedPrice) * tempRange * priceWeight;
-
-      // Efficiency bonus for excellent hot water COP
-      let efficiencyAdjustment = 0;
-      if (hotWaterEfficiency > 0.8) {
-        efficiencyAdjustment = adaptiveParams?.copEfficiencyBonusHigh || 0.3; // Learned or fallback
-      } else if (hotWaterEfficiency < 0.3) {
-        efficiencyAdjustment = -0.5; // Penalty for poor COP
-      }
-
-      targetTemp = midTemp + priceAdjustment + efficiencyAdjustment;
-      reason = `Summer mode: Hot water COP ${metrics.realHotWaterCOP.toFixed(2)} (${(hotWaterEfficiency * 100).toFixed(0)}% efficiency), price ${normalizedPrice > 0.6 ? 'high' : normalizedPrice < 0.4 ? 'low' : 'moderate'} `;
-
-    } else if (metrics.seasonalMode === 'winter') {
-      // Winter optimization: Balance heating efficiency with comfort and prices
-      const adaptiveParams = this.adaptiveParametersLearner?.getParameters();
-      const priceWeight = adaptiveParams?.priceWeightWinter || 0.4; // Learned or fallback
-
-      // Update COP range and normalize  
-      this.updateCOPRange(metrics.realHeatingCOP);
-      const heatingEfficiency = this.normalizeCOP(metrics.realHeatingCOP);
-
-      // Price adjustment (inverted: low price = higher temp)
-      const priceAdjustment = (0.5 - normalizedPrice) * tempRange * priceWeight;
-
-      // Get adaptive COP thresholds
-      const adaptiveThresholds = this.adaptiveParametersLearner?.getStrategyThresholds() || {
-        excellentCOPThreshold: 0.8,
-        goodCOPThreshold: 0.5,
-        minimumCOPThreshold: 0.2
-      };
-
-      // Efficiency-based comfort adjustment using adaptive thresholds
-      let efficiencyAdjustment = 0;
-      if (heatingEfficiency > adaptiveThresholds.excellentCOPThreshold) {
-        // Excellent heating COP: maintain comfort
-        efficiencyAdjustment = adaptiveParams?.copEfficiencyBonusMedium || 0.2; // Learned or fallback
-      } else if (heatingEfficiency > adaptiveThresholds.goodCOPThreshold) {
-        // Good heating COP: slight reduction
-        efficiencyAdjustment = -0.1;
-      } else if (heatingEfficiency > adaptiveThresholds.minimumCOPThreshold) {
-        // Poor heating COP: significant reduction
-        efficiencyAdjustment = -0.5;
-      } else {
-        // Very poor heating COP: maximum conservation
-        efficiencyAdjustment = -0.8;
-      }
-
-      // Outdoor temperature adjustment: colder outside = need higher inside for comfort
-      const outdoorAdjustment = outdoorTemp < 5 ? 0.5 : outdoorTemp > 15 ? -0.3 : 0;
-
-      targetTemp = midTemp + priceAdjustment + efficiencyAdjustment + outdoorAdjustment;
-      reason = `Winter mode: Heating COP ${metrics.realHeatingCOP.toFixed(2)} (${(heatingEfficiency * 100).toFixed(0)}% efficiency), outdoor ${outdoorTemp}°C, price ${normalizedPrice > 0.6 ? 'high' : normalizedPrice < 0.4 ? 'low' : 'moderate'} `;
-
-    } else {
-      // Transition mode: Balanced approach using both COPs
-      const adaptiveParams = this.adaptiveParametersLearner?.getParameters();
-      const priceWeight = adaptiveParams?.priceWeightTransition || 0.5; // Learned or fallback
-
-      // Update COP ranges for both systems
-      this.updateCOPRange(metrics.realHeatingCOP);
-      this.updateCOPRange(metrics.realHotWaterCOP);
-
-      const heatingEfficiency = this.normalizeCOP(metrics.realHeatingCOP);
-      const hotWaterEfficiency = this.normalizeCOP(metrics.realHotWaterCOP);
-      const combinedEfficiency = (heatingEfficiency + hotWaterEfficiency) / 2;
-
-      const priceAdjustment = (0.5 - normalizedPrice) * tempRange * priceWeight;
-
-      // Combined efficiency adjustment
-      let efficiencyAdjustment = 0;
-      if (combinedEfficiency > 0.7) {
-        efficiencyAdjustment = adaptiveParams?.copEfficiencyBonusMedium || 0.2; // Learned or fallback
-      } else if (combinedEfficiency < 0.4) {
-        efficiencyAdjustment = -0.4;
-      }
-
-      targetTemp = midTemp + priceAdjustment + efficiencyAdjustment;
-      reason = `Transition mode: Combined COP efficiency ${(combinedEfficiency * 100).toFixed(0)}%, adapting to both heating and hot water needs`;
-    }
-
-    // Apply real COP-based fine tuning
-    if (metrics.optimizationFocus === 'hotwater' && metrics.realHotWaterCOP > 3) {
-      // Excellent hot water performance allows more aggressive optimization
-      targetTemp += 0.2;
-      reason += `, excellent hot water COP(+0.2°C)`;
-    } else if (metrics.optimizationFocus === 'both' && metrics.realHeatingCOP > 2) {
-      // Good heating performance
-      targetTemp += 0.3;
-      reason += `, good heating COP(+0.3°C)`;
-    } else if (metrics.realHeatingCOP < 1.5 && metrics.realHeatingCOP > 0) {
-      // Poor heating performance - be more conservative
-      targetTemp -= 0.5;
-      reason += `, low heating COP(-0.5°C)`;
-    }
-
-    return { targetTemp, reason, metrics };
+    // Delegate to TemperatureOptimizer service
+    return this.temperatureOptimizer.calculateOptimalTemperatureWithRealData(
+      priceStats,
+      currentTemp,
+      outdoorTemp,
+      comfortBand,
+      metrics,
+      // Provide basic calculator for fallback
+      async () => this.calculateOptimalTemperature(currentPrice, avgPrice, minPrice, maxPrice, currentTemp)
+    );
   }
-
-  /**
-        };
-      }
-    } else if (hotWaterEfficiency > 0.5) {
-      // Good hot water COP: Moderate optimization
-      if (currentPercentile <= 0.3) { // Only during cheapest 30%
-        return {
-          action: 'heat_now',
-          reason: `Good hot water COP(${ hotWaterCOP.toFixed(2) }, ${(hotWaterEfficiency * 100).toFixed(0)}th percentile) + cheap electricity(${(currentPercentile * 100).toFixed(0)}th percentile)`
-        };
-      }
-    } else if (hotWaterEfficiency > 0.2) {
-      // Poor hot water COP: Conservative approach
-      if (currentPercentile <= 0.15) { // Only during cheapest 15%
-        return {
-          action: 'heat_now',
-          reason: `Poor hot water COP(${ hotWaterCOP.toFixed(2) }, ${(hotWaterEfficiency * 100).toFixed(0)}th percentile) - only during cheapest electricity(${(currentPercentile * 100).toFixed(0)}th percentile)`
-        };
-      } else {
-        const nextCheapHour = cheapestHours[0];
-        return {
-          action: 'delay',
-          reason: `Poor COP - wait for cheapest electricity at ${ nextCheapHour.time } `,
-          scheduledTime: nextCheapHour.time
-        };
-      }
-    } else if (hotWaterCOP > 0) {
-      // Very poor hot water COP: Emergency heating only
-      if (currentPercentile <= 0.1) { // Only during cheapest 10%
-        return {
-          action: 'heat_now',
-          reason: `Very poor hot water COP(${ hotWaterCOP.toFixed(2) }) - emergency heating during absolute cheapest electricity`
-        };
-      } else {
-        const nextCheapHour = cheapestHours[0];
-        return {
-          action: 'delay',
-          reason: `Very poor COP - critical: wait for absolute cheapest electricity at ${ nextCheapHour.time } `,
-          scheduledTime: nextCheapHour.time
-        };
-      }
-    }
-
-    return { action: 'maintain', reason: 'Maintaining current hot water schedule' };
-  }
-
-  /**
-   * Handle API errors with proper type checking
-   */
-  private handleApiError(error: unknown): never {
-    if (isError(error)) {
-      this.logger.error('API error:', error.message);
-      // For test environment, preserve the original error message
-      if (process.env.NODE_ENV === 'test') {
-        throw error;
-      } else {
-        throw new Error(`API error: ${error.message} `);
-      }
-    } else {
-      this.logger.error('Unknown API error:', String(error));
-      throw new Error(`Unknown API error: ${String(error)} `);
-    }
-  }
-
-
 
   /**
    * Enhanced optimization using real energy data - complements the existing optimization
@@ -1835,15 +1432,17 @@ export class Optimizer {
           });
         }
 
-        if (this.hotWaterUsagePattern && this.hotWaterUsagePattern.dataPoints >= 14) {
+        // Use HotWaterUsageLearner for pattern-based hot water optimization
+        if (this.hotWaterUsageLearner.hasConfidentPattern()) {
           const currentHour = this.timeZoneHelper.getLocalTime().hour;
-          const estimatedDailyHotWaterKwh = this.hotWaterUsagePattern.hourlyDemand
-            .reduce((sum, val) => sum + Math.max(val, 0), 0);
+          const estimatedDailyHotWaterKwh = this.hotWaterUsageLearner.getEstimatedDailyConsumption();
+          const hotWaterPattern = this.hotWaterUsageLearner.getPattern();
+          
           const hotWaterSchedule = this.hotWaterOptimizer.optimizeHotWaterSchedulingByPattern(
             currentHour,
             priceData.prices,
             optimizationResult.metrics.realHotWaterCOP,
-            this.hotWaterUsagePattern,
+            hotWaterPattern,
             undefined,
             {
               currencyCode: priceData.currencyCode || this.getCurrency(),
@@ -2631,6 +2230,7 @@ export class Optimizer {
 
   /**
    * Estimate cost savings from temperature adjustment using real energy data
+   * @deprecated Use savingsService.estimateCostSavings() directly for new code
    */
   private estimateCostSavings(
     newTemp: number,
@@ -2639,39 +2239,13 @@ export class Optimizer {
     avgPrice: number,
     metrics?: OptimizationMetrics
   ): string {
-    if (!metrics) {
-      return 'No real energy data for savings calculation';
-    }
-
-    const tempDifference = newTemp - oldTemp;
-    const dailyConsumption = metrics.dailyEnergyConsumption;
-
-    // Estimate energy impact based on temperature change and real COP
-    let energyImpactFactor = 0;
-
-    if (metrics.seasonalMode === 'summer') {
-      // Minimal heating impact in summer, mainly hot water efficiency
-      energyImpactFactor = Math.abs(tempDifference) * 0.05; // 5% per degree
-    } else if (metrics.seasonalMode === 'winter') {
-      // Significant heating impact in winter
-      const heatingEfficiency = Math.max(metrics.realHeatingCOP, 1) / 3; // Normalize to 0-1
-      energyImpactFactor = Math.abs(tempDifference) * 0.15 * heatingEfficiency; // 15% per degree, adjusted for COP
-    } else {
-      // Transition season
-      energyImpactFactor = Math.abs(tempDifference) * 0.10; // 10% per degree
-    }
-
-    const dailyEnergyImpact = dailyConsumption * energyImpactFactor;
-    const dailyCostImpact = dailyEnergyImpact * (tempDifference > 0 ? currentPrice : -currentPrice);
-    const weeklyCostImpact = dailyCostImpact * 7;
-
-    const currencyCode = this.getCurrency();
-    return `Estimated ${tempDifference > 0 ? 'cost increase' : 'savings'}: ${Math.abs(weeklyCostImpact).toFixed(2)} ${currencyCode}/week`;
+    return this.savingsService.estimateCostSavings(newTemp, oldTemp, currentPrice, avgPrice, metrics);
   }
 
   /**
    * Calculate hourly cost savings using real energy metrics (numeric result)
    * Falls back to simple heuristic when metrics are not available
+   * @deprecated Use savingsService.calculateRealHourlySavings() directly for new code
    */
   public async calculateRealHourlySavings(
     oldTemp: number,
@@ -2680,61 +2254,18 @@ export class Optimizer {
     metrics?: OptimizationMetrics,
     kind: 'zone1' | 'zone2' | 'tank' = 'zone1'
   ): Promise<number> {
-    try {
-      const tempDelta = oldTemp - newTemp;
-      if (!isFinite(tempDelta) || tempDelta === 0 || !isFinite(currentPrice)) return 0;
-
-      if (!metrics) {
-        // Fallback to simple calculation if we don't have metrics
-        return this.calculateSavings(oldTemp, newTemp, currentPrice);
-      }
-
-      // Base daily consumption (kWh/day)
-      let dailyConsumption = metrics.dailyEnergyConsumption;
-      if (!isFinite(dailyConsumption) || dailyConsumption <= 0) {
-        return this.calculateSavings(oldTemp, newTemp, currentPrice);
-      }
-
-      // Seasonal factors
-      let perDegFactor: number; // fraction of daily energy per °C
-      if (metrics.seasonalMode === 'winter') perDegFactor = 0.15 * (metrics.heatingEfficiency || 0.5);
-      else if (metrics.seasonalMode === 'summer') perDegFactor = 0.05;
-      else perDegFactor = 0.10;
-
-      // Surface adjustments
-      if (kind === 'zone2') perDegFactor *= 0.9;
-      if (kind === 'tank') perDegFactor *= 0.5;
-
-      const dailyEnergyImpact = Math.abs(tempDelta) * perDegFactor * dailyConsumption; // kWh
-      const gridFee = this.getGridFee();
-      const effectivePrice = (Number.isFinite(currentPrice) ? currentPrice : 0) + gridFee;
-      const dailyCostImpact = dailyEnergyImpact * Math.sign(tempDelta) * effectivePrice;
-      const hourlyCostImpact = dailyCostImpact / 24;
-      return Number.isFinite(hourlyCostImpact) ? hourlyCostImpact : 0;
-    } catch {
-      return this.calculateSavings(oldTemp, newTemp, currentPrice);
-    }
+    return this.savingsService.calculateRealHourlySavings(oldTemp, newTemp, currentPrice, metrics, kind);
   }
 
   /**
    * Project daily savings using Tibber price data and historical optimizations
+   * @deprecated Use savingsService.calculateDailySavings() directly for new code
    */
   public async calculateDailySavings(
     hourlySavings: number,
     historicalOptimizations: OptimizationData[] = []
   ): Promise<number> {
-    try {
-      const result = await this.calculateEnhancedDailySavingsUsingTibber(
-        hourlySavings,
-        historicalOptimizations
-      );
-      return typeof result?.dailySavings === 'number'
-        ? result.dailySavings
-        : hourlySavings * 24;
-    } catch (error) {
-      this.logger.error('Error calculating daily savings projection:', error);
-      return hourlySavings * 24;
-    }
+    return this.savingsService.calculateDailySavings(hourlySavings, historicalOptimizations);
   }
 
   /**
@@ -2749,173 +2280,27 @@ export class Optimizer {
 
   /**
    * Run weekly calibration
+   * Delegates to CalibrationService for actual calibration logic
    * @returns Promise resolving to calibration result
    */
-  async runWeeklyCalibration(): Promise<{
-    oldK: number;
-    newK: number;
-    oldS?: number;
-    newS: number;
-    timestamp: string;
-    thermalCharacteristics?: any;
-    method?: string;
-    analysis?: string;
-    success?: boolean;
-  }> {
-    this.logger.log('Starting weekly calibration');
-
-    const clampK = (value: number): number => Math.min(10, Math.max(0.1, value));
-    const clampS = (value: number): number => Math.min(1, Math.max(0.01, value));
-    const DEFAULT_S = 0.7;
-
-    // Get current thermal model
-    const thermalModel = this.thermalController.getThermalModel();
-    if (!thermalModel) {
-      return {
-        oldK: 0,
-        newK: 0,
-        newS: 0,
-        timestamp: new Date().toISOString(),
-        success: false,
-        analysis: 'No thermal model available'
-      };
-    }
-
-    try {
-      const oldK = thermalModel.K;
-      const oldS = thermalModel.S || 0;
-
-      // If using thermal learning model, update it with collected data
-      if (this.useThermalLearning && this.thermalModelService) {
-        try {
-          // The thermal model service automatically updates its model
-          // We just need to get the current characteristics
-          const characteristics = this.thermalModelService.getThermalCharacteristics();
-          const confidence = typeof characteristics.modelConfidence === 'number'
-            ? characteristics.modelConfidence
-            : 0;
-
-          // Update our simple K-factor based on the thermal model's characteristics
-          // This maintains compatibility with the existing system
-          const baseK = oldK;
-          const rawK = confidence > 0.3
-            ? (characteristics.heatingRate / 0.5) * baseK
-            : baseK;
-          const newK = clampK(rawK);
-
-          const thermalMass = characteristics.thermalMass;
-          const rawS = (typeof thermalMass === 'number' && Number.isFinite(thermalMass))
-            ? thermalMass
-            : (typeof oldS === 'number' ? oldS : (typeof thermalModel.S === 'number' ? thermalModel.S : DEFAULT_S));
-          const newS = clampS(rawS);
-
-          // Update thermal model
-          this.thermalController.setThermalModel(newK, newS);
-
-          const heatingRate = typeof characteristics.heatingRate === 'number' && Number.isFinite(characteristics.heatingRate)
-            ? characteristics.heatingRate
-            : NaN;
-          const coolingRate = typeof characteristics.coolingRate === 'number' && Number.isFinite(characteristics.coolingRate)
-            ? characteristics.coolingRate
-            : NaN;
-
-          this.logger.log(`Calibrated thermal model using learning data: K=${newK.toFixed(2)}, S=${newS.toFixed(2)}`);
-          this.logger.log(
-            `Thermal characteristics: Heating rate=${Number.isFinite(heatingRate) ? heatingRate.toFixed(3) : 'n/a'}, ` +
-            `Cooling rate=${Number.isFinite(coolingRate) ? coolingRate.toFixed(3) : 'n/a'}, ` +
-            `Thermal mass=${Number.isFinite(thermalMass) ? thermalMass.toFixed(2) : 'n/a'}`
-          );
-
-          // Issue #3 fix: Force thermal model update to persist learned confidence
-          // Without this, confidence was read but not saved back to settings
-          // causing it to reset to 0 on next run (chicken-egg loop)
-          try {
-            this.thermalModelService.forceModelUpdate();
-            this.logger.log('Thermal model confidence persisted after calibration');
-          } catch (persistErr) {
-            this.logger.error('Failed to persist thermal model confidence', persistErr);
-          }
-
-          // Return result
-          return {
-            oldK: oldK,
-            newK,
-            oldS: oldS,
-            newS,
-            timestamp: new Date().toISOString(),
-            thermalCharacteristics: characteristics,
-            analysis: `Learning-based calibration (confidence ${(confidence * 100).toFixed(0)}%)`,
-            success: true
-          };
-        } catch (modelError) {
-          this.logger.error('Error updating thermal model from learning data:', modelError);
-          // Fall back to basic calibration
-        }
-      }
-
-      // Basic calibration (used as fallback or when thermal learning is disabled)
-      const baseK = oldK;
-      const newK = clampK(baseK * (0.9 + Math.random() * 0.2));
-      const rawS = typeof oldS === 'number'
-        ? oldS
-        : (typeof thermalModel.S === 'number' ? thermalModel.S : DEFAULT_S);
-      const newS = clampS(rawS);
-
-      // Update thermal model
-      this.thermalController.setThermalModel(newK, newS);
-      this.logger.log(`Weekly calibration updated K-factor: ${oldK.toFixed(2)} -> ${newK.toFixed(2)}`);
-
-      // Return result
-      return {
-        oldK: oldK,
-        newK,
-        oldS: oldS,
-        newS,
-        timestamp: new Date().toISOString(),
-        method: 'basic',
-        analysis: 'Basic calibration applied (learning data unavailable)',
-        success: true
-      };
-    } catch (error) {
-      this.logger.error('Error in weekly calibration', error);
-      this.handleApiError(error);
-      return {
-        oldK: thermalModel.K,
-        newK: thermalModel.K,
-        oldS: thermalModel.S || 0,
-        newS: thermalModel.S || 0,
-        timestamp: new Date().toISOString(),
-        success: false,
-        analysis: `Calibration failed: ${(error as Error).message}`
-      };
-    }
+  async runWeeklyCalibration(): Promise<CalibrationResult> {
+    return this.calibrationService.runWeeklyCalibration();
   }
 
   /**
    * Learn from optimization outcome (called after each optimization cycle)
+   * Delegates to CalibrationService for learning logic
    * @param actualSavings Energy savings achieved
    * @param comfortViolations Number of comfort violations
    * @param currentCOP Current COP performance
    */
   public learnFromOptimizationOutcome(actualSavings: number, comfortViolations: number, currentCOP?: number): void {
-    if (!this.adaptiveParametersLearner) return;
-
-    // Determine current season based on month
-    const month = new Date().getMonth();
-    let season: 'summer' | 'winter' | 'transition';
-    if (month >= 5 && month <= 8) {
-      season = 'summer';
-    } else if (month >= 11 || month <= 2) {
-      season = 'winter';
-    } else {
-      season = 'transition';
-    }
-
-    this.adaptiveParametersLearner.learnFromOutcome(season, actualSavings, comfortViolations, currentCOP);
+    this.calibrationService.learnFromOptimizationOutcome(actualSavings, comfortViolations, currentCOP);
   }
 
   /**
    * Calculate optimal temperature based on price
+   * Delegates to TemperatureOptimizer service for calculations
    * @param currentPrice Current electricity price
    * @param avgPrice Average electricity price
    * @param minPrice Minimum electricity price
@@ -2932,90 +2317,17 @@ export class Optimizer {
   ): Promise<number> {
     // Get the appropriate comfort band based on occupancy
     const comfortBand = this.getCurrentComfortBand();
-    const tempRange = comfortBand.maxTemp - comfortBand.minTemp;
-    const midTemp = (comfortBand.maxTemp + comfortBand.minTemp) / 2;
 
-    // Normalize price between 0 and 1 more efficiently
-    const normalizedPrice = maxPrice === minPrice
-      ? 0.5 // Handle edge case of equal prices
-      : (currentPrice - minPrice) / (maxPrice - minPrice);
+    // Build price stats
+    const priceStats: PriceStats = {
+      currentPrice,
+      avgPrice,
+      minPrice,
+      maxPrice
+    };
 
-    // Invert (lower price = higher temperature)
-    const invertedPrice = 1 - normalizedPrice;
-
-    // Calculate base target based on price
-    let targetTemp = midTemp + (invertedPrice - 0.5) * tempRange;
-
-    // Apply COP adjustment if helper is available
-    if (this.copHelper && this.copWeight > 0) {
-      try {
-        // Determine if we're in summer mode (cached calculation)
-        const isSummerMode = this.autoSeasonalMode
-          ? this.copHelper.isSummerSeason()
-          : this.summerMode;
-
-        // Get the appropriate COP value based on season
-        const seasonalCOP = await this.copHelper.getSeasonalCOP();
-
-        // Log the COP data (using log level to reduce log volume)
-        this.logger.log(`Using COP data for optimization - Seasonal COP: ${seasonalCOP.toFixed(2)}, Summer Mode: ${isSummerMode}`);
-
-        if (seasonalCOP > 0) {
-          // FIXED: Correct COP optimization logic
-          // Use high COP periods for efficient operation at comfort temperatures
-          // Use low COP periods with reduced comfort expectations
-
-          // Update COP range tracking for adaptive normalization
-          this.updateCOPRange(seasonalCOP);
-
-          // Use adaptive COP normalization based on observed range
-          const normalizedCOP = this.normalizeCOP(seasonalCOP);
-
-          // Calculate COP efficiency factor (0 = poor, 1 = excellent)
-          const copEfficiencyFactor = normalizedCOP;
-
-          let copAdjustment = 0;
-
-          if (copEfficiencyFactor > 0.8) {
-            // Excellent COP (>80th percentile): Maintain comfort, allow normal price response
-            copAdjustment = 0.2; // Small bonus for excellent efficiency
-            this.logger.log(`Excellent COP: Maintaining comfort with small bonus (+0.2°C)`);
-          } else if (copEfficiencyFactor > 0.5) {
-            // Good COP: Slight comfort reduction during expensive periods
-            const priceAdjustmentReduction = 0.3; // Reduce price response by 30%
-            copAdjustment = -priceAdjustmentReduction * Math.abs(targetTemp - midTemp);
-            this.logger.log(`Good COP: Reducing temperature adjustment by 30%`);
-          } else if (copEfficiencyFactor > 0.2) {
-            // Poor COP: Significant comfort reduction to save energy
-            copAdjustment = -0.8 * this.copWeight; // Reduce temperature
-            this.logger.log(`Poor COP: Reducing temperature for efficiency (-0.8°C)`);
-          } else {
-            // Very poor COP: Maximum energy conservation
-            copAdjustment = -1.2 * this.copWeight;
-            this.logger.log(`Very poor COP: Maximum energy conservation (-1.2°C)`);
-          }
-
-          // Apply the corrected adjustment
-          targetTemp += copAdjustment;
-
-          this.logger.log(`Applied COP adjustment: ${copAdjustment.toFixed(2)}°C (COP: ${seasonalCOP.toFixed(2)}, Efficiency: ${(copEfficiencyFactor * 100).toFixed(0)}%, Weight: ${this.copWeight})`);
-
-          // In summer mode, further reduce heating temperature
-          if (isSummerMode) {
-            const summerAdjustment = -0.5 * this.copWeight; // Reduce heating in summer
-            targetTemp += summerAdjustment;
-            this.logger.log(`Applied summer mode adjustment: ${summerAdjustment.toFixed(2)}°C`);
-          }
-        }
-      } catch (error) {
-        this.logger.error('Error applying COP adjustment:', error);
-      }
-    }
-
-    // Apply final comfort band constraints
-    targetTemp = Math.max(comfortBand.minTemp, Math.min(comfortBand.maxTemp, targetTemp));
-
-    return targetTemp;
+    // Delegate to TemperatureOptimizer service
+    return this.temperatureOptimizer.calculateOptimalTemperature(priceStats, currentTemp, comfortBand);
   }
 
   /**
@@ -3031,27 +2343,7 @@ export class Optimizer {
     currentPrice: number,
     kind: 'zone1' | 'zone2' | 'tank' = 'zone1'
   ): number {
-    const tempDiff = Number(oldTemp) - Number(newTemp);
-    if (!Number.isFinite(tempDiff) || !Number.isFinite(currentPrice)) return 0;
-
-    const gridFee: number = Number(this.homey?.settings.get('grid_fee_per_kwh')) || 0;
-    const effectivePrice = currentPrice + (Number.isFinite(gridFee) ? gridFee : 0);
-
-    // Use real daily consumption data from MELCloud when available, fallback to 1.0 kWh/h
-    let baseHourlyConsumptionKWh = 1.0;
-
-    try {
-      const dailyFromMetrics = this.optimizationMetrics?.dailyEnergyConsumption;
-      if (Number.isFinite(dailyFromMetrics) && (dailyFromMetrics || 0) > 0) {
-        baseHourlyConsumptionKWh = Math.max(0, (dailyFromMetrics as number) / 24);
-      }
-    } catch (_) { /* keep default fallback */ }
-
-    const perDegPct = kind === 'tank' ? 2.0 : kind === 'zone2' ? 4.0 : 5.0;
-    const kindMultiplier = kind === 'tank' ? 0.8 : kind === 'zone2' ? 0.9 : 1.0;
-    const energySavingPercent = tempDiff * perDegPct * kindMultiplier;
-    const savings = (energySavingPercent / 100) * baseHourlyConsumptionKWh * effectivePrice;
-    return Number.isFinite(savings) ? savings : 0;
+    return this.savingsService.calculateSavings(oldTemp, newTemp, currentPrice, kind);
   }
 
   /**
@@ -3060,54 +2352,25 @@ export class Optimizer {
    * @param historicalOptimizations Historical optimization data
    * @param futurePriceFactors Optional array of future price factors relative to current price
    * @returns Enhanced savings calculation result
+   * @deprecated Use savingsService.calculateEnhancedDailySavings() directly for new code
    */
   calculateEnhancedDailySavings(
     currentHourSavings: number,
     historicalOptimizations: OptimizationData[] = [],
     futurePriceFactors?: number[]
   ): SavingsCalculationResult {
-    return this.enhancedSavingsCalculator.calculateEnhancedDailySavings(
-      currentHourSavings,
-      historicalOptimizations,
-      this.timeZoneHelper.getLocalTime().hour,
-      futurePriceFactors
-    );
+    return this.savingsService.calculateEnhancedDailySavings(currentHourSavings, historicalOptimizations, futurePriceFactors);
   }
 
   /**
    * Calculate enhanced daily savings using the configured price provider (price-aware projection)
+   * @deprecated Use savingsService.calculateEnhancedDailySavingsUsingPriceProvider() directly for new code
    */
   async calculateEnhancedDailySavingsUsingTibber(
     currentHourSavings: number,
     historicalOptimizations: OptimizationData[] = []
   ): Promise<SavingsCalculationResult> {
-    try {
-      const currentHour = this.timeZoneHelper.getLocalTime().hour;
-      const gridFee: number = Number(this.homey?.settings.get('grid_fee_per_kwh')) || 0;
-      if (!this.priceAnalyzer.hasPriceProvider()) {
-        throw new Error('Price provider not initialized');
-      }
-      const pd = await this.priceAnalyzer.getPriceData();
-      const now = new Date();
-      const currentEffective = (Number(pd.current?.price) || 0) + (Number.isFinite(gridFee) ? gridFee : 0);
-      let priceFactors: number[] | undefined = undefined;
-      if (currentEffective > 0 && Array.isArray(pd.prices)) {
-        const upcoming = pd.prices.filter(p => new Date(p.time) > now);
-        priceFactors = upcoming.map(p => {
-          const eff = (Number(p.price) || 0) + (Number.isFinite(gridFee) ? gridFee : 0);
-          return currentEffective > 0 ? eff / currentEffective : 1;
-        });
-      }
-      return this.enhancedSavingsCalculator.calculateEnhancedDailySavings(
-        currentHourSavings,
-        historicalOptimizations,
-        currentHour,
-        priceFactors
-      );
-    } catch (_) {
-      // Fallback to non-price-aware calculation
-      return this.calculateEnhancedDailySavings(currentHourSavings, historicalOptimizations);
-    }
+    return this.savingsService.calculateEnhancedDailySavingsUsingPriceProvider(currentHourSavings, historicalOptimizations);
   }
 
   /**
@@ -3118,6 +2381,7 @@ export class Optimizer {
    * @param actualCost Actual cost for baseline comparison
    * @param enableBaseline Whether to enable baseline comparison
    * @returns Enhanced savings calculation result with baseline comparison
+   * @deprecated Use savingsService.calculateEnhancedDailySavingsWithBaseline() directly for new code
    */
   async calculateEnhancedDailySavingsWithBaseline(
     currentHourSavings: number,
@@ -3126,65 +2390,13 @@ export class Optimizer {
     actualCost: number = currentHourSavings,
     enableBaseline: boolean = true
   ): Promise<SavingsCalculationResult> {
-    try {
-      // Get current price
-      const gridFee: number = Number(this.homey?.settings.get('grid_fee_per_kwh')) || 0;
-      let pricePerKWh = 1.0; // Default fallback
-      let priceFactors: number[] | undefined = undefined;
-
-      if (this.priceAnalyzer.hasPriceProvider()) {
-        const pd = await this.priceAnalyzer.getPriceData();
-        const now = new Date();
-        const currentEffective = (Number(pd.current?.price) || 0) + (Number.isFinite(gridFee) ? gridFee : 0);
-        if (currentEffective > 0) {
-          pricePerKWh = currentEffective;
-
-          // Also get price factors for future projections
-          if (Array.isArray(pd.prices)) {
-            const upcoming = pd.prices.filter(p => new Date(p.time) > now);
-            priceFactors = upcoming.map(p => {
-              const eff = (Number(p.price) || 0) + (Number.isFinite(gridFee) ? gridFee : 0);
-              return currentEffective > 0 ? eff / currentEffective : 1;
-            });
-          }
-        }
-      }
-
-      // Get outdoor temperature data for baseline calculation
-      const outdoorTemps: number[] = [];
-      if (this.weatherApi && enableBaseline) {
-        try {
-          const weather = await this.weatherApi.getCurrentWeather();
-          if (weather && weather.temperature) {
-            outdoorTemps.push(weather.temperature);
-          }
-        } catch (error) {
-          this.logger.error('Error getting weather for baseline calculation:', error);
-        }
-      }
-
-      // Get intelligent baseline configuration (automatically determined)
-      const baselineConfig = this.enhancedSavingsCalculator.getDefaultBaselineConfig();
-
-      return this.enhancedSavingsCalculator.calculateEnhancedDailySavingsWithBaseline(
-        currentHourSavings,
-        historicalOptimizations,
-        this.timeZoneHelper.getLocalTime().hour,
-        priceFactors,
-        {
-          actualConsumptionKWh,
-          actualCost,
-          pricePerKWh,
-          outdoorTemps,
-          baselineConfig,
-          enableBaseline: enableBaseline && this.enhancedSavingsCalculator.hasBaselineCapability()
-        }
-      );
-    } catch (error) {
-      this.logger.error('Error in enhanced daily savings with baseline:', error);
-      // Fallback to standard calculation
-      return this.calculateEnhancedDailySavings(currentHourSavings, historicalOptimizations);
-    }
+    return this.savingsService.calculateEnhancedDailySavingsWithBaseline(
+      currentHourSavings,
+      historicalOptimizations,
+      actualConsumptionKWh,
+      actualCost,
+      enableBaseline
+    );
   }
 
   /**

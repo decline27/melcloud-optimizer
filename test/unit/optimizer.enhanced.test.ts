@@ -126,6 +126,13 @@ describe('Optimizer Enhanced Tests', () => {
     (optimizer as any).thermalModelService = mockThermalModelService;
     (optimizer as any).useThermalLearning = true;
     (optimizer as any).copHelper = mockCOPHelper;
+
+    // Also update the CalibrationService's reference to the thermal model service
+    // since it was created in the constructor with the original service
+    if ((optimizer as any).calibrationService) {
+      (optimizer as any).calibrationService.thermalModelService = mockThermalModelService;
+      (optimizer as any).calibrationService.useThermalLearning = true;
+    }
   });
 
   describe('setThermalModel', () => {
@@ -269,9 +276,9 @@ describe('Optimizer Enhanced Tests', () => {
 
       const result = await optimizer.runWeeklyCalibration();
 
-      // Should have logged error
+      // Should have logged error (CalibrationService adds [Calibration] prefix)
       expect(mockLogger.error).toHaveBeenCalledWith(
-        'Error updating thermal model from learning data:',
+        '[Calibration] Error updating thermal model from learning data:',
         expect.any(Error)
       );
 
@@ -282,8 +289,11 @@ describe('Optimizer Enhanced Tests', () => {
     });
 
     it('should use basic calibration when thermal model is not available', async () => {
-      // Disable thermal learning
+      // Disable thermal learning in both optimizer and CalibrationService
       (optimizer as any).useThermalLearning = false;
+      if ((optimizer as any).calibrationService) {
+        (optimizer as any).calibrationService.useThermalLearning = false;
+      }
 
       const result = await optimizer.runWeeklyCalibration();
 
@@ -308,9 +318,9 @@ describe('Optimizer Enhanced Tests', () => {
 
       const result = await optimizer.runWeeklyCalibration();
 
-      // Should have logged error
+      // Should have logged error (CalibrationService adds [Calibration] prefix)
       expect(mockLogger.error).toHaveBeenCalledWith(
-        'Error updating thermal model from learning data:',
+        '[Calibration] Error updating thermal model from learning data:',
         expect.any(Error)
       );
 
@@ -329,6 +339,11 @@ describe('Optimizer Enhanced Tests', () => {
       };
       (optimizer as any).adaptiveParametersLearner = mockLearner;
 
+      // Also update the CalibrationService's reference to the adaptive learner
+      if ((optimizer as any).calibrationService) {
+        (optimizer as any).calibrationService.adaptiveParametersLearner = mockLearner;
+      }
+
       // Spy on learnFromOptimizationOutcome
       const learnSpy = jest.spyOn(optimizer, 'learnFromOptimizationOutcome');
 
@@ -345,6 +360,11 @@ describe('Optimizer Enhanced Tests', () => {
     it('should not learn when adaptive learner is not initialized', () => {
       // Clear the adaptive parameters learner
       (optimizer as any).adaptiveParametersLearner = null;
+
+      // Also clear it from the CalibrationService
+      if ((optimizer as any).calibrationService) {
+        (optimizer as any).calibrationService.adaptiveParametersLearner = null;
+      }
 
       // Spy on internal logger to verify no errors
       const logSpy = jest.spyOn(mockLogger, 'log');

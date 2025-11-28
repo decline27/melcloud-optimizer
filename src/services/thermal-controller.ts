@@ -1,6 +1,7 @@
 import { HomeyLogger } from '../util/logger';
 import { ThermalModelService } from './thermal-model';
 import { AdaptiveParametersLearner } from './adaptive-parameters';
+import { CopNormalizer } from './cop-normalizer';
 import {
     ThermalModel,
     ThermalMassModel,
@@ -77,16 +78,10 @@ export class ThermalController {
 
             // Get normalized COP efficiency (simplified here, ideally use COPHelper or similar)
             // Assuming copData.heating is raw COP. We need normalization logic.
-            // Since normalization was in Optimizer, we might need to move it here or pass normalized values.
-            // For now, let's assume copData.heating IS the efficiency or we need to duplicate normalization logic.
-            // Wait, Optimizer.normalizeCOP used copRange state.
-            // I should probably move COP normalization to COPHelper or PriceAnalyzer or keep it in Optimizer and pass efficiency.
-            // Let's assume copData passes efficiency for now, or I'll add normalization logic here if I have the range.
-            // Actually, let's pass efficiency in copData or a separate argument.
-            // The original code called `this.normalizeCOP(copData.heating)`.
-            // I'll add `heatingEfficiency` to the arguments.
-
-            const heatingEfficiency = Math.min(Math.max(copData.heating / 5, 0), 1); // Rough normalization if not provided
+            // Use CopNormalizer.roughNormalize for consistent COP normalization
+            // When a full CopNormalizer instance is available (e.g., from Optimizer),
+            // the normalized value should be passed directly
+            const heatingEfficiency = CopNormalizer.roughNormalize(copData.heating);
 
             // Calculate thermal mass capacity for preheating
             const tempDelta = this.thermalMassModel.maxPreheatingTemp - currentTemp;

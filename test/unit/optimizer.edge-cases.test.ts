@@ -67,6 +67,12 @@ describe('Optimizer Edge Cases', () => {
       value: mockCOPHelper,
       writable: true
     });
+
+    // Also update the CalibrationService's reference to the thermal model service
+    if ((optimizer as any).calibrationService) {
+      (optimizer as any).calibrationService.thermalModelService = mockThermalModelService;
+      (optimizer as any).calibrationService.useThermalLearning = true;
+    }
   });
 
   test('calculateOptimalTemperature should handle equal min and max prices', async () => {
