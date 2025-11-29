@@ -1402,6 +1402,7 @@ export class Optimizer {
           },
           this.priceAnalyzer,
           this.priceAnalyzer.getCheapPercentile(),
+          constraintsBand,  // Pass the comfort band to respect user settings
           planningReferenceTimeMs
         );
 
@@ -1424,7 +1425,7 @@ export class Optimizer {
           const currentHour = this.timeZoneHelper.getLocalTime().hour;
           const estimatedDailyHotWaterKwh = this.hotWaterUsageLearner.getEstimatedDailyConsumption();
           const hotWaterPattern = this.hotWaterUsageLearner.getPattern();
-          
+
           const hotWaterSchedule = this.hotWaterOptimizer.optimizeHotWaterSchedulingByPattern(
             currentHour,
             priceData.prices,

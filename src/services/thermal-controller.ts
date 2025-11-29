@@ -54,6 +54,7 @@ export class ThermalController {
         copData: { heating: number; hotWater: number; outdoor: number },
         priceAnalyzer: PriceAnalyzer,
         preheatCheapPercentile: number,
+        comfortBand: { minTemp: number; maxTemp: number },
         referenceTimeMs?: number
     ): ThermalStrategy {
         try {
@@ -103,7 +104,7 @@ export class ThermalController {
 
                 const preheatingTarget = Math.min(
                     targetTemp + (heatingEfficiency * adaptiveThresholds.preheatAggressiveness),
-                    this.thermalMassModel.maxPreheatingTemp
+                    comfortBand.maxTemp  // Use user's max temp instead of hardcoded 23°C
                 );
 
                 const estimatedSavings = this.calculatePreheatingValue(
@@ -124,7 +125,7 @@ export class ThermalController {
 
             } else if (currentPricePercentile >= (1.0 - preheatCheapPercentile * adaptiveThresholds.veryChepMultiplier) && currentTemp > targetTemp - 0.5) {
                 // Coasting logic
-                const coastingTarget = Math.max(targetTemp - adaptiveThresholds.coastingReduction, 16); // Min temp hardcoded for now
+                const coastingTarget = Math.max(targetTemp - adaptiveThresholds.coastingReduction, comfortBand.minTemp);
                 const coastingHours = Math.min(
                     (currentTemp - coastingTarget) / this.thermalMassModel.heatLossRate,
                     4
@@ -143,7 +144,7 @@ export class ThermalController {
 
             } else if (currentPricePercentile <= preheatCheapPercentile && heatingEfficiency > adaptiveThresholds.excellentCOPThreshold && currentTemp < targetTemp - 1.0) {
                 // Boost logic
-                const boostTarget = Math.min(targetTemp + adaptiveThresholds.boostIncrease, 26); // Max temp hardcoded
+                const boostTarget = Math.min(targetTemp + adaptiveThresholds.boostIncrease, comfortBand.maxTemp);
                 const estimatedSavings = this.calculateBoostValue(boostTarget, copData.heating);
 
                 return {
