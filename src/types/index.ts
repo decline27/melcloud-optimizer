@@ -119,7 +119,7 @@ export interface ThermalDataPoint {
   outdoorTemperature: number;
   targetTemperature: number;
   heatingActive: boolean;
-  weatherConditions: {
+  weatherConditions?: {  // Optional to support fallback when weather API unavailable
     windSpeed: number;
     humidity: number;
     cloudCover: number;

@@ -109,11 +109,11 @@ export class ThermalAnalyzer {
 
     for (let i = 1; i < sortedData.length; i++) {
       const current = sortedData[i];
-      const previous = sortedData[i-1];
+      const previous = sortedData[i - 1];
 
       // Calculate time difference in hours
       const timeDiff = (DateTime.fromISO(current.timestamp).toMillis() -
-                        DateTime.fromISO(previous.timestamp).toMillis()) / (1000 * 60 * 60);
+        DateTime.fromISO(previous.timestamp).toMillis()) / (1000 * 60 * 60);
 
       if (timeDiff < 0.1) continue; // Skip if less than 6 minutes apart
 
@@ -153,10 +153,10 @@ export class ThermalAnalyzer {
       }
 
       // Calculate wind impact
-      if (previous.weatherConditions.windSpeed > 2) {
+      if (previous.weatherConditions && previous.weatherConditions.windSpeed > 2) {
         const expectedCooling = this.thermalCharacteristics.coolingRate *
-                               (previous.indoorTemperature - previous.outdoorTemperature) *
-                               timeDiff;
+          (previous.indoorTemperature - previous.outdoorTemperature) *
+          timeDiff;
         const actualCooling = Math.max(0, -tempChange);
         const extraCooling = actualCooling - expectedCooling;
 
@@ -194,9 +194,9 @@ export class ThermalAnalyzer {
     // Calculate thermal mass based on temperature stability
     const tempVariations: number[] = [];
     for (let i = 1; i < sortedData.length; i++) {
-      const tempChange = Math.abs(sortedData[i].indoorTemperature - sortedData[i-1].indoorTemperature);
+      const tempChange = Math.abs(sortedData[i].indoorTemperature - sortedData[i - 1].indoorTemperature);
       const timeDiff = (DateTime.fromISO(sortedData[i].timestamp).toMillis() -
-                       DateTime.fromISO(sortedData[i-1].timestamp).toMillis()) / (1000 * 60 * 60);
+        DateTime.fromISO(sortedData[i - 1].timestamp).toMillis()) / (1000 * 60 * 60);
 
       if (timeDiff > 0) {
         tempVariations.push(tempChange / timeDiff);

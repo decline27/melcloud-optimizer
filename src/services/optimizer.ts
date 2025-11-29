@@ -1230,32 +1230,7 @@ export class Optimizer {
       safeCurrentTarget
     } = inputs;
 
-    if (this.useThermalLearning && this.thermalModelService) {
-      try {
-        const dataPoint = {
-          timestamp: new Date().toISOString(),
-          indoorTemperature: currentTemp ?? 20,
-          outdoorTemperature: outdoorTemp,
-          targetTemperature: currentTarget ?? 20,
-          heatingActive: !deviceState.IdleZone1,
-          weatherConditions: {
-            windSpeed: 0,
-            humidity: 0,
-            cloudCover: 0,
-            precipitation: 0
-          }
-        };
-        this.thermalModelService.collectDataPoint(dataPoint);
-        this.logger.log('Thermal data point collected', {
-          indoorTemp: dataPoint.indoorTemperature,
-          outdoorTemp: dataPoint.outdoorTemperature,
-          targetTemp: dataPoint.targetTemperature,
-          heatingActive: dataPoint.heatingActive
-        });
-      } catch (error) {
-        this.logger.error('Error collecting thermal data point:', error);
-      }
-    }
+    // Thermal learning moved to after weather fetch (see line ~1307)
 
     const cachedMetrics = await this.getRealEnergyMetrics();
     const optimizationResult = await this.calculateOptimalTemperatureWithRealData(
@@ -1303,6 +1278,35 @@ export class Optimizer {
         };
       } catch (wErr) {
         this.logger.error('Weather-based adjustment failed', wErr as Error);
+      }
+    }
+
+    // Collect thermal learning data point AFTER weather fetch to use real weather data
+    if (this.useThermalLearning && this.thermalModelService) {
+      try {
+        const dataPoint = {
+          timestamp: new Date().toISOString(),
+          indoorTemperature: currentTemp ?? 20,
+          outdoorTemperature: outdoorTemp,
+          targetTemperature: currentTarget ?? 20,
+          heatingActive: !deviceState.IdleZone1,
+          weatherConditions: weatherInfo?.current ? {
+            windSpeed: weatherInfo.current.windSpeed ?? 0,
+            humidity: weatherInfo.current.humidity ?? 0,
+            cloudCover: weatherInfo.current.cloudCover ?? 0,
+            precipitation: weatherInfo.current.precipitation ?? 0
+          } : undefined  // Fallback if no weather API
+        };
+        this.thermalModelService.collectDataPoint(dataPoint);
+        this.logger.log('Thermal data point collected', {
+          indoorTemp: dataPoint.indoorTemperature,
+          outdoorTemp: dataPoint.outdoorTemperature,
+          targetTemp: dataPoint.targetTemperature,
+          heatingActive: dataPoint.heatingActive,
+          hasWeather: !!weatherInfo?.current
+        });
+      } catch (error) {
+        this.logger.error('Error collecting thermal data point:', error);
       }
     }
 

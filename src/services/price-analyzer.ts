@@ -4,70 +4,54 @@ import { classifyPriceUnified, PriceClassificationStats, PriceLevel, resolvePric
 import { AdaptiveParametersLearner } from './adaptive-parameters';
 
 export class PriceAnalyzer {
-    private priceProvider: PriceProvider | null = null;
-    private preheatCheapPercentile: number = 0.25;
-    private adaptiveLearner?: AdaptiveParametersLearner;
+  private priceProvider: PriceProvider | null = null;
+  private preheatCheapPercentile: number = 0.25;
+  private adaptiveLearner?: AdaptiveParametersLearner;
 
-    constructor(
-        private readonly logger: HomeyLogger,
-        adaptiveLearner?: AdaptiveParametersLearner
-    ) {
-        this.adaptiveLearner = adaptiveLearner;
-    }
+  constructor(
+    private readonly logger: HomeyLogger,
+    adaptiveLearner?: AdaptiveParametersLearner
+  ) {
+    this.adaptiveLearner = adaptiveLearner;
+  }
 
-    public setPriceProvider(provider: PriceProvider | null): void {
-        this.priceProvider = provider;
-        this.logger.log(`Price provider updated: ${provider ? provider.constructor.name : 'none'}`);
-    }
+  public setPriceProvider(provider: PriceProvider | null): void {
+    this.priceProvider = provider;
+    this.logger.log(`Price provider updated: ${provider ? provider.constructor.name : 'none'}`);
+  }
 
-    public setThresholds(preheatCheapPercentile: number): void {
-        if (preheatCheapPercentile >= 0.05 && preheatCheapPercentile <= 0.5) {
-            this.preheatCheapPercentile = preheatCheapPercentile;
-            this.logger.log(`Price thresholds updated - Cheap Percentile: ${this.preheatCheapPercentile}`);
-        }
+  public setThresholds(preheatCheapPercentile: number): void {
+    if (preheatCheapPercentile >= 0.05 && preheatCheapPercentile <= 0.5) {
+      this.preheatCheapPercentile = preheatCheapPercentile;
+      this.logger.log(`Price thresholds updated - Cheap Percentile: ${this.preheatCheapPercentile}`);
     }
+  }
 
-    public getCheapPercentile(): number {
-        return this.preheatCheapPercentile;
-    }
+  public getCheapPercentile(): number {
+    return this.preheatCheapPercentile;
+  }
 
-    public hasPriceProvider(): boolean {
-        return this.priceProvider !== null;
-    }
+  public hasPriceProvider(): boolean {
+    return this.priceProvider !== null;
+  }
 
-    public async getCurrentPrice(): Promise<number | null> {
-        if (!this.priceProvider) return null;
-        const prices = await this.priceProvider.getPrices();
-        return prices.current?.price ?? null;
-    }
+  public async getCurrentPrice(): Promise<number | null> {
+    if (!this.priceProvider) return null;
+    const prices = await this.priceProvider.getPrices();
+    return prices.current?.price ?? null;
+  }
 
-    public async getPriceData(): Promise<TibberPriceInfo> {
-        if (!this.priceProvider) {
-            return { current: { price: 0, time: new Date().toISOString() }, prices: [] };
-        }
-        return this.priceProvider.getPrices();
+  public async getPriceData(): Promise<TibberPriceInfo> {
+    if (!this.priceProvider) {
+      return { current: { price: 0, time: new Date().toISOString() }, prices: [] };
     }
+    return this.priceProvider.getPrices();
+  }
 
   public analyzePrice(currentPrice: number, futurePrices: PricePoint[] | Pick<TibberPriceInfo, 'prices' | 'priceLevel'>): PriceClassificationStats {
     const priceList = Array.isArray(futurePrices) ? futurePrices : futurePrices.prices;
-    const nativeLevel = Array.isArray(futurePrices) ? undefined : futurePrices.priceLevel;
-
-    // If the price provider is Tibber and supplies a native price level, map it directly
-    if (this.priceProvider?.constructor?.name === 'TibberApi' && nativeLevel) {
-      const mapped = this.mapTibberLevel(nativeLevel);
-      return {
-        label: mapped,
-        percentile: this.estimatePercentileFromLevel(mapped),
-        thresholds: resolvePriceThresholds({
-          cheapPercentile: this.preheatCheapPercentile,
-          veryCheapMultiplier: this.adaptiveLearner?.getStrategyThresholds()?.veryChepMultiplier
-        }),
-        normalized: NaN,
-        min: NaN,
-        max: NaN,
-        avg: NaN
-      };
-    }
+    // Removed Tibber shortcut to ensure we always calculate full statistics (min, max, avg, percentile)
+    // instead of relying on pre-calculated levels that might miss context.
 
     const adaptiveThresholds = this.adaptiveLearner?.getStrategyThresholds();
 
@@ -77,62 +61,37 @@ export class PriceAnalyzer {
     });
   }
 
-  /**
-   * Map Tibber native level to our PriceLevel enum
-   */
-  private mapTibberLevel(level: string): PriceLevel {
-    const normalized = level.toLowerCase();
-    if (normalized.includes('very') && normalized.includes('cheap')) return 'VERY_CHEAP';
-    if (normalized.includes('cheap')) return 'CHEAP';
-    if (normalized.includes('very') && normalized.includes('expensive')) return 'VERY_EXPENSIVE';
-    if (normalized.includes('expensive')) return 'EXPENSIVE';
-    return 'NORMAL';
+
+
+  public getPriceLevel(percentile: number): PriceLevel {
+    const adaptiveThresholds = this.adaptiveLearner?.getStrategyThresholds();
+    const thresholds = resolvePriceThresholds({
+      cheapPercentile: this.preheatCheapPercentile,
+      veryCheapMultiplier: adaptiveThresholds?.veryChepMultiplier
+    });
+
+    if (percentile <= thresholds.veryCheap) return 'VERY_CHEAP';
+    if (percentile <= thresholds.cheap) return 'CHEAP';
+    if (percentile <= thresholds.expensive) return 'NORMAL';
+    if (percentile <= thresholds.veryExpensive) return 'EXPENSIVE';
+    return 'VERY_EXPENSIVE';
   }
 
-  /**
-   * Rough percentile estimate based on Tibber level for logging/compatibility.
-   * Tibber level definitions are provider-specific; we map to typical percentile bands.
-   */
-  private estimatePercentileFromLevel(level: PriceLevel): number {
-    switch (level) {
-      case 'VERY_CHEAP': return 10;
-      case 'CHEAP': return 25;
-      case 'NORMAL': return 50;
-      case 'EXPENSIVE': return 75;
-      case 'VERY_EXPENSIVE': return 90;
-      default: return 50;
-    }
+  public isCheap(percentile: number): boolean {
+    const adaptiveThresholds = this.adaptiveLearner?.getStrategyThresholds();
+    const thresholds = resolvePriceThresholds({
+      cheapPercentile: this.preheatCheapPercentile,
+      veryCheapMultiplier: adaptiveThresholds?.veryChepMultiplier
+    });
+    return percentile <= thresholds.cheap;
   }
 
-    public getPriceLevel(percentile: number): PriceLevel {
-        const adaptiveThresholds = this.adaptiveLearner?.getStrategyThresholds();
-        const thresholds = resolvePriceThresholds({
-            cheapPercentile: this.preheatCheapPercentile,
-            veryCheapMultiplier: adaptiveThresholds?.veryChepMultiplier
-        });
-
-        if (percentile <= thresholds.veryCheap) return 'VERY_CHEAP';
-        if (percentile <= thresholds.cheap) return 'CHEAP';
-        if (percentile <= thresholds.expensive) return 'NORMAL';
-        if (percentile <= thresholds.veryExpensive) return 'EXPENSIVE';
-        return 'VERY_EXPENSIVE';
-    }
-
-    public isCheap(percentile: number): boolean {
-        const adaptiveThresholds = this.adaptiveLearner?.getStrategyThresholds();
-        const thresholds = resolvePriceThresholds({
-            cheapPercentile: this.preheatCheapPercentile,
-            veryCheapMultiplier: adaptiveThresholds?.veryChepMultiplier
-        });
-        return percentile <= thresholds.cheap;
-    }
-
-    public isExpensive(percentile: number): boolean {
-        const adaptiveThresholds = this.adaptiveLearner?.getStrategyThresholds();
-        const thresholds = resolvePriceThresholds({
-            cheapPercentile: this.preheatCheapPercentile,
-            veryCheapMultiplier: adaptiveThresholds?.veryChepMultiplier
-        });
-        return percentile >= thresholds.expensive;
-    }
+  public isExpensive(percentile: number): boolean {
+    const adaptiveThresholds = this.adaptiveLearner?.getStrategyThresholds();
+    const thresholds = resolvePriceThresholds({
+      cheapPercentile: this.preheatCheapPercentile,
+      veryCheapMultiplier: adaptiveThresholds?.veryChepMultiplier
+    });
+    return percentile >= thresholds.expensive;
+  }
 }

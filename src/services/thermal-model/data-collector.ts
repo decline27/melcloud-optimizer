@@ -52,7 +52,7 @@ export interface ThermalDataPoint {
   outdoorTemperature: number;
   targetTemperature: number;
   heatingActive: boolean;
-  weatherConditions: {
+  weatherConditions?: {
     windSpeed: number;
     humidity: number;
     cloudCover: number;
@@ -1062,17 +1062,17 @@ export class ThermalDataCollector {
     try {
       // Check for required fields
       if (!dataPoint.timestamp ||
-          typeof dataPoint.indoorTemperature !== 'number' ||
-          typeof dataPoint.outdoorTemperature !== 'number' ||
-          typeof dataPoint.targetTemperature !== 'number' ||
-          typeof dataPoint.heatingActive !== 'boolean') {
+        typeof dataPoint.indoorTemperature !== 'number' ||
+        typeof dataPoint.outdoorTemperature !== 'number' ||
+        typeof dataPoint.targetTemperature !== 'number' ||
+        typeof dataPoint.heatingActive !== 'boolean') {
         return false;
       }
 
       // Check for valid temperature ranges
       if (dataPoint.indoorTemperature < -10 || dataPoint.indoorTemperature > 40 ||
-          dataPoint.outdoorTemperature < -50 || dataPoint.outdoorTemperature > 50 ||
-          dataPoint.targetTemperature < 5 || dataPoint.targetTemperature > 30) {
+        dataPoint.outdoorTemperature < -50 || dataPoint.outdoorTemperature > 50 ||
+        dataPoint.targetTemperature < 5 || dataPoint.targetTemperature > 30) {
         return false;
       }
 
@@ -1093,10 +1093,10 @@ export class ThermalDataCollector {
 
       // Check weather conditions
       if (!dataPoint.weatherConditions ||
-          typeof dataPoint.weatherConditions.windSpeed !== 'number' ||
-          typeof dataPoint.weatherConditions.humidity !== 'number' ||
-          typeof dataPoint.weatherConditions.cloudCover !== 'number' ||
-          typeof dataPoint.weatherConditions.precipitation !== 'number') {
+        typeof dataPoint.weatherConditions.windSpeed !== 'number' ||
+        typeof dataPoint.weatherConditions.humidity !== 'number' ||
+        typeof dataPoint.weatherConditions.cloudCover !== 'number' ||
+        typeof dataPoint.weatherConditions.precipitation !== 'number') {
         return false;
       }
 
