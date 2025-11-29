@@ -238,10 +238,27 @@ export class EnhancedSavingsCalculator {
       const totalDailySavings = actualSavings + currentHourSavings + projectedSavings;
 
       // Clamp projection to avoid overly optimistic numbers
-      const avgRecent = todayOptimizations.length > 0
-        ? todayOptimizations.reduce((sum, opt) => sum + (opt.savings || 0), 0) / todayOptimizations.length
-        : currentHourSavings;
-      const maxProjection = Math.max(0, avgRecent) * remainingHours * 1.1;
+      // Fix PR #11: Use recent average (last 3 hours) instead of all-day average
+      // This prevents early-day low savings from artificially capping late-day high savings
+      let avgRecent = currentHourSavings;
+      let trendFactor = 1.1; // Default headroom
+
+      if (todayOptimizations.length > 0) {
+        // Get optimizations from the last 3 hours
+        const recentOpts = todayOptimizations.slice(-3);
+        const recentSum = recentOpts.reduce((sum, opt) => sum + (opt.savings || 0), 0);
+        avgRecent = (recentSum + currentHourSavings) / (recentOpts.length + 1);
+
+        // Detect trend: if savings are increasing, allow more headroom
+        if (recentOpts.length >= 2) {
+          const firstRecent = recentOpts[0].savings || 0;
+          if (currentHourSavings > firstRecent * 1.2) {
+            trendFactor = 1.3; // Increasing trend -> more headroom
+          }
+        }
+      }
+
+      const maxProjection = Math.max(0, avgRecent) * remainingHours * trendFactor;
       const clampedProjected = Math.min(Math.max(projectedSavings, 0), maxProjection);
       const clampedTotal = actualSavings + currentHourSavings + clampedProjected;
 
