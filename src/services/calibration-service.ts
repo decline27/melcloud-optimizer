@@ -50,7 +50,7 @@ export class CalibrationService {
     private readonly thermalModelService: ThermalModelService | null,
     private readonly adaptiveParametersLearner: AdaptiveParametersLearner | null,
     private readonly useThermalLearning: boolean
-  ) {}
+  ) { }
 
   /**
    * Clamp K-factor to valid range
@@ -148,6 +148,9 @@ export class CalibrationService {
             this.logger.error('Failed to persist thermal model confidence', persistErr);
           }
 
+          // Perform history cleanup as part of weekly maintenance (PR #10)
+          this.cleanupOptimizationHistory();
+
           // Return result
           return {
             oldK: oldK,
@@ -166,7 +169,12 @@ export class CalibrationService {
       }
 
       // Basic calibration (used as fallback or when thermal learning is disabled)
-      return this.calibrateBasic(oldK, oldS, thermalModel);
+      const result = this.calibrateBasic(oldK, oldS, thermalModel);
+
+      // Perform history cleanup as part of weekly maintenance (PR #10)
+      this.cleanupOptimizationHistory();
+
+      return result;
     } catch (error) {
       this.logger.error('Error in weekly calibration', error);
       const thermalModel = this.thermalController.getThermalModel();
@@ -179,6 +187,27 @@ export class CalibrationService {
         success: false,
         analysis: `Calibration failed: ${(error as Error).message}`
       };
+    }
+  }
+
+  /**
+   * Clean up old optimization history to prevent unbounded memory growth
+   * Part of PR #10: Periodic Optimization History Cleanup
+   */
+  private cleanupOptimizationHistory(): void {
+    try {
+      if (this.thermalModelService) {
+        this.logger.log('Running periodic optimization history cleanup...');
+        const result = this.thermalModelService.forceDataCleanup();
+
+        if (result.success) {
+          this.logger.log(`History cleanup successful: ${result.message}`);
+        } else {
+          this.logger.error(`History cleanup failed: ${result.message}`);
+        }
+      }
+    } catch (error) {
+      this.logger.error('Error during optimization history cleanup:', error);
     }
   }
 

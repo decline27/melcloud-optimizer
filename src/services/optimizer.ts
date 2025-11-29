@@ -953,6 +953,7 @@ export class Optimizer {
    * @param currentTemp Current room temperature
    * @param outdoorTemp Outdoor temperature
    * @param precomputedMetrics Optional precomputed optimization metrics
+   * @param priceLevel Optional pre-calculated price level for accurate logging
    * @returns Optimal target temperature with reasoning
    */
   private async calculateOptimalTemperatureWithRealData(
@@ -962,7 +963,8 @@ export class Optimizer {
     maxPrice: number,
     currentTemp: number,
     outdoorTemp: number,
-    precomputedMetrics?: OptimizationMetrics | null
+    precomputedMetrics?: OptimizationMetrics | null,
+    priceLevel?: string
   ): Promise<{ targetTemp: number; reason: string; metrics?: OptimizationMetrics }> {
     // Get real energy metrics
     const metrics = precomputedMetrics ?? await this.getRealEnergyMetrics();
@@ -970,12 +972,13 @@ export class Optimizer {
     // Get comfort band for constraints
     const comfortBand = this.getCurrentComfortBand();
 
-    // Build price stats
+    // Build price stats including priceLevel for accurate log descriptions
     const priceStats: PriceStats = {
       currentPrice,
       avgPrice,
       minPrice,
-      maxPrice
+      maxPrice,
+      priceLevel
     };
 
     // Delegate to TemperatureOptimizer service
@@ -1240,7 +1243,8 @@ export class Optimizer {
       priceStats.maxPrice,
       currentTemp || 20,
       outdoorTemp,
-      cachedMetrics ?? undefined
+      cachedMetrics ?? undefined,
+      priceStats.priceLevel
     );
 
     const metrics = optimizationResult.metrics ?? undefined;

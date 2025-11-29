@@ -59,6 +59,8 @@ export interface PriceStats {
   avgPrice: number;
   minPrice: number;
   maxPrice: number;
+  /** Optional pre-calculated price level for accurate logging */
+  priceLevel?: string;
 }
 
 /**
@@ -138,6 +140,22 @@ export class TemperatureOptimizer {
    */
   getCOPWeight(): number {
     return this.copWeight;
+  }
+
+  /**
+   * Get price description based on pre-calculated price level
+   * The priceLevel is already calculated using learned thresholds from AdaptiveParametersLearner
+   * @param priceLevel Pre-calculated price level (VERY_CHEAP, CHEAP, NORMAL, EXPENSIVE, VERY_EXPENSIVE)
+   * @returns Human-readable price description: 'low', 'moderate', or 'high'
+   */
+  private getPriceDescription(priceLevel: string | undefined): string {
+    // priceLevel is calculated by price-classifier using learned veryChepMultiplier thresholds
+    if (priceLevel === 'VERY_CHEAP' || priceLevel === 'CHEAP') {
+      return 'low';
+    } else if (priceLevel === 'VERY_EXPENSIVE' || priceLevel === 'EXPENSIVE') {
+      return 'high';
+    }
+    return 'moderate';
   }
 
   /**
@@ -308,7 +326,8 @@ export class TemperatureOptimizer {
       }
 
       targetTemp = midTemp + priceAdjustment + efficiencyAdjustment;
-      reason = `Summer mode: Hot water COP ${metrics.realHotWaterCOP.toFixed(2)} (${(hotWaterEfficiency * 100).toFixed(0)}% efficiency), price ${normalizedPrice > 0.6 ? 'high' : normalizedPrice < 0.4 ? 'low' : 'moderate'} `;
+      // Use pre-calculated price level (based on learned thresholds) for accurate description
+      reason = `Summer mode: Hot water COP ${metrics.realHotWaterCOP.toFixed(2)} (${(hotWaterEfficiency * 100).toFixed(0)}% efficiency), price ${this.getPriceDescription(priceStats.priceLevel)} `;
 
     } else if (metrics.seasonalMode === 'winter') {
       // Winter optimization: Balance heating efficiency with comfort and prices
@@ -348,7 +367,8 @@ export class TemperatureOptimizer {
       const outdoorAdjustment = outdoorTemp < 5 ? 0.5 : outdoorTemp > 15 ? -0.3 : 0;
 
       targetTemp = midTemp + priceAdjustment + efficiencyAdjustment + outdoorAdjustment;
-      reason = `Winter mode: Heating COP ${metrics.realHeatingCOP.toFixed(2)} (${(heatingEfficiency * 100).toFixed(0)}% efficiency), outdoor ${outdoorTemp}°C, price ${normalizedPrice > 0.6 ? 'high' : normalizedPrice < 0.4 ? 'low' : 'moderate'} `;
+      // Use pre-calculated price level (based on learned thresholds) for accurate description
+      reason = `Winter mode: Heating COP ${metrics.realHeatingCOP.toFixed(2)} (${(heatingEfficiency * 100).toFixed(0)}% efficiency), outdoor ${outdoorTemp}°C, price ${this.getPriceDescription(priceStats.priceLevel)} `;
 
     } else {
       // Transition mode: Balanced approach using both COPs
