@@ -24,6 +24,12 @@ export interface AdaptiveParameters {
   coastingReduction: number;        // Temperature reduction when coasting (was hardcoded 1.5)
   boostIncrease: number;           // Temperature increase for boost mode (was hardcoded 0.5)
   
+  // COP-based temperature adjustment magnitudes (learned from comfort/savings outcomes)
+  copAdjustmentExcellent: number;   // Temperature bonus for excellent COP (was hardcoded 0.2)
+  copAdjustmentPoor: number;        // Temperature reduction for poor COP (was hardcoded 0.8)
+  copAdjustmentVeryPoor: number;    // Temperature reduction for very poor COP (was hardcoded 1.2)
+  summerModeReduction: number;      // Temperature reduction in summer mode (was hardcoded 0.5)
+  
   // Confidence in learned parameters (0-1)
   confidence: number;
   
@@ -53,6 +59,12 @@ const DEFAULT_PARAMETERS: AdaptiveParameters = {
   preheatAggressiveness: 2.0,      // Current hardcoded value (2.0°C boost)
   coastingReduction: 1.5,          // Current hardcoded value (1.5°C reduction)
   boostIncrease: 0.5,             // Current hardcoded value (0.5°C increase)
+  
+  // COP-based temperature adjustment magnitudes
+  copAdjustmentExcellent: 0.2,     // Current hardcoded value (+0.2°C bonus)
+  copAdjustmentPoor: 0.8,          // Current hardcoded value (-0.8°C reduction)
+  copAdjustmentVeryPoor: 1.2,      // Current hardcoded value (-1.2°C reduction)
+  summerModeReduction: 0.5,        // Current hardcoded value (-0.5°C in summer)
   
   confidence: 0,
   lastUpdated: new Date().toISOString(),
@@ -133,6 +145,12 @@ export class AdaptiveParametersLearner {
         preheatAggressiveness: this.blendValue(this.parameters.preheatAggressiveness, DEFAULT_PARAMETERS.preheatAggressiveness, blendFactor),
         coastingReduction: this.blendValue(this.parameters.coastingReduction, DEFAULT_PARAMETERS.coastingReduction, blendFactor),
         boostIncrease: this.blendValue(this.parameters.boostIncrease, DEFAULT_PARAMETERS.boostIncrease, blendFactor),
+        
+        // COP adjustment magnitudes with confidence blending
+        copAdjustmentExcellent: this.blendValue(this.parameters.copAdjustmentExcellent, DEFAULT_PARAMETERS.copAdjustmentExcellent, blendFactor),
+        copAdjustmentPoor: this.blendValue(this.parameters.copAdjustmentPoor, DEFAULT_PARAMETERS.copAdjustmentPoor, blendFactor),
+        copAdjustmentVeryPoor: this.blendValue(this.parameters.copAdjustmentVeryPoor, DEFAULT_PARAMETERS.copAdjustmentVeryPoor, blendFactor),
+        summerModeReduction: this.blendValue(this.parameters.summerModeReduction, DEFAULT_PARAMETERS.summerModeReduction, blendFactor),
         
         confidence: this.parameters.confidence,
         lastUpdated: this.parameters.lastUpdated,
@@ -285,6 +303,9 @@ export class AdaptiveParametersLearner {
       // Be more conservative with price detection too
       this.parameters.veryChepMultiplier = Math.min(0.95, this.parameters.veryChepMultiplier + learningRate);
       
+      // Learn COP adjustment magnitudes - reduce aggressiveness
+      this.learnCOPAdjustmentMagnitudes(comfortSatisfied, goodSavings);
+      
     } else if (goodSavings && actualSavings > 0.5) { // Good savings (> 0.5 currency units)
       // Good results - can be slightly more aggressive
       this.parameters.preheatAggressiveness = Math.min(3.0, this.parameters.preheatAggressiveness + learningRate);
@@ -292,6 +313,9 @@ export class AdaptiveParametersLearner {
       
       // Be more aggressive with price detection
       this.parameters.veryChepMultiplier = Math.max(0.6, this.parameters.veryChepMultiplier - learningRate * 0.5);
+      
+      // Learn COP adjustment magnitudes
+      this.learnCOPAdjustmentMagnitudes(comfortSatisfied, goodSavings);
       
     } else if (!goodSavings) {
       // No savings despite actions - maybe be more aggressive to find opportunities
@@ -312,7 +336,37 @@ export class AdaptiveParametersLearner {
       veryChepMultiplier: params.veryChepMultiplier,
       preheatAggressiveness: params.preheatAggressiveness,
       coastingReduction: params.coastingReduction,
-      boostIncrease: params.boostIncrease
+      boostIncrease: params.boostIncrease,
+      // COP adjustment magnitudes
+      copAdjustmentExcellent: params.copAdjustmentExcellent,
+      copAdjustmentPoor: params.copAdjustmentPoor,
+      copAdjustmentVeryPoor: params.copAdjustmentVeryPoor,
+      summerModeReduction: params.summerModeReduction
     };
+  }
+
+  /**
+   * Learn COP adjustment magnitudes based on comfort/savings outcomes
+   * @param comfortSatisfied Whether comfort was maintained
+   * @param goodSavings Whether good savings were achieved
+   * @param copPerformance Current COP performance (normalized 0-1)
+   */
+  private learnCOPAdjustmentMagnitudes(comfortSatisfied: boolean, goodSavings: boolean, copPerformance?: number): void {
+    const learningRate = 0.002; // Very gradual learning
+    
+    if (!comfortSatisfied) {
+      // Comfort violated - reduce adjustment magnitudes (be less aggressive)
+      this.parameters.copAdjustmentPoor = Math.max(0.3, this.parameters.copAdjustmentPoor - learningRate * 3);
+      this.parameters.copAdjustmentVeryPoor = Math.max(0.5, this.parameters.copAdjustmentVeryPoor - learningRate * 3);
+      this.parameters.summerModeReduction = Math.max(0.2, this.parameters.summerModeReduction - learningRate * 2);
+      // Increase excellent bonus slightly to favor efficient periods
+      this.parameters.copAdjustmentExcellent = Math.min(0.5, this.parameters.copAdjustmentExcellent + learningRate);
+      
+    } else if (goodSavings) {
+      // Good savings with comfort maintained - can be more aggressive
+      this.parameters.copAdjustmentPoor = Math.min(1.5, this.parameters.copAdjustmentPoor + learningRate);
+      this.parameters.copAdjustmentVeryPoor = Math.min(2.0, this.parameters.copAdjustmentVeryPoor + learningRate);
+      this.parameters.summerModeReduction = Math.min(1.0, this.parameters.summerModeReduction + learningRate);
+    }
   }
 }

@@ -215,10 +215,18 @@ export class TemperatureOptimizer {
 
           let copAdjustment = 0;
 
+          // Get adaptive COP adjustment magnitudes (falls back to defaults if learner unavailable)
+          const adaptiveThresholds = this.adaptiveParametersLearner?.getStrategyThresholds() || {
+            copAdjustmentExcellent: 0.2,
+            copAdjustmentPoor: 0.8,
+            copAdjustmentVeryPoor: 1.2,
+            summerModeReduction: 0.5
+          };
+
           if (copEfficiencyFactor > COP_THRESHOLDS.EXCELLENT) {
             // Excellent COP (>80th percentile): Maintain comfort, allow normal price response
-            copAdjustment = 0.2; // Small bonus for excellent efficiency
-            this.logger.log(`Excellent COP: Maintaining comfort with small bonus (+0.2°C)`);
+            copAdjustment = adaptiveThresholds.copAdjustmentExcellent;
+            this.logger.log(`Excellent COP: Maintaining comfort with small bonus (+${adaptiveThresholds.copAdjustmentExcellent.toFixed(2)}°C)`);
           } else if (copEfficiencyFactor > COP_THRESHOLDS.GOOD) {
             // Good COP: Slight comfort reduction during expensive periods
             const priceAdjustmentReduction = 0.3; // Reduce price response by 30%
@@ -226,12 +234,12 @@ export class TemperatureOptimizer {
             this.logger.log(`Good COP: Reducing temperature adjustment by 30%`);
           } else if (copEfficiencyFactor > COP_THRESHOLDS.POOR) {
             // Poor COP: Significant comfort reduction to save energy
-            copAdjustment = -0.8 * this.copWeight; // Reduce temperature
-            this.logger.log(`Poor COP: Reducing temperature for efficiency (-0.8°C)`);
+            copAdjustment = -adaptiveThresholds.copAdjustmentPoor * this.copWeight;
+            this.logger.log(`Poor COP: Reducing temperature for efficiency (-${adaptiveThresholds.copAdjustmentPoor.toFixed(2)}°C)`);
           } else {
             // Very poor COP: Maximum energy conservation
-            copAdjustment = -1.2 * this.copWeight;
-            this.logger.log(`Very poor COP: Maximum energy conservation (-1.2°C)`);
+            copAdjustment = -adaptiveThresholds.copAdjustmentVeryPoor * this.copWeight;
+            this.logger.log(`Very poor COP: Maximum energy conservation (-${adaptiveThresholds.copAdjustmentVeryPoor.toFixed(2)}°C)`);
           }
 
           // Apply the corrected adjustment
@@ -241,9 +249,10 @@ export class TemperatureOptimizer {
 
           // In summer mode, further reduce heating temperature
           if (isSummerMode) {
-            const summerAdjustment = -0.5 * this.copWeight; // Reduce heating in summer
+            const summerModeReduction = adaptiveThresholds.summerModeReduction ?? 0.5;
+            const summerAdjustment = -summerModeReduction * this.copWeight;
             targetTemp += summerAdjustment;
-            this.logger.log(`Applied summer mode adjustment: ${summerAdjustment.toFixed(2)}°C`);
+            this.logger.log(`Applied summer mode adjustment: ${summerAdjustment.toFixed(2)}°C (learned reduction: ${summerModeReduction.toFixed(2)})`);
           }
         }
       } catch (error) {
