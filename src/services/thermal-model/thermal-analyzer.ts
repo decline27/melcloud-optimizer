@@ -170,25 +170,29 @@ export class ThermalAnalyzer {
     }
 
     // Update the model with new calculated values
+    // Adaptive blend factor: increases with confidence to reduce anchor bias
+    // At low confidence (0): 60% new, 40% old (stable but allows learning)
+    // At high confidence (1): 95% new, 5% old (trusts measured data)
+    const adaptiveBlendFactor = Math.min(0.95, 0.6 + (this.thermalCharacteristics.modelConfidence * 0.35));
+
     if (heatingRates.length > 0) {
       const avgHeatingRate = heatingRates.reduce((sum, rate) => sum + rate, 0) / heatingRates.length;
-      // Blend new value with existing (80% new, 20% old for stability)
-      this.thermalCharacteristics.heatingRate = 0.8 * avgHeatingRate + 0.2 * this.thermalCharacteristics.heatingRate;
+      this.thermalCharacteristics.heatingRate = adaptiveBlendFactor * avgHeatingRate + (1 - adaptiveBlendFactor) * this.thermalCharacteristics.heatingRate;
     }
 
     if (coolingRates.length > 0) {
       const avgCoolingRate = coolingRates.reduce((sum, rate) => sum + rate, 0) / coolingRates.length;
-      this.thermalCharacteristics.coolingRate = 0.8 * avgCoolingRate + 0.2 * this.thermalCharacteristics.coolingRate;
+      this.thermalCharacteristics.coolingRate = adaptiveBlendFactor * avgCoolingRate + (1 - adaptiveBlendFactor) * this.thermalCharacteristics.coolingRate;
     }
 
     if (outdoorImpacts.length > 0) {
       const avgOutdoorImpact = outdoorImpacts.reduce((sum, impact) => sum + impact, 0) / outdoorImpacts.length;
-      this.thermalCharacteristics.outdoorTempImpact = 0.8 * avgOutdoorImpact + 0.2 * this.thermalCharacteristics.outdoorTempImpact;
+      this.thermalCharacteristics.outdoorTempImpact = adaptiveBlendFactor * avgOutdoorImpact + (1 - adaptiveBlendFactor) * this.thermalCharacteristics.outdoorTempImpact;
     }
 
     if (windImpacts.length > 0) {
       const avgWindImpact = windImpacts.reduce((sum, impact) => sum + impact, 0) / windImpacts.length;
-      this.thermalCharacteristics.windImpact = 0.8 * avgWindImpact + 0.2 * this.thermalCharacteristics.windImpact;
+      this.thermalCharacteristics.windImpact = adaptiveBlendFactor * avgWindImpact + (1 - adaptiveBlendFactor) * this.thermalCharacteristics.windImpact;
     }
 
     // Calculate thermal mass based on temperature stability
@@ -208,7 +212,7 @@ export class ThermalAnalyzer {
       // Convert to thermal mass indicator (0-1)
       // Lower variation = higher thermal mass
       const newThermalMass = Math.max(0, Math.min(1, 1 - (avgVariation / 0.5)));
-      this.thermalCharacteristics.thermalMass = 0.8 * newThermalMass + 0.2 * this.thermalCharacteristics.thermalMass;
+      this.thermalCharacteristics.thermalMass = adaptiveBlendFactor * newThermalMass + (1 - adaptiveBlendFactor) * this.thermalCharacteristics.thermalMass;
     }
 
     // Update confidence based on amount of data
