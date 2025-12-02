@@ -218,6 +218,7 @@ export class TemperatureOptimizer {
           // Get adaptive COP adjustment magnitudes (falls back to defaults if learner unavailable)
           const adaptiveThresholds = this.adaptiveParametersLearner?.getStrategyThresholds() || {
             copAdjustmentExcellent: 0.2,
+            copAdjustmentGood: 0.3,
             copAdjustmentPoor: 0.8,
             copAdjustmentVeryPoor: 1.2,
             summerModeReduction: 0.5
@@ -229,9 +230,8 @@ export class TemperatureOptimizer {
             this.logger.log(`Excellent COP: Maintaining comfort with small bonus (+${adaptiveThresholds.copAdjustmentExcellent.toFixed(2)}°C)`);
           } else if (copEfficiencyFactor > COP_THRESHOLDS.GOOD) {
             // Good COP: Slight comfort reduction during expensive periods
-            const priceAdjustmentReduction = 0.3; // Reduce price response by 30%
-            copAdjustment = -priceAdjustmentReduction * Math.abs(targetTemp - midTemp);
-            this.logger.log(`Good COP: Reducing temperature adjustment by 30%`);
+            copAdjustment = -adaptiveThresholds.copAdjustmentGood * Math.abs(targetTemp - midTemp);
+            this.logger.log(`Good COP: Reducing temperature adjustment by ${(adaptiveThresholds.copAdjustmentGood * 100).toFixed(0)}%`);
           } else if (copEfficiencyFactor > COP_THRESHOLDS.POOR) {
             // Poor COP: Significant comfort reduction to save energy
             copAdjustment = -adaptiveThresholds.copAdjustmentPoor * this.copWeight;
@@ -405,16 +405,27 @@ export class TemperatureOptimizer {
       reason = `Transition mode: Combined COP efficiency ${(combinedEfficiency * 100).toFixed(0)}%, adapting to both heating and hot water needs`;
     }
 
-    // Apply real COP-based fine tuning
-    if (metrics.optimizationFocus === 'hotwater' && metrics.realHotWaterCOP > 3) {
+    // Apply normalized COP-based fine tuning using adaptive thresholds
+    // Get adaptive thresholds for normalized COP comparisons
+    const fineTuneThresholds = this.adaptiveParametersLearner?.getStrategyThresholds() || {
+      excellentCOPThreshold: COP_THRESHOLDS.EXCELLENT,
+      goodCOPThreshold: COP_THRESHOLDS.GOOD,
+      minimumCOPThreshold: COP_THRESHOLDS.POOR
+    };
+    
+    // Normalize COPs for consistent threshold comparison
+    const normalizedHotWaterCOP = this.copNormalizer.normalize(metrics.realHotWaterCOP);
+    const normalizedHeatingCOP = this.copNormalizer.normalize(metrics.realHeatingCOP);
+    
+    if (metrics.optimizationFocus === 'hotwater' && normalizedHotWaterCOP > fineTuneThresholds.excellentCOPThreshold) {
       // Excellent hot water performance allows more aggressive optimization
       targetTemp += 0.2;
       reason += `, excellent hot water COP(+0.2°C)`;
-    } else if (metrics.optimizationFocus === 'both' && metrics.realHeatingCOP > 2) {
+    } else if (metrics.optimizationFocus === 'both' && normalizedHeatingCOP > fineTuneThresholds.goodCOPThreshold) {
       // Good heating performance
       targetTemp += 0.3;
       reason += `, good heating COP(+0.3°C)`;
-    } else if (metrics.realHeatingCOP < 1.5 && metrics.realHeatingCOP > 0) {
+    } else if (normalizedHeatingCOP < fineTuneThresholds.minimumCOPThreshold && metrics.realHeatingCOP > 0) {
       // Poor heating performance - be more conservative
       targetTemp -= 0.5;
       reason += `, low heating COP(-0.5°C)`;

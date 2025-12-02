@@ -26,6 +26,7 @@ export interface AdaptiveParameters {
   
   // COP-based temperature adjustment magnitudes (learned from comfort/savings outcomes)
   copAdjustmentExcellent: number;   // Temperature bonus for excellent COP (was hardcoded 0.2)
+  copAdjustmentGood: number;        // Price response reduction for good COP (was hardcoded 0.3)
   copAdjustmentPoor: number;        // Temperature reduction for poor COP (was hardcoded 0.8)
   copAdjustmentVeryPoor: number;    // Temperature reduction for very poor COP (was hardcoded 1.2)
   summerModeReduction: number;      // Temperature reduction in summer mode (was hardcoded 0.5)
@@ -62,6 +63,7 @@ const DEFAULT_PARAMETERS: AdaptiveParameters = {
   
   // COP-based temperature adjustment magnitudes
   copAdjustmentExcellent: 0.2,     // Current hardcoded value (+0.2°C bonus)
+  copAdjustmentGood: 0.3,          // Current hardcoded value (30% price response reduction)
   copAdjustmentPoor: 0.8,          // Current hardcoded value (-0.8°C reduction)
   copAdjustmentVeryPoor: 1.2,      // Current hardcoded value (-1.2°C reduction)
   summerModeReduction: 0.5,        // Current hardcoded value (-0.5°C in summer)
@@ -148,6 +150,7 @@ export class AdaptiveParametersLearner {
         
         // COP adjustment magnitudes with confidence blending
         copAdjustmentExcellent: this.blendValue(this.parameters.copAdjustmentExcellent, DEFAULT_PARAMETERS.copAdjustmentExcellent, blendFactor),
+        copAdjustmentGood: this.blendValue(this.parameters.copAdjustmentGood, DEFAULT_PARAMETERS.copAdjustmentGood, blendFactor),
         copAdjustmentPoor: this.blendValue(this.parameters.copAdjustmentPoor, DEFAULT_PARAMETERS.copAdjustmentPoor, blendFactor),
         copAdjustmentVeryPoor: this.blendValue(this.parameters.copAdjustmentVeryPoor, DEFAULT_PARAMETERS.copAdjustmentVeryPoor, blendFactor),
         summerModeReduction: this.blendValue(this.parameters.summerModeReduction, DEFAULT_PARAMETERS.summerModeReduction, blendFactor),
@@ -339,6 +342,7 @@ export class AdaptiveParametersLearner {
       boostIncrease: params.boostIncrease,
       // COP adjustment magnitudes
       copAdjustmentExcellent: params.copAdjustmentExcellent,
+      copAdjustmentGood: params.copAdjustmentGood,
       copAdjustmentPoor: params.copAdjustmentPoor,
       copAdjustmentVeryPoor: params.copAdjustmentVeryPoor,
       summerModeReduction: params.summerModeReduction
@@ -356,6 +360,7 @@ export class AdaptiveParametersLearner {
     
     if (!comfortSatisfied) {
       // Comfort violated - reduce adjustment magnitudes (be less aggressive)
+      this.parameters.copAdjustmentGood = Math.max(0.1, this.parameters.copAdjustmentGood - learningRate * 2);
       this.parameters.copAdjustmentPoor = Math.max(0.3, this.parameters.copAdjustmentPoor - learningRate * 3);
       this.parameters.copAdjustmentVeryPoor = Math.max(0.5, this.parameters.copAdjustmentVeryPoor - learningRate * 3);
       this.parameters.summerModeReduction = Math.max(0.2, this.parameters.summerModeReduction - learningRate * 2);
@@ -364,6 +369,7 @@ export class AdaptiveParametersLearner {
       
     } else if (goodSavings) {
       // Good savings with comfort maintained - can be more aggressive
+      this.parameters.copAdjustmentGood = Math.min(0.5, this.parameters.copAdjustmentGood + learningRate);
       this.parameters.copAdjustmentPoor = Math.min(1.5, this.parameters.copAdjustmentPoor + learningRate);
       this.parameters.copAdjustmentVeryPoor = Math.min(2.0, this.parameters.copAdjustmentVeryPoor + learningRate);
       this.parameters.summerModeReduction = Math.min(1.0, this.parameters.summerModeReduction + learningRate);

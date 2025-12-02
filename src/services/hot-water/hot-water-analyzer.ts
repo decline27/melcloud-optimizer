@@ -200,17 +200,18 @@ export class HotWaterAnalyzer {
       // Calculate confidence based on data quantity
       const confidence = Math.min(100, (detailed.length / FULL_CONFIDENCE_DATA_POINTS) * 100);
 
-      // Blend new patterns with existing patterns for stability
-      // Use 80% new data and 20% old data if confidence is high
-      // Use more old data if confidence is low
-      const blendFactor = Math.min(0.8, confidence / 100);
+      // Adaptive blend factor: increases with confidence to reduce anchor bias
+      // At low confidence (0%): 60% new, 40% old (stable but allows learning)
+      // At high confidence (100%): 95% new, 5% old (trusts measured data)
+      // This matches the thermal model's adaptive blending pattern (PR-2)
+      const adaptiveBlendFactor = Math.min(0.95, 0.6 + (confidence / 100) * 0.35);
 
       // Update patterns with blended values
       const updatedPatterns: HotWaterUsagePatterns = {
-        hourlyUsagePattern: this.blendArrays(normalizedHourlyUsage, this.patterns.hourlyUsagePattern, blendFactor),
-        dailyUsagePattern: this.blendArrays(normalizedDailyUsage, this.patterns.dailyUsagePattern, blendFactor),
+        hourlyUsagePattern: this.blendArrays(normalizedHourlyUsage, this.patterns.hourlyUsagePattern, adaptiveBlendFactor),
+        dailyUsagePattern: this.blendArrays(normalizedDailyUsage, this.patterns.dailyUsagePattern, adaptiveBlendFactor),
         hourlyByDayUsagePattern: hourlyByDayNormalized.map((dayUsage, day) => {
-          return this.blendArrays(dayUsage, this.patterns.hourlyByDayUsagePattern[day] || new Array(24).fill(1), blendFactor);
+          return this.blendArrays(dayUsage, this.patterns.hourlyByDayUsagePattern[day] || new Array(24).fill(1), adaptiveBlendFactor);
         }),
         confidence,
         lastUpdated: new Date().toISOString()

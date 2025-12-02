@@ -92,6 +92,7 @@ describe('TemperatureOptimizer', () => {
         coastingReduction: 1.5,
         boostIncrease: 0.5,
         copAdjustmentExcellent: 0.2,
+        copAdjustmentGood: 0.3,
         copAdjustmentPoor: 0.8,
         copAdjustmentVeryPoor: 1.2,
         summerModeReduction: 0.5,
@@ -108,6 +109,7 @@ describe('TemperatureOptimizer', () => {
         coastingReduction: 1.5,
         boostIncrease: 0.5,
         copAdjustmentExcellent: 0.2,
+        copAdjustmentGood: 0.3,
         copAdjustmentPoor: 0.8,
         copAdjustmentVeryPoor: 1.2,
         summerModeReduction: 0.5,
@@ -503,10 +505,11 @@ describe('TemperatureOptimizer', () => {
         const metrics = createMockMetrics({
           seasonalMode: 'summer',
           optimizationFocus: 'hotwater',
-          realHotWaterCOP: 3.5,
+          realHotWaterCOP: 4.5,
         });
 
-        mockCopNormalizer.normalize.mockReturnValue(0.7);
+        // Must be > excellentCOPThreshold (0.8) to trigger excellent bonus
+        mockCopNormalizer.normalize.mockReturnValue(0.85);
 
         const result = await optimizer.calculateOptimalTemperatureWithRealData(
           defaultPriceStats,
@@ -523,10 +526,11 @@ describe('TemperatureOptimizer', () => {
         const metrics = createMockMetrics({
           seasonalMode: 'transition',
           optimizationFocus: 'both',
-          realHeatingCOP: 2.5,
+          realHeatingCOP: 3.0,
         });
 
-        mockCopNormalizer.normalize.mockReturnValue(0.5);
+        // Must be > goodCOPThreshold (0.5) to trigger good COP bonus
+        mockCopNormalizer.normalize.mockReturnValue(0.6);
 
         const result = await optimizer.calculateOptimalTemperatureWithRealData(
           defaultPriceStats,
@@ -545,7 +549,8 @@ describe('TemperatureOptimizer', () => {
           realHeatingCOP: 1.2,
         });
 
-        mockCopNormalizer.normalize.mockReturnValue(0.24);
+        // Must be < minimumCOPThreshold (0.2) to trigger low COP penalty
+        mockCopNormalizer.normalize.mockReturnValue(0.15);
 
         const result = await optimizer.calculateOptimalTemperatureWithRealData(
           defaultPriceStats,

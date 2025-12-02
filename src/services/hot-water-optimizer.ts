@@ -268,7 +268,9 @@ export class HotWaterOptimizer {
                     // Convert user's cheap percentile to price ratio threshold
                     const priceRatioThreshold = 1.0 - (this.priceAnalyzer.getCheapPercentile() * 1.2);
 
-                    if (currentPrice < avgPrice * priceRatioThreshold && hotWaterCOP > 2.5) {
+                    // Use normalized COP with adaptive threshold instead of hardcoded raw COP value
+                    const normalizedHWCOP = CopNormalizer.roughNormalize(hotWaterCOP, 4.0);
+                    if (currentPrice < avgPrice * priceRatioThreshold && normalizedHWCOP > COP_THRESHOLDS.GOOD) {
                         currentAction = 'heat_now';
                     }
                 }
