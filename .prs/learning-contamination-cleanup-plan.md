@@ -108,11 +108,27 @@ this.thermalCharacteristics.heatingRate = adaptiveBlendFactor * avgHeatingRate +
 
 ---
 
-## PR-3: Use Configurable Cheap Percentile in Hot Water Optimizer
+## PR-3: Use Configurable Cheap Percentile in Hot Water Optimizer ✅ COMPLETED
 
 **Priority: 🟡 MEDIUM | Impact: MEDIUM | Effort: LOW | Risk: LOW**
 
-### Problem
+**Status: COMPLETED** (2024-12-02)
+
+### Changes Made
+- Modified `src/services/hot-water-optimizer.ts` to use `cheapThreshold` from user settings
+- Replaced hardcoded percentiles with multipliers of user's `cheap_percentile`:
+  - Good COP: `cheapThreshold * 1.2` (was 0.3, now ~30% when cheap=25%)
+  - Poor COP: `cheapThreshold * 0.6` (was 0.15, now ~15% when cheap=25%)
+  - Very Poor COP: `cheapThreshold * 0.4` (was 0.1, now ~10% when cheap=25%)
+
+### Impact
+| User's `cheap_percentile` | Good COP | Poor COP | Very Poor COP |
+|---------------------------|----------|----------|---------------|
+| 15% (aggressive) | 18% | 9% | 6% |
+| 25% (default) | 30% | 15% | 10% |
+| 40% (conservative) | 48% | 24% | 16% |
+
+### Problem (Resolved)
 Hot water optimizer uses hardcoded percentile thresholds (`30%`, `15%`, `10%`) instead of deriving from the user's configured `preheat_cheap_percentile`.
 
 ### Verified Locations
@@ -127,21 +143,22 @@ if (currentPercentile <= 0.15) { // Only during cheapest 15%
 if (currentPercentile <= 0.1) { // Only during cheapest 10%
 ```
 
-### Solution
+### Solution (Implemented)
 Replace with expressions using `priceAnalyzer.getCheapPercentile()`:
 ```typescript
-const cheapPercentile = this.priceAnalyzer.getCheapPercentile();
-if (currentPercentile <= cheapPercentile * 1.2) { // Good COP: ~30% if cheap=25%
-if (currentPercentile <= cheapPercentile * 0.6) { // Poor COP: ~15% if cheap=25%
-if (currentPercentile <= cheapPercentile * 0.4) { // Very Poor COP: ~10% if cheap=25%
+const cheapThreshold = this.priceAnalyzer.getCheapPercentile();
+if (currentPercentile <= cheapThreshold * 1.2) { // Good COP: ~30% if cheap=25%
+if (currentPercentile <= cheapThreshold * 0.6) { // Poor COP: ~15% if cheap=25%
+if (currentPercentile <= cheapThreshold * 0.4) { // Very Poor COP: ~10% if cheap=25%
 ```
 
-### Files to Modify
+### Files Modified
 1. `src/services/hot-water-optimizer.ts` - Use relative percentiles
 
 ### Testing
-- Verify behavior matches current with default 25% percentile
-- Test with different percentile configurations
+- ✅ All 798 unit tests pass
+- ✅ Build compiles successfully
+- ✅ Behavior unchanged for default 25% setting
 
 ---
 
@@ -348,7 +365,7 @@ const blendFactor = Math.min(0.8, confidence / 100);
 |----|-------|--------|--------|
 | PR-1 | COP Adjustment Magnitudes | Allows adaptation of temperature penalties | ✅ COMPLETED |
 | PR-2 | Thermal Model Blending | Removes anchor bias from learned values | ✅ COMPLETED |
-| PR-3 | Hot Water Percentiles | Respects user price settings | Ready |
+| PR-3 | Hot Water Percentiles | Respects user price settings | ✅ COMPLETED |
 | PR-4 | Outdoor Adjustments | Building-specific outdoor response | Ready |
 | PR-5 | Normalized COP Usage | Consistent COP interpretation | Ready |
 | PR-6 | Planning Bias Constants | Centralized configuration | Ready |

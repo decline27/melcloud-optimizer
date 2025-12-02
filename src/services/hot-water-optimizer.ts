@@ -72,7 +72,8 @@ export class HotWaterOptimizer {
             }
         } else if (hotWaterEfficiency > COP_THRESHOLDS.GOOD) {
             // Good hot water COP: Moderate optimization
-            if (currentPercentile <= 0.3) { // Only during cheapest 30%
+            // Use ~1.2x cheap threshold (e.g., 30% when cheap=25%)
+            if (currentPercentile <= cheapThreshold * 1.2) {
                 return {
                     action: 'heat_now',
                     reason: `Good hot water COP (${hotWaterCOP.toFixed(2)}) + cheap electricity`
@@ -80,7 +81,8 @@ export class HotWaterOptimizer {
             }
         } else if (hotWaterEfficiency > COP_THRESHOLDS.POOR) {
             // Poor hot water COP: Conservative approach
-            if (currentPercentile <= 0.15) { // Only during cheapest 15%
+            // Use ~0.6x cheap threshold (e.g., 15% when cheap=25%)
+            if (currentPercentile <= cheapThreshold * 0.6) {
                 return {
                     action: 'heat_now',
                     reason: `Poor hot water COP (${hotWaterCOP.toFixed(2)}) - only during cheapest electricity`
@@ -95,7 +97,8 @@ export class HotWaterOptimizer {
             }
         } else if (hotWaterCOP > 0) {
             // Very poor hot water COP: Emergency heating only
-            if (currentPercentile <= 0.1) { // Only during cheapest 10%
+            // Use ~0.4x cheap threshold (e.g., 10% when cheap=25%)
+            if (currentPercentile <= cheapThreshold * 0.4) {
                 return {
                     action: 'heat_now',
                     reason: `Very poor hot water COP (${hotWaterCOP.toFixed(2)}) - emergency heating during absolute cheapest electricity`
