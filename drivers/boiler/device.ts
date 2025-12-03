@@ -34,6 +34,7 @@ module.exports = class BoilerDevice extends Homey.Device {
   private zone2Checked: boolean = false;
   private energyBasedZone2Check: boolean = false;
   private hotWaterService?: HotWaterService;
+  private lastEnergyFetchTime: number = 0; // Throttle energy API calls
   
   // Power command debouncing properties (Task 1.1)
   private powerCommandDebounce?: NodeJS.Timeout;
@@ -45,7 +46,7 @@ module.exports = class BoilerDevice extends Homey.Device {
     dataInterval: 300000,     // 5 minutes (optimized from 120000 / 2 minutes)
     energyInterval: 900000,   // 15 minutes (optimized from 300000 / 5 minutes)
     fastPollDuration: 600000, // 10 minutes of fast polling after commands
-    fastPollInterval: 60000   // 1 minute during fast poll mode
+    fastPollInterval: 300000  // 5 minutes during fast poll mode (changed from 60000 / 1 minute)
   };
   
   private fastPollUntil?: number;
@@ -1010,9 +1011,17 @@ module.exports = class BoilerDevice extends Homey.Device {
         return; // Exit early since we have real data
       }
 
-      // Fallback: try to get energy data from API
-      this.logger.log('No energy data in device state, trying API');
-      await this.fetchEnergyDataFromApi();
+      // Fallback: try to get energy data from API (throttled to prevent excessive calls)
+      const timeSinceLastEnergyFetch = Date.now() - this.lastEnergyFetchTime;
+      const energyFetchThrottleMs = this.currentEnergyInterval; // Use configured energy interval as throttle
+      
+      if (timeSinceLastEnergyFetch >= energyFetchThrottleMs) {
+        this.logger.log('No energy data in device state, trying API');
+        await this.fetchEnergyDataFromApi();
+        this.lastEnergyFetchTime = Date.now();
+      } else {
+        this.logger.debug(`Skipping energy API call (last fetch ${Math.round(timeSinceLastEnergyFetch / 1000)}s ago, throttle ${Math.round(energyFetchThrottleMs / 1000)}s)`);
+      }
       
       // Start energy reporting if not already started
       if (!this.energyReportInterval) {
@@ -1111,6 +1120,9 @@ module.exports = class BoilerDevice extends Homey.Device {
     }
 
     try {
+      // Update timestamp to prevent duplicate calls during fast polling
+      this.lastEnergyFetchTime = Date.now();
+      
       // Get energy data for today
       const energyTotals = await this.melCloudApi.getDailyEnergyTotals(
         this.deviceId,

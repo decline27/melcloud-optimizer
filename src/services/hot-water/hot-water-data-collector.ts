@@ -124,25 +124,29 @@ export class HotWaterDataCollector {
   }
 
   /**
-   * Legacy migration: clear datasets that were stored without raw counters.
-   * These points cannot be corrected because the original MELCloud counters were lost.
-   * @returns true when a reset was performed
+   * Legacy migration: filter out data points that were stored without localDayKey.
+   * Points without localDayKey are truly legacy and cannot be used for day-based analysis.
+   * Points with undefined raw counters are acceptable if they have localDayKey (device may not always report counters).
+   * @returns true when points were filtered
    */
   private resetLegacyCountersIfNeeded(): boolean {
     try {
-      const legacyPoint = this.dataPoints.find(dp => typeof dp.rawHotWaterEnergyProduced !== 'number' || typeof dp.rawHotWaterEnergyConsumed !== 'number' || !dp.localDayKey);
-      if (!legacyPoint) {
+      // Only filter points that are missing localDayKey - these are truly legacy
+      // Raw counters may be undefined when device doesn't report them, which is acceptable
+      const validPoints = this.dataPoints.filter(dp => !!dp.localDayKey);
+      const legacyCount = this.dataPoints.length - validPoints.length;
+      
+      if (legacyCount === 0) {
         return false;
       }
 
-      this.homey.log('Detected legacy hot water data missing raw counters or local day tracking, resetting dataset to avoid drift');
-      this.dataPoints = [];
-      this.aggregatedData = [];
-      this.homey.settings.unset(HOT_WATER_DATA_SETTINGS_KEY);
-      this.homey.settings.unset(HOT_WATER_AGGREGATED_DATA_SETTINGS_KEY);
+      this.homey.log(`Filtered ${legacyCount} legacy hot water data points missing localDayKey, keeping ${validPoints.length} valid points`);
+      this.dataPoints = validPoints;
+      
+      // Save the filtered dataset
       return true;
     } catch (error) {
-      this.homey.error(`Error handling legacy hot water data reset: ${error}`);
+      this.homey.error(`Error handling legacy hot water data filter: ${error}`);
       return false;
     }
   }
