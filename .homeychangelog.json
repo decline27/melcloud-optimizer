@@ -196,5 +196,8 @@
   },
   "14.0.28": {
     "en": "optimizing the algorithm"
+  },
+  "14.0.29": {
+    "en": "refactor: Update cost calculation in API to derive actual cost from consumption and current price, improving accuracy for baseline metrics"
   }
 }
