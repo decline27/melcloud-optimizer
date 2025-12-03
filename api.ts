@@ -759,7 +759,17 @@ const apiHandlers: ApiHandlers = {
 
             // Get actual consumption for baseline calculation
             const actualConsumptionKWh = result.energyMetrics?.dailyEnergyConsumption || 1.0;
-            const actualCost = Math.abs(initialSavings); // Use initial savings as proxy for actual cost
+            
+            // Calculate actual cost from consumption and current price (not from savings)
+            let actualCost = 0;
+            const currentPrice = result.priceData?.current;
+            if (typeof currentPrice === 'number' && currentPrice > 0) {
+              // Estimate cost from consumption * current price
+              actualCost = actualConsumptionKWh * currentPrice;
+            } else {
+              // Fallback: use a conservative estimate (1 currency unit per kWh)
+              actualCost = actualConsumptionKWh * 1.0;
+            }
 
             // Get historical optimizations for enhanced calculation
             const today = new Date().toISOString().split('T')[0];
@@ -2416,6 +2426,14 @@ const apiHandlers: ApiHandlers = {
         const isValid = missingSettings.length === 0;
 
         if (isValid) {
+          // Refresh the price provider to pick up any changed settings (e.g., tibber_home_id)
+          try {
+            await updatePriceProvider(homey);
+            homey.app.log('✅ Price provider refreshed with current settings');
+          } catch (priceError: any) {
+            homey.app.log('Warning: Could not refresh price provider:', priceError.message);
+          }
+
           // Try to get the driver instances and restart cron jobs
           try {
             const driverManager = (homey.drivers && typeof homey.drivers.getDriver === 'function')
