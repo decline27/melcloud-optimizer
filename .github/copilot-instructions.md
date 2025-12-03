@@ -46,13 +46,34 @@ This is a **Homey SDK 3 TypeScript app** that orchestrates Mitsubishi Electric h
 - `src/services/fx-rate-service.ts`: EUR->currency FX fetcher (frankfurter.app) with 24 h TTL stored in `fx_rate_cache`.
 - `weather.ts`: MET.no forecast client with five-minute caching; feeds optimizer and planning utilities.
 - `src/services/hot-water/`: collector, analyzer, and service coordinating hot water usage predictions with `TimeZoneHelper`.
-- `src/services/thermal-model/`: data collector, analyzer, and service managing detailed + aggregated samples with retention and memory safeguards.
+- `src/services/thermal-model/`: data collector, thermal-analyzer, and thermal-model-service managing detailed + aggregated samples with retention and memory safeguards.
+
+### Optimization & Control Services
+- `src/services/temperature-optimizer.ts`: temperature setpoint optimization logic.
+- `src/services/thermal-controller.ts`: thermal control decisions and setpoint management.
+- `src/services/zone-optimizer.ts`: zone-based heating optimization.
+- `src/services/constraint-manager.ts`: manages operational constraints and limits.
+- `src/services/calibration-service.ts`: handles calibration workflows and K-factor updates.
+- `src/services/state-manager.ts`: tracks and manages system state.
+
+### Pricing & Savings Services
+- `src/services/price-analyzer.ts`: price analysis and pattern detection.
+- `src/services/price-classifier.ts`: classifies prices into tiers (cheap/normal/expensive).
+- `src/services/savings-service.ts`: calculates and tracks energy savings.
+- `src/services/accounting-service.ts`: financial accounting and cost tracking.
+- `src/services/energy-metrics-service.ts`: energy consumption metrics and reporting.
 
 ### Supporting Utilities
 - `src/util/logger.ts`: `HomeyLogger` centralizes log levels, timeline integration, prefixes, and category filtering.
 - `src/util/time-zone-helper.ts`: canonical timezone handling used by the app, optimizer, MELCloud, Tibber, and hot water services.
 - `src/util/timeline-helper.ts` & `timeline-helper-wrapper.ts`: standardized timeline entries with fallbacks to Flow and notifications.
-- `src/util/validation.ts`, `src/util/error-handler.ts`, etc., for consistent validation and error reporting.
+- `src/util/timeline-formatter.ts`: formats timeline messages consistently.
+- `src/util/validation.ts`, `src/util/error-handler.ts`: consistent validation and error reporting.
+- `src/util/circuit-breaker.ts`: circuit breaker pattern for API resilience.
+- `src/util/settings-accessor.ts`: type-safe access to Homey settings.
+- `src/util/setpoint-constraints.ts`: temperature setpoint validation and constraints.
+- `src/util/enhanced-savings-calculator.ts`: advanced savings calculation logic.
+- `src/util/fixed-baseline-calculator.ts`: baseline energy consumption calculations.
 
 ### Configuration Surface
 - Settings UI lives in `settings/index.html` and covers credentials, price source, comfort bands, hot-water configuration, currency overrides, consumer markup JSON, FX cache, logging level, and timezone controls.
@@ -62,7 +83,8 @@ This is a **Homey SDK 3 TypeScript app** that orchestrates Mitsubishi Electric h
 
 - `/review/context/FACTS.md` captures the up-to-date "facts & invariants" packet for high-impact reviews. Always read it before surfacing bugs; treat the **Known Non-Issues** section as authoritative (do not re-report them unless new evidence conflicts).
 - `/review/context/PROMPT.md` defines the reusable review prompt: required files to inspect, evidence standards (≤6-line snippets, file:line cites), output structure, and guardrails (comfort safety, DST alignment, savings visibility). Copy it verbatim whenever you request a code review.
-- Update both files whenever domain invariants, constants, scope, or review expectations change (e.g., new learning guardrails, different price percentile defaults, altered cron ownership). Keep them under 400 lines combined.
+- `/review/context/PR_PLAN.md` outlines the PR strategy and deployment planning for changes.
+- Update these files whenever domain invariants, constants, scope, or review expectations change (e.g., new learning guardrails, different price percentile defaults, altered cron ownership). Keep them under 400 lines combined.
 - When facts drift, update `FACTS.md` first, then run any relevant `openspec update` or review tooling so downstream reviewers stay in sync.
 - Logs or dashboards cited in reviews must come from workspace sources (`documentation/HIGH_IMPACT_OPTIMIZER_REVIEW*.md`, `dashboard-output/**`, etc.); external links aren't allowed.
 
@@ -174,8 +196,14 @@ npm run test        # Integration tests (needs test/config.json with real creds)
 - Thermal modeling - `src/services/thermal-model/`
 - Hot water optimization - `src/services/hot-water/`
 - Planning utilities - `src/services/planning-utils.ts`
-- COP tracking - `src/services/cop-helper.ts`
+- COP tracking - `src/services/cop-helper.ts`, `src/services/cop-normalizer.ts`
+- Temperature control - `src/services/temperature-optimizer.ts`, `src/services/thermal-controller.ts`
+- Zone optimization - `src/services/zone-optimizer.ts`
+- Constraints & calibration - `src/services/constraint-manager.ts`, `src/services/calibration-service.ts`
+- Savings & accounting - `src/services/savings-service.ts`, `src/services/accounting-service.ts`
+- Price analysis - `src/services/price-analyzer.ts`, `src/services/price-classifier.ts`
 - Timeline & logging - `src/util/timeline-helper.ts`, `src/util/logger.ts`
+- Error handling - `src/util/error-handler.ts`, `src/util/circuit-breaker.ts`
 
 ### Custom Capabilities
 - `occupied`, `holiday_mode`, `legionella_now`, `heating_cop`, `hotwater_cop` (defined under `capabilities/` and linked via driver compositions).
