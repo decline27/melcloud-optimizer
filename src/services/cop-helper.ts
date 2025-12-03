@@ -141,9 +141,9 @@ export class COPHelper {
         return null;
       }
 
-      // Get COP data from MELCloud
-      const copData = await melCloud.getCOPData(deviceId, buildingId);
-      return copData;
+      // Get device state from MELCloud (contains Daily*Energy* fields for COP calculation)
+      const deviceState = await melCloud.getDeviceState(deviceId, buildingId);
+      return { Device: deviceState };
     } catch (error: unknown) {
       this.logger.error('Error getting MELCloud data for COP calculation:', error);
       return null;

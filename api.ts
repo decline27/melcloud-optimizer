@@ -394,6 +394,12 @@ async function updateAllServiceTimezones(
     homey.app.log(`Updated Hot Water Service timezone settings (${timeZoneName || `offset ${timeZoneOffset}`})`);
   }
 
+  // Update Optimizer timezone if available
+  if (state.optimizer && typeof state.optimizer.updateTimeZoneSettings === 'function') {
+    state.optimizer.updateTimeZoneSettings(timeZoneOffset, useDST, timeZoneName ?? undefined);
+    homey.app.log(`Updated Optimizer timezone settings (${timeZoneName || `offset ${timeZoneOffset}`})`);
+  }
+
   homey.app.log(`All services updated with timezone: offset=${timeZoneOffset}, DST=${useDST}, name=${timeZoneName || 'n/a'}`);
 }
 

@@ -2,6 +2,7 @@ import Homey from 'homey';
 import { CronJob } from 'cron';
 import { MelCloudApi } from '../../src/services/melcloud-api';
 import { HomeyLogger, LogLevel } from '../../src/util/logger';
+import { TimeZoneHelper } from '../../src/util/time-zone-helper';
 
 module.exports = class BoilerDriver extends Homey.Driver {
   private melCloudApi?: MelCloudApi;
@@ -47,43 +48,17 @@ module.exports = class BoilerDriver extends Homey.Driver {
    */
   private getUserTimezone(): string {
     try {
-      // Get timezone offset from settings
+      // Prefer IANA timezone name if set by user
+      const timeZoneName = this.homey.settings.get('time_zone_name');
+      if (timeZoneName && typeof timeZoneName === 'string' && TimeZoneHelper.validateTimezone(timeZoneName)) {
+        this.logger.log(`Using configured timezone: ${timeZoneName}`);
+        return timeZoneName;
+      }
+
+      // Fall back to offset-based resolution using shared helper
       const timeZoneOffset = this.homey.settings.get('time_zone_offset') || 2;
-      const useDST = this.homey.settings.get('use_dst') || false;
-      
-      // Map timezone offset to timezone string
-      // This is a simplified mapping - could be enhanced with more timezones
-      const timezoneMap: Record<number, string> = {
-        '-12': 'Pacific/Auckland', // UTC-12 (example)
-        '-11': 'Pacific/Midway',
-        '-10': 'Pacific/Honolulu',
-        '-9': 'America/Anchorage',
-        '-8': 'America/Los_Angeles',
-        '-7': 'America/Denver',
-        '-6': 'America/Chicago',
-        '-5': 'America/New_York',
-        '-4': 'America/Halifax',
-        '-3': 'America/Sao_Paulo',
-        '-2': 'Atlantic/South_Georgia',
-        '-1': 'Atlantic/Azores',
-        '0': 'UTC',
-        '1': 'Europe/London',
-        '2': 'Europe/Berlin',
-        '3': 'Europe/Moscow',
-        '4': 'Asia/Dubai',
-        '5': 'Asia/Karachi',
-        '6': 'Asia/Dhaka',
-        '7': 'Asia/Bangkok',
-        '8': 'Asia/Shanghai',
-        '9': 'Asia/Tokyo',
-        '10': 'Australia/Sydney',
-        '11': 'Pacific/Norfolk',
-        '12': 'Pacific/Auckland',
-        '13': 'Pacific/Tongatapu'
-      };
-      
-      const timezone = timezoneMap[timeZoneOffset] || 'Europe/Oslo';
-      this.logger.log(`Using timezone: ${timezone} (offset: ${timeZoneOffset}, DST: ${useDST})`);
+      const timezone = TimeZoneHelper.offsetToIANA(timeZoneOffset) || 'Europe/Oslo';
+      this.logger.log(`Using timezone from offset: ${timezone} (offset: ${timeZoneOffset})`);
       return timezone;
     } catch (error) {
       this.logger.error('Error getting user timezone, falling back to Europe/Oslo:', error);

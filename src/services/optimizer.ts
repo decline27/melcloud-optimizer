@@ -439,6 +439,19 @@ export class Optimizer {
   }
 
   /**
+   * Update timezone settings for the optimizer
+   * @param timeZoneOffset Timezone offset in hours
+   * @param useDST Whether to use daylight saving time
+   * @param timeZoneName IANA timezone name (optional)
+   */
+  public updateTimeZoneSettings(timeZoneOffset: number, useDST: boolean, timeZoneName?: string): void {
+    if (this.timeZoneHelper) {
+      this.timeZoneHelper.updateSettings(timeZoneOffset, useDST, timeZoneName);
+      this.logger.log(`Optimizer timezone settings updated: offset=${timeZoneOffset}, DST=${useDST}, name=${timeZoneName || 'n/a'}`);
+    }
+  }
+
+  /**
    * Async initialization - must be called after construction
    * @returns Promise that resolves when initialization is complete
    */

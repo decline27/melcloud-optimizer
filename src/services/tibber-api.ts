@@ -474,8 +474,15 @@ export class TibberApi extends BaseApiService {
         return;
       }
 
-      date.setMinutes(0, 0, 0);
-      const bucketKey = date.toISOString();
+      // Round to hour start in UTC to preserve original timezone offset from startsAt
+      // This avoids local timezone conversion that would shift price windows
+      const utcYear = date.getUTCFullYear();
+      const utcMonth = date.getUTCMonth();
+      const utcDate = date.getUTCDate();
+      const utcHour = date.getUTCHours();
+      const bucketDate = new Date(Date.UTC(utcYear, utcMonth, utcDate, utcHour, 0, 0, 0));
+      const bucketKey = bucketDate.toISOString();
+
       const bucket = buckets.get(bucketKey) || { sum: 0, count: 0 };
       bucket.sum += price;
       bucket.count += 1;
