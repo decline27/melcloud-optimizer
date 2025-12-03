@@ -1348,7 +1348,8 @@ export class Optimizer {
       stepC: this.getZone1Constraints().tempStep,
       deadbandC: this.getZone1Constraints().deadband,
       minChangeMinutes: this.minSetpointChangeMinutes,
-      lastChangeMs: this.getZone1State().timestamp
+      lastChangeMs: this.getZone1State().timestamp,
+      maxDeltaPerChangeC: this.getZone1Constraints().tempStep // Enforce max step size
     });
     adjustmentReason += zone1ConstraintsInitial.reason !== 'within constraints'
       ? ` | ${zone1ConstraintsInitial.reason} `
@@ -1495,7 +1496,8 @@ export class Optimizer {
       stepC: this.getZone1Constraints().tempStep,
       deadbandC: this.getZone1Constraints().deadband,
       minChangeMinutes: this.minSetpointChangeMinutes,
-      lastChangeMs: this.getZone1State().timestamp
+      lastChangeMs: this.getZone1State().timestamp,
+      maxDeltaPerChangeC: this.getZone1Constraints().tempStep // Enforce max step size
     });
     logger('constraints.zone1.final', {
       proposed: targetTemp,
@@ -1584,7 +1586,8 @@ export class Optimizer {
       stepC: constraints.tempStep,
       deadbandC: this.getZone1Constraints().deadband,
       minChangeMinutes: this.minSetpointChangeMinutes,
-      lastChangeMs: this.getZone2State().timestamp || 0
+      lastChangeMs: this.getZone2State().timestamp || 0,
+      maxDeltaPerChangeC: constraints.tempStep // Enforce max step size for Zone 2
     });
 
     const fallbackTarget = constraintResult.constrainedC;
@@ -1822,7 +1825,8 @@ export class Optimizer {
         stepC: this.getTankConstraints().tempStep,
         deadbandC: tankDeadband,
         minChangeMinutes: this.minSetpointChangeMinutes,
-        lastChangeMs: this.getTankState().timestamp
+        lastChangeMs: this.getTankState().timestamp,
+        maxDeltaPerChangeC: this.getTankConstraints().tempStep // Enforce max step size for Tank
       });
       logger('constraints.tank.final', {
         proposed: tankTarget,
