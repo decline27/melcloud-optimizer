@@ -83,8 +83,9 @@ describe('Optimizer hotwater & enhanced edge cases', () => {
   });
 
   test('Zone2 honors its own temperature step when rounding', async () => {
-    optimizer.setZone2TemperatureConstraints(true, 18, 25, 0.1); // Zone2 step differs from Zone1 (0.5)
-    (optimizer as any).deadband = 0.1; // Ensure small deltas still trigger a change
+    optimizer.setZone2TemperatureConstraints(true, 18, 25, 0.5); // Zone2 step = 0.5
+    // Set Zone 1 deadband to a value that won't block our step-limited changes
+    (optimizer as any).constraintManager.setZone1Deadband(0.3);
 
     const inputs: any = {
       deviceState: {
@@ -111,7 +112,7 @@ describe('Optimizer hotwater & enhanced edge cases', () => {
     };
 
     const zone1Result: any = {
-      targetTemp: 21.44, // Should round to 21.4 using Zone2 step of 0.1
+      targetTemp: 21.44, // Zone2 will ramp-limit to +0.5°C per change, rounded to step
       weatherInfo: null,
       thermalStrategy: null,
       metrics: null
@@ -119,9 +120,10 @@ describe('Optimizer hotwater & enhanced edge cases', () => {
 
     const result = await (optimizer as any).optimizeZone2(inputs, zone1Result, jest.fn());
 
+    // With maxDeltaPerChangeC = 0.5 (step size), change is limited from 20 -> 20.5
     const [, , issuedTarget] = mockMel.setZoneTemperature.mock.calls[0];
-    expect(issuedTarget).toBeCloseTo(21.4, 2);
-    expect(result.toTemp).toBeCloseTo(21.4, 2);
+    expect(issuedTarget).toBeCloseTo(20.5, 2);
+    expect(result.toTemp).toBeCloseTo(20.5, 2);
   });
 
   test('runOptimization includes tank data when tank control enabled', async () => {

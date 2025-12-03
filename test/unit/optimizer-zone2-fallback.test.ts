@@ -99,13 +99,13 @@ describe('Optimizer -Zone 2 Fallback', () => {
 
             const result = await (optimizer as any).optimizeZone2(inputs, zone1Result, logger);
 
-            // Should call MELCloud API
-            expect(mockMelCloud.setZoneTemperature).toHaveBeenCalledWith('123', 1, 22.5, 2);
+            // With maxDeltaPerChangeC = 0.5 (step size), change is limited from 21 -> 21.5
+            expect(mockMelCloud.setZoneTemperature).toHaveBeenCalledWith('123', 1, 21.5, 2);
 
             // Result should indicate change
             expect(result?.changed).toBe(true);
             expect(result?.success).toBe(true);
-            expect(result?.toTemp).toBe(22.5);
+            expect(result?.toTemp).toBe(21.5);
         });
 
         it('should respect lockout and skip API call during lockout period', async () => {
@@ -181,9 +181,10 @@ describe('Optimizer -Zone 2 Fallback', () => {
         });
 
         it('should skip duplicate targets to prevent repeated commands', async () => {
-            // Set Zone 2 state with same setpoint as proposed
+            // Set Zone 2 state with same setpoint as the constrained target
+            // With maxDeltaPerChangeC = 0.5, target 22.5 from current 21 becomes 21.5
             (optimizer as any).stateManager = {
-                getZone2LastChange: () => ({ timestamp: 0, setpoint: 22.5 }),
+                getZone2LastChange: () => ({ timestamp: 0, setpoint: 21.5 }),
                 recordZone2Change: jest.fn(),
                 saveToSettings: jest.fn()
             };
@@ -198,7 +199,7 @@ describe('Optimizer -Zone 2 Fallback', () => {
             } as any;
 
             const zone1Result = {
-                targetTemp: 22.5, // Matches stored setpoint
+                targetTemp: 22.5, // After ramp limiting to step 0.5, becomes 21.5
                 safeCurrentTarget: 21
             } as any;
 
@@ -206,7 +207,7 @@ describe('Optimizer -Zone 2 Fallback', () => {
 
             const result = await (optimizer as any).optimizeZone2(inputs, zone1Result, logger);
 
-            // Should NOT call MELCloud API (duplicate target)
+            // Should NOT call MELCloud API (duplicate target - constrained 21.5 matches stored 21.5)
             expect(mockMelCloud.setZoneTemperature).not.toHaveBeenCalled();
 
             // Result should indicate duplicate
@@ -254,7 +255,7 @@ describe('Optimizer -Zone 2 Fallback', () => {
     });
 
     describe('Constraint Application', () => {
-        it('should clamp to min/max bounds', async () => {
+        it('should clamp to min/max bounds and apply step limit', async () => {
             const inputs = {
                 deviceState: {
                     SetTemperatureZone2: 21,
@@ -265,7 +266,7 @@ describe('Optimizer -Zone 2 Fallback', () => {
             } as any;
 
             const zone1Result = {
-                targetTemp: 30, // Way above max (24)
+                targetTemp: 30, // Way above max (24), but step-limited first
                 safeCurrentTarget: 21
             } as any;
 
@@ -273,12 +274,12 @@ describe('Optimizer -Zone 2 Fallback', () => {
 
             const result = await (optimizer as any).optimizeZone2(inputs, zone1Result, logger);
 
-            // Should clamp to max and call API
-            expect(mockMelCloud.setZoneTemperature).toHaveBeenCalledWith('123', 1, 24, 2);
-            expect(result?.toTemp).toBe(24);
+            // First clamped to max 24, then limited to +0.5 step from current 21 = 21.5
+            expect(mockMelCloud.setZoneTemperature).toHaveBeenCalledWith('123', 1, 21.5, 2);
+            expect(result?.toTemp).toBe(21.5);
         });
 
-        it('should round to temperature step', async () => {
+        it('should round to temperature step after applying step limit', async () => {
             const inputs = {
                 deviceState: {
                     SetTemperatureZone2: 21,
@@ -289,7 +290,7 @@ describe('Optimizer -Zone 2 Fallback', () => {
             } as any;
 
             const zone1Result = {
-                targetTemp: 22.37, // Should round to 22.5 (step = 0.5)
+                targetTemp: 22.37, // Step-limited to 21.5, then rounded (already on step)
                 safeCurrentTarget: 21
             } as any;
 
@@ -297,9 +298,9 @@ describe('Optimizer -Zone 2 Fallback', () => {
 
             const result = await (optimizer as any).optimizeZone2(inputs, zone1Result, logger);
 
-            // Should round to nearest 0.5°C step
-            expect(mockMelCloud.setZoneTemperature).toHaveBeenCalledWith('123', 1, 22.5, 2);
-            expect(result?.toTemp).toBe(22.5);
+            // Limited to +0.5°C step, result is 21.5
+            expect(mockMelCloud.setZoneTemperature).toHaveBeenCalledWith('123', 1, 21.5, 2);
+            expect(result?.toTemp).toBe(21.5);
         });
     });
 });
