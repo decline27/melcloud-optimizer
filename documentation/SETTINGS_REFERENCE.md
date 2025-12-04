@@ -4,6 +4,9 @@
 
 **Last Updated:** December 4, 2025
 
+> [!IMPORTANT]
+> All settings listed below are **user-configurable** via the Homey settings page. The "Default" column shows initial values only - users can change these to match their preferences. Code must always read current values from `SettingsLoader`, never assume defaults.
+
 ---
 
 ## Temperature Zone Settings

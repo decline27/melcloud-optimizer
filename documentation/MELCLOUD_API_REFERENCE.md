@@ -172,12 +172,12 @@ Always check for `"ErrorId" != null` even on 200 responses.
 ### Price-Based Optimization Strategy
 
 **During cheap hours:**
-- Slightly raise comfort level (+0.5 to +2.0°C within safe upper limit)
-- Or apply positive curve offset (+2 to +5°C)
+- Slightly raise comfort level (within user-configured upper limit)
+- Or apply positive curve offset
 - Goal: Pre-heat building mass, not spike flow temperature
 
 **During expensive hours:**
-- Reduce comfort level by 0.5–1.5°C
+- Reduce comfort level (within user-configured lower limit)
 - Or apply small negative curve offset
 - Let building "coast" while staying inside comfort band
 
@@ -196,7 +196,7 @@ Flow temperature control is allowed **only** in exceptional cases:
    - Recovery from large setback
 
 **Rules when using flow temp:**
-- Increase in small steps only (2°C increments)
+- Increase in small steps only
 - Always reset back to curve-driven behavior
 - Never as replacement for room control
 
@@ -235,8 +235,8 @@ export interface AtwDeviceState {
 }
 
 export interface ComfortBand {
-  min: number; // e.g. 20.5
-  max: number; // e.g. 21.5
+  min: number; // User-configured lower limit
+  max: number; // User-configured upper limit
 }
 
 export interface PriceSignal {

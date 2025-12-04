@@ -126,8 +126,8 @@
 | `getRange()` | Get current min/max observed COP |
 
 **Features:**
-- Percentile-based filtering (5th-95th)
-- Outlier rejection (0.5-6.0 valid range)
+- Percentile-based filtering (learned over time)
+- Outlier rejection (based on observed data)
 - State persistence to settings
 
 ---
