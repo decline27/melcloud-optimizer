@@ -1,7 +1,7 @@
 # MELCloud Optimizer - Architecture Documentation
 
-> **Last Updated:** November 23, 2025  
-> **Version:** 2.0 (Post-Refactoring)
+> **Last Updated:** December 4, 2025  
+> **Version:** 2.1 (Documentation Modernization)
 
 ## Overview
 
@@ -23,6 +23,8 @@ graph TB
         PriceAnalyzer[PriceAnalyzer]
         ThermalController[ThermalController]
         AccountingService[AccountingService]
+        CalibrationService[CalibrationService]
+        SavingsService[SavingsService]
     end
     
     subgraph "Supporting Services"
