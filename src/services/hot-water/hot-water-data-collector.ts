@@ -60,6 +60,7 @@ export class HotWaterDataCollector {
   private initialized: boolean = false;
   private lastMemoryCheck: number = 0;
   private memoryWarningIssued: boolean = false;
+  private _isSaving: boolean = false; // Guard against recursive saveData calls
 
   constructor(private homey: any) {
     this.loadStoredData();
@@ -69,6 +70,7 @@ export class HotWaterDataCollector {
    * Load previously stored hot water usage data from Homey settings
    * Falls back to file storage if settings storage fails
    * Also loads aggregated historical data
+   * Includes crash recovery for oversized data that caused issue #40
    */
   private loadStoredData(): void {
     try {
@@ -78,7 +80,14 @@ export class HotWaterDataCollector {
 
       let dataLoaded = false;
 
-      if (settingsData) {
+      // CRASH RECOVERY: Check if stored data exceeds safe limit before parsing
+      // This prevents the infinite loop crash from issue #40
+      if (settingsData && typeof settingsData === 'string' && settingsData.length > MAX_SETTINGS_DATA_SIZE) {
+        this.homey.error(`CRASH RECOVERY: Hot water data size (${settingsData.length} bytes) exceeds safe limit. Clearing to prevent crash loop.`);
+        this.homey.settings.unset(HOT_WATER_DATA_SETTINGS_KEY);
+        this.dataPoints = [];
+        dataLoaded = true; // Mark as loaded (with empty data) to skip file fallback
+      } else if (settingsData) {
         try {
           this.dataPoints = JSON.parse(settingsData);
           this.homey.log(`Loaded ${this.dataPoints.length} hot water usage data points from settings storage`);
@@ -177,12 +186,19 @@ export class HotWaterDataCollector {
    * Save data to Homey settings and backup file
    */
   private async saveData(): Promise<void> {
+    // Guard against recursive calls that cause CPU spike and crash
+    if (this._isSaving) {
+      this.homey.log('saveData() already in progress, skipping to prevent recursion');
+      return;
+    }
+
+    this._isSaving = true;
     try {
       // Check memory usage before saving
       this.checkMemoryUsage();
 
       // Convert to JSON string
-      const dataJson = JSON.stringify(this.dataPoints);
+      let dataJson = JSON.stringify(this.dataPoints);
       const aggregatedDataJson = JSON.stringify(this.aggregatedData);
 
       // Check if data is too large for settings storage
@@ -190,20 +206,28 @@ export class HotWaterDataCollector {
         this.homey.log(`Hot water usage data size (${dataJson.length} bytes) exceeds maximum settings size (${MAX_SETTINGS_DATA_SIZE} bytes)`);
         this.homey.log('Reducing data size by aggregating older data points');
 
-        // Reduce data size by aggregating older data
-        await this.reduceDataSize();
+        // Reduce data size - this modifies this.dataPoints directly
+        await this.reduceDataSizeInternal();
 
-        // Try again with reduced data
-        return this.saveData();
+        // Re-stringify after reduction
+        dataJson = JSON.stringify(this.dataPoints);
+
+        // If still too large after reduction, force-trim to fit
+        if (dataJson.length > MAX_SETTINGS_DATA_SIZE) {
+          this.homey.error(`Hot water data still too large after reduction (${dataJson.length} bytes), force-trimming`);
+          this.forceTrimToFit();
+          dataJson = JSON.stringify(this.dataPoints);
+        }
       }
 
       // Save to Homey settings
       this.homey.settings.set(HOT_WATER_DATA_SETTINGS_KEY, dataJson);
       this.homey.settings.set(HOT_WATER_AGGREGATED_DATA_SETTINGS_KEY, aggregatedDataJson);
 
-
     } catch (error) {
       this.homey.error(`Error saving hot water usage data: ${error}`);
+    } finally {
+      this._isSaving = false;
     }
   }
 
@@ -233,8 +257,8 @@ export class HotWaterDataCollector {
           this.memoryWarningIssued = true;
         }
 
-        // Reduce data size
-        this.reduceDataSize();
+        // Reduce data size (internal version - saveData will handle the actual save)
+        this.reduceDataSizeInternal();
       } else {
         // Reset warning flag if memory usage is back to normal
         this.memoryWarningIssued = false;
@@ -245,55 +269,73 @@ export class HotWaterDataCollector {
   }
 
   /**
-   * Reduce data size by aggregating older data
+   * Force trim data to fit within MAX_SETTINGS_DATA_SIZE
+   * Used as emergency fallback when aggregation doesn't reduce size enough
    */
-  private async reduceDataSize(): Promise<void> {
+  private forceTrimToFit(): void {
+    const bytesPerPoint = 200; // Approximate bytes per data point
+    const targetPoints = Math.floor(MAX_SETTINGS_DATA_SIZE / bytesPerPoint) - 100; // Leave some margin
+    
+    if (this.dataPoints.length > targetPoints && targetPoints > 0) {
+      const removed = this.dataPoints.length - targetPoints;
+      this.dataPoints = this.dataPoints.slice(-targetPoints);
+      this.homey.error(`Force-trimmed ${removed} hot water data points to fit storage limit`);
+    }
+  }
+
+  /**
+   * Reduce data size by aggregating older data (internal - does not save)
+   * This method modifies this.dataPoints directly without calling saveData()
+   */
+  private async reduceDataSizeInternal(): Promise<void> {
     try {
-      // If we have too many data points, first try to aggregate older data
-      if (this.dataPoints.length > this.maxDataPoints) {
-        // Keep the most recent 7 days of data at full resolution
-        const sevenDaysAgo = DateTime.now().minus({ days: 7 }).toMillis();
-        const recentData = this.dataPoints.filter(dp => new Date(dp.timestamp).getTime() >= sevenDaysAgo);
-        const olderData = this.dataPoints.filter(dp => new Date(dp.timestamp).getTime() < sevenDaysAgo);
+      const originalCount = this.dataPoints.length;
+      
+      // Keep the most recent 7 days of data at full resolution
+      const sevenDaysAgo = DateTime.now().minus({ days: 7 }).toMillis();
+      const recentData = this.dataPoints.filter(dp => new Date(dp.timestamp).getTime() >= sevenDaysAgo);
+      const olderData = this.dataPoints.filter(dp => new Date(dp.timestamp).getTime() < sevenDaysAgo);
 
-        if (olderData.length > 0) {
-          this.homey.log(`Aggregating ${olderData.length} older hot water usage data points`);
+      if (olderData.length > 0) {
+        this.homey.log(`Aggregating ${olderData.length} older hot water usage data points`);
 
-          // Group older data by day
-          const dataByDay = new Map<string, HotWaterUsageDataPoint[]>();
-          olderData.forEach(dp => {
-            const date = dp.localDayKey || dp.timestamp.split('T')[0]; // Prefer local day tracking
-            if (!dataByDay.has(date)) {
-              dataByDay.set(date, []);
-            }
-            dataByDay.get(date)?.push(dp);
-          });
-
-          // Aggregate each day's data
-          for (const [date, points] of dataByDay.entries()) {
-            await this.aggregateDataForDay(date, points);
+        // Group older data by day
+        const dataByDay = new Map<string, HotWaterUsageDataPoint[]>();
+        olderData.forEach(dp => {
+          const date = dp.localDayKey || dp.timestamp.split('T')[0]; // Prefer local day tracking
+          if (!dataByDay.has(date)) {
+            dataByDay.set(date, []);
           }
+          dataByDay.get(date)?.push(dp);
+        });
 
-          // Replace data points with recent data only
-          this.dataPoints = recentData;
-          this.homey.log(`Reduced hot water usage data points from ${recentData.length + olderData.length} to ${recentData.length} by aggregating older data`);
-
-          // Save the updated data
-          await this.saveData();
+        // Aggregate each day's data
+        for (const [date, points] of dataByDay.entries()) {
+          await this.aggregateDataForDay(date, points);
         }
+
+        // Replace data points with recent data only
+        this.dataPoints = recentData;
+        this.homey.log(`Reduced hot water usage data points from ${originalCount} to ${recentData.length} by aggregating older data`);
       }
 
       // If we still have too many data points, just keep the most recent ones
       if (this.dataPoints.length > this.maxDataPoints) {
         this.dataPoints = this.dataPoints.slice(-this.maxDataPoints);
         this.homey.log(`Trimmed hot water usage data to the most recent ${this.maxDataPoints} data points`);
-
-        // Save the updated data
-        await this.saveData();
       }
     } catch (error) {
       this.homey.error(`Error reducing hot water usage data size: ${error}`);
     }
+  }
+
+  /**
+   * Reduce data size by aggregating older data
+   * Public wrapper that also saves after reduction
+   */
+  private async reduceDataSize(): Promise<void> {
+    await this.reduceDataSizeInternal();
+    await this.saveData();
   }
 
   /**
