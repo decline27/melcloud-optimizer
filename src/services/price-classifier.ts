@@ -33,6 +33,16 @@ export interface PriceClassificationOptions {
    * Optional selector for extracting numeric value from a price point.
    */
   valueSelector?: (point: PricePointLike) => number;
+  /**
+   * Provider's absolute price level (e.g., Tibber's level field).
+   * Used as a safety floor to prevent penalizing heating on absolutely cheap days.
+   */
+  providerPriceLevel?: string;
+  /**
+   * Historical average price for absolute context (used when provider level unavailable).
+   * If current price is significantly below this, treat as cheap regardless of percentile.
+   */
+  historicalAvgPrice?: number;
 }
 
 export interface PriceThresholds {
@@ -50,6 +60,12 @@ export interface PriceClassificationStats {
   max: number;
   avg: number;
   thresholds: PriceThresholds;
+  /** Original label before floor was applied (if any) */
+  originalLabel?: PriceLevel;
+  /** Whether a floor override was applied */
+  floorApplied?: boolean;
+  /** Reason for floor override */
+  floorReason?: string;
 }
 
 const DEFAULT_CHEAP_PERCENTILE = 25;
@@ -171,6 +187,51 @@ export function classifyPriceUnified(
     label = 'EXPENSIVE';
   }
 
+  // Apply provider price level floor (e.g., Tibber's level field)
+  // This prevents penalizing heating on absolutely cheap days
+  let originalLabel: PriceLevel | undefined;
+  let floorApplied = false;
+  let floorReason: string | undefined;
+
+  const providerLevel = normalizeProviderLevel(options?.providerPriceLevel);
+  
+  if (providerLevel) {
+    // Provider says cheap but local percentile says expensive -> trust provider
+    if ((providerLevel === 'VERY_CHEAP' || providerLevel === 'CHEAP') && 
+        (label === 'EXPENSIVE' || label === 'VERY_EXPENSIVE')) {
+      originalLabel = label;
+      label = 'NORMAL';
+      floorApplied = true;
+      floorReason = `Provider level ${providerLevel} overrides local ${originalLabel} (cheap day protection)`;
+    }
+    // Provider says expensive but local percentile says cheap -> trust provider
+    else if ((providerLevel === 'VERY_EXPENSIVE' || providerLevel === 'EXPENSIVE') && 
+             (label === 'CHEAP' || label === 'VERY_CHEAP')) {
+      originalLabel = label;
+      label = 'NORMAL';
+      floorApplied = true;
+      floorReason = `Provider level ${providerLevel} overrides local ${originalLabel} (expensive day protection)`;
+    }
+  }
+  // Fallback: Use historical average if provider level not available (for ENTSO-E)
+  else if (options?.historicalAvgPrice && Number.isFinite(options.historicalAvgPrice)) {
+    const historicalAvg = options.historicalAvgPrice;
+    // If current price is < 70% of historical avg, it's an absolutely cheap period
+    if (safeCurrent < historicalAvg * 0.7 && (label === 'EXPENSIVE' || label === 'VERY_EXPENSIVE')) {
+      originalLabel = label;
+      label = 'NORMAL';
+      floorApplied = true;
+      floorReason = `Price ${safeCurrent.toFixed(3)} is ${((safeCurrent / historicalAvg) * 100).toFixed(0)}% of historical avg ${historicalAvg.toFixed(3)} (cheap day protection)`;
+    }
+    // If current price is > 130% of historical avg, it's an absolutely expensive period
+    else if (safeCurrent > historicalAvg * 1.3 && (label === 'CHEAP' || label === 'VERY_CHEAP')) {
+      originalLabel = label;
+      label = 'NORMAL';
+      floorApplied = true;
+      floorReason = `Price ${safeCurrent.toFixed(3)} is ${((safeCurrent / historicalAvg) * 100).toFixed(0)}% of historical avg ${historicalAvg.toFixed(3)} (expensive day protection)`;
+    }
+  }
+
   return {
     label,
     percentile,
@@ -178,6 +239,32 @@ export function classifyPriceUnified(
     min,
     max,
     avg,
-    thresholds
+    thresholds,
+    originalLabel,
+    floorApplied,
+    floorReason
   };
+}
+
+/**
+ * Normalize provider price level string to our PriceLevel type
+ */
+function normalizeProviderLevel(level: string | undefined): PriceLevel | null {
+  if (!level || typeof level !== 'string') return null;
+  
+  const normalized = level.toUpperCase().replace(/\s+/g, '_');
+  
+  // Map Tibber levels to our levels
+  const levelMap: Record<string, PriceLevel> = {
+    'VERY_CHEAP': 'VERY_CHEAP',
+    'CHEAP': 'CHEAP',
+    'NORMAL': 'NORMAL',
+    'EXPENSIVE': 'EXPENSIVE',
+    'VERY_EXPENSIVE': 'VERY_EXPENSIVE',
+    // Alternative formats
+    'VERYCHEAP': 'VERY_CHEAP',
+    'VERYEXPENSIVE': 'VERY_EXPENSIVE'
+  };
+  
+  return levelMap[normalized] || null;
 }

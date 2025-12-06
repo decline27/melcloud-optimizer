@@ -1108,24 +1108,46 @@ export class Optimizer {
     const avgPrice = priceData.prices.reduce((sum, p) => sum + p.price, 0) / priceData.prices.length;
     const minPrice = Math.min(...priceData.prices.map((p: any) => p.price));
     const maxPrice = Math.max(...priceData.prices.map((p: any) => p.price));
+    
+    // Use all available prices for percentile calculation (today + tomorrow when available)
+    // This naturally extends to 48h after 13:00 when tomorrow's prices are fetched
     const referenceTs = priceData.current?.time ? Date.parse(priceData.current.time) : NaN;
     const windowStart = Number.isFinite(referenceTs) ? referenceTs : Date.now();
-    const windowEnd = windowStart + (24 * 60 * 60 * 1000);
-    const percentileWindowCandidates = priceData.prices.filter((p: any) => {
+    
+    // Filter to only include current and future prices (not stale past prices)
+    const futureAndCurrentPrices = priceData.prices.filter((p: any) => {
       const ts = Date.parse(p.time);
       if (!Number.isFinite(ts)) {
         return true;
       }
-      return ts >= windowStart && ts < windowEnd;
+      // Include prices from start of current hour onwards (allow some buffer for timing)
+      const currentHourStart = windowStart - (60 * 60 * 1000); // 1 hour buffer
+      return ts >= currentHourStart;
     });
-    const percentileWindow = percentileWindowCandidates.length > 0 ? percentileWindowCandidates : priceData.prices;
-    const percentileBase = percentileWindow.length > 0 ? percentileWindow : priceData.prices;
+    
+    // Use all future prices (today + tomorrow) for better optimization decisions
+    const percentileBase = futureAndCurrentPrices.length > 0 ? futureAndCurrentPrices : priceData.prices;
+    const priceWindowHours = Math.round(percentileBase.length);
+    
     const priceClassification = this.priceAnalyzer.analyzePrice(currentPrice, {
       prices: percentileBase,
       priceLevel: priceData.priceLevel
     });
     const pricePercentile = priceClassification.percentile;
     const priceLevel: string = priceClassification.label;
+
+    // Enhanced logging for price analysis transparency
+    this.logger.log(`Price analysis: ${currentPrice.toFixed(3)} kr/kWh`);
+    this.logger.log(`  - Window: ${priceWindowHours}h (${percentileBase.length} prices from today${priceWindowHours > 24 ? '+tomorrow' : ''})`);
+    this.logger.log(`  - Range: ${priceClassification.min.toFixed(3)} - ${priceClassification.max.toFixed(3)} kr/kWh`);
+    this.logger.log(`  - Local percentile: ${pricePercentile.toFixed(0)}% → ${priceClassification.originalLabel || priceLevel}`);
+    if (priceData.priceLevel) {
+      this.logger.log(`  - Provider level: ${priceData.priceLevel}`);
+    }
+    if (priceClassification.floorApplied) {
+      this.logger.log(`  - Floor applied: ${priceClassification.floorReason}`);
+      this.logger.log(`  - Final level: ${priceLevel}`);
+    }
 
     let nextHourPrice: number | undefined;
     try {

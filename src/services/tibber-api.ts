@@ -242,18 +242,21 @@ export class TibberApi extends BaseApiService {
                 energy
                 tax
                 startsAt
+                level
               }
               today {
                 total
                 energy
                 tax
                 startsAt
+                level
               }
               tomorrow {
                 total
                 energy
                 tax
                 startsAt
+                level
               }
             }
           }
