@@ -406,13 +406,15 @@ export class Optimizer {
     this.priceAnalyzer.setThresholds(settings.price.cheapPercentile);
 
     // Apply constraint settings
-    this.minSetpointChangeMinutes = settings.constraints.minSetpointChangeMinutes;
+    this.setConstraintSettings(
+      settings.constraints.minSetpointChangeMinutes,
+      settings.constraints.deadband
+    );
 
     // Load and apply Zone 1 constraints (using current values as basis)
     const zone1Min = this.settingsLoader.getNumber('min_temp', COMFORT_CONSTANTS.DEFAULT_MIN_TEMP, { min: 10, max: 30 });
     const zone1Max = this.settingsLoader.getNumber('max_temp', COMFORT_CONSTANTS.DEFAULT_MAX_TEMP, { min: 10, max: 30 });
     this.constraintManager.setZone1Constraints(zone1Min, zone1Max, settings.constraints.tempStepMax);
-    this.constraintManager.setZone1Deadband(settings.constraints.deadband);
 
     // Load and apply Zone 2 constraints
     const enableZone2 = this.settingsLoader.getBoolean('enable_zone2', false);
@@ -710,6 +712,23 @@ export class Optimizer {
     this.constraintManager.setZone1Constraints(validMin, validMax, validStep);
 
     this.logger.log(`Temperature constraints set - Min: ${validMin}°C, Max: ${validMax}°C, Step: ${validStep}°C`);
+  }
+
+  /**
+   * Set constraint values that protect against short cycling and rapid oscillation
+   * @param minSetpointChangeMinutes Minimum time between setpoint changes
+   * @param deadbandC Deadband to avoid unnecessary setpoint adjustments
+   */
+  setConstraintSettings(minSetpointChangeMinutes: number, deadbandC: number): void {
+    const validatedMinChange = validateNumber(minSetpointChangeMinutes, 'minSetpointChangeMinutes', { min: 1, max: 180 });
+    const validatedDeadband = validateNumber(deadbandC, 'deadbandC', { min: 0.1, max: 2 });
+
+    this.minSetpointChangeMinutes = validatedMinChange;
+    this.constraintManager.setZone1Deadband(validatedDeadband);
+
+    this.logger.log(
+      `Constraint settings updated - Min change: ${validatedMinChange}m, Deadband: ${validatedDeadband}°C`
+    );
   }
 
   /**

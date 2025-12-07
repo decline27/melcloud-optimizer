@@ -6,6 +6,7 @@ import { Optimizer } from '../services/optimizer';
 import { COPHelper } from '../services/cop-helper';
 import type { PriceProvider } from '../types';
 import { DefaultComfortConfig } from '../config/comfort-defaults';
+import { COMFORT_CONSTANTS } from '../constants';
 import { HomeyLogger } from '../util/logger';
 
 export interface HomeyLikeSettings {
@@ -495,6 +496,15 @@ export async function updateOptimizerSettings(homey: HomeyLike): Promise<void> {
     const numeric = Number(value);
     return Number.isFinite(numeric) ? numeric : null;
   };
+  const clampNumber = (value: number | null, min: number, max: number, fallback: number): number => {
+    if (value === null || value === undefined) {
+      return fallback;
+    }
+    if (!Number.isFinite(value)) {
+      return fallback;
+    }
+    return Math.max(min, Math.min(max, value));
+  };
 
   // Use user settings with fallback to defaults (don't mix them for min/max calculation)
   const userComfortLowerOccupied = toNumber(homey.settings.get('comfort_lower_occupied'));
@@ -537,6 +547,19 @@ export async function updateOptimizerSettings(homey: HomeyLike): Promise<void> {
   const tempStep = toNumber(homey.settings.get('temp_step_max')) ?? 0.5;
   const kFactor = toNumber(homey.settings.get('initial_k')) ?? 0.5;
 
+  const deadbandC = clampNumber(
+    toNumber(homey.settings.get('deadband_c')),
+    0.1,
+    2,
+    COMFORT_CONSTANTS.DEFAULT_DEADBAND
+  );
+  const minSetpointChangeMinutes = clampNumber(
+    toNumber(homey.settings.get('min_setpoint_change_minutes')),
+    1,
+    180,
+    COMFORT_CONSTANTS.DEFAULT_MIN_SETPOINT_CHANGE_MINUTES
+  );
+
   const enableZone2 = homey.settings.get('enable_zone2') === true;
   const minTempZone2 = homey.settings.get('min_temp_zone2') || 18;
   const maxTempZone2 = homey.settings.get('max_temp_zone2') || 22;
@@ -551,6 +574,8 @@ export async function updateOptimizerSettings(homey: HomeyLike): Promise<void> {
   homey.app.log('- Derived Min Target:', minTemp, '°C');
   homey.app.log('- Derived Max Target:', maxTemp, '°C');
   homey.app.log('- Temp Step:', tempStep, '°C (MELCloud supports 0.5°C increments)');
+  homey.app.log('- Deadband:', deadbandC, '°C');
+  homey.app.log('- Min Setpoint Interval:', `${minSetpointChangeMinutes} minutes`);
   homey.app.log('- K Factor:', kFactor);
 
   homey.app.log('Zone2 settings:');
@@ -584,6 +609,7 @@ export async function updateOptimizerSettings(homey: HomeyLike): Promise<void> {
   homey.app.log('Price threshold settings:');
   homey.app.log('- Cheap Percentile:', preheatCheapPercentile, `(${(preheatCheapPercentile * 100).toFixed(1)}th percentile)`);
 
+  optimizer.setConstraintSettings(minSetpointChangeMinutes, deadbandC);
   optimizer.setTemperatureConstraints(minTemp, maxTemp, tempStep);
   optimizer.setZone2TemperatureConstraints(enableZone2, minTempZone2, maxTempZone2, tempStepZone2);
   optimizer.setTankTemperatureConstraints(enableTankControl, minTankTemp, maxTankTemp, tankTempStep);

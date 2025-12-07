@@ -42,6 +42,8 @@ export default class HeatOptimizerApp extends App {
   }
   private memoryUsageInterval?: NodeJS.Timeout;
   private timeZoneHelper?: TimeZoneHelper;
+  private optimizerSettingsRefreshTimeout?: NodeJS.Timeout;
+  private suppressSettingsRefresh = false;
 
   /**
    * Warning method for compatibility
@@ -369,10 +371,75 @@ export default class HeatOptimizerApp extends App {
   }
 
   /**
+   * Identify settings that should trigger an optimizer refresh
+   */
+  private shouldRefreshOptimizerSettings(key: string): boolean {
+    const optimizerKeys = [
+      'deadband_c',
+      'min_setpoint_change_minutes',
+      'temp_step_max',
+      'comfort_lower_occupied',
+      'comfort_upper_occupied',
+      'comfort_lower_away',
+      'comfort_upper_away',
+      'occupied',
+      'preheat_cheap_percentile',
+      'cop_weight',
+      'auto_seasonal_mode',
+      'summer_mode',
+      'enable_zone2',
+      'min_temp_zone2',
+      'max_temp_zone2',
+      'temp_step_zone2',
+      'enable_tank_control',
+      'min_tank_temp',
+      'max_tank_temp',
+      'tank_temp_step',
+      'initial_k',
+      'price_data_source',
+      'tibber_token',
+      'tibberToken',
+      'tibber_home_id'
+    ];
+    return optimizerKeys.includes(key);
+  }
+
+  /**
+   * Debounce optimizer settings refresh so bulk saves only trigger a single reload
+   */
+  private scheduleOptimizerSettingsRefresh(reason: string): void {
+    if (this.optimizerSettingsRefreshTimeout) {
+      clearTimeout(this.optimizerSettingsRefreshTimeout);
+    }
+
+    this.optimizerSettingsRefreshTimeout = setTimeout(async () => {
+      this.optimizerSettingsRefreshTimeout = undefined;
+      this.suppressSettingsRefresh = true;
+      try {
+        const api = require('../api.js');
+        if (api.updateOptimizerSettings) {
+          await api.updateOptimizerSettings(this.homey);
+        }
+        this.log(`Optimizer settings refreshed after '${reason}' change`);
+      } catch (error) {
+        this.error('Failed to refresh optimizer settings after change:', error as Error);
+      } finally {
+        this.suppressSettingsRefresh = false;
+      }
+    }, 500);
+  }
+
+  /**
    * Handle settings changes
    */
   private async onSettingsChanged(key: string) {
     this.log(`Setting changed: ${key}`);
+    if (this.suppressSettingsRefresh && this.shouldRefreshOptimizerSettings(key)) {
+      this.log(`Skipping optimizer refresh for '${key}' (internal update)`);
+      return;
+    }
+
+    let refreshOptimizerSettings = this.shouldRefreshOptimizerSettings(key);
 
     // Log the value if possible
     try {
@@ -389,6 +456,7 @@ export default class HeatOptimizerApp extends App {
         this.logger.setLogLevel(logLevel);
         this.logger.info(`Log level changed to ${LogLevel[logLevel]}`);
       }
+      refreshOptimizerSettings = false;
     }
     // If credentials changed, re-validate
     else if (key === 'price_data_source') {
@@ -401,6 +469,7 @@ export default class HeatOptimizerApp extends App {
         this.error('Failed to refresh price provider after settings change:', error as Error);
       }
       this.validateSettings();
+      refreshOptimizerSettings = true;
     }
     else if (['melcloud_user', 'melcloud_pass', 'tibber_token', 'tibberToken', 'tibber_home_id'].includes(key)) {
       this.log(`Credential setting '${key}' changed, re-validating settings`);
@@ -429,30 +498,12 @@ export default class HeatOptimizerApp extends App {
     ].includes(key)) {
       this.log(`Temperature/occupancy setting '${key}' changed, re-validating settings and updating optimizer`);
       this.validateSettings();
-
-      // Update optimizer settings immediately for occupancy changes
-      if (key === 'occupied') {
-        try {
-          const api = require('../api.js');
-          await api.updateOptimizerSettings(this.homey);
-          this.log('Optimizer settings updated with new occupancy state');
-        } catch (error) {
-          this.error('Failed to update optimizer settings with new occupancy state:', error as Error);
-        }
-      }
+      refreshOptimizerSettings = true;
     }
     // If COP settings changed, update the COP Helper
     else if (['cop_weight', 'auto_seasonal_mode', 'summer_mode'].includes(key)) {
       this.log(`COP setting '${key}' changed, updating optimizer settings`);
-
-      // Call the API to update optimizer settings
-      try {
-        const api = require('../api.js');
-        await api.updateOptimizerSettings(this.homey);
-        this.log('Optimizer settings updated with new COP settings');
-      } catch (error) {
-        this.error('Failed to update optimizer settings with new COP settings:', error as Error);
-      }
+      refreshOptimizerSettings = true;
     }
     // If timezone settings changed, update all services
     else if (['time_zone_offset', 'use_dst', 'time_zone_name'].includes(key)) {
@@ -531,6 +582,7 @@ export default class HeatOptimizerApp extends App {
           await this.homey.settings.unset('trigger_hourly_optimization');
         }
       }
+      refreshOptimizerSettings = false;
     }
     // Handle manual weekly calibration trigger
     else if (key === 'trigger_weekly_calibration') {
@@ -593,6 +645,11 @@ export default class HeatOptimizerApp extends App {
           await this.homey.settings.unset('trigger_weekly_calibration');
         }
       }
+      refreshOptimizerSettings = false;
+    }
+
+    if (refreshOptimizerSettings) {
+      this.scheduleOptimizerSettingsRefresh(key);
     }
 
     // Ensure cron jobs are running after any relevant settings change
