@@ -205,5 +205,8 @@
   },
   "14.0.31": {
     "en": "Bug fix"
+  },
+  "14.0.32": {
+    "en": "Reload settings after save"
   }
 }
