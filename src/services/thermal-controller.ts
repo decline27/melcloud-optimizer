@@ -98,7 +98,61 @@ export class ThermalController {
                 boostIncrease: 0.5
             };
 
+            // Detect upcoming expensive hours in next 6h for preemptive preheat decisions
+            const expensiveThreshold = 1.0 - preheatCheapPercentile; // e.g., 0.75 if cheap is 0.25
+            const next6h = next24hSource.slice(0, 6);
+            const expensivePriceLevel = sortedPrices[Math.floor(sortedPrices.length * expensiveThreshold)]?.price ?? currentPrice * 1.3;
+            const hasUpcomingExpensive = next6h.some(p => p.price > expensivePriceLevel);
+
+            // Check if current price is in "normal" range (between cheap and expensive thresholds)
+            const isCurrentNormal = currentPricePercentile > preheatCheapPercentile && 
+                                    currentPricePercentile < expensiveThreshold;
+
+            // Debug logging for strategy decision
+            this.logger.log('Thermal strategy decision inputs:', {
+                currentPrice: currentPrice.toFixed(4),
+                currentPricePercentile: (currentPricePercentile * 100).toFixed(1) + '%',
+                preheatCheapPercentile: (preheatCheapPercentile * 100).toFixed(1) + '%',
+                expensiveThreshold: (expensiveThreshold * 100).toFixed(1) + '%',
+                isCurrentNormal: isCurrentNormal,
+                hasUpcomingExpensive: hasUpcomingExpensive,
+                next6hPrices: next6h.map(p => p.price.toFixed(3)).join(', '),
+                expensivePriceLevel: expensivePriceLevel.toFixed(4),
+                heatingEfficiency: heatingEfficiency.toFixed(2),
+                minimumCOPThreshold: adaptiveThresholds.minimumCOPThreshold,
+                tempDelta: tempDelta.toFixed(1),
+                currentTemp: currentTemp.toFixed(1),
+                targetTemp: targetTemp.toFixed(1),
+                comfortBand: `${comfortBand.minTemp}-${comfortBand.maxTemp}°C`
+            });
+
             // Strategy decision logic
+            // Check 1: Very cheap preheat conditions
+            const veryChepThreshold = preheatCheapPercentile * adaptiveThresholds.veryChepMultiplier;
+            const meetsVeryChepPreheat = currentPricePercentile <= veryChepThreshold &&
+                heatingEfficiency > adaptiveThresholds.goodCOPThreshold && tempDelta > 0.5;
+            
+            // Check 2: Preemptive preheat conditions
+            const meetsPreemptivePreheat = isCurrentNormal && hasUpcomingExpensive && 
+                heatingEfficiency > adaptiveThresholds.minimumCOPThreshold && tempDelta > 0;
+
+            this.logger.log('Thermal strategy condition checks:', {
+                veryChepThreshold: (veryChepThreshold * 100).toFixed(1) + '%',
+                meetsVeryChepPreheat: meetsVeryChepPreheat,
+                veryChepDetails: {
+                    priceCheck: `${(currentPricePercentile * 100).toFixed(1)}% <= ${(veryChepThreshold * 100).toFixed(1)}% = ${currentPricePercentile <= veryChepThreshold}`,
+                    copCheck: `${heatingEfficiency.toFixed(2)} > ${adaptiveThresholds.goodCOPThreshold} = ${heatingEfficiency > adaptiveThresholds.goodCOPThreshold}`,
+                    tempDeltaCheck: `${tempDelta.toFixed(1)} > 0.5 = ${tempDelta > 0.5}`
+                },
+                meetsPreemptivePreheat: meetsPreemptivePreheat,
+                preemptiveDetails: {
+                    isCurrentNormal: isCurrentNormal,
+                    hasUpcomingExpensive: hasUpcomingExpensive,
+                    copCheck: `${heatingEfficiency.toFixed(2)} > ${adaptiveThresholds.minimumCOPThreshold} = ${heatingEfficiency > adaptiveThresholds.minimumCOPThreshold}`,
+                    tempDeltaCheck: `${tempDelta.toFixed(1)} > 0 = ${tempDelta > 0}`
+                }
+            });
+
             if (currentPricePercentile <= (preheatCheapPercentile * adaptiveThresholds.veryChepMultiplier) &&
                 heatingEfficiency > adaptiveThresholds.goodCOPThreshold && tempDelta > 0.5) {
 
@@ -121,6 +175,43 @@ export class ThermalController {
                     estimatedSavings,
                     duration: 2,
                     confidenceLevel: Math.min(heatingEfficiency + 0.2, 0.9)
+                };
+
+            } else if (isCurrentNormal && hasUpcomingExpensive && 
+                       heatingEfficiency > adaptiveThresholds.minimumCOPThreshold && tempDelta > 0) {
+                // Preemptive preheat: Normal price now, but expensive hours coming soon
+                // Scale preheat aggressiveness based on how close current price is to cheap threshold
+                // Closer to cheap = more aggressive preheating
+                const normalRange = expensiveThreshold - preheatCheapPercentile;
+                const positionInNormalRange = (currentPricePercentile - preheatCheapPercentile) / normalRange;
+                const preheatMultiplier = Math.max(0.2, 1.0 - positionInNormalRange); // 0.2 minimum, 1.0 when near cheap
+
+                const preheatingTarget = Math.min(
+                    targetTemp + (heatingEfficiency * adaptiveThresholds.preheatAggressiveness * preheatMultiplier),
+                    comfortBand.maxTemp  // Respect user's max comfort temperature
+                );
+
+                const estimatedSavings = this.calculatePreheatingValue(
+                    preheatingTarget,
+                    cheapest6Hours,
+                    copData.heating,
+                    currentPrice
+                );
+
+                this.logger.log('Preemptive preheat triggered:', {
+                    currentPercentile: (currentPricePercentile * 100).toFixed(0) + '%',
+                    preheatMultiplier: preheatMultiplier.toFixed(2),
+                    targetTemp: preheatingTarget.toFixed(1),
+                    reason: 'Normal price now, expensive hours coming'
+                });
+
+                return {
+                    action: 'preheat',
+                    targetTemp: preheatingTarget,
+                    reasoning: `Preemptive preheat: ${(currentPricePercentile * 100).toFixed(0)}% now, expensive coming (×${preheatMultiplier.toFixed(1)})`,
+                    estimatedSavings,
+                    duration: 2,
+                    confidenceLevel: Math.min(heatingEfficiency + 0.1, 0.8)
                 };
 
             } else if (currentPricePercentile >= (1.0 - preheatCheapPercentile * adaptiveThresholds.veryChepMultiplier) && currentTemp > targetTemp - 0.5) {

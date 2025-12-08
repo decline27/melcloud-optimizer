@@ -117,7 +117,10 @@ This is a **Homey SDK 3 TypeScript app** that orchestrates Mitsubishi Electric h
 - Price tiers multiply user `preheat_cheap_percentile` by learned `veryChepMultiplier`.
 - Comfort targets draw from current comfort band plus adaptive aggressiveness/coasting/boost offsets.
 - COP thresholds adapt to measured performance; optimizer reverts to defaults while confidence is low.
-- Planning utilities (`computePlanningBias`, `updateThermalResponse`) temper oscillation by comparing expected vs observed heating behavior.
+- Planning utilities (`computePlanningBias`) use **trajectory-aware logic**:
+  - Only applies negative bias when expensive prices are in the immediate window (first 3 hours) AND prices are NOT declining.
+  - Avoids reducing temperature prematurely when cheap prices are coming soon.
+  - Uses user's `preheat_cheap_percentile` to derive both cheap and expensive thresholds.
 
 ## Optimization Workflow Highlights
 

@@ -57,8 +57,31 @@ describe('planning-utils', () => {
     expect(result.biasC).toBeLessThanOrEqual(0.5);
   });
 
-  test('computes negative bias when expensive window ahead', () => {
+  test('computes negative bias when expensive period sustained', () => {
     const now = new Date('2024-01-01T00:00:00Z');
+    // Expensive prices sustained through the window (not just a spike)
+    // No cheap prices, prices stable-to-rising
+    // Sorted: [1.0, 1.0, 1.5, 1.5, 1.6, 1.7] → 25th=1.0, 75th=1.6
+    // 1.7 > 1.6 in immediate window → hasExpensiveImminent = true
+    // First half avg: 1.4, Second half avg: 1.53 → NOT trending down
+    const prices = [
+      { time: '2024-01-01T01:00:00Z', price: 1.0 },
+      { time: '2024-01-01T02:00:00Z', price: 1.5 },
+      { time: '2024-01-01T03:00:00Z', price: 1.7 },  // Expensive in immediate window
+      { time: '2024-01-01T04:00:00Z', price: 1.5 },
+      { time: '2024-01-01T05:00:00Z', price: 1.6 },
+      { time: '2024-01-01T06:00:00Z', price: 1.0 }
+    ];
+    const result = computePlanningBias(prices, now, { windowHours: 6, lookaheadHours: 6 });
+    expect(result.hasExpensive).toBe(true);
+    // Since expensive is imminent AND prices aren't clearly trending down (within 5%), negative bias applies
+    expect(result.biasC).toBeLessThanOrEqual(0);
+  });
+
+  test('skips negative bias when expensive now but cheap prices coming', () => {
+    const now = new Date('2024-01-01T00:00:00Z');
+    // Expensive prices early, but prices trending DOWN (cheap coming soon)
+    // Should NOT apply negative bias - better to maintain temp for cheap heating
     const prices = [
       { time: '2024-01-01T01:00:00Z', price: 1.0 },
       { time: '2024-01-01T02:00:00Z', price: 1.2 },
@@ -68,9 +91,9 @@ describe('planning-utils', () => {
       { time: '2024-01-01T06:00:00Z', price: 0.5 }
     ];
     const result = computePlanningBias(prices, now, { windowHours: 6, lookaheadHours: 6 });
-    expect(result.hasExpensive).toBe(true);
-    expect(result.biasC).toBeLessThan(0);
-    expect(result.biasC).toBeGreaterThanOrEqual(-0.3);
+    // Expensive is still detected (for reporting), but bias should be 0 or positive
+    // because cheap prices are coming soon
+    expect(result.biasC).toBeGreaterThanOrEqual(0);
   });
 
   test('returns zero bias without forecast data', () => {

@@ -183,6 +183,29 @@ sequenceDiagram
    - **Boost:** During cheap + excellent COP (>80%) + below target
    - **Maintain:** Normal operation
 
+6. **Trajectory-Aware Planning Bias** (Added December 2025):
+   
+   The planning bias calculation considers not just upcoming expensive prices, but the overall price trajectory:
+   
+   ```typescript
+   // Only apply negative bias when:
+   // 1. Expensive prices exist in the immediate window (first 3 hours)
+   // 2. AND prices are NOT trending downward toward cheap periods
+   
+   const hasExpensiveImminent = immediateWindow.some(p => p > expensiveThreshold);
+   const pricesTrendingDown = windowEndPrice < windowStartPrice * 0.9;
+   
+   if (hasExpensiveImminent && !pricesTrendingDown) {
+     biasC = -expensiveBiasC;  // Reduce temperature target
+   } else if (hasCheap) {
+     biasC = +cheapBiasC;      // Increase for preheat opportunity
+   } else {
+     biasC = 0;                // No adjustment needed
+   }
+   ```
+   
+   **Rationale:** This prevents the system from lowering temperature during NORMAL price periods when cheap prices are coming soon. Instead of reducing temperature prematurely, it waits for the cheap period to preheat efficiently.
+
 ---
 
 ## Critical Weaknesses & Failure Modes

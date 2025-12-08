@@ -1371,8 +1371,8 @@ export class Optimizer {
     const planningBiasResult = computePlanningBias(priceData.prices, planningReferenceTime, {
       windowHours: 6,
       lookaheadHours: 12,
-      cheapPercentile: 25,
-      expensivePercentile: 75,
+      cheapPercentile: this.priceAnalyzer.getCheapPercentile() * 100, // Use user's setting
+      expensivePercentile: (1.0 - this.priceAnalyzer.getCheapPercentile()) * 100, // Symmetric threshold
       cheapBiasC: 0.5,
       expensiveBiasC: 0.3,
       maxAbsBiasC: 0.7
@@ -1448,9 +1448,22 @@ export class Optimizer {
     let hotWaterAction = null;
     let thermalStrategy = null;
 
-    if (optimizationResult.metrics?.optimizationFocus === 'hotwater' ||
-      optimizationResult.metrics?.optimizationFocus === 'both') {
+    // Apply thermal mass strategy for all optimization modes (heating, hotwater, both)
+    // This uses learned parameters from AdaptiveParametersLearner for preheat/coast/boost decisions
+    if (optimizationResult.metrics?.optimizationFocus) {
       const thermalMassModel = this.thermalController.getThermalMassModel();
+      
+      this.logger.log('Thermal strategy check:', {
+        hasOptimizationFocus: !!optimizationResult.metrics?.optimizationFocus,
+        optimizationFocus: optimizationResult.metrics?.optimizationFocus,
+        hasThermalMassModel: !!thermalMassModel,
+        priceCount: priceData.prices?.length || 0,
+        meetsMinPrices: (priceData.prices?.length || 0) >= 24,
+        currentTemp: currentTemp,
+        targetTemp: targetTemp,
+        cheapPercentile: this.priceAnalyzer.getCheapPercentile()
+      });
+      
       if (thermalMassModel && priceData.prices && priceData.prices.length >= 24) {
         const targetBeforeStrategy = targetTemp;
         thermalStrategy = this.thermalController.calculateThermalMassStrategy(
@@ -1468,6 +1481,13 @@ export class Optimizer {
           constraintsBand,  // Pass the comfort band to respect user settings
           planningReferenceTimeMs
         );
+
+        this.logger.log('Thermal strategy result:', {
+          action: thermalStrategy.action,
+          targetTemp: thermalStrategy.targetTemp,
+          reasoning: thermalStrategy.reasoning,
+          confidence: thermalStrategy.confidenceLevel
+        });
 
         if (thermalStrategy.action !== 'maintain') {
           targetTemp = thermalStrategy.targetTemp;

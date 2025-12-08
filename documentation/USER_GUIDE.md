@@ -27,7 +27,10 @@ The system runs a continuous optimization cycle (typically every hour) that foll
 
 2.  **Analyze & Decide:**
     *   It classifies the current price as **Very Cheap**, **Cheap**, **Normal**, **Expensive**, or **Very Expensive** compared to the daily average.
-    *   It calculates a "Planning Bias" – a temperature adjustment based on future prices. If prices are about to jump up, it might pre-heat now.
+    *   It calculates a "Planning Bias" – a temperature adjustment based on future prices:
+        *   **Positive bias:** If cheap prices are coming soon, preheat now to take advantage.
+        *   **Negative bias:** Only applied if expensive prices are truly imminent AND prices aren't declining (trajectory-aware).
+        *   **No bias:** When prices are declining toward cheap periods, the system waits rather than reducing temperature prematurely.
 
 3.  **Apply Changes:**
     *   It sends new target temperatures for your Heating Zones and Hot Water Tank to the heat pump.

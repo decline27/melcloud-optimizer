@@ -101,15 +101,34 @@ export function computePlanningBias(
   const hasCheap = windowSlice.some((entry) => entry.price < cheapCut);
   const hasExpensive = windowSlice.some((entry) => entry.price > expensiveCut);
 
+  // Trajectory awareness: check if prices are trending down in near-term
+  // If cheap prices are coming soon (first 3 hours), don't apply negative bias
+  const immediateWindow = windowSlice.slice(0, Math.min(3, windowSlice.length));
+  const hasCheapImminent = immediateWindow.some((entry) => entry.price < cheapCut);
+  const hasExpensiveImminent = immediateWindow.some((entry) => entry.price > expensiveCut);
+  
+  // Check price gradient: compare first half vs second half of window
+  const firstHalf = windowSlice.slice(0, Math.ceil(windowSlice.length / 2));
+  const secondHalf = windowSlice.slice(Math.ceil(windowSlice.length / 2));
+  const avgFirst = firstHalf.reduce((sum, e) => sum + e.price, 0) / (firstHalf.length || 1);
+  const avgSecond = secondHalf.reduce((sum, e) => sum + e.price, 0) / (secondHalf.length || 1);
+  const pricesTrendingDown = avgSecond < avgFirst * 0.95; // Prices dropping by >5%
+
   let bias = 0;
   if (hasCheap) bias += cheapBias;
-  if (hasExpensive) bias -= expensiveBias;
+  
+  // Only apply negative bias if expensive prices are IMMINENT (0-3h) 
+  // AND prices aren't trending down (cheap coming soon)
+  if (hasExpensiveImminent && !pricesTrendingDown) {
+    bias -= expensiveBias;
+  }
+  
   bias = clamp(bias, -maxAbsBias, maxAbsBias);
 
   return {
     biasC: bias,
     hasCheap,
-    hasExpensive,
+    hasExpensive: hasExpensiveImminent, // Report only imminent expensive
     windowHours
   };
 }

@@ -2,7 +2,7 @@
 
 > Technical reference for all extracted services in the MELCloud Heat Pump Optimizer.
 
-**Last Updated:** December 4, 2025
+**Last Updated:** December 8, 2025
 
 ---
 
@@ -129,6 +129,38 @@
 - Percentile-based filtering (learned over time)
 - Outlier rejection (based on observed data)
 - State persistence to settings
+
+---
+
+### PlanningUtils
+
+**File:** [`src/services/planning-utils.ts`](file:///Users/kjetilvetlejord/Documents/mel/com.melcloud.optimize/src/services/planning-utils.ts)  
+**Lines:** ~100
+
+**Purpose:** Trajectory-aware planning bias calculations for temperature optimization.
+
+**Key Methods:**
+| Method | Description |
+|--------|-------------|
+| `computePlanningBias()` | Calculate temperature bias based on upcoming price patterns |
+
+**Features:**
+- **Trajectory Awareness:** Only applies negative bias when expensive prices are truly imminent AND prices are not trending down
+- **Immediate Window Detection:** Checks first 3 hours for expensive prices before applying negative adjustments
+- **Price Gradient Analysis:** Compares current prices vs. end-of-window prices to detect declining trends
+- **User-Configurable Thresholds:** Uses `cheapPercentile` and `expensivePercentile` from settings
+
+**Behavior:**
+```typescript
+// Positive bias: Cheap prices in window → preheat opportunity
+if (hasCheap) biasC = +cheapBiasC;
+
+// Negative bias: ONLY when expensive is imminent AND prices NOT declining
+if (hasExpensiveImminent && !pricesTrendingDown) biasC = -expensiveBiasC;
+
+// No bias: When prices are declining toward cheap periods → wait
+if (pricesTrendingDown) biasC = 0;  // Don't reduce temperature prematurely
+```
 
 ---
 

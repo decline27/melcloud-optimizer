@@ -1,6 +1,6 @@
 # MELCloud Optimizer - LLM Agent Instructions
 
-> **Last Updated:** December 4, 2025  
+> **Last Updated:** December 8, 2025  
 > Guidelines for AI agents working on this codebase.
 
 ---
@@ -114,12 +114,25 @@ Full reference: [`documentation/SETTINGS_REFERENCE.md`](file:///Users/kjetilvetl
 ```
 1. Collect inputs (device state, prices, weather)
 2. Classify price (VERY_CHEAP → VERY_EXPENSIVE)
-3. Calculate thermal strategy (preheat/coast/maintain/boost)
-4. Compute optimal temperature within comfort band
-5. Apply constraints (deadband, step limit, anti-cycling)
-6. Send setpoint via MELCloud API
+3. Calculate planning bias (trajectory-aware - see below)
+4. Calculate thermal strategy (preheat/coast/maintain/boost)
+5. Compute optimal temperature within comfort band
+6. Apply constraints (deadband, step limit, anti-cycling)
+7. Send setpoint via MELCloud API
 7. Record savings and learn from outcome
 ```
+
+### Trajectory-Aware Planning Bias
+
+The planning bias (`computePlanningBias` in `src/services/planning-utils.ts`) is **trajectory-aware**:
+
+- **Positive bias (+):** Applied when cheap prices are in the upcoming window → preheat opportunity
+- **Negative bias (-):** Only applied when:
+  1. Expensive prices exist in the **immediate window** (first 3 hours), AND
+  2. Prices are **NOT trending downward** toward cheap periods
+- **No bias (0):** When prices are declining toward cheap → wait rather than reduce temperature prematurely
+
+This prevents the optimizer from lowering temperature during NORMAL price periods when cheap prices are coming soon. Instead, it waits for the cheap period to heat efficiently.
 
 ---
 
@@ -131,6 +144,7 @@ Full reference: [`documentation/SETTINGS_REFERENCE.md`](file:///Users/kjetilvetl
 | Temperature logic | `src/services/temperature-optimizer.ts` |
 | Savings calculations | `src/services/savings-service.ts` |
 | Thermal strategies | `src/services/thermal-controller.ts` |
+| Planning utilities | `src/services/planning-utils.ts` |
 | Constraints | `src/services/constraint-manager.ts` |
 | Settings | `src/services/settings-loader.ts` |
 | Types | `src/types/index.ts` |
