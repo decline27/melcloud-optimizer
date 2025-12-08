@@ -174,21 +174,25 @@ const scenarios: Record<string, ScenarioBuilder> = {
   melcloud_rate_limit_burst: () => {
     const rows = baseTimeline({
       startISO: '2025-11-20T00:00:00',
-      basePrice: 0.5,
+      basePrice: 0.75, // Higher base price - less preheat early
       baseOutdoor: 2,
-      indoorStart: 20.8
+      indoorStart: 19.5 // Lower starting temp - room to increase
     });
     return mapRows(rows, (row, idx) => {
       const hour = DateTime.fromISO(row.ts).setZone(ZONE).hour;
       if (idx === 6) {
         row.events = ['melcloud_429'];
-      }
-      if (hour >= 6 && hour <= 8) {
+        // Force a dramatic price change to ensure temperature change exceeds deadband
+        row.price = 0.05; // Extremely cheap - will trigger significant preheat
+      } else if (idx >= 0 && idx <= 5) {
+        // Keep expensive prices early so temp stays low
+        row.price = 0.85 + 0.05 * Math.sin(idx);
+      } else if (hour >= 7 && hour <= 8) {
         row.price = 0.35;
       } else if (hour >= 16 && hour <= 19) {
         row.price = 0.82;
       } else {
-        row.price = 0.48 + 0.02 * Math.sin(idx / 5);
+        row.price = 0.58 + 0.02 * Math.sin(idx / 5);
       }
       row.outdoor = 2 - 0.15 * idx + 0.8 * Math.sin(idx / 4);
       row.weatherTrend = -0.2;
