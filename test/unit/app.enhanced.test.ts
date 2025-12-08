@@ -373,6 +373,9 @@ describe('HeatOptimizerApp Enhanced Coverage Tests', () => {
   });
 
   test('onSettingsChanged handles COP setting changes', async () => {
+    // Use fake timers to handle the debounce timeout
+    jest.useFakeTimers();
+
     // Mock settings for COP change
     homey.settings.get.mockImplementation((key: string) => {
       if (key === 'cop_weight') return 0.8;
@@ -385,7 +388,16 @@ describe('HeatOptimizerApp Enhanced Coverage Tests', () => {
 
     await (app as any).onSettingsChanged('cop_weight');
 
+    // Advance timers past the 500ms debounce
+    jest.advanceTimersByTime(600);
+
+    // Allow any pending promises to resolve
+    await Promise.resolve();
+
     expect(mockApi.updateOptimizerSettings).toHaveBeenCalledWith(homey);
+
+    // Restore real timers
+    jest.useRealTimers();
   });
 
   test('runSystemHealthCheck no longer handles cron recovery since jobs moved to driver', async () => {

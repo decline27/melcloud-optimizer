@@ -20,6 +20,36 @@ export interface PlanningBiasResult {
   windowHours: number;
 }
 
+/**
+ * Planning Bias Default Constants
+ * 
+ * These values control how the planning bias system anticipates future
+ * price changes and adjusts temperature targets accordingly.
+ * 
+ * @remarks
+ * - DEFAULT_WINDOW_HOURS (6): The immediate planning window. 6 hours provides
+ *   enough look-ahead for typical Nordic market price cycles while remaining
+ *   responsive to near-term changes. Represents ~25% of a day.
+ * 
+ * - DEFAULT_LOOKAHEAD_HOURS (12): Extended horizon for trend detection.
+ *   12 hours captures day/night transitions and typical price pattern cycles.
+ * 
+ * - DEFAULT_CHEAP_PERCENTILE (25): Prices in the bottom 25% are considered
+ *   cheap. This aligns with typical Nordic spot market distribution where
+ *   night hours often fall in this range.
+ * 
+ * - DEFAULT_EXPENSIVE_PERCENTILE (75): Mirror of cheap threshold. Prices
+ *   in the top 25% trigger conservation strategies.
+ * 
+ * - DEFAULT_CHEAP_BIAS (0.5°C): Temperature increase during cheap periods.
+ *   0.5°C is perceptible for thermal storage but within comfort tolerance.
+ * 
+ * - DEFAULT_EXPENSIVE_BIAS (0.3°C): Temperature decrease during expensive
+ *   periods. Smaller than cheap bias to prioritize comfort over savings.
+ * 
+ * - DEFAULT_MAX_ABS_BIAS (0.7°C): Maximum allowed temperature bias in either
+ *   direction. Prevents aggressive swings that could cause discomfort.
+ */
 const DEFAULT_WINDOW_HOURS = 6;
 const DEFAULT_LOOKAHEAD_HOURS = 12;
 const DEFAULT_CHEAP_PERCENTILE = 25;

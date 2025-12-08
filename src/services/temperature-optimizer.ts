@@ -26,6 +26,51 @@ import { OptimizationMetrics } from '../types';
 import { COP_THRESHOLDS, DEFAULT_WEIGHTS } from '../constants';
 
 /**
+ * Temperature Optimizer Constants
+ * 
+ * These values serve as DEFAULTS for temperature adjustments. The COP-based
+ * adjustments can be learned and overridden by AdaptiveParametersLearner.
+ * 
+ * @remarks
+ * Outdoor Temperature Thresholds (not learned - physical constants):
+ * - COLD_OUTDOOR_THRESHOLD (5°C): Below this, add comfort bonus to compensate
+ *   for increased heat loss and perceived cold. Typical mild winter conditions.
+ * 
+ * - MILD_OUTDOOR_THRESHOLD (15°C): Above this, reduce heating target as
+ *   solar gains and minimal heat loss reduce heating needs.
+ * 
+ * - COLD_OUTDOOR_BONUS (0.5°C): Temperature boost when outdoor < 5°C.
+ *   Maintains comfort perception in cold weather.
+ * 
+ * - MILD_OUTDOOR_REDUCTION (0.3°C): Temperature reduction when outdoor > 15°C.
+ *   Prevents over-heating in mild conditions.
+ * 
+ * COP Efficiency Adjustments (DEFAULT values - learned by AdaptiveParameters):
+ * These serve as fallbacks when adaptive learning hasn't reached confidence.
+ * - DEFAULT_COP_ADJUSTMENT_GOOD (-0.1°C): Learned as copAdjustmentGood
+ * - DEFAULT_COP_ADJUSTMENT_POOR (-0.5°C): Learned as copAdjustmentPoor  
+ * - DEFAULT_COP_ADJUSTMENT_VERY_POOR (-0.8°C): Learned as copAdjustmentVeryPoor
+ * 
+ * Transition Mode Thresholds:
+ * - TRANSITION_EFFICIENCY_HIGH (0.7): Combined COP threshold for bonus.
+ * - TRANSITION_EFFICIENCY_LOW (0.4): Combined COP threshold for reduction.
+ * - TRANSITION_EFFICIENCY_REDUCTION (-0.4°C): Reduction for low efficiency.
+ */
+const COLD_OUTDOOR_THRESHOLD = 5;
+const MILD_OUTDOOR_THRESHOLD = 15;
+const COLD_OUTDOOR_BONUS = 0.5;
+const MILD_OUTDOOR_REDUCTION = 0.3;
+
+// Default COP adjustments - overridden by AdaptiveParametersLearner when confidence is high
+const DEFAULT_COP_ADJUSTMENT_GOOD = -0.1;
+const DEFAULT_COP_ADJUSTMENT_POOR = -0.5;
+const DEFAULT_COP_ADJUSTMENT_VERY_POOR = -0.8;
+
+const TRANSITION_EFFICIENCY_HIGH = 0.7;
+const TRANSITION_EFFICIENCY_LOW = 0.4;
+const TRANSITION_EFFICIENCY_REDUCTION = -0.4;
+
+/**
  * Logger interface for dependency injection
  */
 export interface TemperatureOptimizerLogger {
@@ -357,23 +402,24 @@ export class TemperatureOptimizer {
       };
 
       // Efficiency-based comfort adjustment using adaptive thresholds
+      // Use learned adjustment magnitudes when available, fall back to defaults
       let efficiencyAdjustment = 0;
       if (heatingEfficiency > adaptiveThresholds.excellentCOPThreshold) {
         // Excellent heating COP: maintain comfort
         efficiencyAdjustment = adaptiveParams?.copEfficiencyBonusMedium || DEFAULT_WEIGHTS.COP_EFFICIENCY_BONUS_MEDIUM;
       } else if (heatingEfficiency > adaptiveThresholds.goodCOPThreshold) {
-        // Good heating COP: slight reduction
-        efficiencyAdjustment = -0.1;
+        // Good heating COP: slight reduction (learned or default)
+        efficiencyAdjustment = adaptiveParams?.copAdjustmentGood ? -adaptiveParams.copAdjustmentGood : DEFAULT_COP_ADJUSTMENT_GOOD;
       } else if (heatingEfficiency > adaptiveThresholds.minimumCOPThreshold) {
-        // Poor heating COP: significant reduction
-        efficiencyAdjustment = -0.5;
+        // Poor heating COP: significant reduction (learned or default)
+        efficiencyAdjustment = adaptiveParams?.copAdjustmentPoor ? -adaptiveParams.copAdjustmentPoor : DEFAULT_COP_ADJUSTMENT_POOR;
       } else {
-        // Very poor heating COP: maximum conservation
-        efficiencyAdjustment = -0.8;
+        // Very poor heating COP: maximum conservation (learned or default)
+        efficiencyAdjustment = adaptiveParams?.copAdjustmentVeryPoor ? -adaptiveParams.copAdjustmentVeryPoor : DEFAULT_COP_ADJUSTMENT_VERY_POOR;
       }
 
       // Outdoor temperature adjustment: colder outside = need higher inside for comfort
-      const outdoorAdjustment = outdoorTemp < 5 ? 0.5 : outdoorTemp > 15 ? -0.3 : 0;
+      const outdoorAdjustment = outdoorTemp < COLD_OUTDOOR_THRESHOLD ? COLD_OUTDOOR_BONUS : outdoorTemp > MILD_OUTDOOR_THRESHOLD ? -MILD_OUTDOOR_REDUCTION : 0;
 
       targetTemp = midTemp + priceAdjustment + efficiencyAdjustment + outdoorAdjustment;
       // Use pre-calculated price level (based on learned thresholds) for accurate description
@@ -395,10 +441,10 @@ export class TemperatureOptimizer {
 
       // Combined efficiency adjustment
       let efficiencyAdjustment = 0;
-      if (combinedEfficiency > 0.7) {
+      if (combinedEfficiency > TRANSITION_EFFICIENCY_HIGH) {
         efficiencyAdjustment = adaptiveParams?.copEfficiencyBonusMedium || DEFAULT_WEIGHTS.COP_EFFICIENCY_BONUS_MEDIUM;
-      } else if (combinedEfficiency < 0.4) {
-        efficiencyAdjustment = -0.4;
+      } else if (combinedEfficiency < TRANSITION_EFFICIENCY_LOW) {
+        efficiencyAdjustment = TRANSITION_EFFICIENCY_REDUCTION;
       }
 
       targetTemp = midTemp + priceAdjustment + efficiencyAdjustment;

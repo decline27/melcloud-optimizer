@@ -68,8 +68,37 @@ export interface PriceClassificationStats {
   floorReason?: string;
 }
 
+/**
+ * Price Classification Constants
+ * 
+ * These values control how electricity prices are classified into tiers
+ * for optimization decisions.
+ * 
+ * @remarks
+ * - DEFAULT_CHEAP_PERCENTILE (25): Prices in the bottom 25% are considered
+ *   cheap. This aligns with typical Nordic spot market patterns where off-peak
+ *   hours (nights, weekends) often fall in this range.
+ * 
+ * - DEFAULT_VERY_CHEAP_MULTIPLIER (0.4): Applied to cheap percentile to derive
+ *   very-cheap threshold. Example: 25% * 0.4 = 10%. Very cheap prices trigger
+ *   more aggressive preheating strategies.
+ * 
+ * - HISTORICAL_CHEAP_RATIO (0.7): If current price is below 70% of historical
+ *   average, treat as absolutely cheap regardless of daily percentile. This
+ *   prevents penalizing heating on uniformly cheap days.
+ * 
+ * - HISTORICAL_EXPENSIVE_RATIO (1.3): If current price exceeds 130% of
+ *   historical average, treat as absolutely expensive. Prevents over-heating
+ *   on uniformly expensive days.
+ */
 const DEFAULT_CHEAP_PERCENTILE = 25;
 const DEFAULT_VERY_CHEAP_MULTIPLIER = 0.4;
+
+/** Price is considered absolutely cheap if below this ratio of historical avg */
+const HISTORICAL_CHEAP_RATIO = 0.7;
+
+/** Price is considered absolutely expensive if above this ratio of historical avg */
+const HISTORICAL_EXPENSIVE_RATIO = 1.3;
 
 function normalizePercentileInput(value: number | undefined, fallback: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -217,14 +246,14 @@ export function classifyPriceUnified(
   else if (options?.historicalAvgPrice && Number.isFinite(options.historicalAvgPrice)) {
     const historicalAvg = options.historicalAvgPrice;
     // If current price is < 70% of historical avg, it's an absolutely cheap period
-    if (safeCurrent < historicalAvg * 0.7 && (label === 'EXPENSIVE' || label === 'VERY_EXPENSIVE')) {
+    if (safeCurrent < historicalAvg * HISTORICAL_CHEAP_RATIO && (label === 'EXPENSIVE' || label === 'VERY_EXPENSIVE')) {
       originalLabel = label;
       label = 'NORMAL';
       floorApplied = true;
       floorReason = `Price ${safeCurrent.toFixed(3)} is ${((safeCurrent / historicalAvg) * 100).toFixed(0)}% of historical avg ${historicalAvg.toFixed(3)} (cheap day protection)`;
     }
     // If current price is > 130% of historical avg, it's an absolutely expensive period
-    else if (safeCurrent > historicalAvg * 1.3 && (label === 'CHEAP' || label === 'VERY_CHEAP')) {
+    else if (safeCurrent > historicalAvg * HISTORICAL_EXPENSIVE_RATIO && (label === 'CHEAP' || label === 'VERY_CHEAP')) {
       originalLabel = label;
       label = 'NORMAL';
       floorApplied = true;
