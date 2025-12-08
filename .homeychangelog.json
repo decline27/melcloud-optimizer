@@ -208,5 +208,8 @@
   },
   "14.0.32": {
     "en": "Reload settings after save"
+  },
+  "14.0.33": {
+    "en": "Fixed Legionella to read only"
   }
 }
