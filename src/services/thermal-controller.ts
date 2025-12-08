@@ -14,48 +14,47 @@ import { PriceAnalyzer } from './price-analyzer';
 /**
  * Thermal Controller Constants
  * 
- * These values control thermal mass strategy behavior. They are derived from
- * empirical testing with Nordic residential heat pump installations.
+ * These values control thermal mass strategy behavior. Some are fixed constants
+ * while others serve as DEFAULT caps that scale with learned thermal characteristics.
  * 
  * @remarks
+ * Fixed Constants:
  * - CHEAPEST_HOURS_COUNT: 6 hours represents ~25% of a 24h window, matching
- *   the default cheap percentile threshold. This identifies the optimal
- *   preheating window in most Nordic electricity markets.
- * 
- * - MAX_COASTING_HOURS: 4 hours is the practical limit for thermal coasting
- *   in well-insulated Nordic homes. Beyond this, comfort typically degrades
- *   unacceptably even with good thermal mass.
+ *   the default cheap percentile threshold.
  * 
  * - PREHEAT_TEMP_DELTA_THRESHOLD: 0.5°C minimum temperature difference
- *   required to trigger preheating. Smaller deltas aren't worth the
- *   optimization overhead and may cause unnecessary cycling.
- * 
- * - PREHEAT_DURATION_HOURS: 2 hours is the typical preheating window for
- *   residential heat pumps to raise indoor temp by 1-2°C efficiently.
+ *   required to trigger preheating.
  * 
  * - BOOST_DURATION_HOURS: 1 hour boost when conditions are excellent.
- *   Short duration prevents overshooting and maintains efficiency.
- * 
- * - DEFAULT_HEATING_POWER_KW: 2.0 kW is a typical average heating output
- *   for residential heat pumps. Used for savings estimation when actual
- *   power data is unavailable.
  * 
  * - BOOST_SAVINGS_FACTOR: 0.15 multiplier for boost value estimation.
- *   Conservative factor to avoid overestimating savings.
  * 
- * - REFERENCE_COP: 4.0 is the reference COP for normalizing efficiency
- *   in boost calculations. Represents good heat pump performance in
- *   typical Nordic winter conditions. A COP of 4.0 gives 100% efficiency
- *   rating; higher COPs yield >100%, lower COPs yield <100%.
+ * Derived/Scalable Constants (scale with learned thermal capacity):
+ * - MAX_COASTING_HOURS_CAP: 6 hours safety cap. Actual max coasting is derived
+ *   from thermalCapacity * COASTING_HOURS_PER_CAPACITY (typically 1.5-6h).
+ * 
+ * - PREHEAT_DURATION_CAP: 3 hours safety cap. Actual duration is derived
+ *   from thermalCapacity * PREHEAT_HOURS_PER_CAPACITY (typically 1-3h).
+ * 
+ * - DEFAULT_HEATING_POWER_KW: 2.0 kW fallback. When thermal model is available,
+ *   heating power can be estimated from heatLossRate.
+ * 
+ * - DEFAULT_REFERENCE_COP: 4.0 fallback. When COP history is available,
+ *   maxObserved COP from CopNormalizer should be used instead.
  */
 const CHEAPEST_HOURS_COUNT = 6;
-const MAX_COASTING_HOURS = 4;
 const PREHEAT_TEMP_DELTA_THRESHOLD = 0.5;
-const PREHEAT_DURATION_HOURS = 2;
 const BOOST_DURATION_HOURS = 1;
-const DEFAULT_HEATING_POWER_KW = 2.0;
 const BOOST_SAVINGS_FACTOR = 0.15;
-const REFERENCE_COP = 4.0;
+
+// Scalable constants - these are caps/defaults, actual values derived from thermal model
+const MAX_COASTING_HOURS_CAP = 6;
+const COASTING_HOURS_PER_CAPACITY = 1.5;  // Hours of coasting per unit thermal capacity
+const PREHEAT_DURATION_CAP = 3;
+const PREHEAT_HOURS_PER_CAPACITY = 0.8;   // Hours of preheat per unit thermal capacity
+const MIN_PREHEAT_DURATION = 1;
+const DEFAULT_HEATING_POWER_KW = 2.0;
+const DEFAULT_REFERENCE_COP = 4.0;
 
 export class ThermalController {
     private thermalModel: ThermalModel = { K: 0.5 };
@@ -141,7 +140,10 @@ export class ThermalController {
                 veryChepMultiplier: 0.8,
                 preheatAggressiveness: 2.0,
                 coastingReduction: 1.5,
-                boostIncrease: 0.5
+                boostIncrease: 0.5,
+                // Timing multipliers - default to 1.0 for no change
+                maxCoastingHoursMultiplier: 1.0,
+                preheatDurationMultiplier: 1.0
             };
 
             // Detect upcoming expensive hours in next 6h for preemptive preheat decisions
@@ -215,12 +217,20 @@ export class ThermalController {
                     comfortBand.minTemp
                 );
 
+                // Derive preheat duration from thermal capacity: higher capacity = longer preheat
+                // Apply learned multiplier for fine-tuning based on actual thermal response
+                const basePreheatDuration = Math.max(MIN_PREHEAT_DURATION, this.thermalMassModel.thermalCapacity * PREHEAT_HOURS_PER_CAPACITY);
+                const preheatDuration = Math.min(
+                    basePreheatDuration * adaptiveThresholds.preheatDurationMultiplier,
+                    PREHEAT_DURATION_CAP
+                );
+
                 return {
                     action: 'preheat',
                     targetTemp: preheatingTarget,
                     reasoning: `Excellent conditions for preheating: price ${(currentPricePercentile * 100).toFixed(0)}th percentile`,
                     estimatedSavings,
-                    duration: PREHEAT_DURATION_HOURS,
+                    duration: preheatDuration,
                     confidenceLevel: Math.min(heatingEfficiency + 0.2, 0.9)
                 };
 
@@ -252,21 +262,36 @@ export class ThermalController {
                     reason: 'Normal price now, expensive hours coming'
                 });
 
+                // Derive preheat duration from thermal capacity
+                // Apply learned multiplier for fine-tuning based on actual thermal response
+                const basePreheatDuration = Math.max(MIN_PREHEAT_DURATION, this.thermalMassModel.thermalCapacity * PREHEAT_HOURS_PER_CAPACITY);
+                const preheatDuration = Math.min(
+                    basePreheatDuration * adaptiveThresholds.preheatDurationMultiplier,
+                    PREHEAT_DURATION_CAP
+                );
+
                 return {
                     action: 'preheat',
                     targetTemp: preheatingTarget,
                     reasoning: `Preemptive preheat: ${(currentPricePercentile * 100).toFixed(0)}% now, expensive coming (×${preheatMultiplier.toFixed(1)})`,
                     estimatedSavings,
-                    duration: 2,
+                    duration: preheatDuration,
                     confidenceLevel: Math.min(heatingEfficiency + 0.1, 0.8)
                 };
 
             } else if (currentPricePercentile >= (1.0 - preheatCheapPercentile * adaptiveThresholds.veryChepMultiplier) && currentTemp > targetTemp - 0.5) {
-                // Coasting logic
+                // Coasting logic - scale max coasting with thermal capacity
                 const coastingTarget = Math.max(targetTemp - adaptiveThresholds.coastingReduction, comfortBand.minTemp);
+                // Derive max coasting hours from thermal capacity: higher capacity = longer safe coasting
+                // Apply learned multiplier for fine-tuning based on actual thermal response
+                const baseCoastingHours = this.thermalMassModel.thermalCapacity * COASTING_HOURS_PER_CAPACITY;
+                const maxCoastingForBuilding = Math.min(
+                    baseCoastingHours * adaptiveThresholds.maxCoastingHoursMultiplier,
+                    MAX_COASTING_HOURS_CAP
+                );
                 const coastingHours = Math.min(
                     (currentTemp - coastingTarget) / this.thermalMassModel.heatLossRate,
-                    MAX_COASTING_HOURS
+                    maxCoastingForBuilding
                 );
 
                 const estimatedSavings = this.calculateCoastingSavings(currentPrice, coastingHours);
@@ -338,8 +363,21 @@ export class ThermalController {
         return DEFAULT_HEATING_POWER_KW * coastingHours * currentPrice;
     }
 
-    private calculateBoostValue(boostTarget: number, heatingCOP: number, baselineTemp: number = 20): number {
+    /**
+     * Calculate the estimated value of boosting temperature during cheap electricity.
+     * @param boostTarget Target temperature for boost
+     * @param heatingCOP Current heating COP
+     * @param baselineTemp Baseline temperature (user's comfort minimum)
+     * @param referenceCOP Reference COP for efficiency normalization. When COP history
+     *                     is available, pass CopNormalizer.maxObserved for better accuracy.
+     */
+    private calculateBoostValue(
+        boostTarget: number, 
+        heatingCOP: number, 
+        baselineTemp: number = 20,
+        referenceCOP: number = DEFAULT_REFERENCE_COP
+    ): number {
         const extraEnergy = (boostTarget - baselineTemp) * this.thermalMassModel.thermalCapacity;
-        return extraEnergy * BOOST_SAVINGS_FACTOR * (heatingCOP / REFERENCE_COP);
+        return extraEnergy * BOOST_SAVINGS_FACTOR * (heatingCOP / referenceCOP);
     }
 }

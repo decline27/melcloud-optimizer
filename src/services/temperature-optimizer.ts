@@ -419,7 +419,10 @@ export class TemperatureOptimizer {
       }
 
       // Outdoor temperature adjustment: colder outside = need higher inside for comfort
-      const outdoorAdjustment = outdoorTemp < COLD_OUTDOOR_THRESHOLD ? COLD_OUTDOOR_BONUS : outdoorTemp > MILD_OUTDOOR_THRESHOLD ? -MILD_OUTDOOR_REDUCTION : 0;
+      // Use learned values from adaptive parameters when available, fall back to defaults
+      const coldBonus = adaptiveParams?.coldOutdoorBonus ?? COLD_OUTDOOR_BONUS;
+      const mildReduction = adaptiveParams?.mildOutdoorReduction ?? MILD_OUTDOOR_REDUCTION;
+      const outdoorAdjustment = outdoorTemp < COLD_OUTDOOR_THRESHOLD ? coldBonus : outdoorTemp > MILD_OUTDOOR_THRESHOLD ? -mildReduction : 0;
 
       targetTemp = midTemp + priceAdjustment + efficiencyAdjustment + outdoorAdjustment;
       // Use pre-calculated price level (based on learned thresholds) for accurate description

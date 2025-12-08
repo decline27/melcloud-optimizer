@@ -775,4 +775,354 @@ describe('AdaptiveParametersLearner', () => {
             expect(mockHomey.error).toHaveBeenCalled();
         });
     });
+
+    describe('learnEnvironmentalResponse', () => {
+        test('increases coldOutdoorBonus when cold and comfort violated', () => {
+            const mockHomey = createMockHomey({
+                coldOutdoorBonus: 0.5,
+                confidence: 0.5,
+                learningCycles: 50
+            } as any);
+
+            const learner = new AdaptiveParametersLearner(mockHomey);
+            const initialBonus = learner.getParameters().coldOutdoorBonus;
+
+            // Cold weather (< 5°C), comfort NOT satisfied
+            learner.learnEnvironmentalResponse(2, false, false);
+
+            expect(learner.getParameters().coldOutdoorBonus).toBeGreaterThan(initialBonus);
+        });
+
+        test('decreases coldOutdoorBonus when cold but comfortable with savings', () => {
+            const mockHomey = createMockHomey({
+                coldOutdoorBonus: 0.5,
+                confidence: 0.5,
+                learningCycles: 50
+            } as any);
+
+            const learner = new AdaptiveParametersLearner(mockHomey);
+            const initialBonus = learner.getParameters().coldOutdoorBonus;
+
+            // Cold weather, comfort satisfied with good savings
+            learner.learnEnvironmentalResponse(2, true, true);
+
+            expect(learner.getParameters().coldOutdoorBonus).toBeLessThan(initialBonus);
+        });
+
+        test('decreases mildOutdoorReduction when mild and comfort violated', () => {
+            const mockHomey = createMockHomey({
+                mildOutdoorReduction: 0.3,
+                confidence: 0.5,
+                learningCycles: 50
+            } as any);
+
+            const learner = new AdaptiveParametersLearner(mockHomey);
+            const initialReduction = learner.getParameters().mildOutdoorReduction;
+
+            // Mild weather (> 15°C), comfort NOT satisfied (too warm)
+            learner.learnEnvironmentalResponse(18, false, false);
+
+            expect(learner.getParameters().mildOutdoorReduction).toBeLessThan(initialReduction);
+        });
+
+        test('increases mildOutdoorReduction when mild and comfortable with savings', () => {
+            const mockHomey = createMockHomey({
+                mildOutdoorReduction: 0.3,
+                confidence: 0.5,
+                learningCycles: 50
+            } as any);
+
+            const learner = new AdaptiveParametersLearner(mockHomey);
+            const initialReduction = learner.getParameters().mildOutdoorReduction;
+
+            // Mild weather, comfort satisfied with good savings
+            learner.learnEnvironmentalResponse(18, true, true);
+
+            expect(learner.getParameters().mildOutdoorReduction).toBeGreaterThan(initialReduction);
+        });
+
+        test('adjusts transitionEfficiencyReduction in transition range', () => {
+            const mockHomey = createMockHomey({
+                transitionEfficiencyReduction: 0.4,
+                confidence: 0.5,
+                learningCycles: 50
+            } as any);
+
+            const learner = new AdaptiveParametersLearner(mockHomey);
+            const initialReduction = learner.getParameters().transitionEfficiencyReduction;
+
+            // Transition weather (5-15°C), comfort violated
+            learner.learnEnvironmentalResponse(10, false, false);
+
+            expect(learner.getParameters().transitionEfficiencyReduction).toBeLessThan(initialReduction);
+        });
+
+        test('coldOutdoorBonus stays within bounds [0.2, 1.0]', () => {
+            // Test lower bound
+            const mockHomeyLow = createMockHomey({
+                coldOutdoorBonus: 0.25,
+                confidence: 0.5,
+                learningCycles: 50
+            } as any);
+
+            const learnerLow = new AdaptiveParametersLearner(mockHomeyLow);
+
+            for (let i = 0; i < 100; i++) {
+                learnerLow.learnEnvironmentalResponse(2, true, true); // Decrease
+            }
+
+            expect(learnerLow.getParameters().coldOutdoorBonus).toBeGreaterThanOrEqual(0.2);
+
+            // Test upper bound
+            const mockHomeyHigh = createMockHomey({
+                coldOutdoorBonus: 0.9,
+                confidence: 0.5,
+                learningCycles: 50
+            } as any);
+
+            const learnerHigh = new AdaptiveParametersLearner(mockHomeyHigh);
+
+            for (let i = 0; i < 100; i++) {
+                learnerHigh.learnEnvironmentalResponse(2, false, false); // Increase
+            }
+
+            expect(learnerHigh.getParameters().coldOutdoorBonus).toBeLessThanOrEqual(1.0);
+        });
+
+        test('mildOutdoorReduction stays within bounds [0.1, 0.6]', () => {
+            // Test lower bound
+            const mockHomeyLow = createMockHomey({
+                mildOutdoorReduction: 0.15,
+                confidence: 0.5,
+                learningCycles: 50
+            } as any);
+
+            const learnerLow = new AdaptiveParametersLearner(mockHomeyLow);
+
+            for (let i = 0; i < 100; i++) {
+                learnerLow.learnEnvironmentalResponse(18, false, false); // Decrease
+            }
+
+            expect(learnerLow.getParameters().mildOutdoorReduction).toBeGreaterThanOrEqual(0.1);
+
+            // Test upper bound
+            const mockHomeyHigh = createMockHomey({
+                mildOutdoorReduction: 0.55,
+                confidence: 0.5,
+                learningCycles: 50
+            } as any);
+
+            const learnerHigh = new AdaptiveParametersLearner(mockHomeyHigh);
+
+            for (let i = 0; i < 100; i++) {
+                learnerHigh.learnEnvironmentalResponse(18, true, true); // Increase
+            }
+
+            expect(learnerHigh.getParameters().mildOutdoorReduction).toBeLessThanOrEqual(0.6);
+        });
+
+        test('does not modify parameters when outdoor temp is in neutral range without savings', () => {
+            const mockHomey = createMockHomey({
+                coldOutdoorBonus: 0.5,
+                mildOutdoorReduction: 0.3,
+                confidence: 0.5,
+                learningCycles: 50
+            } as any);
+
+            const learner = new AdaptiveParametersLearner(mockHomey);
+            const initialColdBonus = learner.getParameters().coldOutdoorBonus;
+            const initialMildReduction = learner.getParameters().mildOutdoorReduction;
+
+            // Neutral temperature (5-15°C range), no savings (so only transition param could change)
+            learner.learnEnvironmentalResponse(10, true, false);
+
+            // Cold and mild params should be unchanged (temp not in their ranges)
+            expect(learner.getParameters().coldOutdoorBonus).toBe(initialColdBonus);
+            expect(learner.getParameters().mildOutdoorReduction).toBe(initialMildReduction);
+        });
+    });
+
+    describe('learnTimingParameters', () => {
+        test('decreases maxCoastingHoursMultiplier when coasting causes discomfort', () => {
+            const mockHomey = createMockHomey({
+                maxCoastingHoursMultiplier: 1.0,
+                confidence: 0.5,
+                learningCycles: 50
+            } as any);
+
+            const learner = new AdaptiveParametersLearner(mockHomey);
+            const initialMultiplier = learner.getParameters().maxCoastingHoursMultiplier;
+
+            // Coasted for 3 hours, comfort violated
+            learner.learnTimingParameters(3, 4, 'coast', false);
+
+            expect(learner.getParameters().maxCoastingHoursMultiplier).toBeLessThan(initialMultiplier);
+        });
+
+        test('increases maxCoastingHoursMultiplier when could coast longer comfortably', () => {
+            const mockHomey = createMockHomey({
+                maxCoastingHoursMultiplier: 1.0,
+                confidence: 0.5,
+                learningCycles: 50
+            } as any);
+
+            const learner = new AdaptiveParametersLearner(mockHomey);
+            const initialMultiplier = learner.getParameters().maxCoastingHoursMultiplier;
+
+            // Coasted for 2 hours but expected 4, comfort was fine
+            learner.learnTimingParameters(2, 4, 'coast', true);
+
+            expect(learner.getParameters().maxCoastingHoursMultiplier).toBeGreaterThan(initialMultiplier);
+        });
+
+        test('increases preheatDurationMultiplier when preheat fails to achieve comfort', () => {
+            const mockHomey = createMockHomey({
+                preheatDurationMultiplier: 1.0,
+                confidence: 0.5,
+                learningCycles: 50
+            } as any);
+
+            const learner = new AdaptiveParametersLearner(mockHomey);
+            const initialMultiplier = learner.getParameters().preheatDurationMultiplier;
+
+            // Preheat didn't achieve comfort
+            learner.learnTimingParameters(2, 2, 'preheat', false);
+
+            expect(learner.getParameters().preheatDurationMultiplier).toBeGreaterThan(initialMultiplier);
+        });
+
+        test('decreases preheatDurationMultiplier when preheat took longer than needed', () => {
+            const mockHomey = createMockHomey({
+                preheatDurationMultiplier: 1.0,
+                confidence: 0.5,
+                learningCycles: 50
+            } as any);
+
+            const learner = new AdaptiveParametersLearner(mockHomey);
+            const initialMultiplier = learner.getParameters().preheatDurationMultiplier;
+
+            // Preheated for 3 hours but only needed 2 (> 1.2x expected)
+            learner.learnTimingParameters(3, 2, 'preheat', true);
+
+            expect(learner.getParameters().preheatDurationMultiplier).toBeLessThan(initialMultiplier);
+        });
+
+        test('maxCoastingHoursMultiplier stays within bounds [0.5, 1.5]', () => {
+            // Test lower bound
+            const mockHomeyLow = createMockHomey({
+                maxCoastingHoursMultiplier: 0.6,
+                confidence: 0.5,
+                learningCycles: 50
+            } as any);
+
+            const learnerLow = new AdaptiveParametersLearner(mockHomeyLow);
+
+            for (let i = 0; i < 50; i++) {
+                learnerLow.learnTimingParameters(3, 4, 'coast', false); // Decrease
+            }
+
+            expect(learnerLow.getParameters().maxCoastingHoursMultiplier).toBeGreaterThanOrEqual(0.5);
+
+            // Test upper bound
+            const mockHomeyHigh = createMockHomey({
+                maxCoastingHoursMultiplier: 1.4,
+                confidence: 0.5,
+                learningCycles: 50
+            } as any);
+
+            const learnerHigh = new AdaptiveParametersLearner(mockHomeyHigh);
+
+            for (let i = 0; i < 50; i++) {
+                learnerHigh.learnTimingParameters(2, 4, 'coast', true); // Increase
+            }
+
+            expect(learnerHigh.getParameters().maxCoastingHoursMultiplier).toBeLessThanOrEqual(1.5);
+        });
+
+        test('preheatDurationMultiplier stays within bounds [0.6, 1.5]', () => {
+            // Test lower bound
+            const mockHomeyLow = createMockHomey({
+                preheatDurationMultiplier: 0.7,
+                confidence: 0.5,
+                learningCycles: 50
+            } as any);
+
+            const learnerLow = new AdaptiveParametersLearner(mockHomeyLow);
+
+            for (let i = 0; i < 50; i++) {
+                learnerLow.learnTimingParameters(3, 2, 'preheat', true); // Decrease
+            }
+
+            expect(learnerLow.getParameters().preheatDurationMultiplier).toBeGreaterThanOrEqual(0.6);
+
+            // Test upper bound
+            const mockHomeyHigh = createMockHomey({
+                preheatDurationMultiplier: 1.4,
+                confidence: 0.5,
+                learningCycles: 50
+            } as any);
+
+            const learnerHigh = new AdaptiveParametersLearner(mockHomeyHigh);
+
+            for (let i = 0; i < 50; i++) {
+                learnerHigh.learnTimingParameters(2, 2, 'preheat', false); // Increase
+            }
+
+            expect(learnerHigh.getParameters().preheatDurationMultiplier).toBeLessThanOrEqual(1.5);
+        });
+
+        test('does not decrease coasting multiplier for short durations even with discomfort', () => {
+            const mockHomey = createMockHomey({
+                maxCoastingHoursMultiplier: 1.0,
+                confidence: 0.5,
+                learningCycles: 50
+            } as any);
+
+            const learner = new AdaptiveParametersLearner(mockHomey);
+            const initialMultiplier = learner.getParameters().maxCoastingHoursMultiplier;
+
+            // Coasted for only 1.5 hours with discomfort (< 2h threshold)
+            learner.learnTimingParameters(1.5, 4, 'coast', false);
+
+            // Should not decrease because actualDuration < 2
+            expect(learner.getParameters().maxCoastingHoursMultiplier).toBe(initialMultiplier);
+        });
+    });
+
+    describe('new parameters in getStrategyThresholds', () => {
+        test('returns all new environmental and timing parameters', () => {
+            const mockHomey = createMockHomey({
+                coldOutdoorBonus: 0.6,
+                mildOutdoorReduction: 0.4,
+                transitionEfficiencyReduction: 0.5,
+                maxCoastingHoursMultiplier: 1.2,
+                preheatDurationMultiplier: 0.9,
+                confidence: 0.5,
+                learningCycles: 50
+            } as any);
+
+            const learner = new AdaptiveParametersLearner(mockHomey);
+            const thresholds = learner.getStrategyThresholds();
+
+            expect(thresholds.coldOutdoorBonus).toBe(0.6);
+            expect(thresholds.mildOutdoorReduction).toBe(0.4);
+            expect(thresholds.transitionEfficiencyReduction).toBe(0.5);
+            expect(thresholds.maxCoastingHoursMultiplier).toBe(1.2);
+            expect(thresholds.preheatDurationMultiplier).toBe(0.9);
+        });
+
+        test('uses defaults for new parameters when not stored', () => {
+            const mockHomey = createMockHomey(); // Empty storage
+
+            const learner = new AdaptiveParametersLearner(mockHomey);
+            const thresholds = learner.getStrategyThresholds();
+
+            // Should return default values
+            expect(thresholds.coldOutdoorBonus).toBe(0.5);
+            expect(thresholds.mildOutdoorReduction).toBe(0.3);
+            expect(thresholds.transitionEfficiencyReduction).toBe(0.4);
+            expect(thresholds.maxCoastingHoursMultiplier).toBe(1.0);
+            expect(thresholds.preheatDurationMultiplier).toBe(1.0);
+        });
+    });
 });

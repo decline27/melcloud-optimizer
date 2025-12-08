@@ -31,6 +31,15 @@ export interface AdaptiveParameters {
   copAdjustmentVeryPoor: number;    // Temperature reduction for very poor COP (was hardcoded 1.2)
   summerModeReduction: number;      // Temperature reduction in summer mode (was hardcoded 0.5)
   
+  // Environmental response parameters (learned from comfort outcomes)
+  coldOutdoorBonus: number;           // °C boost when outdoor < 5°C (default 0.5)
+  mildOutdoorReduction: number;       // °C reduction when outdoor > 15°C (default 0.3)
+  transitionEfficiencyReduction: number; // °C reduction for low transition efficiency (default 0.4)
+  
+  // Timing multipliers (learned from thermal response)
+  maxCoastingHoursMultiplier: number; // Multiplier for calculated max coasting (default 1.0)
+  preheatDurationMultiplier: number;  // Multiplier for calculated preheat duration (default 1.0)
+  
   // Confidence in learned parameters (0-1)
   confidence: number;
   
@@ -67,6 +76,15 @@ const DEFAULT_PARAMETERS: AdaptiveParameters = {
   copAdjustmentPoor: 0.8,          // Current hardcoded value (-0.8°C reduction)
   copAdjustmentVeryPoor: 1.2,      // Current hardcoded value (-1.2°C reduction)
   summerModeReduction: 0.5,        // Current hardcoded value (-0.5°C in summer)
+  
+  // Environmental response parameters (new)
+  coldOutdoorBonus: 0.5,           // °C boost when outdoor temp < 5°C
+  mildOutdoorReduction: 0.3,       // °C reduction when outdoor temp > 15°C
+  transitionEfficiencyReduction: 0.4, // °C reduction for low transition efficiency
+  
+  // Timing multipliers (new)
+  maxCoastingHoursMultiplier: 1.0, // Multiplier for calculated max coasting hours
+  preheatDurationMultiplier: 1.0,  // Multiplier for calculated preheat duration
   
   confidence: 0,
   lastUpdated: new Date().toISOString(),
@@ -154,6 +172,15 @@ export class AdaptiveParametersLearner {
         copAdjustmentPoor: this.blendValue(this.parameters.copAdjustmentPoor, DEFAULT_PARAMETERS.copAdjustmentPoor, blendFactor),
         copAdjustmentVeryPoor: this.blendValue(this.parameters.copAdjustmentVeryPoor, DEFAULT_PARAMETERS.copAdjustmentVeryPoor, blendFactor),
         summerModeReduction: this.blendValue(this.parameters.summerModeReduction, DEFAULT_PARAMETERS.summerModeReduction, blendFactor),
+        
+        // Environmental response parameters with confidence blending
+        coldOutdoorBonus: this.blendValue(this.parameters.coldOutdoorBonus, DEFAULT_PARAMETERS.coldOutdoorBonus, blendFactor),
+        mildOutdoorReduction: this.blendValue(this.parameters.mildOutdoorReduction, DEFAULT_PARAMETERS.mildOutdoorReduction, blendFactor),
+        transitionEfficiencyReduction: this.blendValue(this.parameters.transitionEfficiencyReduction, DEFAULT_PARAMETERS.transitionEfficiencyReduction, blendFactor),
+        
+        // Timing multipliers with confidence blending
+        maxCoastingHoursMultiplier: this.blendValue(this.parameters.maxCoastingHoursMultiplier, DEFAULT_PARAMETERS.maxCoastingHoursMultiplier, blendFactor),
+        preheatDurationMultiplier: this.blendValue(this.parameters.preheatDurationMultiplier, DEFAULT_PARAMETERS.preheatDurationMultiplier, blendFactor),
         
         confidence: this.parameters.confidence,
         lastUpdated: this.parameters.lastUpdated,
@@ -345,7 +372,14 @@ export class AdaptiveParametersLearner {
       copAdjustmentGood: params.copAdjustmentGood,
       copAdjustmentPoor: params.copAdjustmentPoor,
       copAdjustmentVeryPoor: params.copAdjustmentVeryPoor,
-      summerModeReduction: params.summerModeReduction
+      summerModeReduction: params.summerModeReduction,
+      // Environmental response parameters
+      coldOutdoorBonus: params.coldOutdoorBonus,
+      mildOutdoorReduction: params.mildOutdoorReduction,
+      transitionEfficiencyReduction: params.transitionEfficiencyReduction,
+      // Timing multipliers
+      maxCoastingHoursMultiplier: params.maxCoastingHoursMultiplier,
+      preheatDurationMultiplier: params.preheatDurationMultiplier
     };
   }
 
@@ -373,6 +407,102 @@ export class AdaptiveParametersLearner {
       this.parameters.copAdjustmentPoor = Math.min(1.5, this.parameters.copAdjustmentPoor + learningRate);
       this.parameters.copAdjustmentVeryPoor = Math.min(2.0, this.parameters.copAdjustmentVeryPoor + learningRate);
       this.parameters.summerModeReduction = Math.min(1.0, this.parameters.summerModeReduction + learningRate);
+    }
+  }
+
+  /**
+   * Learn environmental response parameters based on outdoor temperature and comfort outcomes.
+   * Adjusts coldOutdoorBonus and mildOutdoorReduction based on whether comfort was maintained.
+   * 
+   * @param outdoorTemp Current outdoor temperature in °C
+   * @param comfortSatisfied Whether comfort was maintained
+   * @param goodSavings Whether good savings were achieved
+   */
+  public learnEnvironmentalResponse(
+    outdoorTemp: number,
+    comfortSatisfied: boolean,
+    goodSavings: boolean
+  ): void {
+    const learningRate = 0.002; // Very gradual learning to prevent oscillation
+    
+    // Learn cold outdoor bonus (applied when outdoor < 5°C)
+    if (outdoorTemp < 5) {
+      if (!comfortSatisfied) {
+        // Too cold - increase the bonus to add more heating
+        this.parameters.coldOutdoorBonus = Math.min(1.0, 
+          this.parameters.coldOutdoorBonus + learningRate * 5);
+      } else if (goodSavings) {
+        // Comfortable and saving money - can reduce the bonus slightly
+        this.parameters.coldOutdoorBonus = Math.max(0.2,
+          this.parameters.coldOutdoorBonus - learningRate);
+      }
+    }
+    
+    // Learn mild outdoor reduction (applied when outdoor > 15°C)
+    if (outdoorTemp > 15) {
+      if (!comfortSatisfied) {
+        // Too warm despite reduction - reduce the reduction (allow higher temps)
+        // Note: "not comfortable" in mild weather likely means too warm
+        this.parameters.mildOutdoorReduction = Math.max(0.1,
+          this.parameters.mildOutdoorReduction - learningRate * 3);
+      } else if (goodSavings) {
+        // Comfortable and saving - can reduce temperature more in mild weather
+        this.parameters.mildOutdoorReduction = Math.min(0.6,
+          this.parameters.mildOutdoorReduction + learningRate);
+      }
+    }
+    
+    // Learn transition efficiency reduction
+    if (outdoorTemp >= 5 && outdoorTemp <= 15) {
+      if (!comfortSatisfied) {
+        // Transition period discomfort - reduce the efficiency reduction
+        this.parameters.transitionEfficiencyReduction = Math.max(0.1,
+          this.parameters.transitionEfficiencyReduction - learningRate * 2);
+      } else if (goodSavings) {
+        // Good savings in transition - can be more aggressive
+        this.parameters.transitionEfficiencyReduction = Math.min(0.8,
+          this.parameters.transitionEfficiencyReduction + learningRate);
+      }
+    }
+  }
+
+  /**
+   * Learn timing parameters (coasting and preheat multipliers) based on actual thermal response.
+   * Adjusts multipliers based on whether the duration was appropriate for comfort.
+   * 
+   * @param actualDurationHours How long the coasting/preheat actually lasted
+   * @param expectedDurationHours How long it was expected to last
+   * @param strategyType Whether this was 'coast' or 'preheat'
+   * @param comfortSatisfied Whether comfort was maintained throughout
+   */
+  public learnTimingParameters(
+    actualDurationHours: number,
+    expectedDurationHours: number,
+    strategyType: 'coast' | 'preheat',
+    comfortSatisfied: boolean
+  ): void {
+    const learningRate = 0.005; // Slightly faster learning for timing as it's more measurable
+    
+    if (strategyType === 'coast') {
+      if (!comfortSatisfied && actualDurationHours > 2) {
+        // Coasted too long and lost comfort - reduce multiplier
+        this.parameters.maxCoastingHoursMultiplier = Math.max(0.5,
+          this.parameters.maxCoastingHoursMultiplier - learningRate * 10);
+      } else if (comfortSatisfied && actualDurationHours < expectedDurationHours * 0.7) {
+        // Could have coasted longer while maintaining comfort - increase multiplier
+        this.parameters.maxCoastingHoursMultiplier = Math.min(1.5,
+          this.parameters.maxCoastingHoursMultiplier + learningRate * 5);
+      }
+    } else if (strategyType === 'preheat') {
+      if (!comfortSatisfied) {
+        // Preheat didn't achieve comfort - extend duration
+        this.parameters.preheatDurationMultiplier = Math.min(1.5,
+          this.parameters.preheatDurationMultiplier + learningRate * 8);
+      } else if (actualDurationHours > expectedDurationHours * 1.2) {
+        // Preheated longer than needed - can reduce
+        this.parameters.preheatDurationMultiplier = Math.max(0.6,
+          this.parameters.preheatDurationMultiplier - learningRate * 3);
+      }
     }
   }
 }
