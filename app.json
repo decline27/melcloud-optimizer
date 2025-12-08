@@ -251,46 +251,6 @@
             ]
           }
         ]
-      },
-      {
-        "id": "set_legionella_now",
-        "title": {
-          "en": "[[legionella_action]] legionella cycle"
-        },
-        "titleFormatted": {
-          "en": "[[legionella_action]] legionella cycle"
-        },
-        "hint": {
-          "en": "Start or stop a legionella prevention cycle"
-        },
-        "args": [
-          {
-            "type": "device",
-            "name": "device",
-            "filter": "driver_id=boiler"
-          },
-          {
-            "name": "legionella_action",
-            "type": "dropdown",
-            "title": {
-              "en": "Action"
-            },
-            "values": [
-              {
-                "id": "true",
-                "label": {
-                  "en": "Start"
-                }
-              },
-              {
-                "id": "false",
-                "label": {
-                  "en": "Stop"
-                }
-              }
-            ]
-          }
-        ]
       }
     ],
     "triggers": [
@@ -940,11 +900,13 @@
     "legionella_now": {
       "type": "boolean",
       "title": {
-        "en": "Start Legionella Cycle"
+        "en": "Legionella Cycle Running"
       },
       "getable": true,
-      "setable": true,
-      "uiComponent": "toggle"
+      "setable": false,
+      "uiComponent": "sensor",
+      "icon": "/assets/icon.svg",
+      "insights": true
     },
     "occupied": {
       "type": "boolean",

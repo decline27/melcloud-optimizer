@@ -387,14 +387,6 @@ module.exports = class BoilerDriver extends Homey.Driver {
         return true;
       });
 
-      const setLegionellaNowAction = flowManager.getActionCard('set_legionella_now');
-      setLegionellaNowAction.registerRunListener(async (args: any, state: any) => {
-        const device = args.device;
-        const legionellaNow = args.legionella_action === 'true';
-        await device.setCapabilityValue('legionella_now', legionellaNow);
-        return true;
-      });
-
       // Register device condition cards
       const occupiedCondition = flowManager.getConditionCard('occupied_is_true');
       occupiedCondition.registerRunListener(async (args: any, state: any) => {

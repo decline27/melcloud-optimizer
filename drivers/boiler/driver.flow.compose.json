@@ -163,41 +163,6 @@
           ]
         }
       ]
-    },
-    {
-      "id": "set_legionella_now",
-      "title": {
-        "en": "[[legionella_action]] legionella cycle"
-      },
-      "titleFormatted": {
-        "en": "[[legionella_action]] legionella cycle"
-      },
-      "hint": {
-        "en": "Start or stop a legionella prevention cycle"
-      },
-      "args": [
-        {
-          "name": "legionella_action",
-          "type": "dropdown",
-          "title": {
-            "en": "Action"
-          },
-          "values": [
-            {
-              "id": "true",
-              "label": {
-                "en": "Start"
-              }
-            },
-            {
-              "id": "false", 
-              "label": {
-                "en": "Stop"
-              }
-            }
-          ]
-        }
-      ]
     }
   ]
 }

@@ -1899,47 +1899,7 @@ export class MelCloudApi extends BaseApiService {
     }
   }
 
-  /**
-   * Start legionella cycle (best-effort: set OperationMode=6)
-   * Capability is treated as momentary toggle by the device handler.
-   */
-  async startLegionellaCycle(deviceId: string, buildingId: number): Promise<boolean> {
-    try {
-      if (!this.contextKey) {
-        const connected = await this.ensureConnected();
-        if (!connected) throw new Error('Not logged in to MELCloud');
-      }
-      this.logger.log(`Starting legionella cycle for device ${deviceId}`);
-      const currentState = await this.getDeviceState(deviceId, buildingId);
-
-      // Prefer dedicated field if present; else set OperationMode=6 (observed in state mapping)
-      const payload: any = { ...currentState };
-      payload.DeviceID = parseInt(deviceId, 10);
-      payload.HasPendingCommand = true;
-
-      if (Object.prototype.hasOwnProperty.call(payload as any, 'LegionellaMode')) {
-        (payload as any).LegionellaMode = true;
-      } else {
-        (payload as any).OperationMode = 6;
-      }
-
-      this.logApiCall('POST', 'Device/SetAtw', { deviceId, legionella: true });
-      const data = await this.retryableRequest(
-        () => this.throttledApiCall<any>('POST', 'Device/SetAtw', {
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
-      );
-      const success = data !== null;
-      if (success) {
-        this.invalidateDeviceStateCache(deviceId, buildingId);
-      }
-      return success;
-    } catch (error) {
-      const appError = this.createApiError(error, { operation: 'startLegionellaCycle', deviceId, buildingId });
-      if (appError.category === ErrorCategory.AUTHENTICATION) await this.ensureConnected();
-      this.errorHandler.logError(appError);
-      throw appError;
-    }
-  }
+  // Note: Legionella cycle cannot be triggered via MELCloud API.
+  // The OperationMode === 6 is a read-only status indicating the heat pump
+  // is currently running a legionella prevention cycle (scheduled internally by the unit).
 }

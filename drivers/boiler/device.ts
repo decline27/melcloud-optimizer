@@ -438,25 +438,9 @@ module.exports = class BoilerDevice extends Homey.Device {
     });
 
 
-    // Legionella start (momentary)
-    this.registerCapabilityListener('legionella_now', async (value: boolean) => {
-      this.logger.log(`Legionella start requested: ${value}`);
-      if (!value) return false; // ignore turning off
-      try {
-        if (!this.melCloudApi) throw new Error('MELCloud API not available');
-        const success = await this.melCloudApi.startLegionellaCycle(this.deviceId, this.buildingId);
-        if (success) {
-          // Auto-reset the toggle back to false
-          try { await this.setCapabilityValue('legionella_now', false); } catch (e) {}
-          return true;
-        } else {
-          throw new Error('Failed to start legionella cycle');
-        }
-      } catch (error) {
-        this.logger.error('Error starting legionella cycle:', error);
-        throw error;
-      }
-    });
+    // Note: legionella_now is read-only - it reflects whether the heat pump
+    // is currently running a legionella prevention cycle (OperationMode === 6)
+    // The MELCloud API does not support programmatically triggering this cycle.
 
     // Home/Away (occupied) state capability
     this.registerCapabilityListener('occupied', async (value: boolean) => {
@@ -951,6 +935,15 @@ module.exports = class BoilerDevice extends Homey.Device {
         }
       }
 
+      // Update legionella cycle status (read-only - reflects OperationMode === 6)
+      if (this.hasCapability('legionella_now')) {
+        const isLegionellaRunning = deviceState.OperationMode === 6;
+        const current = this.getCapabilityValue('legionella_now');
+        if (current !== isLegionellaRunning) {
+          await this.setCapabilityValue('legionella_now', isLegionellaRunning);
+          this.logger.log(`Updated legionella cycle status: ${isLegionellaRunning ? 'running' : 'not running'}`);
+        }
+      }
 
       this.logger.debug('Device capabilities updated successfully');
 

@@ -1,8 +1,10 @@
 {
   "type": "boolean",
-  "title": { "en": "Start Legionella Cycle" },
+  "title": { "en": "Legionella Cycle Running" },
   "getable": true,
-  "setable": true,
-  "uiComponent": "toggle"
+  "setable": false,
+  "uiComponent": "sensor",
+  "icon": "/assets/icon.svg",
+  "insights": true
 }
 
