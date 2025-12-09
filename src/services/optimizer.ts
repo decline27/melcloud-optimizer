@@ -1375,7 +1375,8 @@ export class Optimizer {
       expensivePercentile: (1.0 - this.priceAnalyzer.getCheapPercentile()) * 100, // Symmetric threshold
       cheapBiasC: 0.5,
       expensiveBiasC: 0.3,
-      maxAbsBiasC: 0.7
+      maxAbsBiasC: 0.7,
+      logger
     });
     const scaledPlanningBiasRaw = planningBiasResult.biasC * thermalResponse;
     const scaledPlanningBias = Math.abs(scaledPlanningBiasRaw) < 1e-6

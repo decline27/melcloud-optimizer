@@ -11,6 +11,7 @@ export interface PlanningBiasOptions {
   cheapBiasC?: number;
   expensiveBiasC?: number;
   maxAbsBiasC?: number;
+  logger?: (event: string, payload: Record<string, unknown>) => void;
 }
 
 export interface PlanningBiasResult {
@@ -143,17 +144,38 @@ export function computePlanningBias(
   const avgFirst = firstHalf.reduce((sum, e) => sum + e.price, 0) / (firstHalf.length || 1);
   const avgSecond = secondHalf.reduce((sum, e) => sum + e.price, 0) / (secondHalf.length || 1);
   const pricesTrendingDown = avgSecond < avgFirst * 0.95; // Prices dropping by >5%
+  const negativeBiasAllowed = hasExpensiveImminent && !pricesTrendingDown;
 
   let bias = 0;
   if (hasCheap) bias += cheapBias;
   
   // Only apply negative bias if expensive prices are IMMINENT (0-3h) 
   // AND prices aren't trending down (cheap coming soon)
-  if (hasExpensiveImminent && !pricesTrendingDown) {
+  if (negativeBiasAllowed) {
     bias -= expensiveBias;
   }
   
+  const biasBeforeClamp = bias;
   bias = clamp(bias, -maxAbsBias, maxAbsBias);
+
+  options.logger?.('planning.bias.trend', {
+    windowHours,
+    lookaheadHours,
+    current: windowSlice[0]?.price,
+    next3h: immediateWindow.map((entry) => entry.price),
+    trend: pricesTrendingDown ? 'down' : 'flat_or_up',
+    cheapInWindow: hasCheap,
+    cheapImminent: hasCheapImminent,
+    expensiveImmediate: hasExpensiveImminent,
+    negativeBiasAllowed,
+    biasBeforeClamp,
+    biasFinal: bias,
+    decision: negativeBiasAllowed
+      ? 'Negative bias allowed (expensive imminent, no downward trend)'
+      : hasExpensiveImminent
+        ? 'No negative bias; prices trending down toward cheaper period'
+        : 'No negative bias trigger'
+  });
 
   return {
     biasC: bias,
