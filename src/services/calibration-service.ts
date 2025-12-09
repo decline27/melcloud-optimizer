@@ -94,8 +94,17 @@ export class CalibrationService {
     }
 
     try {
-      const oldK = thermalModel.K;
-      const oldS = thermalModel.S || 0;
+        const oldK = thermalModel.K;
+        // Load persisted thermal characteristics from settings if available
+        let oldS = thermalModel.S || 0;
+        try {
+          const saved = this.thermalModelService?.getThermalCharacteristics();
+          if (saved && typeof saved.thermalMass === 'number') {
+            oldS = saved.thermalMass;
+          }
+        } catch (e) {
+          // fallback to in-memory value
+        }
 
       // If using thermal learning model, update it with collected data
       if (this.useThermalLearning && this.thermalModelService) {
