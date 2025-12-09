@@ -67,6 +67,17 @@ export class CalibrationService {
   }
 
   /**
+   * Ensure thermal mass values are finite and fall back to defaults when missing
+   */
+  private sanitizeThermalMass(value: unknown, fallback: number): number {
+    const safeFallback = Number.isFinite(fallback) ? fallback : this.DEFAULT_S;
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+    return safeFallback;
+  }
+
+  /**
    * Run weekly calibration of the thermal model
    * 
    * This method:
@@ -94,87 +105,78 @@ export class CalibrationService {
     }
 
     try {
-        const oldK = thermalModel.K;
-        // Load persisted thermal characteristics from settings if available
-        let oldS = thermalModel.S || 0;
-        try {
-          const saved = this.thermalModelService?.getThermalCharacteristics();
-          if (saved && typeof saved.thermalMass === 'number') {
-            oldS = saved.thermalMass;
-          }
-        } catch (e) {
-          // fallback to in-memory value
-        }
+      const oldK = thermalModel.K;
+      const baseS = this.sanitizeThermalMass(thermalModel.S, 0);
+      let oldS = baseS;
+      let characteristics: ReturnType<ThermalModelService['getThermalCharacteristics']> | null = null;
 
-      // If using thermal learning model, update it with collected data
       if (this.useThermalLearning && this.thermalModelService) {
         try {
-          // The thermal model service automatically updates its model
-          // We just need to get the current characteristics
-          const characteristics = this.thermalModelService.getThermalCharacteristics();
-          const confidence = typeof characteristics.modelConfidence === 'number'
-            ? characteristics.modelConfidence
-            : 0;
-
-          // Update our simple K-factor based on the thermal model's characteristics
-          // This maintains compatibility with the existing system
-          const baseK = oldK;
-          const rawK = confidence > 0.3
-            ? (characteristics.heatingRate / 0.5) * baseK
-            : baseK;
-          const newK = this.clampK(rawK);
-
-          const thermalMass = characteristics.thermalMass;
-          const rawS = (typeof thermalMass === 'number' && Number.isFinite(thermalMass))
-            ? thermalMass
-            : (typeof oldS === 'number' ? oldS : (typeof thermalModel.S === 'number' ? thermalModel.S : this.DEFAULT_S));
-          const newS = this.clampS(rawS);
-
-          // Update thermal model
-          this.thermalController.setThermalModel(newK, newS);
-
-          const heatingRate = typeof characteristics.heatingRate === 'number' && Number.isFinite(characteristics.heatingRate)
-            ? characteristics.heatingRate
-            : NaN;
-          const coolingRate = typeof characteristics.coolingRate === 'number' && Number.isFinite(characteristics.coolingRate)
-            ? characteristics.coolingRate
-            : NaN;
-
-          this.logger.log(`Calibrated thermal model using learning data: K=${newK.toFixed(2)}, S=${newS.toFixed(2)}`);
-          this.logger.log(
-            `Thermal characteristics: Heating rate=${Number.isFinite(heatingRate) ? heatingRate.toFixed(3) : 'n/a'}, ` +
-            `Cooling rate=${Number.isFinite(coolingRate) ? coolingRate.toFixed(3) : 'n/a'}, ` +
-            `Thermal mass=${Number.isFinite(thermalMass) ? thermalMass.toFixed(2) : 'n/a'}`
-          );
-
-          // Issue #3 fix: Force thermal model update to persist learned confidence
-          // Without this, confidence was read but not saved back to settings
-          // causing it to reset to 0 on next run (chicken-egg loop)
-          try {
-            this.thermalModelService.forceModelUpdate();
-            this.logger.log('Thermal model confidence persisted after calibration');
-          } catch (persistErr) {
-            this.logger.error('Failed to persist thermal model confidence', persistErr);
-          }
-
-          // Perform history cleanup as part of weekly maintenance (PR #10)
-          this.cleanupOptimizationHistory();
-
-          // Return result
-          return {
-            oldK: oldK,
-            newK,
-            oldS: oldS,
-            newS,
-            timestamp: new Date().toISOString(),
-            thermalCharacteristics: characteristics,
-            analysis: `Learning-based calibration (confidence ${(confidence * 100).toFixed(0)}%)`,
-            success: true
-          };
+          characteristics = this.thermalModelService.getThermalCharacteristics();
+          const persistedThermalMass = characteristics?.thermalMass;
+          oldS = this.sanitizeThermalMass(persistedThermalMass, baseS);
         } catch (modelError) {
           this.logger.error('Error updating thermal model from learning data:', modelError);
-          // Fall back to basic calibration
         }
+      }
+
+      if (this.useThermalLearning && this.thermalModelService && characteristics) {
+        const confidence = typeof characteristics.modelConfidence === 'number'
+          ? characteristics.modelConfidence
+          : 0;
+
+        const heatingRate = typeof characteristics.heatingRate === 'number' && Number.isFinite(characteristics.heatingRate)
+          ? characteristics.heatingRate
+          : NaN;
+        const coolingRate = typeof characteristics.coolingRate === 'number' && Number.isFinite(characteristics.coolingRate)
+          ? characteristics.coolingRate
+          : NaN;
+
+        // Update our simple K-factor based on the thermal model's characteristics
+        // This maintains compatibility with the existing system
+        const baseK = oldK;
+        const rawK = confidence > 0.3 && Number.isFinite(heatingRate)
+          ? (heatingRate / 0.5) * baseK
+          : baseK;
+        const newK = this.clampK(rawK);
+
+        const thermalMass = this.sanitizeThermalMass(characteristics.thermalMass, oldS);
+        const newS = this.clampS(thermalMass);
+
+        // Update thermal model
+        this.thermalController.setThermalModel(newK, newS);
+
+        this.logger.log(`Calibrated thermal model using learning data: K=${newK.toFixed(2)}, S=${newS.toFixed(2)}`);
+        this.logger.log(
+          `Thermal characteristics: Heating rate=${Number.isFinite(heatingRate) ? heatingRate.toFixed(3) : 'n/a'}, ` +
+          `Cooling rate=${Number.isFinite(coolingRate) ? coolingRate.toFixed(3) : 'n/a'}, ` +
+          `Thermal mass=${Number.isFinite(thermalMass) ? thermalMass.toFixed(2) : 'n/a'}`
+        );
+
+        // Issue #3 fix: Force thermal model update to persist learned confidence
+        // Without this, confidence was read but not saved back to settings
+        // causing it to reset to 0 on next run (chicken-egg loop)
+        try {
+          this.thermalModelService.forceModelUpdate();
+          this.logger.log('Thermal model confidence persisted after calibration');
+        } catch (persistErr) {
+          this.logger.error('Failed to persist thermal model confidence', persistErr);
+        }
+
+        // Perform history cleanup as part of weekly maintenance (PR #10)
+        this.cleanupOptimizationHistory();
+
+        // Return result
+        return {
+          oldK: oldK,
+          newK,
+          oldS: oldS,
+          newS,
+          timestamp: new Date().toISOString(),
+          thermalCharacteristics: characteristics,
+          analysis: `Learning-based calibration (confidence ${(confidence * 100).toFixed(0)}%)`,
+          success: true
+        };
       }
 
       // Basic calibration (used as fallback or when thermal learning is disabled)
@@ -207,12 +209,16 @@ export class CalibrationService {
     try {
       if (this.thermalModelService) {
         this.logger.log('Running periodic optimization history cleanup...');
-        const result = this.thermalModelService.forceDataCleanup();
+        const result = this.thermalModelService.forceDataCleanup?.();
 
-        if (result.success) {
-          this.logger.log(`History cleanup successful: ${result.message}`);
+        if (result && typeof result.success === 'boolean') {
+          if (result.success) {
+            this.logger.log(`History cleanup successful: ${result.message}`);
+          } else {
+            this.logger.error(`History cleanup failed: ${result.message}`);
+          }
         } else {
-          this.logger.error(`History cleanup failed: ${result.message}`);
+          this.logger.log('History cleanup skipped: no cleanup result from thermal model service');
         }
       }
     } catch (error) {
