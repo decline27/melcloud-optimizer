@@ -456,6 +456,42 @@ describe('HotWaterDataCollector', () => {
     expect(memoryUsage.dataPointsPerDay).toBeGreaterThan(200);
   });
 
+  test('saveData trims oversized payloads to fit settings storage', async () => {
+    const base = Date.now();
+    const noisyString = 'x'.repeat(600); // Inflate per-point size to exceed 500KB when serialized
+    const largeBatch: HotWaterUsageDataPoint[] = [];
+
+    for (let i = 0; i < 2200; i++) {
+      const ts = new Date(base - i * 5 * 60 * 1000).toISOString();
+      largeBatch.push({
+        timestamp: ts,
+        localDayKey: ts.split('T')[0],
+        tankTemperature: 50,
+        targetTankTemperature: 55,
+        hotWaterEnergyProduced: 1,
+        hotWaterEnergyConsumed: 0.5,
+        hotWaterCOP: 2,
+        isHeating: true,
+        hourOfDay: 12,
+        dayOfWeek: 3,
+        localTimeString: noisyString
+      });
+    }
+
+    // Inject oversized dataset directly and trigger save
+    (collector as any).dataPoints = largeBatch;
+    await (collector as any).saveData();
+
+    // Force-trim path should have been triggered
+    expect(homey.log).toHaveBeenCalledWith(expect.stringContaining('exceeds maximum settings size'));
+
+    const dataSaveCalls = homey.settings.set.mock.calls.filter(([key]: any[]) => key === 'hot_water_usage_data');
+    expect(dataSaveCalls.length).toBeGreaterThan(0);
+
+    const savedPayload = dataSaveCalls[dataSaveCalls.length - 1][1] as string;
+    expect(savedPayload.length).toBeLessThanOrEqual(500000);
+  });
+
   test('getDataStatistics calculates statistics correctly with data', async () => {
     const now = new Date();
     const dataPoints: HotWaterUsageDataPoint[] = [];
