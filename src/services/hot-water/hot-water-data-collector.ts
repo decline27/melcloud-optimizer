@@ -215,7 +215,7 @@ export class HotWaterDataCollector {
         // If still too large after reduction, force-trim to fit
         if (dataJson.length > MAX_SETTINGS_DATA_SIZE) {
           this.homey.error(`Hot water data still too large after reduction (${dataJson.length} bytes), force-trimming`);
-          this.forceTrimToFit();
+          this.forceTrimToFit(dataJson.length);
           dataJson = JSON.stringify(this.dataPoints);
         }
       }
@@ -272,15 +272,26 @@ export class HotWaterDataCollector {
    * Force trim data to fit within MAX_SETTINGS_DATA_SIZE
    * Used as emergency fallback when aggregation doesn't reduce size enough
    */
-  private forceTrimToFit(): void {
-    const bytesPerPoint = 200; // Approximate bytes per data point
-    const targetPoints = Math.floor(MAX_SETTINGS_DATA_SIZE / bytesPerPoint) - 100; // Leave some margin
-    
-    if (this.dataPoints.length > targetPoints && targetPoints > 0) {
-      const removed = this.dataPoints.length - targetPoints;
-      this.dataPoints = this.dataPoints.slice(-targetPoints);
-      this.homey.error(`Force-trimmed ${removed} hot water data points to fit storage limit`);
+  private forceTrimToFit(currentLength: number): void {
+    if (this.dataPoints.length === 0) {
+      return;
     }
+
+    const bytesPerPoint = currentLength / this.dataPoints.length;
+    const safetyMarginBytes = 5_000; // Avoid bouncing on the limit after trimming
+    const targetPoints = Math.max(1, Math.floor((MAX_SETTINGS_DATA_SIZE - safetyMarginBytes) / bytesPerPoint));
+
+    if (targetPoints >= this.dataPoints.length) {
+      // If our calculation says we already fit but the raw length is too large, trim a small slice to guarantee progress
+      const trimmed = Math.max(10, Math.ceil(this.dataPoints.length * 0.05));
+      this.dataPoints = this.dataPoints.slice(trimmed);
+      this.homey.error(`Force-trim fallback removed ${trimmed} hot water data points to ensure settings fit`);
+      return;
+    }
+
+    const removed = this.dataPoints.length - targetPoints;
+    this.dataPoints = this.dataPoints.slice(-targetPoints);
+    this.homey.error(`Force-trimmed ${removed} hot water data points to fit storage limit`);
   }
 
   /**
