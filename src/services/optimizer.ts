@@ -40,6 +40,7 @@ import { applySetpointConstraints } from '../util/setpoint-constraints';
 import { SettingsAccessor } from '../util/settings-accessor';
 import { AdaptiveParametersLearner } from './adaptive-parameters';
 import { COMFORT_CONSTANTS } from '../constants';
+import { resolvePriceThresholds } from './price-classifier';
 
 // Removed: DEFAULT_HOT_WATER_PEAK_HOURS now comes from HotWaterUsageLearner
 const MIN_SAVINGS_FOR_LEARNING = 0.05; // Minimum savings (SEK-equivalent) to trigger learning on no-change path
@@ -1368,11 +1369,45 @@ export class Optimizer {
       }
     }
 
+    // Determine planning bias horizons using observed price cadence (hourly vs sub-hourly)
+    const baseWindowHours = 6;
+    const baseLookaheadHours = 12;
+    let planningWindowSlots = baseWindowHours;
+    let planningLookaheadSlots = baseLookaheadHours;
+    try {
+      const futureTs = (priceData.prices || [])
+        .map((p: any) => Date.parse(p.time))
+        .filter((t: number) => Number.isFinite(t) && t > planningReferenceTimeMs)
+        .sort((a: number, b: number) => a - b);
+      if (futureTs.length >= 2) {
+        const deltas: number[] = [];
+        for (let i = 1; i < futureTs.length; i += 1) {
+          deltas.push(futureTs[i] - futureTs[i - 1]);
+        }
+        const avgDeltaMs = deltas.reduce((a, b) => a + b, 0) / deltas.length;
+        // If cadence is sub-hourly, scale the number of slots accordingly
+        if (avgDeltaMs > 0 && avgDeltaMs < 45 * 60 * 1000) {
+          const slotsPerHour = 3600000 / avgDeltaMs;
+          planningWindowSlots = Math.max(1, Math.round(baseWindowHours * slotsPerHour));
+          planningLookaheadSlots = Math.max(1, Math.round(baseLookaheadHours * slotsPerHour));
+        }
+      }
+    } catch {
+      // Fall back to default horizons
+    }
+
+    // Use adaptive price thresholds (very cheap multiplier) to avoid hardcoded symmetric expensive percentile
+    const cheapPercentile = this.priceAnalyzer.getCheapPercentile() * 100;
+    const adaptiveThresholds = this.adaptiveParametersLearner?.getStrategyThresholds();
+    const priceThresholds = resolvePriceThresholds({
+      cheapPercentile,
+      veryCheapMultiplier: adaptiveThresholds?.veryChepMultiplier
+    });
     const planningBiasResult = computePlanningBias(priceData.prices, planningReferenceTime, {
-      windowHours: 6,
-      lookaheadHours: 12,
-      cheapPercentile: this.priceAnalyzer.getCheapPercentile() * 100, // Use user's setting
-      expensivePercentile: (1.0 - this.priceAnalyzer.getCheapPercentile()) * 100, // Symmetric threshold
+      windowHours: planningWindowSlots,
+      lookaheadHours: planningLookaheadSlots,
+      cheapPercentile,
+      expensivePercentile: priceThresholds.expensive,
       cheapBiasC: 0.5,
       expensiveBiasC: 0.3,
       maxAbsBiasC: 0.7,
@@ -2073,6 +2108,7 @@ export class Optimizer {
       tank: 0,
       total: 0
     };
+    const comfortViolations = this.countComfortViolations(inputs.currentTemp, inputs.constraintsBand);
 
     if (applied.zone1Applied) {
       savings.zone1 = await this.savingsService.calculateRealHourlySavings(
@@ -2106,7 +2142,6 @@ export class Optimizer {
       }
       savings.total = savings.zone1 + savings.zone2 + savings.tank;
 
-      const comfortViolations = 0;
       const currentCOP = zone1Result.metrics?.realHeatingCOP || zone1Result.metrics?.realHotWaterCOP;
       this.learnFromOptimizationOutcome(savings.total, comfortViolations, currentCOP);
       this.logger.log(`Enhanced temperature adjusted from ${zone1Result.safeCurrentTarget.toFixed(1)}°C to ${zone1Result.targetTemp.toFixed(1)}°C`, {
@@ -2175,7 +2210,7 @@ export class Optimizer {
       !applied.lockoutActive
     ) {
       const currentCOP = zone1Result.metrics?.realHeatingCOP ?? zone1Result.metrics?.realHotWaterCOP ?? null;
-      this.learnFromOptimizationOutcome(savings.total, 0, currentCOP ?? undefined);
+      this.learnFromOptimizationOutcome(savings.total, comfortViolations, currentCOP ?? undefined);
       this.logger.log(`Learned from hold: savings = ${savings.total.toFixed(3)}, COP = ${currentCOP?.toFixed(2) ?? 'N/A'} `);
     }
 
@@ -2278,6 +2313,21 @@ export class Optimizer {
         });
       }
     }
+  }
+
+  /**
+   * Count comfort violations based on current indoor temperature and active comfort band.
+   * Returns 1 when outside band, otherwise 0 (single-sample evaluation).
+   */
+  private countComfortViolations(
+    indoorTemp: number | undefined,
+    band: { minTemp: number; maxTemp: number }
+  ): number {
+    if (!Number.isFinite(indoorTemp as number)) {
+      return 0;
+    }
+    const t = indoorTemp as number;
+    return t < band.minTemp - 1e-3 || t > band.maxTemp + 1e-3 ? 1 : 0;
   }
 
   private handleOptimizationError(error: unknown, logger: DecisionLogger): EnhancedOptimizationResult {

@@ -157,14 +157,23 @@ export class CircuitBreaker {
       return fn();
     }
 
-    return Promise.race([
-      fn(),
-      new Promise<T>((_, reject) => {
-        setTimeout(() => {
-          reject(new Error(`Request timeout after ${this.options.timeout}ms`));
-        }, this.options.timeout);
-      })
-    ]);
+    let timeoutHandle: NodeJS.Timeout | null = null;
+    try {
+      return await Promise.race([
+        fn(),
+        new Promise<T>((_, reject) => {
+          timeoutHandle = setTimeout(() => {
+            reject(new Error(`Request timeout after ${this.options.timeout}ms`));
+          }, this.options.timeout);
+          timeoutHandle.unref?.();
+        })
+      ]);
+    } finally {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+        timeoutHandle = null;
+      }
+    }
   }
 
   /**
@@ -268,6 +277,8 @@ export class CircuitBreaker {
     this.monitorTimer = setInterval(() => {
       this.logger.debug(`Circuit ${this.name} state: ${this.state}`);
     }, this.options.monitorInterval);
+    // Allow process to exit naturally in tests
+    this.monitorTimer.unref?.();
   }
 
   /**

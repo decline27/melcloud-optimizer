@@ -57,22 +57,27 @@ export class ThermalModelService {
     this.modelUpdateInterval = setInterval(() => {
       this.updateThermalModel();
     }, 6 * 60 * 60 * 1000);
+    // Don't keep the process alive (important for Jest)
+    this.modelUpdateInterval.unref?.();
 
     // Clean up old data once a day
     // Reduced from 24 hours to 12 hours to better manage memory
     this.dataCleanupInterval = setInterval(() => {
       this.cleanupOldData();
     }, 12 * 60 * 60 * 1000);
+    this.dataCleanupInterval.unref?.();
 
     // Initial model update
-    setTimeout(() => {
+    const initialUpdate = setTimeout(() => {
       this.updateThermalModel();
     }, 30 * 60 * 1000); // First update after 30 minutes
+    initialUpdate.unref?.();
 
     // Initial data cleanup
-    setTimeout(() => {
+    const initialCleanup = setTimeout(() => {
       this.cleanupOldData();
     }, 60 * 60 * 1000); // First cleanup after 1 hour
+    initialCleanup.unref?.();
 
     this.homey.log('Thermal model updates and data cleanup scheduled (cleanup every 12 hours)');
   }
