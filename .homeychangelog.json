@@ -211,5 +211,8 @@
   },
   "14.0.33": {
     "en": "Fixed Legionella to read only"
+  },
+  "14.0.34": {
+    "en": "Bug fix a crash"
   }
 }
