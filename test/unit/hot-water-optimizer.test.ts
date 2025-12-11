@@ -67,6 +67,38 @@ describe('HotWaterOptimizer', () => {
     expect(res.action).not.toBe('heat_now');
   });
 
+  test('optimizeHotWaterScheduling: uses quarter-hour block for delay target', async () => {
+    const metrics: OptimizationMetrics = {
+      realHotWaterCOP: 0.5,
+      realHeatingCOP: 1.0,
+      dailyEnergyConsumption: 8,
+      heatingEfficiency: 0.3,
+      hotWaterEfficiency: 0.1,
+      seasonalMode: 'winter',
+      optimizationFocus: 'both'
+    };
+
+    const lastEnergyData = { TotalHotWaterConsumed: 50 };
+    const now = new Date('2025-01-01T00:00:00Z');
+    const current = { time: now.toISOString(), price: 10 };
+    const prices = Array.from({ length: 24 }, (_, i) => ({
+      time: new Date(now.getTime() + (i + 1) * 3600000).toISOString(),
+      price: i + 1
+    }));
+    const quarterHourly = [
+      { time: new Date(now.getTime() + 15 * 60000).toISOString(), price: 0.9 },
+      { time: new Date(now.getTime() + 30 * 60000).toISOString(), price: 0.2 }, // expected start
+      { time: new Date(now.getTime() + 45 * 60000).toISOString(), price: 0.1 },
+      { time: new Date(now.getTime() + 60 * 60000).toISOString(), price: 0.9 }
+    ];
+    const priceData = { current, prices, quarterHourly };
+
+    const res = await hotWaterOptimizer.optimizeHotWaterScheduling(current.price, priceData, metrics, lastEnergyData);
+
+    expect(res.action).toBe('delay');
+    expect(res.scheduledTime).toBe(quarterHourly[1].time); // start of cheapest 30m block
+  });
+
   describe('Pattern Savings Calculation', () => {
     test('calculatePatternSavings: basic savings calculation', () => {
       const schedulePoints = [

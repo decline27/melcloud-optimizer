@@ -306,14 +306,21 @@ export class EntsoePriceService implements PriceProvider {
       price: convertPrice(entry.price)
     }));
 
-    const current = this.pickCurrentPrice(prices, nowCet.toDate());
+    const intervalMinutes = this.detectIntervalMinutes(prices) ?? undefined;
+    const quarterHourlyPrices = intervalMinutes && intervalMinutes <= 30 ? prices : [];
+    const hourlyPrices = intervalMinutes && intervalMinutes <= 30
+      ? this.aggregateToHourly(prices)
+      : prices;
+
+    const current = this.pickCurrentPrice(quarterHourlyPrices.length > 0 ? quarterHourlyPrices : hourlyPrices, nowCet.toDate());
     const priceInfo: TibberPriceInfo = {
       current: {
         time: current.time,
         price: current.price
       },
-      prices,
-      intervalMinutes: 60,
+      prices: hourlyPrices,
+      quarterHourly: quarterHourlyPrices.length > 0 ? quarterHourlyPrices : undefined,
+      intervalMinutes: intervalMinutes ?? 60,
       currencyCode: appliedCurrency,
       baseCurrency: 'EUR'
     };
@@ -326,7 +333,7 @@ export class EntsoePriceService implements PriceProvider {
     if (this.homey.app?.log) {
       const enableMarkup = this.homey.settings.get('enable_consumer_markup');
       this.homey.app.log(
-        `[ENTSO-E] Loaded ${prices.length} hourly prices, current ${current.price.toFixed(4)} ${appliedCurrency}/kWh${enableMarkup ? ' (with consumer markup)' : ' (wholesale)'}`
+        `[ENTSO-E] Loaded prices: hourly=${hourlyPrices.length}, quarterHourly=${quarterHourlyPrices.length}, current ${current.price.toFixed(4)} ${appliedCurrency}/kWh${enableMarkup ? ' (with consumer markup)' : ' (wholesale)'}`
       );
       if (convert) {
         this.homey.app.log(
@@ -361,5 +368,58 @@ export class EntsoePriceService implements PriceProvider {
       }
     }
     return prices[prices.length - 1];
+  }
+
+  private detectIntervalMinutes(prices: PricePoint[]): number | null {
+    if (!Array.isArray(prices) || prices.length < 2) {
+      return null;
+    }
+
+    for (let i = 1; i < prices.length; i += 1) {
+      const prev = new Date(prices[i - 1].time).getTime();
+      const current = new Date(prices[i].time).getTime();
+      if (Number.isFinite(prev) && Number.isFinite(current)) {
+        const diffMinutes = Math.round((current - prev) / 60000);
+        if (diffMinutes > 0) {
+          return diffMinutes;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private aggregateToHourly(prices: PricePoint[]): PricePoint[] {
+    if (!Array.isArray(prices) || prices.length === 0) {
+      return [];
+    }
+
+    const buckets = new Map<string, { sum: number; count: number }>();
+
+    prices.forEach(({ time, price }) => {
+      const date = new Date(time);
+      if (!Number.isFinite(date.getTime())) {
+        return;
+      }
+
+      const utcYear = date.getUTCFullYear();
+      const utcMonth = date.getUTCMonth();
+      const utcDate = date.getUTCDate();
+      const utcHour = date.getUTCHours();
+      const bucketDate = new Date(Date.UTC(utcYear, utcMonth, utcDate, utcHour, 0, 0, 0));
+      const bucketKey = bucketDate.toISOString();
+
+      const bucket = buckets.get(bucketKey) || { sum: 0, count: 0 };
+      bucket.sum += price;
+      bucket.count += 1;
+      buckets.set(bucketKey, bucket);
+    });
+
+    return Array.from(buckets.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([timeKey, { sum, count }]) => ({
+        time: timeKey,
+        price: count > 0 ? sum / count : 0,
+      }));
   }
 }

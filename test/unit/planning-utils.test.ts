@@ -104,6 +104,29 @@ describe('planning-utils', () => {
     expect(result.hasExpensive).toBe(false);
   });
 
+  test('dampens positive bias when risky intra-hour spikes exist in quarter-hour data', () => {
+    const now = new Date('2025-01-01T00:00:00Z');
+    const prices: { time: string; price: number; intervalMinutes?: number }[] = [];
+    const baseTime = new Date('2025-01-01T00:15:00Z').getTime();
+    // Hour 1: three cheap-ish slots and one spike (risk)
+    for (let i = 0; i < 4; i += 1) {
+      prices.push({
+        time: new Date(baseTime + i * 15 * 60000).toISOString(),
+        price: i === 3 ? 8 : 5,
+        intervalMinutes: 15
+      });
+    }
+    // Hours 2-6: stable higher prices to keep cheapCut anchored on first hour
+    for (let h = 1; h <= 5; h += 1) {
+      const hourStart = baseTime + h * 60 * 60000;
+      prices.push({ time: new Date(hourStart).toISOString(), price: 15, intervalMinutes: 15 });
+    }
+
+    const result = computePlanningBias(prices, now, { windowHours: 6, lookaheadHours: 6 });
+    expect(result.hasCheap).toBe(true);
+    expect(result.biasC).toBe(0);
+  });
+
   test('thermal response ema adjusts within clamp', () => {
     const updated = updateThermalResponse(1.0, 0.3, 0.2, { alpha: 0.1, min: 0.5, max: 1.5 });
     expect(updated).toBeCloseTo(1.01, 5);

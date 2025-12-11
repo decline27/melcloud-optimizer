@@ -16,6 +16,86 @@ export class HotWaterOptimizer {
         private readonly priceAnalyzer: PriceAnalyzer
     ) { }
 
+    private detectIntervalMinutes(prices: { time: string }[]): number | null {
+        if (!Array.isArray(prices) || prices.length < 2) {
+            return null;
+        }
+
+        for (let i = 1; i < prices.length; i += 1) {
+            const prev = new Date(prices[i - 1].time).getTime();
+            const current = new Date(prices[i].time).getTime();
+            if (Number.isFinite(prev) && Number.isFinite(current)) {
+                const diffMinutes = Math.round((current - prev) / 60000);
+                if (diffMinutes > 0) {
+                    return diffMinutes;
+                }
+            }
+        }
+        return null;
+    }
+
+    private findBestQuarterHourlyBlock(prices: { time: string; price: number }[], nowMs: number, minSlots: number) {
+        if (!Array.isArray(prices) || prices.length < minSlots) {
+            return null;
+        }
+
+        const upcoming = prices
+            .map((p) => ({ ...p, ts: Date.parse(p.time) }))
+            .filter((p) => Number.isFinite(p.ts) && (p.ts as number) >= nowMs)
+            .sort((a, b) => (a.ts as number) - (b.ts as number));
+
+        if (upcoming.length < minSlots) {
+            return null;
+        }
+
+        const intervalMinutes = this.detectIntervalMinutes(upcoming as any) ?? 15;
+        if (intervalMinutes > 30) {
+            return null;
+        }
+
+        let best = null as null | { start: number; end: number; avg: number; slots: number };
+        let groupStart = 0;
+
+        const isContiguous = (prev: number, current: number) => {
+            const diff = (current - prev) / 60000;
+            return diff <= intervalMinutes * 1.1; // allow slight drift
+        };
+
+        for (let i = 1; i <= upcoming.length; i += 1) {
+            const prevTs = upcoming[i - 1].ts as number;
+            const currentTs = i < upcoming.length ? (upcoming[i].ts as number) : NaN;
+            const contiguous = Number.isFinite(currentTs) && isContiguous(prevTs, currentTs);
+            if (!contiguous || i === upcoming.length) {
+                const group = upcoming.slice(groupStart, i);
+                if (group.length >= minSlots) {
+                    // Sliding window within the group for minSlots..group.length
+                    for (let windowSize = minSlots; windowSize <= group.length; windowSize += 1) {
+                        for (let start = 0; start + windowSize <= group.length; start += 1) {
+                            const window = group.slice(start, start + windowSize);
+                            const sum = window.reduce((s, p) => s + p.price, 0);
+                            const avg = sum / window.length;
+                            const startTs = window[0].ts as number;
+                            const endTs = window[window.length - 1].ts as number;
+                            if (!best || avg < best.avg || (avg === best.avg && startTs < best.start)) {
+                                best = { start: startTs, end: endTs, avg, slots: window.length };
+                            }
+                        }
+                    }
+                }
+                groupStart = i;
+            }
+        }
+
+        return best
+            ? {
+                startTime: new Date(best.start).toISOString(),
+                endTime: new Date(best.end).toISOString(),
+                averagePrice: best.avg,
+                slots: best.slots,
+            }
+            : null;
+    }
+
     /**
      * Optimize hot water scheduling based on price and COP
      */
@@ -32,7 +112,7 @@ export class HotWaterOptimizer {
         // Calculate hot water efficiency score
         const hotWaterCOP = metrics.realHotWaterCOP;
 
-        // Find cheapest hours in the next 24 hours
+        // Find cheapest blocks (15m) or hours in the next 24 hours
         const referenceTimeMs = priceData.current?.time ? Date.parse(priceData.current.time) : NaN;
         const nowMs = Number.isFinite(referenceTimeMs) ? referenceTimeMs : Date.now();
         const upcomingPrices = priceData.prices.filter((pricePoint: any) => {
@@ -45,6 +125,19 @@ export class HotWaterOptimizer {
         const prices = (upcomingPrices.length > 0 ? upcomingPrices : priceData.prices).slice(0, 24); // Next 24 hours
         const sortedPrices = [...prices].sort((a: any, b: any) => a.price - b.price);
         const cheapestHours = sortedPrices.slice(0, 4); // Top 4 cheapest hours
+
+        const quarterHourly = Array.isArray((priceData as any).quarterHourly) ? (priceData as any).quarterHourly : [];
+        const bestQuarterBlock = quarterHourly.length > 0
+            ? this.findBestQuarterHourlyBlock(quarterHourly, nowMs, 2) // 2 slots = 30 minutes
+            : null;
+        if (bestQuarterBlock) {
+            this.logger.log('DHW quarter-hour block candidate selected', {
+                start: bestQuarterBlock.startTime,
+                end: bestQuarterBlock.endTime,
+                slots: bestQuarterBlock.slots,
+                averagePrice: bestQuarterBlock.averagePrice,
+            });
+        }
 
         // Use CopNormalizer.roughNormalize for consistent COP normalization
         // Hot water COP typically ranges lower than heating, so use 4.0 as assumedMax
@@ -66,8 +159,8 @@ export class HotWaterOptimizer {
                 const nextCheapHour = cheapestHours[0];
                 return {
                     action: 'delay',
-                    reason: `High COP but very expensive electricity - delay to ${nextCheapHour.time}`,
-                    scheduledTime: nextCheapHour.time
+                    reason: `High COP but very expensive electricity - delay to ${bestQuarterBlock?.startTime || nextCheapHour.time} (cheapest block avg ${bestQuarterBlock ? bestQuarterBlock.averagePrice.toFixed(4) : nextCheapHour.price.toFixed(4)})`,
+                    scheduledTime: bestQuarterBlock?.startTime || nextCheapHour.time
                 };
             }
         } else if (hotWaterEfficiency > COP_THRESHOLDS.GOOD) {
@@ -91,8 +184,8 @@ export class HotWaterOptimizer {
                 const nextCheapHour = cheapestHours[0];
                 return {
                     action: 'delay',
-                    reason: `Poor COP - wait for cheapest electricity at ${nextCheapHour.time}`,
-                    scheduledTime: nextCheapHour.time
+                    reason: `Poor COP - wait for cheapest electricity at ${bestQuarterBlock?.startTime || nextCheapHour.time} (block avg ${bestQuarterBlock ? bestQuarterBlock.averagePrice.toFixed(4) : nextCheapHour.price.toFixed(4)})`,
+                    scheduledTime: bestQuarterBlock?.startTime || nextCheapHour.time
                 };
             }
         } else if (hotWaterCOP > 0) {
@@ -107,8 +200,8 @@ export class HotWaterOptimizer {
                 const nextCheapHour = cheapestHours[0];
                 return {
                     action: 'delay',
-                    reason: `Very poor COP - critical: wait for absolute cheapest electricity at ${nextCheapHour.time}`,
-                    scheduledTime: nextCheapHour.time
+                    reason: `Very poor COP - critical: wait for absolute cheapest electricity at ${bestQuarterBlock?.startTime || nextCheapHour.time} (block avg ${bestQuarterBlock ? bestQuarterBlock.averagePrice.toFixed(4) : nextCheapHour.price.toFixed(4)})`,
+                    scheduledTime: bestQuarterBlock?.startTime || nextCheapHour.time
                 };
             }
         }

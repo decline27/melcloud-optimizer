@@ -1,6 +1,7 @@
 export interface HorizonPricePoint {
   time?: string;
   price: number;
+  intervalMinutes?: number;
 }
 
 export interface PlanningBiasOptions {
@@ -58,6 +59,7 @@ const DEFAULT_EXPENSIVE_PERCENTILE = 75;
 const DEFAULT_CHEAP_BIAS = 0.5;
 const DEFAULT_EXPENSIVE_BIAS = 0.3;
 const DEFAULT_MAX_ABS_BIAS = 0.7;
+const DEFAULT_SPIKE_RATIO = 1.25; // >25% above hour average marks intra-hour risk
 
 function clamp(value: number, min: number, max: number): number {
   if (value < min) return min;
@@ -98,7 +100,8 @@ export function computePlanningBias(
       const price = typeof entry.price === 'number' ? entry.price : Number(entry.price);
       const ts = entry.time ? new Date(entry.time) : null;
       const tsMs = ts && Number.isFinite(ts.getTime()) ? ts.getTime() : NaN;
-      return { price, tsMs };
+      const intervalMinutes = typeof entry.intervalMinutes === 'number' ? entry.intervalMinutes : NaN;
+      return { price, tsMs, intervalMinutes };
     })
     .filter((entry) => Number.isFinite(entry.price) && Number.isFinite(entry.tsMs) && (entry.tsMs as number) > now.getTime())
     .sort((a, b) => (a.tsMs as number) - (b.tsMs as number));
@@ -107,8 +110,17 @@ export function computePlanningBias(
     return { biasC: 0, hasCheap: false, hasExpensive: false, windowHours };
   }
 
-  const windowSlice = future.slice(0, windowHours);
-  const lookaheadSlice = future.slice(0, lookaheadHours);
+  // Detect if data is sub-hourly (e.g., 15m) to build hourly aggregates with risk flags
+  const intervalFromData = future.find((entry) => Number.isFinite(entry.intervalMinutes))?.intervalMinutes;
+  const detectedIntervalMinutes = intervalFromData && intervalFromData > 0 ? intervalFromData : detectIntervalMinutes(future);
+  const isSubHourly = typeof detectedIntervalMinutes === 'number' && detectedIntervalMinutes > 0 && detectedIntervalMinutes < 60;
+
+  const { hourlyPoints, riskyHours } = isSubHourly
+    ? aggregateHourlyWithRisk(future, DEFAULT_SPIKE_RATIO)
+    : { hourlyPoints: future.map((entry) => ({ price: entry.price, tsMs: entry.tsMs as number, risky: false })), riskyHours: [] };
+
+  const windowSlice = hourlyPoints.slice(0, windowHours);
+  const lookaheadSlice = hourlyPoints.slice(0, lookaheadHours);
 
   if (windowSlice.length === 0 || lookaheadSlice.length === 0) {
     return { biasC: 0, hasCheap: false, hasExpensive: false, windowHours };
@@ -154,6 +166,12 @@ export function computePlanningBias(
   if (negativeBiasAllowed) {
     bias -= expensiveBias;
   }
+
+  const hasRiskyHour = windowSlice.some((entry) => entry.risky);
+  if (hasRiskyHour && bias > 0) {
+    // Damp positive bias when intra-hour volatility is risky to avoid preheating into spikes
+    bias = Math.max(0, bias - cheapBias);
+  }
   
   const biasBeforeClamp = bias;
   bias = clamp(bias, -maxAbsBias, maxAbsBias);
@@ -168,6 +186,8 @@ export function computePlanningBias(
     cheapImminent: hasCheapImminent,
     expensiveImmediate: hasExpensiveImminent,
     negativeBiasAllowed,
+    riskyHours,
+    hasRiskyHour,
     biasBeforeClamp,
     biasFinal: bias,
     decision: negativeBiasAllowed
@@ -204,4 +224,71 @@ export function updateThermalResponse(
   const adjustment = alpha * (observedDelta - expectedDelta);
   const updated = previous + adjustment;
   return clamp(updated, min, max);
+}
+
+interface FutureEntry {
+  price: number;
+  tsMs: number;
+}
+
+interface AggregatedHour {
+  price: number;
+  tsMs: number;
+  risky: boolean;
+}
+
+function detectIntervalMinutes(future: Array<FutureEntry & { intervalMinutes?: number | null }>): number | null {
+  if (!Array.isArray(future) || future.length < 2) {
+    return null;
+  }
+  for (let i = 1; i < future.length; i += 1) {
+    const prev = future[i - 1].tsMs;
+    const current = future[i].tsMs;
+    if (Number.isFinite(prev) && Number.isFinite(current)) {
+      const diffMinutes = Math.round((current - prev) / 60000);
+      if (diffMinutes > 0) {
+        return diffMinutes;
+      }
+    }
+  }
+  return null;
+}
+
+function aggregateHourlyWithRisk(
+  future: Array<FutureEntry & { tsMs: number }>,
+  spikeRatio: number
+): { hourlyPoints: AggregatedHour[]; riskyHours: number[] } {
+  const buckets = new Map<number, { sum: number; count: number; max: number }>();
+
+  future.forEach((entry) => {
+    const date = new Date(entry.tsMs);
+    if (!Number.isFinite(date.getTime())) {
+      return;
+    }
+    const hourStart = Date.UTC(
+      date.getUTCFullYear(),
+      date.getUTCMonth(),
+      date.getUTCDate(),
+      date.getUTCHours(),
+      0,
+      0,
+      0
+    );
+    const bucket = buckets.get(hourStart) || { sum: 0, count: 0, max: -Infinity };
+    bucket.sum += entry.price;
+    bucket.count += 1;
+    bucket.max = Math.max(bucket.max, entry.price);
+    buckets.set(hourStart, bucket);
+  });
+
+  const hourlyPoints: AggregatedHour[] = Array.from(buckets.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([tsMs, { sum, count, max }]) => {
+      const avg = count > 0 ? sum / count : 0;
+      const risky = count > 0 && max > avg * spikeRatio;
+      return { tsMs, price: avg, risky };
+    });
+
+  const riskyHours = hourlyPoints.filter((h) => h.risky).map((h) => h.tsMs);
+  return { hourlyPoints, riskyHours };
 }

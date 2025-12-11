@@ -238,3 +238,11 @@ homey app run        # Deploy to Homey
 4. ✅ Run tests after changes: `npm run test:unit`
 5. ✅ Follow existing patterns for new features
 6. ✅ Update documentation when changing behavior
+
+## Recent Changes
+- 001-quarter-hour-pricing: Added TypeScript 5.8+, Node.js ≥16, Homey SDK 3.0 + Homey CLI, luxon/moment-timezone, node-fetch, fast-xml-parser, jest/ts-jes
+- 001-quarter-hour-pricing: Added [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
+
+## Active Technologies
+- TypeScript 5.8+, Node.js ≥16, Homey SDK 3.0 + Homey CLI, luxon/moment-timezone, node-fetch, fast-xml-parser, jest/ts-jes (001-quarter-hour-pricing)
+- Homey settings (price caches, learning state); no new storage expected (001-quarter-hour-pricing)
