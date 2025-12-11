@@ -260,23 +260,12 @@ export class Optimizer {
     this.priceAnalyzer = new PriceAnalyzer(this.logger, this.adaptiveParametersLearner);
     this.priceAnalyzer.setPriceProvider(priceProvider);
 
-    // Initialize ThermalController first (needed by ZoneOptimizer)
-    this.thermalController = new ThermalController(
-      this.logger,
-      this.thermalModelService || undefined, // thermalModelService is null here, so it will be undefined
-      this.adaptiveParametersLearner
-    );
-
-    this.hotWaterOptimizer = new HotWaterOptimizer(this.logger, this.priceAnalyzer);
-    this.zoneOptimizer = new ZoneOptimizer(this.logger, this.melCloud, this.priceAnalyzer, this.thermalController);
-
     // Initialize thermal learning model if homey instance is provided
     if (homey) {
       try {
         this.thermalModelService = new ThermalModelService(homey);
         this.useThermalLearning = true;
         this.logger.log('Thermal learning model initialized');
-        // Note: thermalController already initialized with undefined and will handle missing thermalModelService correctly
       } catch (error) {
         this.logger.error('Failed to initialize thermal learning model:', error);
         this.useThermalLearning = false;
@@ -284,6 +273,17 @@ export class Optimizer {
     } else {
       this.useThermalLearning = false;
     }
+
+    // Initialize ThermalController first (needed by ZoneOptimizer)
+    this.thermalController = new ThermalController(
+      this.logger,
+      this.thermalModelService || undefined,
+      this.adaptiveParametersLearner,
+      this.copNormalizer
+    );
+
+    this.hotWaterOptimizer = new HotWaterOptimizer(this.logger, this.priceAnalyzer);
+    this.zoneOptimizer = new ZoneOptimizer(this.logger, this.melCloud, this.priceAnalyzer, this.thermalController);
 
     // Initialize COP helper (SYNCHRONOUS ONLY)
     if (homey) {
@@ -1515,7 +1515,17 @@ export class Optimizer {
           this.priceAnalyzer,
           this.priceAnalyzer.getCheapPercentile(),
           constraintsBand,  // Pass the comfort band to respect user settings
-          planningReferenceTimeMs
+          planningReferenceTimeMs,
+          {
+            currentTargetC: safeCurrentTarget,
+            minC: constraintsBand.minTemp,
+            maxC: constraintsBand.maxTemp,
+            stepC: this.getZone1Constraints().tempStep,
+            deadbandC: this.getZone1Constraints().deadband,
+            minChangeMinutes: this.minSetpointChangeMinutes,
+            lastChangeMs: this.getZone1State().timestamp ?? undefined,
+            maxDeltaPerChangeC: this.getZone1Constraints().tempStep
+          }
         );
 
         this.logger.log('Thermal strategy result:', {

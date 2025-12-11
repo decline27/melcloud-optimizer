@@ -182,6 +182,7 @@ sequenceDiagram
    - **Coast:** During expensive electricity (≥80th percentile) + above target
    - **Boost:** During cheap + excellent COP (>80%) + below target
    - **Maintain:** Normal operation
+   - **Cost/Benefit Gate (Issue #53):** When preheat is triggered, the thermal controller runs a net-benefit check using thermal model cooling rate + thermal capacity, normalized COP, and a normalized ~6h price window. Preheat proceeds only if `savedCostLater - extraCostNow > 0` with sufficient model confidence; otherwise it falls back to the maintain path. Cadence mismatches or low confidence skip the gate (legacy heuristic continues) and a single debug log records ΔT, netBenefit, and the decision path.
 
 6. **Trajectory-Aware Planning Bias** (Added December 2025):
    

@@ -10,6 +10,7 @@ import {
     PricePoint
 } from '../types';
 import { PriceAnalyzer } from './price-analyzer';
+import { applySetpointConstraints } from '../util/setpoint-constraints';
 
 /**
  * Thermal Controller Constants
@@ -55,6 +56,30 @@ const PREHEAT_HOURS_PER_CAPACITY = 0.8;   // Hours of preheat per unit thermal c
 const MIN_PREHEAT_DURATION = 1;
 const DEFAULT_HEATING_POWER_KW = 2.0;
 const DEFAULT_REFERENCE_COP = 4.0;
+const PREHEAT_CONFIDENCE_THRESHOLD = 0.35;
+const PRICE_WINDOW_HOURS = 6;
+const MIN_NORMALIZED_PRICE_POINTS = 6;
+const MIN_EFFECTIVE_COP = 1.2;
+const HOURLY_BUCKET_MS = 60 * 60 * 1000;
+
+interface ConstraintContextForGate {
+    currentTargetC: number;
+    minC: number;
+    maxC: number;
+    stepC: number;
+    deadbandC: number;
+    minChangeMinutes: number;
+    lastChangeMs?: number;
+    maxDeltaPerChangeC?: number;
+}
+
+interface PreheatGateResult {
+    decision: 'allow' | 'block' | 'skip';
+    reason?: string;
+    confidence?: number;
+    netBenefit?: number;
+    constrainedTarget?: number;
+}
 
 export class ThermalController {
     private thermalModel: ThermalModel = { K: 0.5 };
@@ -66,12 +91,24 @@ export class ThermalController {
         lastCalibration: new Date()
     };
     private thermalStrategyHistory: ThermalStrategy[] = [];
+    private thermalModelService?: ThermalModelService;
+    private adaptiveLearner?: AdaptiveParametersLearner;
+    private copNormalizer?: CopNormalizer;
 
     constructor(
         private readonly logger: HomeyLogger,
-        private readonly thermalModelService?: ThermalModelService,
-        private readonly adaptiveLearner?: AdaptiveParametersLearner
-    ) { }
+        thermalModelService?: ThermalModelService,
+        adaptiveLearner?: AdaptiveParametersLearner,
+        copNormalizer?: CopNormalizer
+    ) {
+        this.thermalModelService = thermalModelService;
+        this.adaptiveLearner = adaptiveLearner;
+        this.copNormalizer = copNormalizer;
+    }
+
+    public setThermalModelService(service?: ThermalModelService): void {
+        this.thermalModelService = service;
+    }
 
     public setThermalModel(K: number, S?: number): void {
         this.thermalModel = { K, S };
@@ -95,12 +132,13 @@ export class ThermalController {
         currentTemp: number,
         targetTemp: number,
         currentPrice: number,
-        futurePrices: any[],
+        futurePrices: PricePoint[],
         copData: { heating: number; hotWater: number; outdoor: number },
         priceAnalyzer: PriceAnalyzer,
         preheatCheapPercentile: number,
         comfortBand: { minTemp: number; maxTemp: number },
-        referenceTimeMs?: number
+        referenceTimeMs?: number,
+        constraintContext?: ConstraintContextForGate
     ): ThermalStrategy {
         try {
             // Find cheapest periods in next 24 hours
@@ -122,12 +160,7 @@ export class ThermalController {
             // Calculate current price percentile
             const currentPricePercentile = next24h.filter(p => p.price <= currentPrice).length / next24h.length;
 
-            // Get normalized COP efficiency (simplified here, ideally use COPHelper or similar)
-            // Assuming copData.heating is raw COP. We need normalization logic.
-            // Use CopNormalizer.roughNormalize for consistent COP normalization
-            // When a full CopNormalizer instance is available (e.g., from Optimizer),
-            // the normalized value should be passed directly
-            const heatingEfficiency = CopNormalizer.roughNormalize(copData.heating);
+            const heatingEfficiency = this.normalizeHeatingEfficiency(copData.heating);
 
             // Calculate thermal mass capacity for preheating
             const tempDelta = this.thermalMassModel.maxPreheatingTemp - currentTemp;
@@ -144,6 +177,18 @@ export class ThermalController {
                 // Timing multipliers - default to 1.0 for no change
                 maxCoastingHoursMultiplier: 1.0,
                 preheatDurationMultiplier: 1.0
+            };
+
+            const gateContext = {
+                constraintContext,
+                comfortBand,
+                currentTemp,
+                baselineTarget: targetTemp,
+                currentPrice,
+                futurePrices: next24hSource,
+                heatingCop: copData.heating,
+                outdoorTemp: copData.outdoor,
+                referenceTimeMs: nowMs
             };
 
             // Detect upcoming expensive hours in next 6h for preemptive preheat decisions
@@ -209,6 +254,23 @@ export class ThermalController {
                     comfortBand.maxTemp  // Use user's max temp instead of hardcoded 23°C
                 );
 
+                const gateResult = this.evaluatePreheatGate({
+                    ...gateContext,
+                    proposedTarget: preheatingTarget,
+                    path: 'very-cheap'
+                });
+
+                if (gateResult.decision === 'block') {
+                    return {
+                        action: 'maintain',
+                        targetTemp: targetTemp,
+                        reasoning: gateResult.reason ?? 'Preheat blocked by cost/benefit gate',
+                        estimatedSavings: 0,
+                        duration: 0,
+                        confidenceLevel: Math.min(heatingEfficiency, gateResult.confidence ?? heatingEfficiency)
+                    };
+                }
+
                 const estimatedSavings = this.calculatePreheatingValue(
                     preheatingTarget,
                     cheapest6Hours,
@@ -247,6 +309,23 @@ export class ThermalController {
                     targetTemp + (heatingEfficiency * adaptiveThresholds.preheatAggressiveness * preheatMultiplier),
                     comfortBand.maxTemp  // Respect user's max comfort temperature
                 );
+
+                const gateResult = this.evaluatePreheatGate({
+                    ...gateContext,
+                    proposedTarget: preheatingTarget,
+                    path: 'preemptive'
+                });
+
+                if (gateResult.decision === 'block') {
+                    return {
+                        action: 'maintain',
+                        targetTemp: targetTemp,
+                        reasoning: gateResult.reason ?? 'Preheat blocked by cost/benefit gate',
+                        estimatedSavings: 0,
+                        duration: 0,
+                        confidenceLevel: Math.min(heatingEfficiency, gateResult.confidence ?? heatingEfficiency)
+                    };
+                }
 
                 const estimatedSavings = this.calculatePreheatingValue(
                     preheatingTarget,
@@ -337,6 +416,257 @@ export class ThermalController {
                 estimatedSavings: 0,
                 confidenceLevel: 0.3
             };
+        }
+    }
+
+    private normalizeHeatingEfficiency(cop?: number): number {
+        if (typeof cop === 'number' && Number.isFinite(cop)) {
+            if (this.copNormalizer) {
+                return this.copNormalizer.normalize(cop);
+            }
+            return CopNormalizer.roughNormalize(cop);
+        }
+        return 0;
+    }
+
+    private evaluatePreheatGate(params: {
+        proposedTarget: number;
+        baselineTarget: number;
+        currentTemp: number;
+        currentPrice: number;
+        futurePrices: PricePoint[];
+        heatingCop?: number;
+        outdoorTemp?: number;
+        comfortBand: { minTemp: number; maxTemp: number };
+        constraintContext?: ConstraintContextForGate;
+        referenceTimeMs: number;
+        path: string;
+    }): PreheatGateResult {
+        try {
+            const characteristics = this.thermalModelService?.getThermalCharacteristics?.();
+            const baseLog = {
+                path: params.path,
+                proposedTarget: Number(params.proposedTarget.toFixed(2)),
+                baselineTarget: Number(params.baselineTarget.toFixed(2)),
+                currentTemp: Number(params.currentTemp.toFixed(2)),
+                comfortMax: params.comfortBand.maxTemp
+            };
+
+            if (!characteristics) {
+                this.logger.log('Preheat cost-benefit gate', {
+                    ...baseLog,
+                    decision: 'skip',
+                    reason: 'thermal-model-unavailable'
+                });
+                return { decision: 'skip', reason: 'thermal-model-unavailable' };
+            }
+
+            const confidence = Number.isFinite(characteristics.modelConfidence) ? characteristics.modelConfidence : 0;
+            if (confidence < PREHEAT_CONFIDENCE_THRESHOLD) {
+                this.logger.log('Preheat cost-benefit gate', {
+                    ...baseLog,
+                    decision: 'skip',
+                    reason: 'low-thermal-confidence',
+                    confidence
+                });
+                return { decision: 'skip', reason: 'low-thermal-confidence', confidence };
+            }
+
+            const normalizedPrices = this.normalizePricesForGate(params.futurePrices, params.referenceTimeMs);
+            if (!normalizedPrices || normalizedPrices.buckets.length < MIN_NORMALIZED_PRICE_POINTS) {
+                this.logger.log('Preheat cost-benefit gate', {
+                    ...baseLog,
+                    decision: 'skip',
+                    reason: 'insufficient-price-data',
+                    confidence,
+                    normalizedPoints: normalizedPrices?.buckets.length || 0
+                });
+                return { decision: 'skip', reason: 'insufficient-price-data', confidence };
+            }
+
+            const expensiveWindow = normalizedPrices.buckets.slice(0, PRICE_WINDOW_HOURS);
+            if (expensiveWindow.length === 0) {
+                this.logger.log('Preheat cost-benefit gate', {
+                    ...baseLog,
+                    decision: 'skip',
+                    reason: 'empty-price-window',
+                    confidence
+                });
+                return { decision: 'skip', reason: 'empty-price-window', confidence };
+            }
+            const expensiveAvgPrice = expensiveWindow.reduce((sum, p) => sum + p.price, 0) / expensiveWindow.length;
+
+            const cop = this.getEffectiveCop(params.heatingCop);
+            if (!cop) {
+                this.logger.log('Preheat cost-benefit gate', {
+                    ...baseLog,
+                    decision: 'skip',
+                    reason: 'missing-cop',
+                    confidence
+                });
+                return { decision: 'skip', reason: 'missing-cop', confidence };
+            }
+
+            const constrainedTarget = this.getConstrainedTargetForGate(
+                params.proposedTarget,
+                params.comfortBand,
+                params.constraintContext
+            );
+            const deltaC = Math.max(0, constrainedTarget - params.currentTemp);
+            if (deltaC <= 0) {
+                this.logger.log('Preheat cost-benefit gate', {
+                    ...baseLog,
+                    decision: 'skip',
+                    reason: 'non-positive-delta',
+                    confidence,
+                    constrainedTarget
+                });
+                return { decision: 'skip', reason: 'non-positive-delta', confidence, constrainedTarget };
+            }
+
+            const thermalCapacity = this.thermalMassModel.thermalCapacity ?? 2.5;
+            const heatKwh = deltaC * thermalCapacity;
+            const coolingRate = Math.max(characteristics.coolingRate ?? 0, 0);
+            const tempDiffFromOutdoor = Math.max(params.currentTemp - (params.outdoorTemp ?? params.currentTemp), 0);
+            const heatLossPerHour = coolingRate * tempDiffFromOutdoor;
+            const windowHours = expensiveWindow.length;
+            const lostDegrees = heatLossPerHour * windowHours;
+            const savedDegrees = Math.min(deltaC, lostDegrees);
+            const savedHeatKwh = savedDegrees * thermalCapacity;
+
+            const extraCostNow = (heatKwh / cop.effectiveCop) * params.currentPrice;
+            const savedCostLater = (savedHeatKwh / cop.effectiveCop) * expensiveAvgPrice;
+            const netBenefit = savedCostLater - extraCostNow;
+            const decision: 'allow' | 'block' = netBenefit > 0 ? 'allow' : 'block';
+
+            this.logger.log('Preheat cost-benefit gate', {
+                ...baseLog,
+                decision,
+                reason: decision === 'block' ? 'non-positive-net-benefit' : 'positive-net-benefit',
+                confidence,
+                constrainedTarget: Number(constrainedTarget.toFixed(2)),
+                deltaUsed: Number(deltaC.toFixed(2)),
+                extraCostNow: Number(extraCostNow.toFixed(3)),
+                savedCostLater: Number(savedCostLater.toFixed(3)),
+                netBenefit: Number(netBenefit.toFixed(3)),
+                priceWindowHours: windowHours,
+                priceCadenceMinutes: normalizedPrices.cadenceMinutes,
+                priceWindow: expensiveWindow.map(p => ({
+                    time: new Date(p.time).toISOString(),
+                    price: Number(p.price.toFixed(5))
+                })),
+                normalizedCop: Number(cop.normalizedCop.toFixed(3)),
+                effectiveCop: Number(cop.effectiveCop.toFixed(3))
+            });
+
+            if (decision === 'block') {
+                return {
+                    decision,
+                    reason: 'Preheat skipped: non-positive netBenefit',
+                    confidence,
+                    netBenefit,
+                    constrainedTarget
+                };
+            }
+
+            return { decision, confidence, netBenefit, constrainedTarget };
+        } catch (error) {
+            this.logger.warn('Preheat cost-benefit gate failed, falling back to heuristic', { error });
+            return { decision: 'skip', reason: 'gate-error' };
+        }
+    }
+
+    private getEffectiveCop(heatingCop?: number): { effectiveCop: number; normalizedCop: number; referenceCop: number } | null {
+        const referenceCop = this.copNormalizer?.getRange().max ?? DEFAULT_REFERENCE_COP;
+
+        if (typeof heatingCop === 'number' && Number.isFinite(heatingCop)) {
+            const normalizedCop = this.copNormalizer
+                ? this.copNormalizer.normalize(heatingCop)
+                : CopNormalizer.roughNormalize(heatingCop);
+            const effectiveCop = Math.max(MIN_EFFECTIVE_COP, referenceCop * normalizedCop);
+            if (!Number.isFinite(effectiveCop) || effectiveCop <= 0) {
+                return null;
+            }
+            return { effectiveCop, normalizedCop, referenceCop };
+        }
+
+        if (this.copNormalizer?.hasReliableData()) {
+            const normalizedCop = 0.5;
+            const effectiveCop = Math.max(MIN_EFFECTIVE_COP, referenceCop * normalizedCop);
+            return { effectiveCop, normalizedCop, referenceCop };
+        }
+
+        return null;
+    }
+
+    private normalizePricesForGate(prices: PricePoint[], referenceTimeMs: number): { buckets: Array<{ time: number; price: number }>; cadenceMinutes: number } | null {
+        const parsed = prices
+            .map(pricePoint => {
+                const ts = Date.parse(pricePoint.time);
+                if (!Number.isFinite(ts) || !Number.isFinite(pricePoint.price)) {
+                    return null;
+                }
+                return { ts, price: pricePoint.price };
+            })
+            .filter((entry): entry is { ts: number; price: number } => Boolean(entry))
+            .filter(entry => entry.ts >= referenceTimeMs);
+
+        if (parsed.length === 0) {
+            return null;
+        }
+
+        parsed.sort((a, b) => a.ts - b.ts);
+
+        const buckets = new Map<number, { sum: number; count: number }>();
+        for (const entry of parsed) {
+            const bucketKey = Math.floor(entry.ts / HOURLY_BUCKET_MS) * HOURLY_BUCKET_MS;
+            const agg = buckets.get(bucketKey) || { sum: 0, count: 0 };
+            agg.sum += entry.price;
+            agg.count += 1;
+            buckets.set(bucketKey, agg);
+        }
+
+        const normalized = Array.from(buckets.entries())
+            .sort((a, b) => a[0] - b[0])
+            .map(([time, agg]) => ({ time, price: agg.sum / agg.count }));
+
+        if (normalized.length === 0) {
+            return null;
+        }
+
+        const cadenceMs = normalized.length > 1 ? normalized[1].time - normalized[0].time : HOURLY_BUCKET_MS;
+        return {
+            buckets: normalized,
+            cadenceMinutes: Math.max(1, Math.round(cadenceMs / 60000))
+        };
+    }
+
+    private getConstrainedTargetForGate(
+        proposedTarget: number,
+        comfortBand: { minTemp: number; maxTemp: number },
+        constraintContext?: ConstraintContextForGate
+    ): number {
+        const comfortClamped = Math.min(Math.max(proposedTarget, comfortBand.minTemp), comfortBand.maxTemp);
+
+        if (!constraintContext) {
+            return comfortClamped;
+        }
+
+        try {
+            const constraints = applySetpointConstraints({
+                proposedC: comfortClamped,
+                currentTargetC: constraintContext.currentTargetC,
+                minC: constraintContext.minC,
+                maxC: constraintContext.maxC,
+                stepC: constraintContext.stepC,
+                deadbandC: constraintContext.deadbandC,
+                minChangeMinutes: constraintContext.minChangeMinutes,
+                lastChangeMs: constraintContext.lastChangeMs,
+                maxDeltaPerChangeC: constraintContext.maxDeltaPerChangeC
+            });
+            return constraints.constrainedC;
+        } catch {
+            return comfortClamped;
         }
     }
 
