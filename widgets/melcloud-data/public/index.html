@@ -47,7 +47,7 @@
         background: var(--homey-color-background, transparent);
         color: var(--homey-color-text, var(--widget-text-strong));
         min-width: 360px;
-        min-height: 420px;
+        min-height: 560px;
         box-sizing: border-box;
         display: flex;
         justify-content: center;
@@ -62,7 +62,8 @@
         padding: 18px;
         width: 100%;
         max-width: 420px;
-        min-height: 420px;
+        min-height: 560px;
+        height: auto;
         box-sizing: border-box;
         color: var(--homey-color-text, var(--widget-text-strong));
       }
@@ -221,6 +222,40 @@
         margin-top: 2px;
       }
 
+      .last-action {
+        border-top: 1px solid var(--widget-border);
+        padding-top: 12px;
+        margin-top: 12px;
+      }
+      .last-action .pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+        background: var(--widget-card);
+        color: var(--homey-color-text, var(--widget-text-strong));
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .last-action .headline {
+        margin: 8px 0 4px;
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--homey-color-text, var(--widget-text-strong));
+      }
+      .last-action .reason {
+        margin: 0;
+        font-size: 13px;
+        color: var(--widget-text-soft);
+      }
+      .last-action .timestamp {
+        margin-top: 6px;
+        font-size: 11px;
+        color: var(--widget-muted);
+      }
+
       .savings-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -354,6 +389,13 @@
         </p>
       </section>
 
+      <section class="last-action" id="last_action_section">
+        <div class="pill" id="last_action_code">Waiting</div>
+        <p class="headline" id="last_action_headline">Waiting for first optimization</p>
+        <p class="reason" id="last_action_reason">No optimization history yet.</p>
+        <div class="timestamp" id="last_action_timestamp">—</div>
+      </section>
+
       <section class="thermal-details">
         <div class="thermal-grid">
           <div class="thermal-metric">
@@ -418,7 +460,12 @@
           learningCycles: document.getElementById('thermal_learning_cycles'),
           retentionPoints: document.getElementById('thermal_retention_points'),
           retentionSize: document.getElementById('thermal_retention_size'),
-          retentionSection: document.getElementById('thermal_retention')
+          retentionSection: document.getElementById('thermal_retention'),
+          lastActionSection: document.getElementById('last_action_section'),
+          lastActionCode: document.getElementById('last_action_code'),
+          lastActionHeadline: document.getElementById('last_action_headline'),
+          lastActionReason: document.getElementById('last_action_reason'),
+          lastActionTimestamp: document.getElementById('last_action_timestamp')
         };
 
         function setText(node, value) {
@@ -511,6 +558,28 @@
           setText(els.savingsNote, summary.note || 'Optimizer is learning your baseline; savings will appear after a few hourly runs.');
         }
 
+        function renderLastAction(decision) {
+          if (!els.lastActionSection) return;
+          const data = decision || {};
+          const code = typeof data.code === 'string' ? data.code : 'NONE';
+          const headline = data.headline || 'Waiting for first optimization';
+          const reason = data.reason || 'No optimization history yet.';
+          setText(els.lastActionCode, code === 'NONE' ? 'Waiting' : code.replace(/_/g, ' '));
+          setText(els.lastActionHeadline, headline);
+          setText(els.lastActionReason, reason);
+
+          if (data.timestamp) {
+            try {
+              const d = new Date(data.timestamp);
+              setText(els.lastActionTimestamp, isNaN(d) ? data.timestamp : d.toLocaleString());
+            } catch (err) {
+              setText(els.lastActionTimestamp, data.timestamp);
+            }
+          } else {
+            setText(els.lastActionTimestamp, '—');
+          }
+        }
+
         function renderThermalDetails(snapshot) {
           const model = snapshot?.thermalModel || {};
           const adaptive = snapshot?.adaptiveParameters || {};
@@ -565,6 +634,7 @@
 
           renderSystem(systemSummary);
           renderSavings(savingsSummary);
+          renderLastAction(snapshot.lastDecision);
           renderThermalDetails(snapshot);
 
           if (els.updated) {

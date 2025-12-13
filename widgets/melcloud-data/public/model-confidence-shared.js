@@ -255,6 +255,7 @@
       seasonalMode: data?.seasonalMode || data?.smartSavingsDisplay?.seasonMode || null,
       averageSpotPrice: typeof data?.averageSpotPrice === 'number' ? data.averageSpotPrice : null,
       priceDataPoints: typeof data?.priceDataPoints === 'number' ? data.priceDataPoints : null,
+      lastDecision: data?.lastDecision || null,
       confidencePct,
       confidenceStatus: getConfidenceStatus(confidencePct),
       systemLearning: buildSystemLearningSummary(data),

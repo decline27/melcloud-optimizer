@@ -50,7 +50,8 @@ import {
   HotWaterResponse,
   HotWaterClearRequest,
   HotWaterHandlers,
-  ApiHandlers
+  ApiHandlers,
+  OptimizationDecision
 } from './src/types';
 import type { ServiceState, HistoricalData } from './src/orchestration/service-manager';
 import {
@@ -64,6 +65,7 @@ import {
   updateOptimizerSettings as orchestratorUpdateSettings,
   saveHistoricalData
 } from './src/orchestration/service-manager';
+import { buildDecisionFromOptimization, buildPlaceholderDecision } from './src/util/decision-helper';
 
 
 
@@ -267,39 +269,49 @@ function recordOptimizationEntry(
       ? (optimizationResult as { comfort?: number }).comfort
       : null;
 
-    const indoorTemp = typeof optimizationResult.indoorTemp === 'number'
-      ? optimizationResult.indoorTemp
-      : null;
-    const outdoorTemp = typeof optimizationResult.outdoorTemp === 'number'
-      ? optimizationResult.outdoorTemp
-      : null;
+  const indoorTemp = typeof optimizationResult.indoorTemp === 'number'
+    ? optimizationResult.indoorTemp
+    : null;
+  const outdoorTemp = typeof optimizationResult.outdoorTemp === 'number'
+    ? optimizationResult.outdoorTemp
+    : null;
+  const decision = buildDecisionFromOptimization(optimizationResult, timestamp);
 
-    const entry = {
-      timestamp,
-      action: optimizationResult?.action ?? 'unknown',
-      reason: optimizationResult?.reason ?? '',
+  const entry = {
+    timestamp,
+    action: optimizationResult?.action ?? 'unknown',
+    reason: optimizationResult?.reason ?? '',
       targetTemp,
       targetOriginal,
       indoorTemp,
       outdoorTemp,
-      priceNow,
-      savings: Number.isFinite(savingsValue) ? Number(savingsValue.toFixed(4)) : (optimizationResult?.savings ?? 0),
-      comfort,
-      priceData: optimizationResult?.priceData ?? null,
-      weather: optimizationResult?.weather ?? null,
-      zone2Data: optimizationResult?.zone2Data ?? null,
-      tankData: optimizationResult?.tankData ?? null
-    };
+    priceNow,
+    savings: Number.isFinite(savingsValue) ? Number(savingsValue.toFixed(4)) : (optimizationResult?.savings ?? 0),
+    comfort,
+    priceData: optimizationResult?.priceData ?? null,
+    weather: optimizationResult?.weather ?? null,
+    zone2Data: optimizationResult?.zone2Data ?? null,
+    tankData: optimizationResult?.tankData ?? null,
+    decision: decision ?? null
+  };
 
-    historicalData.optimizations.push(entry);
-    if (historicalData.optimizations.length > 168) {
-      historicalData.optimizations.shift();
-    }
-
-    persistHistoricalData(homey);
-  } catch (error) {
-    homey?.app?.error?.('Failed to record optimization entry', error as any);
+  historicalData.optimizations.push(entry);
+  if (historicalData.optimizations.length > 168) {
+    historicalData.optimizations.shift();
   }
+
+  persistHistoricalData(homey);
+
+  try {
+    if (homey?.settings) {
+      homey.settings.set('last_decision', decision ?? buildPlaceholderDecision());
+    }
+  } catch (err) {
+    homey?.app?.error?.('Failed to persist last_decision snapshot', err as any);
+  }
+} catch (error) {
+  homey?.app?.error?.('Failed to record optimization entry', error as any);
+}
 }
 
 function requireMelCloud(): MelCloudService {
@@ -2480,6 +2492,8 @@ const apiHandlers: ApiHandlers = {
     try {
       console.log('API method getModelConfidence called');
       homey.app.log('API method getModelConfidence called');
+      let lastDecision: OptimizationDecision | null = null;
+      let latestHistoricalEntry: any = null;
 
       // Read thermal characteristics from settings
       const thermalCharacteristicsKey = 'thermal_model_characteristics';
@@ -2953,6 +2967,7 @@ const apiHandlers: ApiHandlers = {
 
         // Log a sample of historical data entries for debugging
         if (historicalData && Array.isArray(historicalData) && historicalData.length > 0) {
+          latestHistoricalEntry = historicalData[historicalData.length - 1];
           homey.app.log(`[getModelConfidence] Sample historical entries (first 3):`);
           historicalData.slice(0, 3).forEach((entry: any, idx: number) => {
             homey.app.log(`[getModelConfidence]   [${idx}] timestamp: ${entry?.timestamp || 'missing'}, priceNow: ${entry?.priceNow || 'missing'}, targetTemp: ${entry?.targetTemp || 'N/A'}`);
@@ -3066,6 +3081,26 @@ const apiHandlers: ApiHandlers = {
       homey.app.log(`[getModelConfidence]   - Seasonal mode: ${smartSavingsDisplay.seasonMode || 'null'}`);
       homey.app.log(`[getModelConfidence]   - Thermal confidence: ${thermalModel.confidence !== null ? (thermalModel.confidence * 100).toFixed(0) + '%' : 'null'}`);
 
+      try {
+        const stored = homey.settings.get('last_decision');
+        if (stored && typeof stored === 'object' && stored.code) {
+          lastDecision = stored as OptimizationDecision;
+        }
+      } catch (decErr) {
+        homey.app.error('Error reading last_decision from settings:', decErr);
+      }
+
+      if (!lastDecision && latestHistoricalEntry) {
+        const derived = buildDecisionFromOptimization(latestHistoricalEntry as AugmentedOptimizationResult);
+        if (derived) {
+          lastDecision = derived;
+        }
+      }
+
+      if (!lastDecision) {
+        lastDecision = buildPlaceholderDecision();
+      }
+
       return {
         success: true,
         thermalModel,
@@ -3079,7 +3114,8 @@ const apiHandlers: ApiHandlers = {
         priceData,
         smartSavingsDisplay,
         averageSpotPrice,
-        priceDataPoints // Include for debugging/transparency
+        priceDataPoints, // Include for debugging/transparency
+        lastDecision
       };
     } catch (err: any) {
       console.error('Error in getModelConfidence:', err);

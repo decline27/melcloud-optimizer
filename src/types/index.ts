@@ -484,6 +484,30 @@ export type OptimizerCostSnapshot = {
   optimizedCostMajor: number;
 };
 
+export type DecisionCode =
+  | 'HEAT_MAINTAIN_DEADBAND'
+  | 'HEAT_PREHEAT'
+  | 'HEAT_COAST'
+  | 'DHW_HEAT_CHEAP_WINDOW'
+  | 'DHW_DELAY_EXPENSIVE'
+  | 'LEARNING_ADJUST'
+  | 'NONE';
+
+export interface OptimizationDecision {
+  code: DecisionCode;
+  headline: string;
+  reason: string;
+  timestamp: string;
+  context?: {
+    fromTemp?: number | null;
+    toTemp?: number | null;
+    priceTier?: 'cheap' | 'normal' | 'expensive';
+    spike?: boolean;
+    dhwAction?: 'heat_now' | 'delay' | 'maintain' | null;
+    zone?: 'zone1' | 'zone2' | 'tank';
+  };
+}
+
 export type HourlyOptimizationData = {
   action: EnhancedOptimizationResult['action'];
   fromTemp: number;
@@ -634,6 +658,7 @@ export type GetModelConfidenceResponse = ApiResult<{
     projection: number | null;
     seasonMode: string | null;
   };
+  lastDecision?: OptimizationDecision;
 }>;
 
 export interface HotWaterServiceLike {

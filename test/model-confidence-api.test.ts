@@ -178,5 +178,45 @@ describe('Model Confidence API', () => {
       expect(result.success).toBe(false);
       expect(result.error).toContain('Storage error');
     });
+
+    it('should return placeholder lastDecision when none stored', async () => {
+      const result = await api.getModelConfidence({ homey: mockHomey });
+
+      expect(result.success).toBe(true);
+      expect(result.lastDecision).toBeDefined();
+      expect(result.lastDecision?.code).toBe('NONE');
+      expect(result.lastDecision?.headline).toContain('Waiting');
+    });
+
+    it('should surface stored lastDecision when available', async () => {
+      const customDecision = {
+        code: 'HEAT_PREHEAT',
+        headline: 'Preheated to 22.5°C',
+        reason: 'Cheap window',
+        timestamp: '2025-11-01T10:00:00Z'
+      };
+      mockHomey.settings.get = jest.fn((key: string) => {
+        if (key === 'last_decision') {
+          return customDecision;
+        }
+        if (key === 'thermal_model_characteristics') {
+          return JSON.stringify({
+            modelConfidence: 0.5,
+            heatingRate: 1,
+            coolingRate: 0.5,
+            thermalMass: 0.4,
+            lastUpdated: '2025-10-26T12:00:00Z'
+          });
+        }
+        return null;
+      });
+
+      const result = await api.getModelConfidence({ homey: mockHomey });
+
+      expect(result.success).toBe(true);
+      expect(result.lastDecision?.code).toBe(customDecision.code);
+      expect(result.lastDecision?.headline).toBe(customDecision.headline);
+      expect(result.lastDecision?.timestamp).toBe(customDecision.timestamp);
+    });
   });
 });

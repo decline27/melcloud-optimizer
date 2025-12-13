@@ -282,18 +282,48 @@ export class HotWaterOptimizer {
         estimatedSavings: number;
     } {
         try {
+            if (!Array.isArray(priceData) || priceData.length === 0) {
+                this.logger.warn('Hot water scheduling skipped: no price data available');
+                return {
+                    schedulePoints: [],
+                    currentAction: 'maintain',
+                    reasoning: 'No price data available',
+                    estimatedSavings: 0
+                };
+            }
+
+            const validPrices = priceData.filter(p => p && Number.isFinite(p.price));
+            if (validPrices.length === 0) {
+                this.logger.warn('Hot water scheduling skipped: price data missing price field');
+                return {
+                    schedulePoints: [],
+                    currentAction: 'maintain',
+                    reasoning: 'Price data missing values',
+                    estimatedSavings: 0
+                };
+            }
+
             const nowMs = typeof referenceTimeMs === 'number' && Number.isFinite(referenceTimeMs)
                 ? referenceTimeMs
                 : Date.now();
-            const upcomingPrices = priceData.filter(pricePoint => {
-                const ts = Date.parse(pricePoint.time);
+            const upcomingPrices = validPrices.filter(pricePoint => {
+                const ts = pricePoint.time ? Date.parse(pricePoint.time) : NaN;
                 if (!Number.isFinite(ts)) {
                     return true;
                 }
                 return ts >= nowMs;
             });
-            const priceWindow = upcomingPrices.length > 0 ? upcomingPrices : priceData;
-            const next24h = priceWindow.slice(0, 24);
+            const priceWindow = upcomingPrices.length > 0 ? upcomingPrices : validPrices;
+            const next24h = priceWindow.slice(0, 24).filter(p => Number.isFinite(p.price));
+            if (next24h.length === 0) {
+                this.logger.warn('Hot water scheduling skipped: no valid prices in next window');
+                return {
+                    schedulePoints: [],
+                    currentAction: 'maintain',
+                    reasoning: 'No valid price data for scheduling',
+                    estimatedSavings: 0
+                };
+            }
             const schedulePoints: SchedulePoint[] = [];
 
             // For each peak demand hour, find optimal heating time
@@ -313,14 +343,20 @@ export class HotWaterOptimizer {
                         const priceIndex = (hour - currentHour + 24) % 24;
                         const minPriceIndex = (min - currentHour + 24) % 24;
 
-                        if (priceIndex < next24h.length && minPriceIndex < next24h.length) {
-                            return next24h[priceIndex].price < next24h[minPriceIndex].price ? hour : min;
+                        if (priceIndex >= next24h.length || minPriceIndex >= next24h.length) {
+                            return min;
                         }
-                        return min;
+                        const priceA = next24h[priceIndex]?.price;
+                        const priceB = next24h[minPriceIndex]?.price;
+                        if (!Number.isFinite(priceA) || !Number.isFinite(priceB)) return min;
+                        return priceA < priceB ? hour : min;
                     });
 
                     const priceIndex = (cheapestHour - currentHour + 24) % 24;
-                    const pricePercentile = next24h.filter((p: any) => p.price <= next24h[priceIndex].price).length / next24h.length;
+                    const refPrice = priceIndex < next24h.length ? next24h[priceIndex]?.price : undefined;
+                    const pricePercentile = Number.isFinite(refPrice)
+                        ? next24h.filter((p: any) => Number.isFinite(p.price) && p.price <= refPrice).length / next24h.length
+                        : 0;
 
                     schedulePoints.push({
                         hour: cheapestHour,
@@ -355,8 +391,8 @@ export class HotWaterOptimizer {
                     currentAction = 'heat_now';
                 } else {
                     // Check if current price is exceptional
-                    const currentPrice = next24h[0]?.price || 0;
-                    const avgPrice = next24h.reduce((sum: number, p: any) => sum + p.price, 0) / next24h.length;
+                    const currentPrice = Number.isFinite(next24h[0]?.price) ? next24h[0].price : 0;
+                    const avgPrice = next24h.reduce((sum: number, p: any) => sum + (Number.isFinite(p.price) ? p.price : 0), 0) / next24h.length;
 
                     // Convert user's cheap percentile to price ratio threshold
                     const priceRatioThreshold = 1.0 - (this.priceAnalyzer.getCheapPercentile() * 1.2);
@@ -370,15 +406,17 @@ export class HotWaterOptimizer {
             }
 
             // Calculate estimated savings
-            const estimatedSavings = this.calculatePatternSavings(
-                schedulePoints,
-                currentHour,
-                next24h,
-                {
-                    gridFeePerKwh: options.gridFeePerKwh,
-                    estimatedDailyHotWaterKwh: options.estimatedDailyHotWaterKwh
-                }
-            );
+            const estimatedSavings = next24h.length > 0
+                ? this.calculatePatternSavings(
+                    schedulePoints,
+                    currentHour,
+                    next24h,
+                    {
+                        gridFeePerKwh: options.gridFeePerKwh,
+                        estimatedDailyHotWaterKwh: options.estimatedDailyHotWaterKwh
+                    }
+                )
+                : 0;
 
             const currencyCode = options.currencyCode || 'NOK';
 

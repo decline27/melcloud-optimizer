@@ -35,7 +35,7 @@
       "name": {
         "en": "Live Model Confidence"
       },
-      "height": 720,
+      "height": 880,
       "settings": [],
       "api": {
         "getModelConfidence": {
