@@ -214,5 +214,8 @@
   },
   "14.0.34": {
     "en": "Bug fix a crash"
+  },
+  "14.0.35": {
+    "en": "Bug hunting and currency fix"
   }
 }
