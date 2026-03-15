@@ -59,7 +59,7 @@ describe('AdaptiveParametersLearner', () => {
                 preheatAggressiveness: 1.8,
                 coastingReduction: 1.3,
                 boostIncrease: 0.4,
-                veryChepMultiplier: 0.85,
+                veryCheapMultiplier: 0.85,
                 copEfficiencyBonusHigh: 0.35,
                 copEfficiencyBonusMedium: 0.25,
                 copAdjustmentExcellent: 0.25,
@@ -374,7 +374,7 @@ describe('AdaptiveParametersLearner', () => {
                 preheatAggressiveness: 2.0,
                 coastingReduction: 1.5,
                 boostIncrease: 0.5,
-                veryChepMultiplier: 0.8,
+                veryCheapMultiplier: 0.8,
                 confidence: 0.5,
                 learningCycles: 50
             } as any);
@@ -396,7 +396,7 @@ describe('AdaptiveParametersLearner', () => {
                 preheatAggressiveness: 2.0,
                 coastingReduction: 1.5,
                 boostIncrease: 0.5,
-                veryChepMultiplier: 0.8,
+                veryCheapMultiplier: 0.8,
                 confidence: 0.5,
                 learningCycles: 50
             } as any);
@@ -412,22 +412,22 @@ describe('AdaptiveParametersLearner', () => {
             expect(newValue).toBeLessThan(initial);
         });
 
-        test('increases veryChepMultiplier on comfort violation (more conservative)', () => {
+        test('increases veryCheapMultiplier on comfort violation (more conservative)', () => {
             const mockHomey = createMockHomey({
-                veryChepMultiplier: 0.8,
+                veryCheapMultiplier: 0.8,
                 confidence: 0.5,
                 learningCycles: 50
             } as any);
 
             const learner = new AdaptiveParametersLearner(mockHomey);
-            const initial = learner.getParameters().veryChepMultiplier;
+            const initial = learner.getParameters().veryCheapMultiplier;
 
             for (let i = 0; i < 50; i++) {
                 learner.learnFromOutcome('winter', 1.0, 1);
             }
 
             // Higher multiplier = more conservative (requires "cheaper" price to trigger)
-            const newValue = learner.getParameters().veryChepMultiplier;
+            const newValue = learner.getParameters().veryCheapMultiplier;
             expect(newValue).toBeGreaterThan(initial);
         });
 
@@ -606,7 +606,7 @@ describe('AdaptiveParametersLearner', () => {
             expect(thresholds).toHaveProperty('excellentCOPThreshold');
             expect(thresholds).toHaveProperty('goodCOPThreshold');
             expect(thresholds).toHaveProperty('minimumCOPThreshold');
-            expect(thresholds).toHaveProperty('veryChepMultiplier');
+            expect(thresholds).toHaveProperty('veryCheapMultiplier');
             expect(thresholds).toHaveProperty('preheatAggressiveness');
             expect(thresholds).toHaveProperty('coastingReduction');
             expect(thresholds).toHaveProperty('boostIncrease');

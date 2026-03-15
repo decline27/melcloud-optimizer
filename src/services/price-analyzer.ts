@@ -153,7 +153,7 @@ export class PriceAnalyzer {
 
     const result = classifyPriceUnified(priceList, currentPrice, {
       cheapPercentile: this.preheatCheapPercentile,
-      veryCheapMultiplier: adaptiveThresholds?.veryChepMultiplier,
+      veryCheapMultiplier: adaptiveThresholds?.veryCheapMultiplier,
       providerPriceLevel,
       historicalAvgPrice
     });
@@ -172,7 +172,7 @@ export class PriceAnalyzer {
     const adaptiveThresholds = this.adaptiveLearner?.getStrategyThresholds();
     const thresholds = resolvePriceThresholds({
       cheapPercentile: this.preheatCheapPercentile,
-      veryCheapMultiplier: adaptiveThresholds?.veryChepMultiplier
+      veryCheapMultiplier: adaptiveThresholds?.veryCheapMultiplier
     });
 
     if (percentile <= thresholds.veryCheap) return 'VERY_CHEAP';
@@ -186,7 +186,7 @@ export class PriceAnalyzer {
     const adaptiveThresholds = this.adaptiveLearner?.getStrategyThresholds();
     const thresholds = resolvePriceThresholds({
       cheapPercentile: this.preheatCheapPercentile,
-      veryCheapMultiplier: adaptiveThresholds?.veryChepMultiplier
+      veryCheapMultiplier: adaptiveThresholds?.veryCheapMultiplier
     });
     return percentile <= thresholds.cheap;
   }
@@ -195,7 +195,7 @@ export class PriceAnalyzer {
     const adaptiveThresholds = this.adaptiveLearner?.getStrategyThresholds();
     const thresholds = resolvePriceThresholds({
       cheapPercentile: this.preheatCheapPercentile,
-      veryCheapMultiplier: adaptiveThresholds?.veryChepMultiplier
+      veryCheapMultiplier: adaptiveThresholds?.veryCheapMultiplier
     });
     return percentile >= thresholds.expensive;
   }

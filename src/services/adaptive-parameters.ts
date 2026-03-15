@@ -19,7 +19,7 @@ export interface AdaptiveParameters {
   excellentCOPThreshold: number;    // Threshold for "excellent" COP performance (was hardcoded 0.8)
   goodCOPThreshold: number;         // Threshold for "good" COP performance (was hardcoded 0.5)
   minimumCOPThreshold: number;      // Minimum acceptable COP (was hardcoded 0.2)
-  veryChepMultiplier: number;      // Multiplier for "very cheap" price detection (was hardcoded 0.8)
+  veryCheapMultiplier: number;      // Multiplier for "very cheap" price detection (was hardcoded 0.8)
   preheatAggressiveness: number;    // Temperature boost aggressiveness (was hardcoded 2.0)
   coastingReduction: number;        // Temperature reduction when coasting (was hardcoded 1.5)
   boostIncrease: number;           // Temperature increase for boost mode (was hardcoded 0.5)
@@ -65,7 +65,7 @@ const DEFAULT_PARAMETERS: AdaptiveParameters = {
   excellentCOPThreshold: 0.8,      // Current hardcoded value in optimizer
   goodCOPThreshold: 0.5,           // Current hardcoded value in optimizer
   minimumCOPThreshold: 0.2,        // Current hardcoded value in optimizer
-  veryChepMultiplier: 0.8,        // Current hardcoded value (80% of cheap threshold)
+  veryCheapMultiplier: 0.8,        // Current hardcoded value (80% of cheap threshold)
   preheatAggressiveness: 2.0,      // Current hardcoded value (2.0°C boost)
   coastingReduction: 1.5,          // Current hardcoded value (1.5°C reduction)
   boostIncrease: 0.5,             // Current hardcoded value (0.5°C increase)
@@ -108,6 +108,12 @@ export class AdaptiveParametersLearner {
       if (stored) {
         const parsed = JSON.parse(stored);
         
+        // Migration: Rename veryChepMultiplier -> veryCheapMultiplier (typo fix)
+        if ('veryChepMultiplier' in parsed && !('veryCheapMultiplier' in parsed)) {
+          parsed.veryCheapMultiplier = parsed.veryChepMultiplier;
+          delete parsed.veryChepMultiplier;
+        }
+
         // Migration: Add new parameters if they don't exist (for existing installations)
         const migrated: AdaptiveParameters = {
           ...DEFAULT_PARAMETERS, // Start with all defaults
@@ -161,7 +167,7 @@ export class AdaptiveParametersLearner {
         excellentCOPThreshold: this.blendValue(this.parameters.excellentCOPThreshold, DEFAULT_PARAMETERS.excellentCOPThreshold, blendFactor),
         goodCOPThreshold: this.blendValue(this.parameters.goodCOPThreshold, DEFAULT_PARAMETERS.goodCOPThreshold, blendFactor),
         minimumCOPThreshold: this.blendValue(this.parameters.minimumCOPThreshold, DEFAULT_PARAMETERS.minimumCOPThreshold, blendFactor),
-        veryChepMultiplier: this.blendValue(this.parameters.veryChepMultiplier, DEFAULT_PARAMETERS.veryChepMultiplier, blendFactor),
+        veryCheapMultiplier: this.blendValue(this.parameters.veryCheapMultiplier, DEFAULT_PARAMETERS.veryCheapMultiplier, blendFactor),
         preheatAggressiveness: this.blendValue(this.parameters.preheatAggressiveness, DEFAULT_PARAMETERS.preheatAggressiveness, blendFactor),
         coastingReduction: this.blendValue(this.parameters.coastingReduction, DEFAULT_PARAMETERS.coastingReduction, blendFactor),
         boostIncrease: this.blendValue(this.parameters.boostIncrease, DEFAULT_PARAMETERS.boostIncrease, blendFactor),
@@ -331,7 +337,7 @@ export class AdaptiveParametersLearner {
       this.parameters.boostIncrease = Math.max(0.2, this.parameters.boostIncrease - learningRate * 2);
       
       // Be more conservative with price detection too
-      this.parameters.veryChepMultiplier = Math.min(0.95, this.parameters.veryChepMultiplier + learningRate);
+      this.parameters.veryCheapMultiplier = Math.min(0.95, this.parameters.veryCheapMultiplier + learningRate);
       
       // Learn COP adjustment magnitudes - reduce aggressiveness
       this.learnCOPAdjustmentMagnitudes(comfortSatisfied, goodSavings);
@@ -342,14 +348,14 @@ export class AdaptiveParametersLearner {
       this.parameters.coastingReduction = Math.min(2.5, this.parameters.coastingReduction + learningRate);
       
       // Be more aggressive with price detection
-      this.parameters.veryChepMultiplier = Math.max(0.6, this.parameters.veryChepMultiplier - learningRate * 0.5);
+      this.parameters.veryCheapMultiplier = Math.max(0.6, this.parameters.veryCheapMultiplier - learningRate * 0.5);
       
       // Learn COP adjustment magnitudes
       this.learnCOPAdjustmentMagnitudes(comfortSatisfied, goodSavings);
       
     } else if (!goodSavings) {
       // No savings despite actions - maybe be more aggressive to find opportunities
-      this.parameters.veryChepMultiplier = Math.max(0.6, this.parameters.veryChepMultiplier - learningRate);
+      this.parameters.veryCheapMultiplier = Math.max(0.6, this.parameters.veryCheapMultiplier - learningRate);
     }
   }
 
@@ -363,7 +369,7 @@ export class AdaptiveParametersLearner {
       excellentCOPThreshold: params.excellentCOPThreshold,
       goodCOPThreshold: params.goodCOPThreshold,
       minimumCOPThreshold: params.minimumCOPThreshold,
-      veryChepMultiplier: params.veryChepMultiplier,
+      veryCheapMultiplier: params.veryCheapMultiplier,
       preheatAggressiveness: params.preheatAggressiveness,
       coastingReduction: params.coastingReduction,
       boostIncrease: params.boostIncrease,

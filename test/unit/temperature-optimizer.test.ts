@@ -87,7 +87,7 @@ describe('TemperatureOptimizer', () => {
         excellentCOPThreshold: 0.8,
         goodCOPThreshold: 0.5,
         minimumCOPThreshold: 0.2,
-        veryChepMultiplier: 0.8,
+        veryCheapMultiplier: 0.8,
         preheatAggressiveness: 2.0,
         coastingReduction: 1.5,
         boostIncrease: 0.5,
@@ -104,7 +104,7 @@ describe('TemperatureOptimizer', () => {
         excellentCOPThreshold: 0.8,
         goodCOPThreshold: 0.5,
         minimumCOPThreshold: 0.2,
-        veryChepMultiplier: 0.8,
+        veryCheapMultiplier: 0.8,
         preheatAggressiveness: 2.0,
         coastingReduction: 1.5,
         boostIncrease: 0.5,
@@ -500,69 +500,9 @@ describe('TemperatureOptimizer', () => {
       });
     });
 
-    describe('COP-based fine tuning', () => {
-      it('should add bonus for excellent hot water COP with hotwater focus', async () => {
-        const metrics = createMockMetrics({
-          seasonalMode: 'summer',
-          optimizationFocus: 'hotwater',
-          realHotWaterCOP: 4.5,
-        });
-
-        // Must be > excellentCOPThreshold (0.8) to trigger excellent bonus
-        mockCopNormalizer.normalize.mockReturnValue(0.85);
-
-        const result = await optimizer.calculateOptimalTemperatureWithRealData(
-          defaultPriceStats,
-          21.0,
-          20.0,
-          defaultComfortBand,
-          metrics
-        );
-
-        expect(result.reason).toContain('excellent hot water COP(+0.2°C)');
-      });
-
-      it('should add bonus for good heating COP with both focus', async () => {
-        const metrics = createMockMetrics({
-          seasonalMode: 'transition',
-          optimizationFocus: 'both',
-          realHeatingCOP: 3.0,
-        });
-
-        // Must be > goodCOPThreshold (0.5) to trigger good COP bonus
-        mockCopNormalizer.normalize.mockReturnValue(0.6);
-
-        const result = await optimizer.calculateOptimalTemperatureWithRealData(
-          defaultPriceStats,
-          21.0,
-          12.0,
-          defaultComfortBand,
-          metrics
-        );
-
-        expect(result.reason).toContain('good heating COP(+0.3°C)');
-      });
-
-      it('should apply penalty for low heating COP', async () => {
-        const metrics = createMockMetrics({
-          seasonalMode: 'winter',
-          realHeatingCOP: 1.2,
-        });
-
-        // Must be < minimumCOPThreshold (0.2) to trigger low COP penalty
-        mockCopNormalizer.normalize.mockReturnValue(0.15);
-
-        const result = await optimizer.calculateOptimalTemperatureWithRealData(
-          defaultPriceStats,
-          21.0,
-          5.0,
-          defaultComfortBand,
-          metrics
-        );
-
-        expect(result.reason).toContain('low heating COP(-0.5°C)');
-      });
-    });
+    // COP-based fine-tuning tests removed: the redundant fine-tuning block was removed
+    // in Bug 3 fix (double COP adjustment). COP adjustments are now only applied once
+    // in the per-season blocks (summer/winter/transition), which are tested above.
 
     it('should always respect comfort band constraints', async () => {
       const metrics = createMockMetrics({

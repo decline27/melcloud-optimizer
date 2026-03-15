@@ -113,6 +113,8 @@ export interface PriceStats {
  */
 export interface TemperatureOptimizerDeps {
   copNormalizer: CopNormalizer;
+  /** Dedicated hot water COP normalizer. Falls back to copNormalizer if not provided. */
+  copNormalizerHotWater?: CopNormalizer;
   copHelper: COPHelper | null;
   adaptiveParametersLearner: AdaptiveParametersLearner | null;
   logger: TemperatureOptimizerLogger;
@@ -152,10 +154,11 @@ export interface TemperatureOptimizerDeps {
  */
 export class TemperatureOptimizer {
   private readonly copNormalizer: CopNormalizer;
+  private readonly copNormalizerHotWater: CopNormalizer;
   private readonly copHelper: COPHelper | null;
   private readonly adaptiveParametersLearner: AdaptiveParametersLearner | null;
   private readonly logger: TemperatureOptimizerLogger;
-  
+
   // Settings that can be updated
   private copWeight: number;
   private autoSeasonalMode: boolean;
@@ -163,6 +166,7 @@ export class TemperatureOptimizer {
 
   constructor(deps: TemperatureOptimizerDeps) {
     this.copNormalizer = deps.copNormalizer;
+    this.copNormalizerHotWater = deps.copNormalizerHotWater || deps.copNormalizer;
     this.copHelper = deps.copHelper;
     this.adaptiveParametersLearner = deps.adaptiveParametersLearner;
     this.logger = deps.logger;
@@ -194,7 +198,7 @@ export class TemperatureOptimizer {
    * @returns Human-readable price description: 'low', 'moderate', or 'high'
    */
   private getPriceDescription(priceLevel: string | undefined): string {
-    // priceLevel is calculated by price-classifier using learned veryChepMultiplier thresholds
+    // priceLevel is calculated by price-classifier using learned veryCheapMultiplier thresholds
     if (priceLevel === 'VERY_CHEAP' || priceLevel === 'CHEAP') {
       return 'low';
     } else if (priceLevel === 'VERY_EXPENSIVE' || priceLevel === 'EXPENSIVE') {
@@ -364,9 +368,9 @@ export class TemperatureOptimizer {
       // Summer optimization: Focus on hot water efficiency and minimal heating
       const priceWeight = adaptiveParams?.priceWeightSummer || DEFAULT_WEIGHTS.PRICE_SUMMER;
 
-      // Update COP range and normalize
-      this.copNormalizer.updateRange(metrics.realHotWaterCOP);
-      const hotWaterEfficiency = this.copNormalizer.normalize(metrics.realHotWaterCOP);
+      // Update COP range and normalize (use dedicated hot water normalizer)
+      this.copNormalizerHotWater.updateRange(metrics.realHotWaterCOP);
+      const hotWaterEfficiency = this.copNormalizerHotWater.normalize(metrics.realHotWaterCOP);
 
       // Price adjustment (inverted: low price = higher temp)
       const priceAdjustment = (0.5 - normalizedPrice) * tempRange * priceWeight;
@@ -432,12 +436,12 @@ export class TemperatureOptimizer {
       // Transition mode: Balanced approach using both COPs
       const priceWeight = adaptiveParams?.priceWeightTransition || DEFAULT_WEIGHTS.PRICE_TRANSITION;
 
-      // Update COP ranges for both systems
+      // Update COP ranges for both systems (separate normalizers)
       this.copNormalizer.updateRange(metrics.realHeatingCOP);
-      this.copNormalizer.updateRange(metrics.realHotWaterCOP);
+      this.copNormalizerHotWater.updateRange(metrics.realHotWaterCOP);
 
       const heatingEfficiency = this.copNormalizer.normalize(metrics.realHeatingCOP);
-      const hotWaterEfficiency = this.copNormalizer.normalize(metrics.realHotWaterCOP);
+      const hotWaterEfficiency = this.copNormalizerHotWater.normalize(metrics.realHotWaterCOP);
       const combinedEfficiency = (heatingEfficiency + hotWaterEfficiency) / 2;
 
       const priceAdjustment = (0.5 - normalizedPrice) * tempRange * priceWeight;
@@ -454,31 +458,9 @@ export class TemperatureOptimizer {
       reason = `Transition mode: Combined COP efficiency ${(combinedEfficiency * 100).toFixed(0)}%, adapting to both heating and hot water needs`;
     }
 
-    // Apply normalized COP-based fine tuning using adaptive thresholds
-    // Get adaptive thresholds for normalized COP comparisons
-    const fineTuneThresholds = this.adaptiveParametersLearner?.getStrategyThresholds() || {
-      excellentCOPThreshold: COP_THRESHOLDS.EXCELLENT,
-      goodCOPThreshold: COP_THRESHOLDS.GOOD,
-      minimumCOPThreshold: COP_THRESHOLDS.POOR
-    };
-    
-    // Normalize COPs for consistent threshold comparison
-    const normalizedHotWaterCOP = this.copNormalizer.normalize(metrics.realHotWaterCOP);
-    const normalizedHeatingCOP = this.copNormalizer.normalize(metrics.realHeatingCOP);
-    
-    if (metrics.optimizationFocus === 'hotwater' && normalizedHotWaterCOP > fineTuneThresholds.excellentCOPThreshold) {
-      // Excellent hot water performance allows more aggressive optimization
-      targetTemp += 0.2;
-      reason += `, excellent hot water COP(+0.2°C)`;
-    } else if (metrics.optimizationFocus === 'both' && normalizedHeatingCOP > fineTuneThresholds.goodCOPThreshold) {
-      // Good heating performance
-      targetTemp += 0.3;
-      reason += `, good heating COP(+0.3°C)`;
-    } else if (normalizedHeatingCOP < fineTuneThresholds.minimumCOPThreshold && metrics.realHeatingCOP > 0) {
-      // Poor heating performance - be more conservative
-      targetTemp -= 0.5;
-      reason += `, low heating COP(-0.5°C)`;
-    }
+    // COP-based fine-tuning removed: the per-season blocks above (summer/winter/transition)
+    // already apply comprehensive COP adjustments. The previous fine-tuning block caused
+    // double COP penalties (e.g., -0.5 in winter block + -0.5 here = -1.0°C for poor COP).
 
     // Apply final comfort band constraints
     targetTemp = Math.max(comfortBand.minTemp, Math.min(comfortBand.maxTemp, targetTemp));

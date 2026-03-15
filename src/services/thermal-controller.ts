@@ -170,7 +170,7 @@ export class ThermalController {
                 excellentCOPThreshold: 0.8,
                 goodCOPThreshold: 0.5,
                 minimumCOPThreshold: 0.2,
-                veryChepMultiplier: 0.8,
+                veryCheapMultiplier: 0.8,
                 preheatAggressiveness: 2.0,
                 coastingReduction: 1.5,
                 boostIncrease: 0.5,
@@ -221,8 +221,8 @@ export class ThermalController {
 
             // Strategy decision logic
             // Check 1: Very cheap preheat conditions
-            const veryChepThreshold = preheatCheapPercentile * adaptiveThresholds.veryChepMultiplier;
-            const meetsVeryChepPreheat = currentPricePercentile <= veryChepThreshold &&
+            const veryCheapThreshold = preheatCheapPercentile * adaptiveThresholds.veryCheapMultiplier;
+            const meetsVeryCheapPreheat = currentPricePercentile <= veryCheapThreshold &&
                 heatingEfficiency > adaptiveThresholds.goodCOPThreshold && tempDelta > 0.5;
             
             // Check 2: Preemptive preheat conditions
@@ -230,10 +230,10 @@ export class ThermalController {
                 heatingEfficiency > adaptiveThresholds.minimumCOPThreshold && tempDelta > 0;
 
             this.logger.log('Thermal strategy condition checks:', {
-                veryChepThreshold: (veryChepThreshold * 100).toFixed(1) + '%',
-                meetsVeryChepPreheat: meetsVeryChepPreheat,
-                veryChepDetails: {
-                    priceCheck: `${(currentPricePercentile * 100).toFixed(1)}% <= ${(veryChepThreshold * 100).toFixed(1)}% = ${currentPricePercentile <= veryChepThreshold}`,
+                veryCheapThreshold: (veryCheapThreshold * 100).toFixed(1) + '%',
+                meetsVeryCheapPreheat: meetsVeryCheapPreheat,
+                veryCheapDetails: {
+                    priceCheck: `${(currentPricePercentile * 100).toFixed(1)}% <= ${(veryCheapThreshold * 100).toFixed(1)}% = ${currentPricePercentile <= veryCheapThreshold}`,
                     copCheck: `${heatingEfficiency.toFixed(2)} > ${adaptiveThresholds.goodCOPThreshold} = ${heatingEfficiency > adaptiveThresholds.goodCOPThreshold}`,
                     tempDeltaCheck: `${tempDelta.toFixed(1)} > 0.5 = ${tempDelta > 0.5}`
                 },
@@ -246,7 +246,7 @@ export class ThermalController {
                 }
             });
 
-            if (currentPricePercentile <= (preheatCheapPercentile * adaptiveThresholds.veryChepMultiplier) &&
+            if (currentPricePercentile <= (preheatCheapPercentile * adaptiveThresholds.veryCheapMultiplier) &&
                 heatingEfficiency > adaptiveThresholds.goodCOPThreshold && tempDelta > PREHEAT_TEMP_DELTA_THRESHOLD) {
 
                 const preheatingTarget = Math.min(
@@ -360,7 +360,7 @@ export class ThermalController {
                     confidenceLevel: Math.min(heatingEfficiency + 0.1, 0.8)
                 };
 
-            } else if (currentPricePercentile >= (1.0 - preheatCheapPercentile * adaptiveThresholds.veryChepMultiplier) && currentTemp > targetTemp - 0.5) {
+            } else if (currentPricePercentile >= (1.0 - preheatCheapPercentile * adaptiveThresholds.veryCheapMultiplier) && currentTemp > targetTemp - 0.5) {
                 // Coasting logic - scale max coasting with thermal capacity
                 const coastingTarget = Math.max(targetTemp - adaptiveThresholds.coastingReduction, comfortBand.minTemp);
                 // Derive max coasting hours from thermal capacity: higher capacity = longer safe coasting

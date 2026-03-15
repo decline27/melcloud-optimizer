@@ -73,6 +73,8 @@ export interface COPTrends {
 export interface EnergyMetricsServiceDeps {
   melCloud: MelCloudApi;
   copNormalizer: CopNormalizer;
+  /** Dedicated hot water COP normalizer. Falls back to copNormalizer if not provided. */
+  copNormalizerHotWater?: CopNormalizer;
   hotWaterUsageLearner: HotWaterUsageLearner;
   logger: EnergyMetricsLogger;
   getHotWaterService?: () => HotWaterService | null | undefined;
@@ -107,6 +109,7 @@ export interface EnergyMetricsServiceDeps {
 export class EnergyMetricsService {
   private readonly melCloud: MelCloudApi;
   private readonly copNormalizer: CopNormalizer;
+  private readonly copNormalizerHotWater: CopNormalizer;
   private readonly hotWaterUsageLearner: HotWaterUsageLearner;
   private readonly logger: EnergyMetricsLogger;
   private readonly getHotWaterService?: () => HotWaterService | null | undefined;
@@ -120,6 +123,7 @@ export class EnergyMetricsService {
   constructor(deps: EnergyMetricsServiceDeps) {
     this.melCloud = deps.melCloud;
     this.copNormalizer = deps.copNormalizer;
+    this.copNormalizerHotWater = deps.copNormalizerHotWater || deps.copNormalizer;
     this.hotWaterUsageLearner = deps.hotWaterUsageLearner;
     this.logger = deps.logger;
     this.getHotWaterService = deps.getHotWaterService;
@@ -159,9 +163,9 @@ export class EnergyMetricsService {
         ? enhancedCOPData.current.hotWater
         : derivedHotWaterCOP;
 
-      // Update COP ranges with current values
+      // Update COP ranges with current values (separate normalizers for accurate ranges)
       if (realHeatingCOP > 0) this.copNormalizer.updateRange(realHeatingCOP);
-      if (realHotWaterCOP > 0) this.copNormalizer.updateRange(realHotWaterCOP);
+      if (realHotWaterCOP > 0) this.copNormalizerHotWater.updateRange(realHotWaterCOP);
 
       // Get daily energy totals
       const energyData = enhancedCOPData.daily;
@@ -194,9 +198,9 @@ export class EnergyMetricsService {
       );
       const dailyEnergyConsumption = (heatingConsumed + hotWaterConsumed) / sampledDays;
 
-      // Calculate efficiency scores using adaptive COP normalization
+      // Calculate efficiency scores using adaptive COP normalization (separate ranges)
       const heatingEfficiency = this.copNormalizer.normalize(realHeatingCOP);
-      const hotWaterEfficiency = this.copNormalizer.normalize(realHotWaterCOP);
+      const hotWaterEfficiency = this.copNormalizerHotWater.normalize(realHotWaterCOP);
 
       // Determine seasonal mode and optimization focus
       const seasonalMode = this.determineSeason(heatingConsumed, hotWaterConsumed);

@@ -3,6 +3,8 @@ import { MelCloudApi } from './melcloud-api';
 import { SecondaryZoneResult as Zone2Result, OptimizationMetrics, ThermalStrategy } from '../types/index';
 import { PriceAnalyzer } from './price-analyzer';
 import { ThermalController } from './thermal-controller';
+import { CopNormalizer } from './cop-normalizer';
+import { COP_THRESHOLDS } from '../constants';
 
 /**
  * Service for optimizing zones (Zone 1 and Zone 2)
@@ -13,7 +15,8 @@ export class ZoneOptimizer {
         private readonly logger: HomeyLogger,
         private readonly melCloud: MelCloudApi,
         private readonly priceAnalyzer: PriceAnalyzer,
-        private readonly thermalController: ThermalController
+        private readonly thermalController: ThermalController,
+        private readonly copNormalizer?: CopNormalizer
     ) { }
 
     /**
@@ -62,13 +65,16 @@ export class ZoneOptimizer {
             adjustedTarget += weatherAdjustment.adjustment;
         }
 
-        // Apply COP-aware adjustment: if COP is poor, be more conservative
+        // Apply COP-aware adjustment using normalized COP for consistency with Zone 1
         if (metrics?.realHeatingCOP) {
-            const heatingCOP = metrics.realHeatingCOP;
-            if (heatingCOP < 2.0) {
+            const normalizedCOP = this.copNormalizer
+                ? this.copNormalizer.normalize(metrics.realHeatingCOP)
+                : CopNormalizer.roughNormalize(metrics.realHeatingCOP);
+
+            if (normalizedCOP < COP_THRESHOLDS.POOR) {
                 // Poor COP: reduce target slightly to minimize energy waste
                 adjustedTarget -= 0.5;
-            } else if (heatingCOP > 3.5) {
+            } else if (normalizedCOP > COP_THRESHOLDS.EXCELLENT) {
                 // Excellent COP: can afford to heat more efficiently
                 adjustedTarget += 0.3;
             }
@@ -129,7 +135,7 @@ export class ZoneOptimizer {
                     targetTemp: adjustedTarget,
                     indoorTemp: currentTemp,
                     success: false,
-                    changed: true
+                    changed: false
                 };
             }
         } else {

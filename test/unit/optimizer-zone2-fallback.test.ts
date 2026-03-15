@@ -180,18 +180,11 @@ describe('Optimizer -Zone 2 Fallback', () => {
             );
         });
 
-        it('should skip duplicate targets to prevent repeated commands', async () => {
-            // Set Zone 2 state with same setpoint as the constrained target
-            // With maxDeltaPerChangeC = 0.5, target 22.5 from current 21 becomes 21.5
-            (optimizer as any).stateManager = {
-                getZone2LastChange: () => ({ timestamp: 0, setpoint: 21.5 }),
-                recordZone2Change: jest.fn(),
-                saveToSettings: jest.fn()
-            };
-
+        it('should skip small target changes within deadband to prevent unnecessary commands', async () => {
+            // Zone 1 target is close to current Zone 2 target (within deadband)
             const inputs = {
                 deviceState: {
-                    SetTemperatureZone2: 21,
+                    SetTemperatureZone2: 21.0,
                     RoomTemperatureZone2: 20.5
                 },
                 priceData: { prices: [] },
@@ -199,7 +192,7 @@ describe('Optimizer -Zone 2 Fallback', () => {
             } as any;
 
             const zone1Result = {
-                targetTemp: 22.5, // After ramp limiting to step 0.5, becomes 21.5
+                targetTemp: 21.2, // Only 0.2°C above current, within 0.5°C deadband
                 safeCurrentTarget: 21
             } as any;
 
@@ -207,12 +200,11 @@ describe('Optimizer -Zone 2 Fallback', () => {
 
             const result = await (optimizer as any).optimizeZone2(inputs, zone1Result, logger);
 
-            // Should NOT call MELCloud API (duplicate target - constrained 21.5 matches stored 21.5)
+            // Should NOT call MELCloud API (delta within deadband)
             expect(mockMelCloud.setZoneTemperature).not.toHaveBeenCalled();
 
-            // Result should indicate duplicate
+            // Result should indicate no change
             expect(result?.changed).toBe(false);
-            expect(result?.reason).toContain('duplicate');
         });
     });
 

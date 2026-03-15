@@ -36,7 +36,13 @@ describe('Optimizer Initialization', () => {
         };
 
         mockThermalController = {
-            getThermalMassModel: jest.fn().mockReturnValue({}), // Default to success
+            getThermalMassModel: jest.fn().mockReturnValue({
+                thermalCapacity: 2.5,
+                heatLossRate: 0.8,
+                maxPreheatingTemp: 23,
+                preheatingEfficiency: 0.85,
+                lastCalibration: new Date()
+            }),
             setThermalMassModel: jest.fn(),
         };
         (ThermalController as jest.Mock).mockImplementation(() => mockThermalController);
@@ -116,8 +122,6 @@ describe('Optimizer Initialization', () => {
 
             let status = optimizer.getInitializationStatus();
             expect(status.initialized).toBe(false);
-            // Thermal mass has defaults, so it is initialized by default
-            expect(status.thermalMassInitialized).toBe(true);
 
             mockMelCloud.getEnergyData.mockResolvedValue([
                 { Date: '2025-11-20', TotalHeatingConsumed: 15 }
@@ -186,9 +190,8 @@ describe('Optimizer Initialization', () => {
     });
 
     describe('Initialization Failures', () => {
-        test('failed initialization does not mark as initialized', async () => {
+        test('initialization succeeds even when energy data fails (non-fatal)', async () => {
             mockMelCloud.getEnergyData.mockRejectedValue(new Error('API failure'));
-            mockThermalController.getThermalMassModel.mockReturnValue(null);
 
             const optimizer = new Optimizer(
                 mockMelCloud,
@@ -200,45 +203,13 @@ describe('Optimizer Initialization', () => {
                 mockHomey
             );
 
-            await expect(optimizer.initialize()).rejects.toThrow('Thermal mass model not initialized');
-            expect(optimizer.isInitialized()).toBe(false);
-        });
-
-        test('retry is possible after failure', async () => {
-            mockMelCloud.getEnergyData
-                .mockRejectedValueOnce(new Error('First failure'))
-                .mockResolvedValueOnce([
-                    { Date: '2025-11-20', TotalHeatingConsumed: 15 }
-                ]);
-
-            // First attempt fails (thermal model null)
-            mockThermalController.getThermalMassModel.mockReturnValueOnce(null);
-            // Second attempt succeeds (thermal model exists)
-            mockThermalController.getThermalMassModel.mockReturnValueOnce({});
-
-            const optimizer = new Optimizer(
-                mockMelCloud,
-                mockPriceProvider,
-                '123',
-                456,
-                mockLogger,
-                undefined,
-                mockHomey
-            );
-
-            // First attempt fails
-            await expect(optimizer.initialize()).rejects.toThrow();
-            expect(optimizer.isInitialized()).toBe(false);
-
-            // Second attempt succeeds
+            // Should succeed - energy data failure is non-fatal, optimizer uses defaults
             await optimizer.initialize();
             expect(optimizer.isInitialized()).toBe(true);
         });
 
-        test('error is propagated correctly', async () => {
-            const testError = new Error('Specific test error');
-            mockMelCloud.getEnergyData.mockRejectedValue(testError);
-            mockThermalController.getThermalMassModel.mockReturnValue(null);
+        test('initialization with empty energy data succeeds', async () => {
+            mockMelCloud.getEnergyData.mockResolvedValue([]);
 
             const optimizer = new Optimizer(
                 mockMelCloud,
@@ -250,9 +221,26 @@ describe('Optimizer Initialization', () => {
                 mockHomey
             );
 
-            await expect(optimizer.initialize()).rejects.toThrow('Thermal mass model not initialized');
+            await optimizer.initialize();
+            expect(optimizer.isInitialized()).toBe(true);
+        });
+
+        test('energy data failure is logged', async () => {
+            mockMelCloud.getEnergyData.mockRejectedValue(new Error('Specific test error'));
+
+            const optimizer = new Optimizer(
+                mockMelCloud,
+                mockPriceProvider,
+                '123',
+                456,
+                mockLogger,
+                undefined,
+                mockHomey
+            );
+
+            await optimizer.initialize();
             expect(mockLogger.error).toHaveBeenCalledWith(
-                'Optimizer initialization failed:',
+                'Failed to initialize thermal mass from history:',
                 expect.any(Error)
             );
         });

@@ -217,8 +217,9 @@ export class Optimizer {
     private readonly weatherApi?: ForecastCapableWeatherApi,
     private readonly homey?: HomeyApp
   ) {
-    // Initialize COP Normalizer first (handles its own persistence)
+    // Initialize COP Normalizers (separate ranges for heating and hot water)
     this.copNormalizer = new CopNormalizer(homey, this.logger);
+    this.copNormalizerHotWater = new CopNormalizer(homey, this.logger, 'cop_guards_hw_v1');
 
     // Initialize Hot Water Usage Learner (provides pattern learning for hot water optimization)
     const learnerLogger: HotWaterLearnerLogger = {
@@ -237,6 +238,7 @@ export class Optimizer {
     this.energyMetricsService = new EnergyMetricsService({
       melCloud: this.melCloud,
       copNormalizer: this.copNormalizer,
+      copNormalizerHotWater: this.copNormalizerHotWater,
       hotWaterUsageLearner: this.hotWaterUsageLearner,
       logger: metricsLogger,
       getHotWaterService: () => this.getHotWaterService()
@@ -283,7 +285,7 @@ export class Optimizer {
     );
 
     this.hotWaterOptimizer = new HotWaterOptimizer(this.logger, this.priceAnalyzer);
-    this.zoneOptimizer = new ZoneOptimizer(this.logger, this.melCloud, this.priceAnalyzer, this.thermalController);
+    this.zoneOptimizer = new ZoneOptimizer(this.logger, this.melCloud, this.priceAnalyzer, this.thermalController, this.copNormalizer);
 
     // Initialize COP helper (SYNCHRONOUS ONLY)
     if (homey) {
@@ -356,6 +358,7 @@ export class Optimizer {
     };
     this.temperatureOptimizer = new TemperatureOptimizer({
       copNormalizer: this.copNormalizer,
+      copNormalizerHotWater: this.copNormalizerHotWater,
       copHelper: this.copHelper,
       adaptiveParametersLearner: this.adaptiveParametersLearner || null,
       logger: tempOptimizerLogger,
@@ -473,10 +476,6 @@ export class Optimizer {
     this.initializationPromise = (async () => {
       try {
         await this.performAsyncInitialization();
-        const thermalReady = this.thermalController.getThermalMassModel() !== null;
-        if (!thermalReady) {
-          throw new Error('Thermal mass model not initialized');
-        }
         this.initialized = true;
         this.logger.log('Optimizer initialization complete');
       } catch (error) {
@@ -499,8 +498,7 @@ export class Optimizer {
       await this.initializeThermalMassFromHistory();
     } catch (error) {
       this.logger.log('Failed to initialize thermal mass from history (this is normal during initial setup):', error);
-      // Non-fatal - optimizer can work without historical thermal data
-      throw error;
+      // Non-fatal - optimizer can work without historical thermal data using defaults
     }
   }
 
@@ -532,7 +530,7 @@ export class Optimizer {
   } {
     return {
       initialized: this.initialized,
-      thermalMassInitialized: this.thermalController.getThermalMassModel() !== null,
+      thermalMassInitialized: this.thermalController.getThermalMassModel().thermalCapacity > 0,
       copHelperInitialized: this.copHelper !== null,
       servicesInitialized: true // Always true after constructor
     };
@@ -794,41 +792,15 @@ export class Optimizer {
   }
 
   /**
-   * Get the appropriate comfort band (min/max temperatures) based on current occupancy
+   * Get the appropriate comfort band (min/max temperatures) based on current occupancy.
+   * Delegates to ConstraintManager to avoid duplicated logic.
    * @returns Object with minTemp and maxTemp based on occupied/away settings
    */
   private getCurrentComfortBand(): { minTemp: number; maxTemp: number } {
-    const homey = this.homey;
-    if (!homey) {
-      // Fallback to default constraints if no homey instance
-      return { minTemp: this.getZone1Constraints().minTemp, maxTemp: this.getZone1Constraints().maxTemp };
-    }
-
-    const getNumberSetting = (key: string, defaultValue: number): number => {
-      if (this.settingsAccessor) {
-        return this.settingsAccessor.getNumber(key, defaultValue);
-      }
-      const numeric = Number(homey.settings.get(key));
-      return Number.isFinite(numeric) ? numeric : defaultValue;
-    };
-
-    if (this.occupied) {
-      // Use occupied (home) comfort band - defaults match settings page HTML
-      const comfortLowerOccupied = getNumberSetting('comfort_lower_occupied', 20.0);
-      const comfortUpperOccupied = getNumberSetting('comfort_upper_occupied', 21.0);
-      return {
-        minTemp: Math.max(comfortLowerOccupied, 16),
-        maxTemp: Math.min(comfortUpperOccupied, 26)
-      };
-    } else {
-      // Use away comfort band - defaults match settings page HTML
-      const comfortLowerAway = getNumberSetting('comfort_lower_away', 19.0);
-      const comfortUpperAway = getNumberSetting('comfort_upper_away', 20.5);
-      return {
-        minTemp: Math.max(comfortLowerAway, 16),
-        maxTemp: Math.min(comfortUpperAway, 26)
-      };
-    }
+    return this.constraintManager.getCurrentComfortBand(
+      this.occupied,
+      this.homey ? this.homey.settings : undefined
+    );
   }
 
   /**
@@ -872,10 +844,15 @@ export class Optimizer {
   }
 
   /**
-   * COP Normalizer for adaptive COP normalization with outlier guards
+   * COP Normalizer for adaptive heating COP normalization with outlier guards
    * Handles persistence, range learning, and normalization
    */
   private readonly copNormalizer: CopNormalizer;
+
+  /**
+   * COP Normalizer dedicated to hot water COP (separate range from heating)
+   */
+  private readonly copNormalizerHotWater: CopNormalizer;
 
   /**
    * Energy Metrics Service for real energy data and optimization metrics
@@ -1402,7 +1379,7 @@ export class Optimizer {
     const adaptiveThresholds = this.adaptiveParametersLearner?.getStrategyThresholds();
     const priceThresholds = resolvePriceThresholds({
       cheapPercentile,
-      veryCheapMultiplier: adaptiveThresholds?.veryChepMultiplier
+      veryCheapMultiplier: adaptiveThresholds?.veryCheapMultiplier
     });
     const planningBiasResult = computePlanningBias(priceData.prices, planningReferenceTime, {
       windowHours: planningWindowSlots,
@@ -1874,7 +1851,7 @@ export class Optimizer {
         );
       }
 
-      if (zone2Opt.changed) {
+      if (zone2Opt.changed && zone2Opt.success) {
         this.stateManager.recordZone2Change(zone2Opt.toTemp);
         if (this.homey) {
           this.stateManager.saveToSettings(this.homey);

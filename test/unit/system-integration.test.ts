@@ -301,7 +301,7 @@ describe('System Integration Tests', () => {
       expect(params.preheatAggressiveness).toBe(2.0);
       expect(params.coastingReduction).toBe(1.5);
       expect(params.boostIncrease).toBe(0.5);
-      expect(params.veryChepMultiplier).toBe(0.8);
+      expect(params.veryCheapMultiplier).toBe(0.8);
       expect(params.confidence).toBe(0);
     });
     

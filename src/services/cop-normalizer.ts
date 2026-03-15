@@ -95,6 +95,7 @@ export interface COPNormalizerLogger {
 export class CopNormalizer {
   private readonly homey?: HomeyApp;
   private readonly logger?: COPNormalizerLogger;
+  private readonly settingsKey: string;
   private state: COPRangeState;
 
   /**
@@ -102,10 +103,12 @@ export class CopNormalizer {
    *
    * @param homey - Homey instance for settings persistence (optional)
    * @param logger - Logger for diagnostic output (optional)
+   * @param settingsKey - Custom settings key for persistence (optional, defaults to COP_NORMALIZER_CONFIG.SETTINGS_KEY)
    */
-  constructor(homey?: HomeyApp, logger?: COPNormalizerLogger) {
+  constructor(homey?: HomeyApp, logger?: COPNormalizerLogger, settingsKey?: string) {
     this.homey = homey;
     this.logger = logger;
+    this.settingsKey = settingsKey || COP_NORMALIZER_CONFIG.SETTINGS_KEY;
 
     // Initialize with defaults
     this.state = {
@@ -126,7 +129,7 @@ export class CopNormalizer {
     if (!this.homey) return;
 
     try {
-      const persisted = this.homey.settings.get(COP_NORMALIZER_CONFIG.SETTINGS_KEY) as PersistedCOPGuards | null;
+      const persisted = this.homey.settings.get(this.settingsKey) as PersistedCOPGuards | null;
 
       if (persisted && this.isValidPersistedState(persisted)) {
         this.state.history = persisted.history.slice(-COP_NORMALIZER_CONFIG.MAX_HISTORY_SIZE);
@@ -168,7 +171,7 @@ export class CopNormalizer {
     if (!this.homey) return;
 
     try {
-      this.homey.settings.set(COP_NORMALIZER_CONFIG.SETTINGS_KEY, {
+      this.homey.settings.set(this.settingsKey, {
         minObserved: this.state.minObserved,
         maxObserved: this.state.maxObserved,
         updateCount: this.state.updateCount,
