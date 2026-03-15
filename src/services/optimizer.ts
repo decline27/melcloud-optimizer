@@ -1047,7 +1047,7 @@ export class Optimizer {
       const tankResult = await this.optimizeTank(inputs, logger);
       const applied = await this.applySetpointChanges(zone1Result, zone2Result, tankResult, logger);
       const savings = await this.calculateCombinedSavings(zone1Result, zone2Result, tankResult, inputs, applied);
-      this.updateThermalResponseAfterOptimization(inputs, zone1Result, logger);
+      this.updateThermalResponseAfterOptimization(inputs, zone1Result, applied, logger);
       return this.buildOptimizationResult(inputs, zone1Result, zone2Result, tankResult, savings, applied);
     } catch (error) {
       this.logger.error('Optimization run failed', error);
@@ -1458,8 +1458,12 @@ export class Optimizer {
 
     const priceRange = Math.max(priceStats.maxPrice - priceStats.minPrice, 0.0001);
     const priceNormalizedValue = Math.min(Math.max((priceStats.currentPrice - priceStats.minPrice) / priceRange, 0), 1);
-    let duplicateTarget = this.getZone1State().setpoint !== null &&
-      Math.abs((this.getZone1State().setpoint as number) - targetTemp) < 1e-4;
+    const storedZone1Setpoint = this.getZone1State().setpoint;
+    const zone1DeviceConfirms = storedZone1Setpoint !== null &&
+      Math.abs(safeCurrentTarget - storedZone1Setpoint) < 1e-4;
+    let duplicateTarget = storedZone1Setpoint !== null &&
+      Math.abs(storedZone1Setpoint - targetTemp) < 1e-4 &&
+      zone1DeviceConfirms;
 
     const logData: any = {
       targetTemp: targetTemp.toFixed(1),
@@ -1644,8 +1648,9 @@ export class Optimizer {
     logData.tempDifference = tempDifference.toFixed(2);
     logData.isSignificantChange = isSignificantChange;
     logData.lockoutActive = lockoutActive;
-    duplicateTarget = this.getZone1State().setpoint !== null &&
-      Math.abs((this.getZone1State().setpoint as number) - targetTemp) < 1e-4;
+    duplicateTarget = storedZone1Setpoint !== null &&
+      Math.abs(storedZone1Setpoint - targetTemp) < 1e-4 &&
+      zone1DeviceConfirms;
     logData.duplicateTarget = duplicateTarget;
     logData.planningBias = scaledPlanningBias.toFixed(2);
     logData.thermalResponse = thermalResponse.toFixed(2);
@@ -1714,9 +1719,13 @@ export class Optimizer {
     const fallbackTarget = constraintResult.constrainedC;
     const shouldApply = constraintResult.changed && !constraintResult.lockoutActive;
 
-    // Check for duplicate target
-    const isDuplicate = this.getZone2State().setpoint !== null &&
-      Math.abs((this.getZone2State().setpoint as number) - fallbackTarget) < 1e-4;
+    // Check for duplicate target (verify device state matches stored setpoint)
+    const storedZone2Setpoint = this.getZone2State().setpoint;
+    const zone2DeviceConfirms = storedZone2Setpoint !== null &&
+      Math.abs(currentTarget - storedZone2Setpoint) < 1e-4;
+    const isDuplicate = storedZone2Setpoint !== null &&
+      Math.abs(storedZone2Setpoint - fallbackTarget) < 1e-4 &&
+      zone2DeviceConfirms;
 
     logger('zone2.fallback', {
       proposed: clampedTarget,
@@ -1966,8 +1975,12 @@ export class Optimizer {
         tankReason += ` | ${tankConstraints.reason} `;
       }
 
-      const tankDuplicate = this.getTankState().setpoint !== null &&
-        Math.abs((this.getTankState().setpoint as number) - tankTarget) < 1e-4;
+      const storedTankSetpoint = this.getTankState().setpoint;
+      const deviceConfirmsDuplicate = storedTankSetpoint !== null &&
+        Math.abs(currentTankTarget - storedTankSetpoint) < 1e-4;
+      const tankDuplicate = storedTankSetpoint !== null &&
+        Math.abs(storedTankSetpoint - tankTarget) < 1e-4 &&
+        deviceConfirmsDuplicate;
       const changeApplied = tankConstraints.changed && !tankLockout && !tankDuplicate;
       const tankHoldReason = tankDuplicate
         ? 'duplicate target'
@@ -2285,11 +2298,13 @@ export class Optimizer {
   private updateThermalResponseAfterOptimization(
     inputs: OptimizationInputs,
     zone1Result: Zone1OptimizationResult,
+    applied: AppliedChanges,
     logger: DecisionLogger
   ): void {
     const nowMs = Date.now();
     const indoorTemp = typeof inputs.currentTemp === 'number' && Number.isFinite(inputs.currentTemp) ? inputs.currentTemp : null;
     if (indoorTemp === null) return;
+    if (!applied.zone1Applied) return;
 
     if (this.homey) {
       try {
