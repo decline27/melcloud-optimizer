@@ -52,6 +52,7 @@ declare module 'homey' {
     // Added missing Device methods
     getName(): string;
     getStoreValue(key: string): any;
+    setStoreValue(key: string, value: any): Promise<void>;
     getSetting(key: string): any;
     setUnavailable(message?: string): Promise<void>;
     setAvailable(): Promise<void>;

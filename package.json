@@ -4,9 +4,9 @@
   "description": "Optimize your MELCloud heat pump based on electricity prices and weather",
   "main": "index.js",
   "scripts": {
-    "build": "tsc && homey app build",
+    "build": "tsc",
+    "build:app": "homey app build",
     "build:ts": "tsc",
-    "build:homey": "homey app build",
     "start": "homey app run",
     "lint": "tsc --noEmit",
     "dev": "homey app run --debug",

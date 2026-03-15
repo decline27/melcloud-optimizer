@@ -185,6 +185,14 @@ export class HotWaterDataCollector {
   /**
    * Save data to Homey settings and backup file
    */
+  /**
+   * Strip redundant fields from data points for compact storage.
+   * The in-memory array is left untouched; only the serialized copy is slimmed down.
+   */
+  private stripForStorage(points: HotWaterUsageDataPoint[]): Partial<HotWaterUsageDataPoint>[] {
+    return points.map(({ localTimeString, timeZoneName, timeZoneOffset, rawHotWaterEnergyProduced, rawHotWaterEnergyConsumed, ...rest }) => rest);
+  }
+
   private async saveData(): Promise<void> {
     // Guard against recursive calls that cause CPU spike and crash
     if (this._isSaving) {
@@ -197,8 +205,8 @@ export class HotWaterDataCollector {
       // Check memory usage before saving
       this.checkMemoryUsage();
 
-      // Convert to JSON string
-      let dataJson = JSON.stringify(this.dataPoints);
+      // Convert to JSON string, stripping redundant per-point fields for compact storage
+      let dataJson = JSON.stringify(this.stripForStorage(this.dataPoints));
       const aggregatedDataJson = JSON.stringify(this.aggregatedData);
 
       // Check if data is too large for settings storage
@@ -210,13 +218,13 @@ export class HotWaterDataCollector {
         await this.reduceDataSizeInternal();
 
         // Re-stringify after reduction
-        dataJson = JSON.stringify(this.dataPoints);
+        dataJson = JSON.stringify(this.stripForStorage(this.dataPoints));
 
         // If still too large after reduction, force-trim to fit
         if (dataJson.length > MAX_SETTINGS_DATA_SIZE) {
-          this.homey.error(`Hot water data still too large after reduction (${dataJson.length} bytes), force-trimming`);
+          this.homey.error(`Hot water data still too large after reduction (${dataJson.length} bytes, force-trimming`);
           this.forceTrimToFit(dataJson.length);
-          dataJson = JSON.stringify(this.dataPoints);
+          dataJson = JSON.stringify(this.stripForStorage(this.dataPoints));
         }
       }
 
@@ -777,8 +785,8 @@ export class HotWaterDataCollector {
    */
   public getMemoryUsage(): { usageKB: number, usagePercent: number, bytesPerDataPoint: number, dataPointsPerDay: number } {
     try {
-      // Estimate memory usage based on data size
-      const dataJson = JSON.stringify(this.dataPoints);
+      // Estimate memory usage based on stripped (as-saved) data size
+      const dataJson = JSON.stringify(this.stripForStorage(this.dataPoints));
       const aggregatedDataJson = JSON.stringify(this.aggregatedData);
 
       const usageBytes = dataJson.length + aggregatedDataJson.length;

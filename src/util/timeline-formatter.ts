@@ -73,9 +73,18 @@ function formatTemp(temp?: number | null): string {
 /**
  * Format money with proper currency formatting
  */
-function formatMoney(amount?: number | null, currency = 'SEK'): string {
+function formatMoney(amount?: number | null, currency = 'EUR'): string {
   if (amount == null) return '–';
-  return `${amount.toFixed(2)} ${currency}/day`;
+  try {
+    const formatted = new Intl.NumberFormat('en', {
+      style: 'currency',
+      currency,
+      currencyDisplay: 'code'
+    }).format(amount).replace(/\u00a0/g, ' ');
+    return `${formatted}/day`;
+  } catch {
+    return `${amount.toFixed(2)} ${currency}/day`;
+  }
 }
 
 /**
@@ -84,7 +93,7 @@ function formatMoney(amount?: number | null, currency = 'SEK'): string {
 export function formatTimelineMessage(
   payload: TimelinePayload, 
   verbosity: TimelineVerbosity, 
-  currency = 'SEK'
+  currency = 'EUR'
 ): string {
   const zone = payload.zoneName || 'Zone';
   const fromTemp = formatTemp(payload.fromTempC);
@@ -178,7 +187,7 @@ export function getTimelineVerbosity(homey: HomeyLike | HomeyApp | undefined): T
  */
 export function getCurrencyCode(homey: HomeyLike | HomeyApp | undefined): string {
   try {
-    if (!homey) return 'SEK';
+    if (!homey) return 'EUR';
     const currency = homey.settings?.get?.('currency') || 
                     homey.settings?.get?.('currency_code') ||
                     homey.i18n?.getCurrency?.();
@@ -188,5 +197,5 @@ export function getCurrencyCode(homey: HomeyLike | HomeyApp | undefined): string
   } catch (error) {
     // Ignore errors, fall back to default
   }
-  return 'SEK'; // Default fallback
+  return 'EUR'; // Default fallback
 }

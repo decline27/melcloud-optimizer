@@ -418,7 +418,7 @@ export class HotWaterOptimizer {
                 )
                 : 0;
 
-            const currencyCode = options.currencyCode || 'NOK';
+            const currencyCode = options.currencyCode || 'EUR';
 
             this.logger.log('Pattern-based hot water savings calculated', {
                 schedulePoints: schedulePoints.length,

@@ -11,6 +11,8 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
+    "incremental": true,
+    "tsBuildInfoFile": "./.homeybuild/.tsbuildinfo",
     "declaration": false,
     "sourceMap": false,
     "typeRoots": [

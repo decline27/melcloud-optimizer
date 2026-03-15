@@ -993,7 +993,7 @@ const apiHandlers: ApiHandlers = {
           }
 
           try {
-            const currencyCode = homey.settings.get('currency') || homey.settings.get('currency_code') || 'NOK';
+            const currencyCode = homey.settings.get('currency') || homey.settings.get('currency_code') || 'EUR';
             homey.app.log(`Daily savings (single source): ${finalDailySavings.toFixed(2)} ${currencyCode}/day`);
           } catch (_: any) {
             homey.app.log(`Daily savings (single source): ${finalDailySavings.toFixed(2)} /day`);
@@ -2614,7 +2614,7 @@ const apiHandlers: ApiHandlers = {
       const metricsRaw = homey.settings.get(metricsKey);
       const savingsHistoryRaw = homey.settings.get('savings_history');
       const displaySavingsHistoryRaw = homey.settings.get('display_savings_history');
-      const currency = homey.settings.get('currency_code') || homey.settings.get('currency') || 'SEK';
+      const currency = homey.settings.get('currency') || homey.settings.get('currency_code') || 'EUR';
       const currencySymbol = homey.settings.get('currency_symbol') || currency;
 
       let savingsMetrics = {
@@ -2627,7 +2627,7 @@ const apiHandlers: ApiHandlers = {
 
       // Get currency decimals helper
       const getCurrencyDecimals = (curr: string): number => {
-        const code = (curr || 'SEK').toUpperCase();
+        const code = (curr || 'EUR').toUpperCase();
         if (['JPY', 'KRW'].includes(code)) return 0;
         if (['BHD', 'KWD', 'OMR'].includes(code)) return 3;
         return 2;

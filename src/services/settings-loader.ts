@@ -224,7 +224,7 @@ export class SettingsLoader {
      */
     getCurrency(): string {
         const currency = this.homey.settings.get('currency') || this.homey.settings.get('currency_code');
-        return typeof currency === 'string' && currency.length > 0 ? currency : 'NOK';
+        return typeof currency === 'string' && currency.length > 0 ? currency : 'EUR';
     }
 
     /**

@@ -302,7 +302,9 @@ export class ThermalController {
                 // Scale preheat aggressiveness based on how close current price is to cheap threshold
                 // Closer to cheap = more aggressive preheating
                 const normalRange = expensiveThreshold - preheatCheapPercentile;
-                const positionInNormalRange = (currentPricePercentile - preheatCheapPercentile) / normalRange;
+                const positionInNormalRange = normalRange > 0
+                    ? (currentPricePercentile - preheatCheapPercentile) / normalRange
+                    : 0.5; // Safe default when cheap/expensive thresholds converge
                 const preheatMultiplier = Math.max(0.2, 1.0 - positionInNormalRange); // 0.2 minimum, 1.0 when near cheap
 
                 const preheatingTarget = Math.min(
@@ -369,7 +371,7 @@ export class ThermalController {
                     MAX_COASTING_HOURS_CAP
                 );
                 const coastingHours = Math.min(
-                    (currentTemp - coastingTarget) / this.thermalMassModel.heatLossRate,
+                    (currentTemp - coastingTarget) / Math.max(this.thermalMassModel.heatLossRate, 0.01),
                     maxCoastingForBuilding
                 );
 
@@ -681,7 +683,7 @@ export class ThermalController {
             const avgCheapPrice = cheapestHours.reduce((sum: number, h: any) => sum + h.price, 0) / cheapestHours.length;
             const priceDifference = currentPrice - avgCheapPrice;
             const extraEnergy = (preheatingTarget - baselineTemp) * this.thermalMassModel.thermalCapacity;
-            const energyWithCOP = extraEnergy / heatingCOP;
+            const energyWithCOP = heatingCOP > 0 ? extraEnergy / heatingCOP : 0;
             const savings = energyWithCOP * priceDifference;
             return Math.max(savings, 0);
         } catch {
@@ -708,6 +710,6 @@ export class ThermalController {
         referenceCOP: number = DEFAULT_REFERENCE_COP
     ): number {
         const extraEnergy = (boostTarget - baselineTemp) * this.thermalMassModel.thermalCapacity;
-        return extraEnergy * BOOST_SAVINGS_FACTOR * (heatingCOP / referenceCOP);
+        return extraEnergy * BOOST_SAVINGS_FACTOR * (referenceCOP > 0 ? heatingCOP / referenceCOP : 1);
     }
 }

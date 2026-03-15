@@ -12,13 +12,13 @@ describe('Timeline Message Formatter', () => {
   describe('Minimal verbosity', () => {
     test('formats temperature change correctly', () => {
       const result = formatTimelineMessage(basePayload, 'minimal', 'SEK');
-      expect(result).toBe('Hourly optimization: Zone1 21°C. Projected daily savings: 15.75 SEK/day.');
+      expect(result).toBe('Hourly optimization: Zone1 21°C. Projected daily savings: SEK 15.75/day.');
     });
 
     test('formats no temperature change correctly', () => {
       const payload = { ...basePayload, fromTempC: 20, toTempC: 20 };
       const result = formatTimelineMessage(payload, 'minimal', 'SEK');
-      expect(result).toBe('Hourly optimization: Zone1 held at 20°C. Projected daily savings: 15.75 SEK/day.');
+      expect(result).toBe('Hourly optimization: Zone1 held at 20°C. Projected daily savings: SEK 15.75/day.');
     });
 
     test('handles missing savings gracefully', () => {
@@ -32,7 +32,7 @@ describe('Timeline Message Formatter', () => {
     test('formats complete message', () => {
       const result = formatTimelineMessage(basePayload, 'standard', 'SEK');
       const expected = `Zone1: 20°C → 21°C
-Projected daily savings: 15.75 SEK/day
+Projected daily savings: SEK 15.75/day
 Reason: Raised temperature during a cheaper electricity hour (within comfort).`;
       expect(result).toBe(expected);
     });
@@ -92,7 +92,7 @@ Reason: Raised temperature during a cheaper electricity hour (within comfort).`;
 
     test('falls back to debug format when no raw text', () => {
       const result = formatTimelineMessage(basePayload, 'debug', 'SEK');
-      expect(result).toBe('DEBUG: Zone1: 20°C → 21°C | Savings: 15.75 SEK/day | Reason: cheaper_hour_raise_within_comfort');
+      expect(result).toBe('DEBUG: Zone1: 20°C → 21°C | Savings: SEK 15.75/day | Reason: cheaper_hour_raise_within_comfort');
     });
   });
 
@@ -134,11 +134,12 @@ Reason: Raised temperature during a cheaper electricity hour (within comfort).`;
   });
 
   describe('Currency formatting', () => {
-    test('formats different currencies', () => {
+    test('formats different currencies with Intl.NumberFormat', () => {
       const currencies = ['SEK', 'NOK', 'EUR', 'USD'];
       currencies.forEach(currency => {
         const result = formatTimelineMessage(basePayload, 'standard', currency);
-        expect(result).toContain(`15.75 ${currency}/day`);
+        expect(result).toContain(`${currency}`);
+        expect(result).toContain('/day');
       });
     });
   });

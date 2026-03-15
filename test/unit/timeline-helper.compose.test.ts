@@ -117,7 +117,7 @@ describe('TimelineHelper - HOURLY_OPTIMIZATION_RESULT composition', () => {
 
     expect(ok).toBe(true);
     expect(lastBody).toContain('Projected daily savings:');
-    expect(lastBody).toContain('1.23 USD/day'); // New format: amount currency/day
+    expect(lastBody).toContain('USD 1.23/day'); // Intl.NumberFormat puts currency code first
     expect(lastBody).not.toContain('Hourly Optimization Completed:'); // Should not duplicate title
   });
 

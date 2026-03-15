@@ -277,7 +277,7 @@ describe('SettingsLoader', () => {
             mockHomey.settings.get.mockReturnValue(null);
 
             const currency = settingsLoader.getCurrency();
-            expect(currency).toBe('NOK');
+            expect(currency).toBe('EUR');
         });
 
         test('gets grid fee', () => {

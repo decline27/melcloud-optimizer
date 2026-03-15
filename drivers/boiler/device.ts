@@ -207,16 +207,21 @@ module.exports = class BoilerDevice extends Homey.Device {
       }
     }
 
-    // Initially add Zone 2 capabilities (will be removed if not needed)
-    for (const capability of zone2Capabilities) {
-      if (!this.hasCapability(capability)) {
-        try {
-          await this.addCapability(capability);
-          this.logger.log(`Added Zone 2 capability: ${capability}`);
-        } catch (error) {
-          this.logger.error(`Failed to add Zone 2 capability ${capability}:`, error);
+    // Only add Zone 2 capabilities if not previously detected as unsupported
+    const zone2Known = this.getStoreValue('zone2_supported');
+    if (zone2Known !== false) {
+      for (const capability of zone2Capabilities) {
+        if (!this.hasCapability(capability)) {
+          try {
+            await this.addCapability(capability);
+            this.logger.log(`Added Zone 2 capability: ${capability}`);
+          } catch (error) {
+            this.logger.error(`Failed to add Zone 2 capability ${capability}:`, error);
+          }
         }
       }
+    } else {
+      this.logger.log('Zone 2 previously detected as unsupported, skipping capability setup');
     }
     
     this.logger.log('Capability check completed');
@@ -796,7 +801,8 @@ module.exports = class BoilerDevice extends Homey.Device {
     try {
       const lastComm = new Date(deviceState.LastCommunication);
       const staleness = Date.now() - lastComm.getTime();
-      const isStale = staleness > 300000; // 5 minutes threshold
+      const threshold = Number(this.homey.settings.get('staleness_threshold_ms')) || 600000; // default 10 minutes
+      const isStale = staleness > threshold;
       
       this.logger.log(`Device communication check: lastComm=${lastComm.toISOString()}, staleness=${Math.round(staleness/1000)}s, isStale=${isStale}`);
       
@@ -817,7 +823,8 @@ module.exports = class BoilerDevice extends Homey.Device {
       if (!this.zone2Checked) {
         this.hasZone2 = this.checkZone2Support(deviceState);
         this.zone2Checked = true;
-        
+        await this.setStoreValue('zone2_supported', this.hasZone2);
+
         if (!this.hasZone2) {
           this.logger.log('Device does not support Zone 2, removing Zone 2 capabilities');
           await this.removeZone2Capabilities();
@@ -1135,10 +1142,12 @@ module.exports = class BoilerDevice extends Homey.Device {
         if (!energyHasZone2 && this.hasZone2) {
           this.logger.log('Energy API indicates no Zone 2 support, overriding device state detection');
           this.hasZone2 = false;
+          await this.setStoreValue('zone2_supported', false);
           await this.removeZone2Capabilities();
         } else if (energyHasZone2 && !this.hasZone2) {
           this.logger.log('Energy API indicates Zone 2 support, adding Zone 2 capabilities');
           this.hasZone2 = true;
+          await this.setStoreValue('zone2_supported', true);
           // Re-add Zone 2 capabilities and set up listeners
           await this.ensureZone2Capabilities();
           await this.setupZone2CapabilityListeners();

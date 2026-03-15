@@ -577,20 +577,20 @@ export class Optimizer {
 
   /**
    * Type-safe accessor for currency setting
-   * @returns Currency code (defaults to 'NOK' if not set)
+   * @returns Currency code (defaults to 'EUR' if not set)
    */
   private getCurrency(): string {
     if (this.settingsLoader) {
       return this.settingsLoader.getCurrency();
     }
     if (!this.homey) {
-      return 'NOK';
+      return 'EUR';
     }
 
     const currency = this.homey.settings.get('currency') ||
       this.homey.settings.get('currency_code');
 
-    return typeof currency === 'string' ? currency : 'NOK';
+    return typeof currency === 'string' ? currency : 'EUR';
   }
 
   /**
@@ -625,10 +625,11 @@ export class Optimizer {
       }
 
       // Get recent energy data to learn thermal characteristics
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      const fromDate = sevenDaysAgo.toISOString().split('T')[0]; // YYYY-MM-DD format
-      const toDate = new Date().toISOString().split('T')[0];
+      // Use local time to ensure correct date boundaries for the user's timezone
+      const localNow = this.timeZoneHelper.getLocalTime().date;
+      const toDate = `${localNow.getUTCFullYear()}-${String(localNow.getUTCMonth() + 1).padStart(2, '0')}-${String(localNow.getUTCDate()).padStart(2, '0')}`;
+      const sevenDaysAgo = new Date(localNow.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const fromDate = `${sevenDaysAgo.getUTCFullYear()}-${String(sevenDaysAgo.getUTCMonth() + 1).padStart(2, '0')}-${String(sevenDaysAgo.getUTCDate()).padStart(2, '0')}`;
 
       const recentData = await this.melCloud.getEnergyData(this.deviceId, this.buildingId, fromDate, toDate);
 

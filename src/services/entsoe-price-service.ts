@@ -35,7 +35,7 @@ export class EntsoePriceService implements PriceProvider {
 
   private getLocalCurrency(): string {
     try {
-      const code = this.homey.settings.get('currency_code') || this.homey.settings.get('currency');
+      const code = this.homey.settings.get('currency') || this.homey.settings.get('currency_code');
       if (typeof code === 'string' && code.trim()) {
         return code.trim().toUpperCase();
       }

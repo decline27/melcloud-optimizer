@@ -80,8 +80,8 @@ describe('Optimizer private helpers', () => {
     const s3 = savingsService.estimateCostSavings(21, 20, 1, 2, transitionMetrics as any);
 
     expect(typeof s1).toBe('string');
-    expect(s1).toMatch(/NOK\/week/);
-    expect(s2).toMatch(/NOK\/week/);
-    expect(s3).toMatch(/NOK\/week/);
+    expect(s1).toMatch(/EUR\/week/);
+    expect(s2).toMatch(/EUR\/week/);
+    expect(s3).toMatch(/EUR\/week/);
   });
 });
