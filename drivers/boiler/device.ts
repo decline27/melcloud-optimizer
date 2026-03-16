@@ -5,7 +5,7 @@ import { HotWaterService } from '../../src/services/hot-water/hot-water-service'
 import { ErrorHandler } from '../../src/util/error-handler';
 import { HomeyLogger, LogLevel } from '../../src/util/logger';
 import { MelCloudDevice } from '../../src/types';
-import { CircuitBreaker, CircuitState } from '../../src/util/circuit-breaker'; // Task 2.2
+// Circuit breaker protection is handled by the API service layer (base-api-service.ts)
 
 /**
  * Energy data interface for ATW devices
@@ -53,9 +53,7 @@ module.exports = class BoilerDevice extends Homey.Device {
   private currentDataInterval: number = this.pollingConfig.dataInterval;
   private currentEnergyInterval: number = this.pollingConfig.energyInterval;
 
-  // Task 2.2: Circuit breaker pattern for API protection
-  private apiCircuitBreaker?: CircuitBreaker;
-  private energyCircuitBreaker?: CircuitBreaker;
+  // Task 2.2: Circuit breaker metrics (actual circuit breaker lives in the API service)
   private lastSuccessfulUpdate?: Date;
   private circuitBreakerMetrics = {
     dataCallFailures: 0,
@@ -128,7 +126,7 @@ module.exports = class BoilerDevice extends Homey.Device {
     this.initializePollingConfiguration();
 
     // Task 2.2: Initialize circuit breakers for API protection
-    this.initializeCircuitBreakers();
+    // Circuit breaker protection is handled by the API service layer (base-api-service.ts)
 
     // Ensure all required capabilities are available
     await this.ensureCapabilities();
@@ -1483,88 +1481,37 @@ module.exports = class BoilerDevice extends Homey.Device {
   }
 
   /**
-   * Task 2.2: Initialize circuit breakers for API protection
-   */
-  private initializeCircuitBreakers() {
-    try {
-      // Main API calls circuit breaker - more resilient configuration
-      this.apiCircuitBreaker = new CircuitBreaker(
-        `API-${this.deviceId}`,
-        this.logger,
-        {
-          failureThreshold: 5,        // Increased from 3 to 5
-          resetTimeout: 120000,       // Increased from 60000 to 120000 (2 minutes)
-          halfOpenSuccessThreshold: 3, // Increased from 2 to 3
-          timeout: 30000,             // Increased from 15000 to 30000 (30 seconds)
-          maxResetTimeout: 1800000,   // Maximum 30 minutes for exponential backoff
-          backoffMultiplier: 2,       // Enable exponential backoff
-          adaptiveThresholds: true,   // Enable adaptive behavior
-          successRateWindow: 3600000, // 1 hour success rate window
-          monitorInterval: 300000     // Log status every 5 minutes
-        }
-      );
-
-      // Energy reporting circuit breaker - even more tolerant for non-critical operations
-      this.energyCircuitBreaker = new CircuitBreaker(
-        `Energy-${this.deviceId}`,
-        this.logger,
-        {
-          failureThreshold: 8,        // More tolerant for energy calls
-          resetTimeout: 300000,       // 5 minute base timeout
-          halfOpenSuccessThreshold: 2, // Require 2 successes
-          timeout: 45000,             // 45 second timeout for energy operations
-          maxResetTimeout: 3600000,   // Maximum 1 hour for exponential backoff
-          backoffMultiplier: 1.5,     // Slower backoff for energy calls
-          adaptiveThresholds: true,   // Enable adaptive behavior
-          successRateWindow: 7200000, // 2 hour success rate window
-          monitorInterval: 600000     // Log status every 10 minutes
-        }
-      );
-
-      this.logger.log('Circuit breakers initialized for API protection');
-      
-    } catch (error) {
-      this.logger.error('Error initializing circuit breakers:', error);
-      // Continue without circuit breakers if initialization fails
-    }
-  }
-
-  /**
-   * Task 2.2: Protected API data fetching with circuit breaker
+   * Task 2.2: Protected API data fetching (circuit breaker is in the API service layer)
    */
   private async fetchDeviceDataWithProtection() {
     try {
-      if (!this.apiCircuitBreaker) {
-        // Fallback to direct call if circuit breaker not available
-        return await this.fetchDeviceData();
-      }
-
-      const deviceData = await this.apiCircuitBreaker.execute(async () => {
-        return await this.fetchDeviceData();
-      });
+      // Call fetchDeviceData directly - the API service already has its own
+      // circuit breaker in throttledApiCall, so wrapping with a second one
+      // causes double-open cascades and amplified backoff.
+      const deviceData = await this.fetchDeviceData();
 
       // Success - update metrics and clear degraded mode
       this.lastSuccessfulUpdate = new Date();
       this.circuitBreakerMetrics.degradedModeActive = false;
       await this.setAvailable();
-      
+
       return deviceData;
-      
+
     } catch (error) {
       this.circuitBreakerMetrics.dataCallFailures++;
       this.circuitBreakerMetrics.lastFailureTime = new Date();
-      
+
       const errorMessage = error instanceof Error ? error.message : String(error);
       if (errorMessage.includes('circuit') && errorMessage.includes('open')) {
-        // Circuit breaker is open - enter degraded mode
+        // Circuit breaker is open - enter degraded mode instead of crashing
         await this.enterDegradedMode('API circuit breaker is open');
         this.logger.warn('Entering degraded mode due to API circuit breaker activation');
       } else {
         // Regular API error
         this.logger.error('API call failed:', error);
       }
-      
-      throw error;
+      // Don't re-throw: let the device continue in degraded mode rather than
+      // surfacing an unhandled error that crashes the polling loop.
     }
   }
 
@@ -1573,25 +1520,20 @@ module.exports = class BoilerDevice extends Homey.Device {
    */
   private async fetchEnergyDataWithProtection() {
     try {
-      if (!this.energyCircuitBreaker) {
-        this.logger.warn('Energy circuit breaker not initialized, using direct call');
-        return await this.fetchEnergyDataFromApi();
-      }
+      // Call fetchEnergyDataFromApi directly - the API service already has its
+      // own circuit breaker in throttledApiCall.
+      await this.fetchEnergyDataFromApi();
 
-      await this.energyCircuitBreaker.execute(async () => {
-        await this.fetchEnergyDataFromApi();
-      });
-      
     } catch (error) {
       this.circuitBreakerMetrics.energyCallFailures++;
-      
+
       const errorMessage = error instanceof Error ? error.message : String(error);
       if (errorMessage.includes('circuit') && errorMessage.includes('open')) {
         this.logger.warn('Energy circuit breaker is open, skipping energy updates');
-        // Don't fail the device for energy circuit breaker - just log and continue
       } else {
         this.logger.error('Energy API call failed:', error);
       }
+      // Don't re-throw: energy data is non-critical, just log and continue.
     }
   }
 
@@ -1625,8 +1567,6 @@ module.exports = class BoilerDevice extends Homey.Device {
    */
   private getCircuitBreakerStatus() {
     return {
-      apiState: this.apiCircuitBreaker?.getState() || 'unknown',
-      energyState: this.energyCircuitBreaker?.getState() || 'unknown',
       degradedMode: this.circuitBreakerMetrics.degradedModeActive,
       lastSuccessfulUpdate: this.lastSuccessfulUpdate,
       failureCounts: {
@@ -1779,13 +1719,7 @@ module.exports = class BoilerDevice extends Homey.Device {
     // Task 2.1: Clear fast polling state
     this.fastPollUntil = undefined;
 
-    // Task 2.2: Clean up circuit breakers
-    if (this.apiCircuitBreaker) {
-      this.apiCircuitBreaker.cleanup();
-    }
-    if (this.energyCircuitBreaker) {
-      this.energyCircuitBreaker.cleanup();
-    }
+    // Task 2.2: Circuit breaker cleanup is handled by the API service layer
 
     // Clean up MELCloud API
     if (this.melCloudApi) {
