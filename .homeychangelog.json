@@ -223,5 +223,8 @@
   },
   "14.0.37": {
     "en": "Bug fixes"
+  },
+  "14.0.38": {
+    "en": "Daily calculation fix"
   }
 }
