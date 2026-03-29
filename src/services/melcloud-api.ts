@@ -1323,7 +1323,17 @@ export class MelCloudApi extends BaseApiService {
         }
         return 1;
       })();
-      result.SampledDays = effectiveDays;
+      // Normalize totals to daily averages when data spans multiple days
+      if (effectiveDays > 1) {
+        result.TotalHeatingConsumed /= effectiveDays;
+        result.TotalHeatingProduced /= effectiveDays;
+        result.TotalHotWaterConsumed /= effectiveDays;
+        result.TotalHotWaterProduced /= effectiveDays;
+        result.TotalCoolingConsumed = (result.TotalCoolingConsumed || 0) / effectiveDays;
+        result.TotalCoolingProduced = (result.TotalCoolingProduced || 0) / effectiveDays;
+        this.logger.info(`Energy totals normalized: ${effectiveDays} days -> daily avg. Heating: ${result.TotalHeatingConsumed.toFixed(2)} kWh`);
+      }
+      result.SampledDays = 1; // Totals are now per-day averages
 
       return result;
     } catch (error) {
