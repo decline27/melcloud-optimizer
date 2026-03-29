@@ -40,12 +40,9 @@ export class MelCloudApi extends BaseApiService {
     const safeLogger = logger || (global.logger as Logger) || createFallbackLogger('MELCloud');
     
     // Call the parent constructor with service name and logger
-    super('MELCloud', safeLogger, {
-      failureThreshold: 3,
-      resetTimeout: 60000, // 1 minute
-      halfOpenSuccessThreshold: 1,
-      timeout: 15000 // 15 seconds
-    });
+    // Note: circuit breaker protection is handled at the device level (per-device CBs),
+    // not here, to avoid double-wrapping and cascading failures.
+    super('MELCloud', safeLogger);
 
     // Initialize time zone helper
     this.timeZoneHelper = new TimeZoneHelper(this.logger);
@@ -213,8 +210,9 @@ export class MelCloudApi extends BaseApiService {
       return this.pendingRequests.get(requestKey) as Promise<T>;
     }
 
-    // Use circuit breaker to protect against cascading failures
-    const requestPromise = this.circuitBreaker.execute(async () => {
+    // Circuit breaker protection is handled at the device level (per-device circuit breakers
+    // in boiler/device.ts). Wrapping here too causes double-tripping and cascading failures.
+    const requestPromise = (async (): Promise<T> => {
       // Throttle requests using the base class method
       await this.throttle();
 
@@ -345,7 +343,7 @@ export class MelCloudApi extends BaseApiService {
         // End the request
         req.end();
       });
-    });
+    })();
 
     // Track the request promise (Task 1.2)
     this.pendingRequests.set(requestKey, requestPromise);
