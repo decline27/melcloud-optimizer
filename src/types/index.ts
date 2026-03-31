@@ -274,6 +274,7 @@ export interface EnhancedOptimizationResult {
   fromTemp: number;
   toTemp: number;
   reason: string;
+  priceDataUnavailable?: boolean;
   indoorTemp?: number | null;
   outdoorTemp?: number | null;
   priceData: {
