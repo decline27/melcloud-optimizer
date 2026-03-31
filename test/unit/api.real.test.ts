@@ -145,4 +145,94 @@ describe('api.js — real module tests using __test helpers', () => {
     expect(res2.success).toBe(true);
     expect(optimizerMock.runWeeklyCalibration).toHaveBeenCalled();
   });
+
+  test('getRunHourlyOptimizer records real zero-price optimizations in history', async () => {
+    const fakeResult = {
+      success: true,
+      action: 'no_change',
+      fromTemp: 20,
+      toTemp: 20,
+      reason: 'Zero-price hold',
+      savings: 0,
+      priceData: { current: 0, average: 0.2, min: -0.1, max: 0.4 }
+    };
+
+    const optimizerMock = {
+      runOptimization: jest.fn().mockResolvedValue(fakeResult),
+      setTemperatureConstraints: jest.fn(),
+      setZone2TemperatureConstraints: jest.fn(),
+      setTankTemperatureConstraints: jest.fn(),
+      setThermalModel: jest.fn(),
+      setCOPSettings: jest.fn(),
+      setPriceThresholds: jest.fn(),
+      setConstraintSettings: jest.fn(),
+      refreshOccupancyFromSettings: jest.fn(),
+      thermalModel: { K: 0.5 },
+      thermalModelService: { getMemoryUsage: jest.fn().mockReturnValue({}) },
+      getSavingsService: jest.fn().mockReturnValue({
+        getEnhancedSavingsCalculator: jest.fn().mockReturnValue({
+          hasBaselineCapability: jest.fn().mockReturnValue(false)
+        })
+      })
+    };
+
+    apiModule.__test.setServices({
+      melCloud: { getDevices: jest.fn().mockResolvedValue([]) },
+      tibber: { getPrices: jest.fn().mockResolvedValue({ prices: [] }) },
+      optimizer: optimizerMock,
+      weather: {}
+    });
+
+    const res = await apiModule.getRunHourlyOptimizer({ homey });
+    const state = apiModule.__test.getState();
+
+    expect(res.success).toBe(true);
+    expect(state.historicalData.optimizations).toHaveLength(1);
+    expect(state.historicalData.optimizations[0].priceNow).toBe(0);
+  });
+
+  test('getRunHourlyOptimizer skips history when price data is unavailable fallback', async () => {
+    const fakeResult = {
+      success: true,
+      action: 'no_change',
+      fromTemp: 20,
+      toTemp: 20,
+      reason: 'Price fetch failed; holding last setpoint',
+      savings: 0,
+      priceDataUnavailable: true,
+      priceData: { current: 0, average: 0, min: 0, max: 0 }
+    };
+
+    const optimizerMock = {
+      runOptimization: jest.fn().mockResolvedValue(fakeResult),
+      setTemperatureConstraints: jest.fn(),
+      setZone2TemperatureConstraints: jest.fn(),
+      setTankTemperatureConstraints: jest.fn(),
+      setThermalModel: jest.fn(),
+      setCOPSettings: jest.fn(),
+      setPriceThresholds: jest.fn(),
+      setConstraintSettings: jest.fn(),
+      refreshOccupancyFromSettings: jest.fn(),
+      thermalModel: { K: 0.5 },
+      thermalModelService: { getMemoryUsage: jest.fn().mockReturnValue({}) },
+      getSavingsService: jest.fn().mockReturnValue({
+        getEnhancedSavingsCalculator: jest.fn().mockReturnValue({
+          hasBaselineCapability: jest.fn().mockReturnValue(false)
+        })
+      })
+    };
+
+    apiModule.__test.setServices({
+      melCloud: { getDevices: jest.fn().mockResolvedValue([]) },
+      tibber: { getPrices: jest.fn().mockResolvedValue({ prices: [] }) },
+      optimizer: optimizerMock,
+      weather: {}
+    });
+
+    const res = await apiModule.getRunHourlyOptimizer({ homey });
+    const state = apiModule.__test.getState();
+
+    expect(res.success).toBe(true);
+    expect(state.historicalData.optimizations).toHaveLength(0);
+  });
 });

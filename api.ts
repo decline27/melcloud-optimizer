@@ -1257,7 +1257,17 @@ const apiHandlers: ApiHandlers = {
           hourlyBaselineKWh = dailyConsumption / 24;
         }
 
-        recordOptimizationEntry(homey, result, computedSavings);
+        // Only record entries with valid price data — failed price fetches
+        // (priceNow: 0, action: no_change) pollute the history buffer and
+        // displace real optimization data used by model confidence calculations.
+        const hasPriceData = result.priceDataUnavailable !== true
+          && typeof result.priceData?.current === 'number'
+          && Number.isFinite(result.priceData.current);
+        if (hasPriceData) {
+          recordOptimizationEntry(homey, result, computedSavings);
+        } else {
+          homey.app.log('Skipping optimization history entry: no valid price data');
+        }
 
         return {
           success: true,

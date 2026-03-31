@@ -10,11 +10,48 @@ export interface HotWaterAction {
     scheduledTime?: string;
 }
 
+type TimedPricePoint = {
+    time: string;
+    price: number;
+};
+
+type HourlyCandidateSlot = {
+    hour: number;
+    priceIndex: number;
+    price: number;
+    startMs: number;
+    endMs: number;
+};
+
 export class HotWaterOptimizer {
     constructor(
         private readonly logger: HomeyLogger,
         private readonly priceAnalyzer: PriceAnalyzer
     ) { }
+
+    private validateQuarterHourlyData(data: { time: string; price: number }[]): boolean {
+        if (!Array.isArray(data) || data.length < 4) {
+            return false;
+        }
+        const interval = this.detectIntervalMinutes(data);
+        if (!interval || interval > 30) {
+            return false;
+        }
+        // Check for large gaps (> 1.5x detected interval)
+        const maxGapMs = interval * 1.5 * 60000;
+        for (let i = 1; i < data.length; i += 1) {
+            const prev = Date.parse(data[i - 1].time);
+            const curr = Date.parse(data[i].time);
+            if (Number.isFinite(prev) && Number.isFinite(curr) && (curr - prev) > maxGapMs) {
+                this.logger.log('DHW decision source: hourly fallback (quarter-hourly data has gap)', {
+                    gapMinutes: Math.round((curr - prev) / 60000),
+                    maxAllowedMinutes: Math.round(maxGapMs / 60000)
+                });
+                return false;
+            }
+        }
+        return true;
+    }
 
     private detectIntervalMinutes(prices: { time: string }[]): number | null {
         if (!Array.isArray(prices) || prices.length < 2) {
@@ -32,6 +69,82 @@ export class HotWaterOptimizer {
             }
         }
         return null;
+    }
+
+    private getIntervalMs(prices: { time: string }[], defaultIntervalMinutes: number): number {
+        const detectedMinutes = this.detectIntervalMinutes(prices);
+        const intervalMinutes = detectedMinutes && detectedMinutes > 0 ? detectedMinutes : defaultIntervalMinutes;
+        return intervalMinutes * 60000;
+    }
+
+    private getWindowEndMs(prices: { time: string }[], referenceTimeMs: number, defaultIntervalMinutes: number): number {
+        const intervalMs = this.getIntervalMs(prices, defaultIntervalMinutes);
+        for (let i = prices.length - 1; i >= 0; i -= 1) {
+            const ts = Date.parse(prices[i].time);
+            if (Number.isFinite(ts)) {
+                return ts + intervalMs;
+            }
+        }
+        return referenceTimeMs + prices.length * intervalMs;
+    }
+
+    private getHourEndMs(timestampMs: number): number {
+        const hourStart = new Date(timestampMs);
+        hourStart.setUTCMinutes(0, 0, 0);
+        return hourStart.getTime() + 3600000;
+    }
+
+    private filterPricesToWindow(prices: TimedPricePoint[], startMs: number, endMs: number): TimedPricePoint[] {
+        return prices.filter((pricePoint) => {
+            const ts = Date.parse(pricePoint.time);
+            return Number.isFinite(ts) && ts >= startMs && ts < endMs;
+        });
+    }
+
+    private buildHourlyCandidateSlots(
+        validHours: number[],
+        currentHour: number,
+        next24h: TimedPricePoint[],
+        nowMs: number
+    ): HourlyCandidateSlot[] {
+        const intervalMs = this.getIntervalMs(next24h, 60);
+
+        return validHours
+            .map((hour) => {
+                const priceIndex = (hour - currentHour + 24) % 24;
+                if (priceIndex >= next24h.length) {
+                    return null;
+                }
+
+                const pricePoint = next24h[priceIndex];
+                if (!Number.isFinite(pricePoint?.price)) {
+                    return null;
+                }
+
+                const rawStartMs = pricePoint.time ? Date.parse(pricePoint.time) : NaN;
+                const nextStartMs = priceIndex + 1 < next24h.length
+                    ? Date.parse(next24h[priceIndex + 1].time)
+                    : NaN;
+                if (!Number.isFinite(rawStartMs)) {
+                    return null;
+                }
+
+                const startMs = Math.max(rawStartMs, nowMs);
+                const endMs = Number.isFinite(nextStartMs) && nextStartMs > startMs
+                    ? nextStartMs
+                    : rawStartMs + intervalMs;
+
+                return {
+                    hour,
+                    priceIndex,
+                    price: pricePoint.price,
+                    startMs,
+                    endMs
+                };
+            })
+            .filter((slot): slot is HourlyCandidateSlot => {
+                return !!slot && Number.isFinite(slot.startMs) && Number.isFinite(slot.endMs) && slot.endMs > slot.startMs;
+            });
     }
 
     private findBestQuarterHourlyBlock(prices: { time: string; price: number }[], nowMs: number, minSlots: number) {
@@ -126,7 +239,12 @@ export class HotWaterOptimizer {
         const sortedPrices = [...prices].sort((a: any, b: any) => a.price - b.price);
         const cheapestHours = sortedPrices.slice(0, 4); // Top 4 cheapest hours
 
-        const quarterHourly = Array.isArray((priceData as any).quarterHourly) ? (priceData as any).quarterHourly : [];
+        const quarterHourlyRaw = Array.isArray((priceData as any).quarterHourly) ? (priceData as any).quarterHourly : [];
+        const quarterHourlyValid = this.validateQuarterHourlyData(quarterHourlyRaw);
+        const priceHorizonEndMs = this.getWindowEndMs(prices, nowMs, 60);
+        const quarterHourly = quarterHourlyValid
+            ? this.filterPricesToWindow(quarterHourlyRaw, nowMs, priceHorizonEndMs)
+            : [];
         const bestQuarterBlock = quarterHourly.length > 0
             ? this.findBestQuarterHourlyBlock(quarterHourly, nowMs, 2) // 2 slots = 30 minutes
             : null;
@@ -137,6 +255,44 @@ export class HotWaterOptimizer {
                 slots: bestQuarterBlock.slots,
                 averagePrice: bestQuarterBlock.averagePrice,
             });
+
+            // Quarter-hour-informed decision: use block timing to improve hourly action
+            const blockStartMs = Date.parse(bestQuarterBlock.startTime);
+            const currentHourEnd = this.getHourEndMs(nowMs);
+            const hourlyAvgPrice = prices.reduce((s: number, p: any) => s + p.price, 0) / prices.length;
+
+            if (Number.isFinite(blockStartMs) && blockStartMs >= nowMs && blockStartMs < currentHourEnd) {
+                // Cheapest block is within the current hour — strong signal to heat now
+                if (bestQuarterBlock.averagePrice < hourlyAvgPrice) {
+                    this.logger.log('DHW decision source: quarter-hourly', {
+                        action: 'heat_now',
+                        blockAvgPrice: bestQuarterBlock.averagePrice,
+                        hourlyAvgPrice,
+                    });
+                    return {
+                        action: 'heat_now',
+                        reason: `Cheapest quarter-hour block in current hour (avg ${bestQuarterBlock.averagePrice.toFixed(4)} vs hourly avg ${hourlyAvgPrice.toFixed(4)})`
+                    };
+                }
+            } else if (Number.isFinite(blockStartMs) && blockStartMs >= currentHourEnd) {
+                // Cheapest block is in a future hour — delay to that block
+                const cheapestHourPrice = sortedPrices[0]?.price ?? Infinity;
+                if (bestQuarterBlock.averagePrice < cheapestHourPrice) {
+                    this.logger.log('DHW decision source: quarter-hourly', {
+                        action: 'delay',
+                        blockStart: bestQuarterBlock.startTime,
+                        blockAvgPrice: bestQuarterBlock.averagePrice,
+                        cheapestHourPrice,
+                    });
+                    return {
+                        action: 'delay',
+                        reason: `Delay to cheapest quarter-hour block at ${bestQuarterBlock.startTime} (avg ${bestQuarterBlock.averagePrice.toFixed(4)} vs cheapest hour ${cheapestHourPrice.toFixed(4)})`,
+                        scheduledTime: bestQuarterBlock.startTime
+                    };
+                }
+            }
+        } else if (quarterHourly.length === 0) {
+            this.logger.log('DHW decision source: hourly fallback');
         }
 
         // Use CopNormalizer.roughNormalize for consistent COP normalization
@@ -274,7 +430,7 @@ export class HotWaterOptimizer {
         hotWaterCOP: number,
         usagePattern: { peakHours: number[], hourlyDemand: number[] },
         referenceTimeMs?: number,
-        options: { currencyCode?: string; gridFeePerKwh?: number; estimatedDailyHotWaterKwh?: number } = {}
+        options: { currencyCode?: string; gridFeePerKwh?: number; estimatedDailyHotWaterKwh?: number; quarterHourly?: { time: string; price: number }[] } = {}
     ): {
         schedulePoints: SchedulePoint[];
         currentAction: 'heat_now' | 'delay' | 'maintain';
@@ -329,7 +485,7 @@ export class HotWaterOptimizer {
             // For each peak demand hour, find optimal heating time
             usagePattern.peakHours.forEach(peakHour => {
                 // Find valid heating window (4 hours before peak)
-                const validHours = [];
+                const validHours: number[] = [];
                 for (let i = 0; i < 4; i++) {
                     const hour = (peakHour - i + 24) % 24;
                     if (hour >= currentHour || hour < currentHour - 12) { // Future hours only
@@ -338,8 +494,8 @@ export class HotWaterOptimizer {
                 }
 
                 if (validHours.length > 0) {
-                    // Find cheapest hour in valid window
-                    const cheapestHour = validHours.reduce((min, hour) => {
+                    // Find cheapest hour in valid window (hourly baseline)
+                    let cheapestHour = validHours.reduce((min, hour) => {
                         const priceIndex = (hour - currentHour + 24) % 24;
                         const minPriceIndex = (min - currentHour + 24) % 24;
 
@@ -351,6 +507,48 @@ export class HotWaterOptimizer {
                         if (!Number.isFinite(priceA) || !Number.isFinite(priceB)) return min;
                         return priceA < priceB ? hour : min;
                     });
+
+                    // Refine with quarter-hourly data: find cheapest 30-min block within valid window
+                    const qhRaw = Array.isArray(options.quarterHourly) ? options.quarterHourly : [];
+                    const qh = this.validateQuarterHourlyData(qhRaw) ? qhRaw : [];
+                    if (qh.length >= 2) {
+                        const candidateSlots = this.buildHourlyCandidateSlots(validHours, currentHour, next24h, nowMs);
+                        const hourlyIndex = (cheapestHour - currentHour + 24) % 24;
+                        const hourlyCheapestPrice = hourlyIndex < next24h.length ? next24h[hourlyIndex]?.price : Infinity;
+                        const bestQuarterCandidate = candidateSlots
+                            .map((slot) => {
+                                const slotPrices = this.filterPricesToWindow(qh, slot.startMs, slot.endMs);
+                                const block = this.findBestQuarterHourlyBlock(slotPrices, slot.startMs, 2);
+                                return block ? { slot, block } : null;
+                            })
+                            .filter((candidate): candidate is { slot: HourlyCandidateSlot; block: NonNullable<ReturnType<HotWaterOptimizer['findBestQuarterHourlyBlock']>> } => {
+                                return candidate !== null;
+                            })
+                            .reduce((best, candidate) => {
+                                if (!best) {
+                                    return candidate;
+                                }
+                                const bestStartMs = Date.parse(best.block.startTime);
+                                const candidateStartMs = Date.parse(candidate.block.startTime);
+                                if (candidate.block.averagePrice < best.block.averagePrice) {
+                                    return candidate;
+                                }
+                                if (candidate.block.averagePrice === best.block.averagePrice && candidateStartMs < bestStartMs) {
+                                    return candidate;
+                                }
+                                return best;
+                            }, null as null | { slot: HourlyCandidateSlot; block: NonNullable<ReturnType<HotWaterOptimizer['findBestQuarterHourlyBlock']>> });
+
+                        if (bestQuarterCandidate && bestQuarterCandidate.block.averagePrice < hourlyCheapestPrice) {
+                            cheapestHour = bestQuarterCandidate.slot.hour;
+                            this.logger.log('DHW pattern scheduling: quarter-hour block selected', {
+                                peakHour,
+                                blockStart: bestQuarterCandidate.block.startTime,
+                                blockAvgPrice: bestQuarterCandidate.block.averagePrice,
+                                hourlyBestPrice: hourlyCheapestPrice,
+                            });
+                        }
+                    }
 
                     const priceIndex = (cheapestHour - currentHour + 24) % 24;
                     const refPrice = priceIndex < next24h.length ? next24h[priceIndex]?.price : undefined;

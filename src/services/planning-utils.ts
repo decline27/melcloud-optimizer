@@ -20,6 +20,7 @@ export interface PlanningBiasResult {
   hasCheap: boolean;
   hasExpensive: boolean;
   windowHours: number;
+  riskyHourCount?: number;
 }
 
 /**
@@ -113,7 +114,8 @@ export function computePlanningBias(
   // Detect if data is sub-hourly (e.g., 15m) to build hourly aggregates with risk flags
   const intervalFromData = future.find((entry) => Number.isFinite(entry.intervalMinutes))?.intervalMinutes;
   const detectedIntervalMinutes = intervalFromData && intervalFromData > 0 ? intervalFromData : detectIntervalMinutes(future);
-  const isSubHourly = typeof detectedIntervalMinutes === 'number' && detectedIntervalMinutes > 0 && detectedIntervalMinutes < 60;
+  const isSubHourly = typeof detectedIntervalMinutes === 'number' && detectedIntervalMinutes > 0 && detectedIntervalMinutes < 60
+    && future.length >= 8; // Minimum 8 sub-hourly points (2 hours) for meaningful risk detection
 
   const { hourlyPoints, riskyHours } = isSubHourly
     ? aggregateHourlyWithRisk(future, DEFAULT_SPIKE_RATIO)
@@ -201,7 +203,8 @@ export function computePlanningBias(
     biasC: bias,
     hasCheap,
     hasExpensive: hasExpensiveImminent, // Report only imminent expensive
-    windowHours
+    windowHours,
+    riskyHourCount: riskyHours.length
   };
 }
 

@@ -104,6 +104,79 @@ describe('planning-utils', () => {
     expect(result.hasExpensive).toBe(false);
   });
 
+  test('riskyHourCount populated when 15-min data has spikes', () => {
+    const now = new Date('2025-01-01T00:00:00Z');
+    const prices: { time: string; price: number; intervalMinutes?: number }[] = [];
+    // Hour 1 (01:00-01:45): 4 quarter-hourly slots, one with a spike
+    // All in the same UTC hour so aggregateHourlyWithRisk detects the intra-hour spike
+    for (let q = 0; q < 4; q += 1) {
+      prices.push({
+        time: new Date('2025-01-01T01:00:00Z').getTime() + q * 15 * 60000 > 0
+          ? new Date(new Date('2025-01-01T01:00:00Z').getTime() + q * 15 * 60000).toISOString()
+          : '',
+        price: q === 3 ? 2.0 : 1.0, // avg=1.25, max=2.0, ratio=1.6 > 1.25 threshold
+        intervalMinutes: 15
+      });
+    }
+    // Hours 2-6: stable 15-min data (no spikes)
+    for (let h = 2; h <= 6; h += 1) {
+      for (let q = 0; q < 4; q += 1) {
+        prices.push({
+          time: new Date(new Date('2025-01-01T00:00:00Z').getTime() + h * 3600000 + q * 15 * 60000).toISOString(),
+          price: 1.5,
+          intervalMinutes: 15
+        });
+      }
+    }
+
+    const result = computePlanningBias(prices, now, { windowHours: 6, lookaheadHours: 6 });
+    expect(result.riskyHourCount).toBeDefined();
+    expect(result.riskyHourCount).toBe(1); // Only hour 1 has a spike
+  });
+
+  test('riskyHourCount is 0 for hourly data (ENTSO-E hourly market)', () => {
+    const now = new Date('2025-01-01T00:00:00Z');
+    const prices = makePrice('2025-01-01T00:15:00Z', 12, 3, 0);
+    // Hourly data has no intervalMinutes → treated as 60-min
+    const result = computePlanningBias(prices, now, { windowHours: 6, lookaheadHours: 12 });
+    expect(result.riskyHourCount).toBeDefined();
+    expect(result.riskyHourCount).toBe(0);
+  });
+
+  test('riskyHourCount populated with 30-min data containing spikes (ENTSO-E quarter-hourly market)', () => {
+    const now = new Date('2025-01-01T00:00:00Z');
+    const prices: { time: string; price: number; intervalMinutes?: number }[] = [];
+    // Hour 1 (01:00-01:30): 2 x 30-min slots in same UTC hour, one with spike
+    prices.push({ time: '2025-01-01T01:00:00Z', price: 0.5, intervalMinutes: 30 });
+    prices.push({ time: '2025-01-01T01:30:00Z', price: 2.0, intervalMinutes: 30 }); // spike: avg=1.25, max=2.0
+    // Hours 2-6: stable 30-min data
+    for (let h = 2; h <= 6; h += 1) {
+      const hourStr = String(h).padStart(2, '0');
+      prices.push({ time: `2025-01-01T${hourStr}:00:00Z`, price: 1.0, intervalMinutes: 30 });
+      prices.push({ time: `2025-01-01T${hourStr}:30:00Z`, price: 1.0, intervalMinutes: 30 });
+    }
+
+    const result = computePlanningBias(prices, now, { windowHours: 6, lookaheadHours: 6 });
+    expect(result.riskyHourCount).toBeDefined();
+    expect(result.riskyHourCount).toBe(1);
+  });
+
+  test('treats sparse sub-hourly data (< 8 points) as hourly — no risk flags', () => {
+    const now = new Date('2025-01-01T00:00:00Z');
+    // Only 6 sub-hourly points — fewer than the minimum 8 needed for risk detection
+    const prices: { time: string; price: number; intervalMinutes?: number }[] = [];
+    for (let q = 0; q < 6; q += 1) {
+      prices.push({
+        time: new Date(new Date('2025-01-01T01:00:00Z').getTime() + q * 15 * 60000).toISOString(),
+        price: q === 5 ? 10.0 : 1.0, // spike present but should be ignored due to sparse data
+        intervalMinutes: 15
+      });
+    }
+
+    const result = computePlanningBias(prices, now, { windowHours: 6, lookaheadHours: 6 });
+    expect(result.riskyHourCount).toBe(0);
+  });
+
   test('dampens positive bias when risky intra-hour spikes exist in quarter-hour data', () => {
     const now = new Date('2025-01-01T00:00:00Z');
     const prices: { time: string; price: number; intervalMinutes?: number }[] = [];

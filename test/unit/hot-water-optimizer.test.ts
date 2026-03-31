@@ -67,7 +67,7 @@ describe('HotWaterOptimizer', () => {
     expect(res.action).not.toBe('heat_now');
   });
 
-  test('optimizeHotWaterScheduling: uses quarter-hour block for delay target', async () => {
+  test('optimizeHotWaterScheduling: uses quarter-hour block for delay target when block is in future hour', async () => {
     const metrics: OptimizationMetrics = {
       realHotWaterCOP: 0.5,
       realHeatingCOP: 1.0,
@@ -85,11 +85,12 @@ describe('HotWaterOptimizer', () => {
       time: new Date(now.getTime() + (i + 1) * 3600000).toISOString(),
       price: i + 1
     }));
+    // Place the cheap quarter-hour block in a FUTURE hour (2h from now) so delay is expected
     const quarterHourly = [
-      { time: new Date(now.getTime() + 15 * 60000).toISOString(), price: 0.9 },
-      { time: new Date(now.getTime() + 30 * 60000).toISOString(), price: 0.2 }, // expected start
-      { time: new Date(now.getTime() + 45 * 60000).toISOString(), price: 0.1 },
-      { time: new Date(now.getTime() + 60 * 60000).toISOString(), price: 0.9 }
+      { time: new Date(now.getTime() + 2 * 3600000 + 0 * 60000).toISOString(), price: 0.9 },
+      { time: new Date(now.getTime() + 2 * 3600000 + 15 * 60000).toISOString(), price: 0.2 }, // expected start
+      { time: new Date(now.getTime() + 2 * 3600000 + 30 * 60000).toISOString(), price: 0.1 },
+      { time: new Date(now.getTime() + 2 * 3600000 + 45 * 60000).toISOString(), price: 0.9 }
     ];
     const priceData = { current, prices, quarterHourly };
 
@@ -97,6 +98,345 @@ describe('HotWaterOptimizer', () => {
 
     expect(res.action).toBe('delay');
     expect(res.scheduledTime).toBe(quarterHourly[1].time); // start of cheapest 30m block
+  });
+
+  describe('Quarter-hour block decision logic', () => {
+    const baseMetrics: OptimizationMetrics = {
+      realHotWaterCOP: 2.5,
+      realHeatingCOP: 2.0,
+      dailyEnergyConsumption: 10,
+      heatingEfficiency: 0.5,
+      hotWaterEfficiency: 0.5,
+      seasonalMode: 'winter',
+      optimizationFocus: 'both'
+    };
+    const lastEnergyData = { TotalHotWaterConsumed: 50 };
+
+    test('heat_now when current hour contains cheapest quarter-hour block', async () => {
+      // Current time is 14:00. The cheapest 30-min block is 14:15-14:45 (within current hour).
+      // Even though hourly percentile is mid-range, quarter-hour intelligence should drive heat_now.
+      const now = new Date('2025-06-15T14:00:00Z');
+      const current = { time: now.toISOString(), price: 0.50 };
+      // Hourly prices: all mid-range, current hour is not particularly cheap
+      const prices = Array.from({ length: 24 }, (_, i) => ({
+        time: new Date(now.getTime() + i * 3600000).toISOString(),
+        price: 0.40 + (i % 5) * 0.10 // 0.40 - 0.80 range
+      }));
+      // Quarter-hourly: current hour (14:xx) has the cheapest 30-min block
+      const quarterHourly = Array.from({ length: 96 }, (_, i) => {
+        const time = new Date(now.getTime() + i * 15 * 60000).toISOString();
+        // Default price: 0.60
+        let price = 0.60;
+        // Make 14:15 and 14:30 very cheap (within current hour)
+        if (i === 1 || i === 2) price = 0.05;
+        return { time, price };
+      });
+      const priceData = { current, prices, quarterHourly };
+
+      const res = await hotWaterOptimizer.optimizeHotWaterScheduling(current.price, priceData, baseMetrics, lastEnergyData);
+
+      expect(res.action).toBe('heat_now');
+      expect(res.reason).toContain('quarter-hour');
+    });
+
+    test('delay to hour containing cheapest quarter-hour block in future', async () => {
+      // Current time is 10:00. Cheapest 30-min block is at 03:00 tomorrow (future hour).
+      // Current price is expensive → should delay to the block's hour.
+      const now = new Date('2025-06-15T10:00:00Z');
+      const current = { time: now.toISOString(), price: 0.90 };
+      const prices = Array.from({ length: 24 }, (_, i) => ({
+        time: new Date(now.getTime() + i * 3600000).toISOString(),
+        price: 0.80 + (i % 3) * 0.05
+      }));
+      // Quarter-hourly: a very cheap block at hour+17 (03:00 next day)
+      const cheapBlockStartIdx = 17 * 4; // 17 hours * 4 slots = slot 68
+      const quarterHourly = Array.from({ length: 96 }, (_, i) => {
+        const time = new Date(now.getTime() + i * 15 * 60000).toISOString();
+        let price = 0.80;
+        if (i === cheapBlockStartIdx || i === cheapBlockStartIdx + 1) price = 0.02;
+        return { time, price };
+      });
+      const priceData = { current, prices, quarterHourly };
+
+      const res = await hotWaterOptimizer.optimizeHotWaterScheduling(current.price, priceData, baseMetrics, lastEnergyData);
+
+      expect(res.action).toBe('delay');
+      // scheduledTime should point to the cheap quarter-hour block start
+      expect(res.scheduledTime).toBe(quarterHourly[cheapBlockStartIdx].time);
+    });
+
+    test('ignores quarter-hour blocks beyond the next 24-hour horizon', async () => {
+      const now = new Date('2025-06-15T10:00:00Z');
+      const current = { time: now.toISOString(), price: 0.95 };
+      const prices = Array.from({ length: 24 }, (_, i) => ({
+        time: new Date(now.getTime() + i * 3600000).toISOString(),
+        price: i === 2 ? 0.50 : 0.80
+      }));
+      const inHorizonStartIdx = 2 * 4;
+      const beyondHorizonStartIdx = 26 * 4;
+      const quarterHourly = Array.from({ length: 192 }, (_, i) => {
+        const time = new Date(now.getTime() + i * 15 * 60000).toISOString();
+        let price = 0.80;
+        if (i === inHorizonStartIdx || i === inHorizonStartIdx + 1) price = 0.10;
+        if (i === beyondHorizonStartIdx || i === beyondHorizonStartIdx + 1) price = 0.01;
+        return { time, price };
+      });
+      const priceData = { current, prices, quarterHourly };
+
+      const res = await hotWaterOptimizer.optimizeHotWaterScheduling(current.price, priceData, baseMetrics, lastEnergyData);
+
+      expect(res.action).toBe('delay');
+      expect(res.scheduledTime).toBe(quarterHourly[inHorizonStartIdx].time);
+      expect(res.scheduledTime).not.toBe(quarterHourly[beyondHorizonStartIdx].time);
+    });
+
+    test('hourly fallback when quarterHourly is undefined (ENTSO-E hourly market)', async () => {
+      const now = new Date('2025-06-15T10:00:00Z');
+      const current = { time: now.toISOString(), price: 5 };
+      const prices = Array.from({ length: 24 }, (_, i) => ({
+        time: new Date(now.getTime() + i * 3600000).toISOString(),
+        price: i + 1
+      }));
+      // No quarterHourly field at all (ENTSO-E hourly market)
+      const priceData = { current, prices };
+
+      const res = await hotWaterOptimizer.optimizeHotWaterScheduling(current.price, priceData, baseMetrics, lastEnergyData);
+
+      // Should still produce a valid result using hourly logic
+      expect(res).toBeDefined();
+      expect(['heat_now', 'delay', 'maintain']).toContain(res.action);
+      // Reason should NOT mention quarter-hour
+      expect(res.reason).not.toContain('quarter-hour');
+    });
+
+    test('hourly fallback when quarterHourly is empty array', async () => {
+      const now = new Date('2025-06-15T10:00:00Z');
+      const current = { time: now.toISOString(), price: 5 };
+      const prices = Array.from({ length: 24 }, (_, i) => ({
+        time: new Date(now.getTime() + i * 3600000).toISOString(),
+        price: i + 1
+      }));
+      const priceData = { current, prices, quarterHourly: [] };
+
+      const res = await hotWaterOptimizer.optimizeHotWaterScheduling(current.price, priceData, baseMetrics, lastEnergyData);
+
+      expect(res).toBeDefined();
+      expect(['heat_now', 'delay', 'maintain']).toContain(res.action);
+      expect(res.reason).not.toContain('quarter-hour');
+    });
+  });
+
+  describe('Quarter-hour data validation and fallback', () => {
+    const baseMetrics: OptimizationMetrics = {
+      realHotWaterCOP: 2.5,
+      realHeatingCOP: 2.0,
+      dailyEnergyConsumption: 10,
+      heatingEfficiency: 0.5,
+      hotWaterEfficiency: 0.5,
+      seasonalMode: 'winter',
+      optimizationFocus: 'both'
+    };
+    const lastEnergyData = { TotalHotWaterConsumed: 50 };
+
+    test('falls back to hourly when quarterHourly has fewer than 4 points', async () => {
+      const now = new Date('2025-06-15T14:00:00Z');
+      const current = { time: now.toISOString(), price: 0.50 };
+      const prices = Array.from({ length: 24 }, (_, i) => ({
+        time: new Date(now.getTime() + i * 3600000).toISOString(),
+        price: 0.50
+      }));
+      // Only 3 quarter-hourly points — insufficient
+      const quarterHourly = [
+        { time: new Date(now.getTime() + 15 * 60000).toISOString(), price: 0.01 },
+        { time: new Date(now.getTime() + 30 * 60000).toISOString(), price: 0.01 },
+        { time: new Date(now.getTime() + 45 * 60000).toISOString(), price: 0.01 }
+      ];
+      const priceData = { current, prices, quarterHourly };
+
+      const res = await hotWaterOptimizer.optimizeHotWaterScheduling(current.price, priceData, baseMetrics, lastEnergyData);
+
+      // Should NOT use quarter-hour logic since data is insufficient
+      expect(res.reason).not.toContain('quarter-hour');
+    });
+
+    test('falls back to hourly when quarterHourly has large time gap', async () => {
+      const now = new Date('2025-06-15T14:00:00Z');
+      const current = { time: now.toISOString(), price: 0.50 };
+      const prices = Array.from({ length: 24 }, (_, i) => ({
+        time: new Date(now.getTime() + i * 3600000).toISOString(),
+        price: 0.50
+      }));
+      // 4 points but with a 2-hour gap between points 2 and 3
+      const quarterHourly = [
+        { time: new Date(now.getTime() + 15 * 60000).toISOString(), price: 0.01 },
+        { time: new Date(now.getTime() + 30 * 60000).toISOString(), price: 0.01 },
+        { time: new Date(now.getTime() + 150 * 60000).toISOString(), price: 0.01 }, // 2h gap
+        { time: new Date(now.getTime() + 165 * 60000).toISOString(), price: 0.01 }
+      ];
+      const priceData = { current, prices, quarterHourly };
+
+      const res = await hotWaterOptimizer.optimizeHotWaterScheduling(current.price, priceData, baseMetrics, lastEnergyData);
+
+      // Should NOT use quarter-hour logic since data has gaps
+      expect(res.reason).not.toContain('quarter-hour');
+    });
+  });
+
+  describe('Pattern scheduling with quarter-hourly data', () => {
+    test('picks hour with cheapest 30-min block when quarterHourly provided', () => {
+      // Setup: current hour = 5, peak at 7. Valid heating window: hours 3,4,5,6
+      // Hourly prices: hour 3 is cheapest hourly (0.20), hour 4 = 0.60, hour 5 = 0.50, hour 6 = 0.55
+      // But quarter-hourly data reveals hour 4 has a 30-min block at 0.05 avg (cheaper than hour 3's hourly avg)
+      const now = new Date('2025-06-15T05:00:00Z');
+      const priceData = Array.from({ length: 24 }, (_, i) => {
+        const hour = (5 + i) % 24;
+        let price = 0.50;
+        if (hour === 3) price = 0.20; // cheapest hour by hourly avg
+        if (hour === 4) price = 0.60; // expensive hourly avg but has cheap quarter-hour block
+        if (hour === 6) price = 0.55;
+        return {
+          hour,
+          time: new Date(now.getTime() + i * 3600000).toISOString(),
+          price
+        };
+      });
+
+      // Quarter-hourly data: hour 4 (index offset from now = -1h = not reachable by hourly)
+      // Actually we need the quarter-hourly block to be in a valid window hour
+      // Peak at 7, valid hours: 3,4,5,6 (4h before)
+      // Hour 4 is 2025-06-15T04:00:00Z which is in the past from current hour 5
+      // Let's use hour 6 instead — it's in the future and valid
+      // Hour 6 = now + 1h
+      const quarterHourly = Array.from({ length: 96 }, (_, i) => {
+        const time = new Date(now.getTime() + i * 15 * 60000).toISOString();
+        let price = 0.50;
+        // Hour 6 (slots 4-7, i.e. 1h from now) — first two 15-min slots are very cheap
+        if (i === 4 || i === 5) price = 0.03;
+        return { time, price };
+      });
+
+      const usagePattern = {
+        peakHours: [7],
+        hourlyDemand: Array(24).fill(0.1).map((v, i) => i === 7 ? 0.8 : v)
+      };
+
+      const result = hotWaterOptimizer.optimizeHotWaterSchedulingByPattern(
+        5,
+        priceData,
+        3.0,
+        usagePattern,
+        now.getTime(),
+        { quarterHourly: quarterHourly as any }
+      );
+
+      // The schedule should pick hour 6 (containing the cheap quarter-hour block)
+      // instead of the hour with cheapest hourly average
+      expect(result.schedulePoints.length).toBeGreaterThan(0);
+      const peakPoint = result.schedulePoints.find(p => p.reason.includes('7'));
+      expect(peakPoint).toBeDefined();
+      expect(peakPoint!.hour).toBe(6); // Hour with cheap quarter-hour block
+    });
+
+    test('falls back to hourly when no quarterHourly provided', () => {
+      const now = new Date('2025-06-15T05:00:00Z');
+      const priceData = Array.from({ length: 24 }, (_, i) => ({
+        hour: (5 + i) % 24,
+        time: new Date(now.getTime() + i * 3600000).toISOString(),
+        price: i === 0 ? 0.30 : 0.60 // Current hour (5) is cheapest
+      }));
+
+      const usagePattern = {
+        peakHours: [7],
+        hourlyDemand: Array(24).fill(0.1).map((v, i) => i === 7 ? 0.8 : v)
+      };
+
+      // No quarterHourly in options
+      const result = hotWaterOptimizer.optimizeHotWaterSchedulingByPattern(
+        5,
+        priceData,
+        3.0,
+        usagePattern,
+        now.getTime(),
+        {}
+      );
+
+      expect(result.schedulePoints.length).toBeGreaterThan(0);
+      // Should use hourly logic — hour 5 is cheapest in the 4-hour window
+      const peakPoint = result.schedulePoints.find(p => p.reason.includes('7'));
+      expect(peakPoint).toBeDefined();
+      expect(peakPoint!.hour).toBe(5);
+    });
+
+    test('ignores tomorrow quarter-hour blocks when building today schedule', () => {
+      const now = new Date('2025-06-15T05:00:00Z');
+      const priceData = Array.from({ length: 24 }, (_, i) => ({
+        hour: (5 + i) % 24,
+        time: new Date(now.getTime() + i * 3600000).toISOString(),
+        price: i === 0 ? 0.30 : 0.60
+      }));
+      const quarterHourly = Array.from({ length: 192 }, (_, i) => {
+        const time = new Date(now.getTime() + i * 15 * 60000).toISOString();
+        let price = 0.60;
+        if (i === 25 * 4 || i === 25 * 4 + 1) price = 0.01; // Tomorrow 06:00, outside next24h
+        return { time, price };
+      });
+      const usagePattern = {
+        peakHours: [7],
+        hourlyDemand: Array(24).fill(0.1).map((v, i) => i === 7 ? 0.8 : v)
+      };
+
+      const result = hotWaterOptimizer.optimizeHotWaterSchedulingByPattern(
+        5,
+        priceData,
+        3.0,
+        usagePattern,
+        now.getTime(),
+        { quarterHourly: quarterHourly as any }
+      );
+
+      const peakPoint = result.schedulePoints.find(p => p.reason.includes('7'));
+      expect(peakPoint).toBeDefined();
+      expect(peakPoint!.hour).toBe(5);
+    });
+
+    test('maps quarter-hour blocks back to the local schedule hour', () => {
+      // Local time is UTC+2, so 05:00 local is represented by 03:00Z in price timestamps.
+      const nowUtc = new Date('2025-06-15T03:00:00Z');
+      const priceData = Array.from({ length: 24 }, (_, i) => {
+        const localHour = (5 + i) % 24;
+        let price = 0.60;
+        if (localHour === 5) price = 0.20; // cheapest hourly baseline
+        if (localHour === 6) price = 0.55; // quarter-hour block should override this hour
+        return {
+          hour: localHour,
+          time: new Date(nowUtc.getTime() + i * 3600000).toISOString(),
+          price
+        };
+      });
+      const quarterHourly = Array.from({ length: 96 }, (_, i) => {
+        const time = new Date(nowUtc.getTime() + i * 15 * 60000).toISOString();
+        let price = 0.60;
+        if (i === 4 || i === 5) price = 0.03; // Local 06:00 hour, but 04:00Z
+        return { time, price };
+      });
+      const usagePattern = {
+        peakHours: [7],
+        hourlyDemand: Array(24).fill(0.1).map((v, i) => i === 7 ? 0.8 : v)
+      };
+
+      const result = hotWaterOptimizer.optimizeHotWaterSchedulingByPattern(
+        5,
+        priceData,
+        3.0,
+        usagePattern,
+        nowUtc.getTime(),
+        { quarterHourly: quarterHourly as any }
+      );
+
+      const peakPoint = result.schedulePoints.find(p => p.reason.includes('7'));
+      expect(peakPoint).toBeDefined();
+      expect(peakPoint!.hour).toBe(6);
+    });
   });
 
   describe('Pattern Savings Calculation', () => {

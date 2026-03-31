@@ -1070,6 +1070,7 @@ export class Optimizer {
         fromTemp: holdTemp,
         toTemp: holdTemp,
         reason: 'Price fetch failed; holding last setpoint',
+        priceDataUnavailable: true,
         priceData: {
           current: 0,
           average: 0,
@@ -1081,6 +1082,8 @@ export class Optimizer {
 
     logger('inputs.prices', {
       priceCount: Array.isArray(priceData.prices) ? priceData.prices.length : 0,
+      quarterHourlyCount: Array.isArray(priceData.quarterHourly) ? priceData.quarterHourly.length : 0,
+      intervalMinutes: priceData.intervalMinutes ?? 60,
       currency: priceData.currencyCode,
       currentPrice: priceData.current?.price
     });
@@ -1093,6 +1096,7 @@ export class Optimizer {
         fromTemp: holdTemp,
         toTemp: holdTemp,
         reason: 'Missing price data; holding last setpoint',
+        priceDataUnavailable: true,
         priceData: {
           current: 0,
           average: 0,
@@ -1347,32 +1351,18 @@ export class Optimizer {
       }
     }
 
-    // Determine planning bias horizons using observed price cadence (hourly vs sub-hourly)
+    // Determine planning bias input: prefer quarter-hourly data for intra-hour spike detection
+    // computePlanningBias internally aggregates sub-hourly data back to hourly with risk flags,
+    // so window/lookahead params stay in hours regardless of input resolution.
     const baseWindowHours = 6;
     const baseLookaheadHours = 12;
-    let planningWindowSlots = baseWindowHours;
-    let planningLookaheadSlots = baseLookaheadHours;
-    try {
-      const futureTs = (priceData.prices || [])
-        .map((p: any) => Date.parse(p.time))
-        .filter((t: number) => Number.isFinite(t) && t > planningReferenceTimeMs)
-        .sort((a: number, b: number) => a - b);
-      if (futureTs.length >= 2) {
-        const deltas: number[] = [];
-        for (let i = 1; i < futureTs.length; i += 1) {
-          deltas.push(futureTs[i] - futureTs[i - 1]);
-        }
-        const avgDeltaMs = deltas.reduce((a, b) => a + b, 0) / deltas.length;
-        // If cadence is sub-hourly, scale the number of slots accordingly
-        if (avgDeltaMs > 0 && avgDeltaMs < 45 * 60 * 1000) {
-          const slotsPerHour = 3600000 / avgDeltaMs;
-          planningWindowSlots = Math.max(1, Math.round(baseWindowHours * slotsPerHour));
-          planningLookaheadSlots = Math.max(1, Math.round(baseLookaheadHours * slotsPerHour));
-        }
-      }
-    } catch {
-      // Fall back to default horizons
-    }
+    const hasQuarterHourly = Array.isArray(priceData.quarterHourly) && priceData.quarterHourly.length >= 8;
+    const planningPrices = hasQuarterHourly
+      ? priceData.quarterHourly!.map((p: any) => ({
+        ...p,
+        intervalMinutes: priceData.intervalMinutes ?? 15
+      }))
+      : priceData.prices;
 
     // Use adaptive price thresholds (very cheap multiplier) to avoid hardcoded symmetric expensive percentile
     const cheapPercentile = this.priceAnalyzer.getCheapPercentile() * 100;
@@ -1381,9 +1371,9 @@ export class Optimizer {
       cheapPercentile,
       veryCheapMultiplier: adaptiveThresholds?.veryCheapMultiplier
     });
-    const planningBiasResult = computePlanningBias(priceData.prices, planningReferenceTime, {
-      windowHours: planningWindowSlots,
-      lookaheadHours: planningLookaheadSlots,
+    const planningBiasResult = computePlanningBias(planningPrices, planningReferenceTime, {
+      windowHours: baseWindowHours,
+      lookaheadHours: baseLookaheadHours,
       cheapPercentile,
       expensivePercentile: priceThresholds.expensive,
       cheapBiasC: 0.5,
@@ -1406,6 +1396,11 @@ export class Optimizer {
       windowHours: planningBiasResult.windowHours,
       hasCheap: planningBiasResult.hasCheap,
       hasExpensive: planningBiasResult.hasExpensive
+    });
+    logger('optimizer.planning.bias.source', {
+      dataSource: hasQuarterHourly ? 'quarter-hourly' : 'hourly',
+      inputPoints: planningPrices.length,
+      riskyHourCount: planningBiasResult.riskyHourCount ?? 0
     });
 
     const zone1ConstraintsInitial = applySetpointConstraints({
@@ -1546,7 +1541,8 @@ export class Optimizer {
             {
               currencyCode: priceData.currencyCode || this.getCurrency(),
               gridFeePerKwh: this.getGridFee(),
-              estimatedDailyHotWaterKwh
+              estimatedDailyHotWaterKwh,
+              quarterHourly: Array.isArray(priceData.quarterHourly) ? priceData.quarterHourly : undefined
             }
           );
 
@@ -1698,11 +1694,8 @@ export class Optimizer {
 
     // Check for duplicate target (verify device state matches stored setpoint)
     const storedZone2Setpoint = this.getZone2State().setpoint;
-    const zone2DeviceConfirms = storedZone2Setpoint !== null &&
-      Math.abs(currentTarget - storedZone2Setpoint) < 1e-4;
     const isDuplicate = storedZone2Setpoint !== null &&
-      Math.abs(storedZone2Setpoint - fallbackTarget) < 1e-4 &&
-      zone2DeviceConfirms;
+      Math.abs(storedZone2Setpoint - fallbackTarget) < 1e-4;
 
     logger('zone2.fallback', {
       proposed: clampedTarget,
@@ -2347,6 +2340,7 @@ export class Optimizer {
       fromTemp: fallbackBand.minTemp,
       toTemp: fallbackBand.minTemp,
       reason: `Enhanced optimization failed: ${err.message} `,
+      priceDataUnavailable: true,
       priceData: {
         current: 0,
         average: 0,
