@@ -235,6 +235,7 @@ export class TibberApi extends BaseApiService {
     const query = `{
       viewer {
         homes {
+          id
           currentSubscription {
             priceInfo(resolution: QUARTER_HOURLY) {
               current {

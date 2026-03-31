@@ -23,10 +23,6 @@
     "meter_power.heating_produced",
     "meter_power.hotwater_consumed", 
     "meter_power.hotwater_produced",
-    "meter_power.heating",
-    "meter_power.produced_heating",
-    "meter_power.hotwater",
-    "meter_power.produced_hotwater",
     "heating_cop",
     "hotwater_cop",
     "alarm_generic.offline",
@@ -127,38 +123,6 @@
     "meter_power.hotwater_produced": {
       "title": {
         "en": "Daily Hot Water Energy Produced"
-      },
-      "units": {
-        "en": "kWh"
-      }
-    },
-    "meter_power.heating": {
-      "title": {
-        "en": "Total Heating Energy Consumed"
-      },
-      "units": {
-        "en": "kWh"
-      }
-    },
-    "meter_power.produced_heating": {
-      "title": {
-        "en": "Total Heating Energy Produced"
-      },
-      "units": {
-        "en": "kWh"
-      }
-    },
-    "meter_power.hotwater": {
-      "title": {
-        "en": "Total Hot Water Energy Consumed"
-      },
-      "units": {
-        "en": "kWh"
-      }
-    },
-    "meter_power.produced_hotwater": {
-      "title": {
-        "en": "Total Hot Water Energy Produced"
       },
       "units": {
         "en": "kWh"

@@ -157,10 +157,6 @@ module.exports = class BoilerDevice extends Homey.Device {
       'operational_state',
       'operational_state.hot_water',
       'operational_state.zone1',
-      'meter_power.heating',
-      'meter_power.produced_heating',
-      'meter_power.hotwater',
-      'meter_power.produced_hotwater',
       'heating_cop',
       'hotwater_cop',
       'alarm_generic.offline',
@@ -997,13 +993,9 @@ module.exports = class BoilerDevice extends Homey.Device {
         const hotWaterConsumedKwh = (deviceState.DailyHotWaterEnergyConsumed || 0) / 1000;
         const hotWaterProducedKwh = (deviceState.DailyHotWaterEnergyProduced || 0) / 1000;
 
-        await this.updateEnergyCapability('meter_power.heating', heatingConsumedKwh);
         await this.updateEnergyCapability('meter_power.heating_consumed', heatingConsumedKwh);
-        await this.updateEnergyCapability('meter_power.produced_heating', heatingProducedKwh);
         await this.updateEnergyCapability('meter_power.heating_produced', heatingProducedKwh);
-        await this.updateEnergyCapability('meter_power.hotwater', hotWaterConsumedKwh);
         await this.updateEnergyCapability('meter_power.hotwater_consumed', hotWaterConsumedKwh);
-        await this.updateEnergyCapability('meter_power.produced_hotwater', hotWaterProducedKwh);
         await this.updateEnergyCapability('meter_power.hotwater_produced', hotWaterProducedKwh);
         
         return; // Exit early since we have real data
@@ -1055,8 +1047,7 @@ module.exports = class BoilerDevice extends Homey.Device {
         const estimatedHeatingProduced = estimatedHeatingConsumed * 2.5; // COP of 2.5
         
         await this.updateEnergyCapability('meter_power.heating_consumed', estimatedHeatingConsumed);
-        await this.updateEnergyCapability('meter_power.heating', estimatedHeatingConsumed);
-        await this.updateEnergyCapability('meter_power.produced_heating', estimatedHeatingProduced);
+        await this.updateEnergyCapability('meter_power.heating_produced', estimatedHeatingProduced);
         await this.updateEnergyCapability('heating_cop', estimatedHeatingProduced / (estimatedHeatingConsumed || 1));
       }
       
@@ -1065,8 +1056,7 @@ module.exports = class BoilerDevice extends Homey.Device {
         const estimatedHotWaterProduced = estimatedHotWaterConsumed * 3.0; // COP of 3.0 for hot water
         
         await this.updateEnergyCapability('meter_power.hotwater_consumed', estimatedHotWaterConsumed);
-        await this.updateEnergyCapability('meter_power.hotwater', estimatedHotWaterConsumed);
-        await this.updateEnergyCapability('meter_power.produced_hotwater', estimatedHotWaterProduced);
+        await this.updateEnergyCapability('meter_power.hotwater_produced', estimatedHotWaterProduced);
         await this.updateEnergyCapability('hotwater_cop', estimatedHotWaterProduced / (estimatedHotWaterConsumed || 1));
       }
 
@@ -1166,19 +1156,6 @@ module.exports = class BoilerDevice extends Homey.Device {
         await this.setCapabilityValue('meter_power.hotwater_produced', energyTotals.TotalHotWaterProduced || 0);
       }
 
-      // Update legacy meter capabilities for compatibility
-      if (this.hasCapability('meter_power.heating')) {
-        await this.setCapabilityValue('meter_power.heating', energyTotals.TotalHeatingConsumed || 0);
-      }
-      if (this.hasCapability('meter_power.produced_heating')) {
-        await this.setCapabilityValue('meter_power.produced_heating', energyTotals.TotalHeatingProduced || 0);
-      }
-      if (this.hasCapability('meter_power.hotwater')) {
-        await this.setCapabilityValue('meter_power.hotwater', energyTotals.TotalHotWaterConsumed || 0);
-      }
-      if (this.hasCapability('meter_power.produced_hotwater')) {
-        await this.setCapabilityValue('meter_power.produced_hotwater', energyTotals.TotalHotWaterProduced || 0);
-      }
 
       // Update COP capabilities with proper error handling
       if (this.hasCapability('heating_cop')) {
