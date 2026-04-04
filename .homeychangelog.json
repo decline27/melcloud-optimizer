@@ -232,5 +232,14 @@
   },
   "14.0.40": {
     "en": "Bug hunting"
+  },
+  "14.0.41": {
+    "en": "Fix Melcloud connection bug"
+  },
+  "14.0.42": {
+    "en": "Fix Melcloud connection bug"
+  },
+  "14.0.45": {
+    "en": "Fix Melcloud connection bug"
   }
 }

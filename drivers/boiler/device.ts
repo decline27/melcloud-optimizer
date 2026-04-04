@@ -780,33 +780,6 @@ module.exports = class BoilerDevice extends Homey.Device {
     }
   }
 
-  /**
-   * Check if device is actually offline based on LastCommunication timestamp (Task 1.3)
-   * @param deviceState Device state from MELCloud
-   * @returns True if device is actually offline
-   */
-  private isActuallyOffline(deviceState: any): boolean {
-    // If no LastCommunication field, fall back to deviceState.Offline
-    if (!deviceState.LastCommunication) {
-      this.logger.log('No LastCommunication field available, falling back to deviceState.Offline');
-      return deviceState.Offline || false;
-    }
-
-    try {
-      const lastComm = new Date(deviceState.LastCommunication);
-      const staleness = Date.now() - lastComm.getTime();
-      const threshold = Number(this.homey.settings.get('staleness_threshold_ms')) || 600000; // default 10 minutes
-      const isStale = staleness > threshold;
-      
-      this.logger.log(`Device communication check: lastComm=${lastComm.toISOString()}, staleness=${Math.round(staleness/1000)}s, isStale=${isStale}`);
-      
-      return isStale;
-    } catch (error) {
-      this.logger.error('Error parsing LastCommunication timestamp:', error);
-      // Fall back to original offline status on parse error
-      return deviceState.Offline || false;
-    }
-  }
 
   /**
    * Update device capabilities based on MELCloud device state
@@ -835,12 +808,9 @@ module.exports = class BoilerDevice extends Homey.Device {
       
       // Set device online/offline status using improved detection (Task 1.3)
       if (this.hasCapability('alarm_generic.offline')) {
-        const actuallyOffline = this.isActuallyOffline(deviceState);
-        await this.setCapabilityValue('alarm_generic.offline', actuallyOffline);
-        
-        if (actuallyOffline) {
-          this.logger.warn('Device detected as actually offline based on LastCommunication timestamp');
-        }
+        // A successful API response means the device is reachable.
+        // LastCommunication staleness is a known MELCloud false positive — do not use it.
+        await this.setCapabilityValue('alarm_generic.offline', false);
       }
 
       // Update power state
@@ -888,30 +858,50 @@ module.exports = class BoilerDevice extends Homey.Device {
         }
       }
 
+      // Guard: skip polling overwrite if optimizer set a temperature recently.
+      // The optimizer writes 'last_setpoint_change_ms' via StateManager after every successful setpoint apply.
+      // MELCloud can take several minutes to reflect the new value, so polling would otherwise revert the
+      // Homey capability back to the old temperature within the same optimization cycle.
+      const OPTIMIZER_GRACE_PERIOD_MS = 55 * 60 * 1000; // 55 minutes — expires just before the next hourly run
+      const lastSetpointChangeMs = Number(this.homey.settings.get('last_setpoint_change_ms')) || 0;
+      const optimizerSetRecently = lastSetpointChangeMs > 0 && (Date.now() - lastSetpointChangeMs) < OPTIMIZER_GRACE_PERIOD_MS;
+
       // Update target temperature (Zone 1)
       if (deviceState.SetTemperatureZone1 !== undefined) {
-        const currentTarget = this.getCapabilityValue('target_temperature');
-        if (currentTarget !== deviceState.SetTemperatureZone1) {
-          await this.setCapabilityValue('target_temperature', deviceState.SetTemperatureZone1);
-          this.logger.log(`Updated target temperature (Zone 1): ${deviceState.SetTemperatureZone1}°C`);
+        if (optimizerSetRecently) {
+          this.logger.log(`Skipping Zone1 poll overwrite — optimizer set ${((Date.now() - lastSetpointChangeMs) / 60000).toFixed(1)}m ago (grace period active)`);
+        } else {
+          const currentTarget = this.getCapabilityValue('target_temperature');
+          if (currentTarget !== deviceState.SetTemperatureZone1) {
+            await this.setCapabilityValue('target_temperature', deviceState.SetTemperatureZone1);
+            this.logger.log(`Updated target temperature (Zone 1): ${deviceState.SetTemperatureZone1}°C`);
+          }
         }
       }
 
       // Update Zone 2 target temperature (if available)
       if (deviceState.SetTemperatureZone2 !== undefined && this.hasCapability('target_temperature.zone2')) {
-        const currentTargetZone2 = this.getCapabilityValue('target_temperature.zone2');
-        if (currentTargetZone2 !== deviceState.SetTemperatureZone2) {
-          await this.setCapabilityValue('target_temperature.zone2', deviceState.SetTemperatureZone2);
-          this.logger.log(`Updated target temperature (Zone 2): ${deviceState.SetTemperatureZone2}°C`);
+        if (optimizerSetRecently) {
+          this.logger.log(`Skipping Zone2 poll overwrite — optimizer set recently (grace period active)`);
+        } else {
+          const currentTargetZone2 = this.getCapabilityValue('target_temperature.zone2');
+          if (currentTargetZone2 !== deviceState.SetTemperatureZone2) {
+            await this.setCapabilityValue('target_temperature.zone2', deviceState.SetTemperatureZone2);
+            this.logger.log(`Updated target temperature (Zone 2): ${deviceState.SetTemperatureZone2}°C`);
+          }
         }
       }
 
       // Update tank target temperature (if available)
       if (deviceState.SetTankWaterTemperature !== undefined && this.hasCapability('target_temperature.tank')) {
-        const currentTargetTank = this.getCapabilityValue('target_temperature.tank');
-        if (currentTargetTank !== deviceState.SetTankWaterTemperature) {
-          await this.setCapabilityValue('target_temperature.tank', deviceState.SetTankWaterTemperature);
-          this.logger.log(`Updated target tank temperature: ${deviceState.SetTankWaterTemperature}°C`);
+        if (optimizerSetRecently) {
+          this.logger.log(`Skipping tank poll overwrite — optimizer set recently (grace period active)`);
+        } else {
+          const currentTargetTank = this.getCapabilityValue('target_temperature.tank');
+          if (currentTargetTank !== deviceState.SetTankWaterTemperature) {
+            await this.setCapabilityValue('target_temperature.tank', deviceState.SetTankWaterTemperature);
+            this.logger.log(`Updated target tank temperature: ${deviceState.SetTankWaterTemperature}°C`);
+          }
         }
       }
 
