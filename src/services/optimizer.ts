@@ -1021,7 +1021,7 @@ export class Optimizer {
       const inputs = await this.collectOptimizationInputs(logger);
       const zone1Result = await this.optimizeZone1(inputs, logger);
       const zone2Result = await this.optimizeZone2(inputs, zone1Result, logger);
-      const tankResult = await this.optimizeTank(inputs, logger);
+      const tankResult = await this.optimizeTank(inputs, zone1Result, logger);
       const applied = await this.applySetpointChanges(zone1Result, zone2Result, tankResult, logger);
       const savings = await this.calculateCombinedSavings(zone1Result, zone2Result, tankResult, inputs, applied);
       this.updateThermalResponseAfterOptimization(inputs, zone1Result, applied, logger);
@@ -1379,7 +1379,10 @@ export class Optimizer {
       cheapBiasC: 0.5,
       expensiveBiasC: 0.3,
       maxAbsBiasC: 0.7,
-      logger
+      logger,
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore: absolutePriceLevel added to PlanningBiasOptions in Task 6
+      absolutePriceLevel: priceData.priceLevel,
     });
     const scaledPlanningBiasRaw = planningBiasResult.biasC * thermalResponse;
     const scaledPlanningBias = Math.abs(scaledPlanningBiasRaw) < 1e-6
@@ -1502,7 +1505,9 @@ export class Optimizer {
             minChangeMinutes: this.minSetpointChangeMinutes,
             lastChangeMs: this.getZone1State().timestamp ?? undefined,
             maxDeltaPerChangeC: this.getZone1Constraints().tempStep
-          }
+          },
+          priceData.priceLevel,                                    // NEW: Tibber native level
+          this.priceAnalyzer.getHistoricalAvgPrice()              // NEW: ENTSO-E fallback
         );
 
         this.logger.log('Thermal strategy result:', {
@@ -1873,7 +1878,7 @@ export class Optimizer {
     }
   }
 
-  private async optimizeTank(inputs: OptimizationInputs, logger: DecisionLogger): Promise<TankOptimizationPlan | null> {
+  private async optimizeTank(inputs: OptimizationInputs, zone1Result: Zone1OptimizationResult, logger: DecisionLogger): Promise<TankOptimizationPlan | null> {
     const currentTankTarget = inputs.deviceState.SetTankWaterTemperature;
     if (!this.getTankConstraints().enabled || currentTankTarget === undefined) {
       return null;
@@ -1886,13 +1891,14 @@ export class Optimizer {
       const hotWaterService = this.getHotWaterService();
       if (hotWaterService) {
         try {
+          const tankPriceLevel = zone1Result.thermalStrategy?.houseContext?.absoluteLevel ?? inputs.priceStats.priceLevel;
           tankTarget = hotWaterService.getOptimalTankTemperature(
             this.getTankConstraints().minTemp,
             this.getTankConstraints().maxTemp,
             inputs.priceStats.currentPrice,
-            inputs.priceStats.priceLevel
+            tankPriceLevel
           );
-          tankReason = `Optimized using learned hot water usage patterns with Tibber price level ${inputs.priceStats.priceLevel} `;
+          tankReason = `Optimized using learned hot water usage patterns with Tibber price level ${tankPriceLevel} `;
         } catch (hwErr) {
           this.logger.error('Hot water service optimization failed, falling back to price heuristics', hwErr as Error);
         }
