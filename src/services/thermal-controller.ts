@@ -11,6 +11,7 @@ import {
 } from '../types';
 import { PriceAnalyzer } from './price-analyzer';
 import { applySetpointConstraints } from '../util/setpoint-constraints';
+import { HousePriceContextResolver, HousePriceContextParams } from './house-price-context';
 
 /**
  * Thermal Controller Constants
@@ -81,6 +82,8 @@ interface PreheatGateResult {
     constrainedTarget?: number;
 }
 
+const housePriceContextResolver = new HousePriceContextResolver();
+
 export class ThermalController {
     private thermalModel: ThermalModel = { K: 0.5 };
     private thermalMassModel: ThermalMassModel = {
@@ -138,7 +141,9 @@ export class ThermalController {
         preheatCheapPercentile: number,
         comfortBand: { minTemp: number; maxTemp: number },
         referenceTimeMs?: number,
-        constraintContext?: ConstraintContextForGate
+        constraintContext?: ConstraintContextForGate,
+        tibberPriceLevel?: string,
+        historicalAvgPrice?: number
     ): ThermalStrategy {
         try {
             // Find cheapest periods in next 24 hours
@@ -161,6 +166,21 @@ export class ThermalController {
             const currentPricePercentile = next24h.filter(p => p.price <= currentPrice).length / next24h.length;
 
             const heatingEfficiency = this.normalizeHeatingEfficiency(copData.heating);
+
+            // Resolve house-calibrated price context
+            const hpcCharacteristics = this.thermalModelService?.getThermalCharacteristics?.();
+            const hpcCoolingRate = Math.max(hpcCharacteristics?.coolingRate ?? 0, 0);
+            const houseContextParams: HousePriceContextParams = {
+                tibberPriceLevel: tibberPriceLevel,
+                historicalAvgPrice: historicalAvgPrice,
+                currentPrice: currentPrice,
+                futurePrices: futurePrices,
+                coolingRate: hpcCoolingRate,
+                currentTemp: currentTemp,
+                outdoorTemp: copData.outdoor,
+                normalizedCOP: heatingEfficiency,
+            };
+            const houseContext = housePriceContextResolver.resolve(houseContextParams);
 
             // Calculate thermal mass capacity for preheating
             const tempDelta = this.thermalMassModel.maxPreheatingTemp - currentTemp;
@@ -222,12 +242,18 @@ export class ThermalController {
             // Strategy decision logic
             // Check 1: Very cheap preheat conditions
             const veryCheapThreshold = preheatCheapPercentile * adaptiveThresholds.veryCheapMultiplier;
-            const meetsVeryCheapPreheat = currentPricePercentile <= veryCheapThreshold &&
-                heatingEfficiency > adaptiveThresholds.goodCOPThreshold && tempDelta > 0.5;
-            
+            const meetsVeryCheapPreheat =
+                houseContext.isCheapForThisHouse &&
+                heatingEfficiency > adaptiveThresholds.goodCOPThreshold &&
+                tempDelta > PREHEAT_TEMP_DELTA_THRESHOLD;
+
             // Check 2: Preemptive preheat conditions
-            const meetsPreemptivePreheat = isCurrentNormal && hasUpcomingExpensive && 
-                heatingEfficiency > adaptiveThresholds.minimumCOPThreshold && tempDelta > 0;
+            const meetsPreemptivePreheat =
+                houseContext.absoluteLevel !== 'EXPENSIVE' &&
+                houseContext.absoluteLevel !== 'VERY_EXPENSIVE' &&
+                hasUpcomingExpensive &&
+                heatingEfficiency > adaptiveThresholds.minimumCOPThreshold &&
+                tempDelta > 0;
 
             this.logger.log('Thermal strategy condition checks:', {
                 veryCheapThreshold: (veryCheapThreshold * 100).toFixed(1) + '%',
@@ -246,8 +272,7 @@ export class ThermalController {
                 }
             });
 
-            if (currentPricePercentile <= (preheatCheapPercentile * adaptiveThresholds.veryCheapMultiplier) &&
-                heatingEfficiency > adaptiveThresholds.goodCOPThreshold && tempDelta > PREHEAT_TEMP_DELTA_THRESHOLD) {
+            if (meetsVeryCheapPreheat) {
 
                 const preheatingTarget = Math.min(
                     targetTemp + (heatingEfficiency * adaptiveThresholds.preheatAggressiveness),
@@ -267,7 +292,8 @@ export class ThermalController {
                         reasoning: gateResult.reason ?? 'Preheat blocked by cost/benefit gate',
                         estimatedSavings: 0,
                         duration: 0,
-                        confidenceLevel: Math.min(heatingEfficiency, gateResult.confidence ?? heatingEfficiency)
+                        confidenceLevel: Math.min(heatingEfficiency, gateResult.confidence ?? heatingEfficiency),
+                        houseContext
                     };
                 }
 
@@ -293,11 +319,11 @@ export class ThermalController {
                     reasoning: `Excellent conditions for preheating: price ${(currentPricePercentile * 100).toFixed(0)}th percentile`,
                     estimatedSavings,
                     duration: preheatDuration,
-                    confidenceLevel: Math.min(heatingEfficiency + 0.2, 0.9)
+                    confidenceLevel: Math.min(heatingEfficiency + 0.2, 0.9),
+                    houseContext
                 };
 
-            } else if (isCurrentNormal && hasUpcomingExpensive && 
-                       heatingEfficiency > adaptiveThresholds.minimumCOPThreshold && tempDelta > 0) {
+            } else if (meetsPreemptivePreheat) {
                 // Preemptive preheat: Normal price now, but expensive hours coming soon
                 // Scale preheat aggressiveness based on how close current price is to cheap threshold
                 // Closer to cheap = more aggressive preheating
@@ -325,7 +351,8 @@ export class ThermalController {
                         reasoning: gateResult.reason ?? 'Preheat blocked by cost/benefit gate',
                         estimatedSavings: 0,
                         duration: 0,
-                        confidenceLevel: Math.min(heatingEfficiency, gateResult.confidence ?? heatingEfficiency)
+                        confidenceLevel: Math.min(heatingEfficiency, gateResult.confidence ?? heatingEfficiency),
+                        houseContext
                     };
                 }
 
@@ -357,7 +384,8 @@ export class ThermalController {
                     reasoning: `Preemptive preheat: ${(currentPricePercentile * 100).toFixed(0)}% now, expensive coming (×${preheatMultiplier.toFixed(1)})`,
                     estimatedSavings,
                     duration: preheatDuration,
-                    confidenceLevel: Math.min(heatingEfficiency + 0.1, 0.8)
+                    confidenceLevel: Math.min(heatingEfficiency + 0.1, 0.8),
+                    houseContext
                 };
 
             } else if (currentPricePercentile >= (1.0 - preheatCheapPercentile * adaptiveThresholds.veryCheapMultiplier) && currentTemp > targetTemp - 0.5) {
@@ -383,7 +411,8 @@ export class ThermalController {
                     reasoning: `Expensive period: coasting for ${coastingHours.toFixed(1)}h`,
                     estimatedSavings,
                     duration: coastingHours,
-                    confidenceLevel: 0.8
+                    confidenceLevel: 0.8,
+                    houseContext
                 };
 
             } else if (currentPricePercentile <= preheatCheapPercentile && heatingEfficiency > adaptiveThresholds.excellentCOPThreshold && currentTemp < targetTemp - 1.0) {
@@ -397,7 +426,8 @@ export class ThermalController {
                     reasoning: `Cheap electricity + high COP: boosting`,
                     estimatedSavings,
                     duration: BOOST_DURATION_HOURS,
-                    confidenceLevel: heatingEfficiency
+                    confidenceLevel: heatingEfficiency,
+                    houseContext
                 };
             }
 
@@ -406,7 +436,8 @@ export class ThermalController {
                 targetTemp: targetTemp,
                 reasoning: 'Normal operation',
                 estimatedSavings: 0,
-                confidenceLevel: 0.7
+                confidenceLevel: 0.7,
+                houseContext
             };
 
         } catch (error) {
@@ -422,9 +453,16 @@ export class ThermalController {
     }
 
     private normalizeHeatingEfficiency(cop?: number): number {
-        if (typeof cop === 'number' && Number.isFinite(cop)) {
+        if (typeof cop === 'number' && Number.isFinite(cop) && cop > 0) {
             if (this.copNormalizer) {
-                return this.copNormalizer.normalize(cop);
+                const normalized = this.copNormalizer.normalize(cop);
+                // Stale range protection: if copNormalizer returns 0 for a valid COP > 1.0,
+                // the learned range is from a different season. Fall back to rough normalization
+                // so preheat is not silently blocked.
+                if (normalized <= 0 && cop > 1.0) {
+                    return CopNormalizer.roughNormalize(cop);
+                }
+                return normalized;
             }
             return CopNormalizer.roughNormalize(cop);
         }

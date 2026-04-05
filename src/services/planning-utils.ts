@@ -1,3 +1,5 @@
+import type { AbsolutePriceLevel } from '../types/index';
+
 export interface HorizonPricePoint {
   time?: string;
   price: number;
@@ -12,6 +14,7 @@ export interface PlanningBiasOptions {
   cheapBiasC?: number;
   expensiveBiasC?: number;
   maxAbsBiasC?: number;
+  absolutePriceLevel?: AbsolutePriceLevel;
   logger?: (event: string, payload: Record<string, unknown>) => void;
 }
 
@@ -177,6 +180,13 @@ export function computePlanningBias(
   
   const biasBeforeClamp = bias;
   bias = clamp(bias, -maxAbsBias, maxAbsBias);
+
+  if (options.absolutePriceLevel === 'VERY_CHEAP' && bias < cheapBias) {
+    bias = cheapBias;
+  }
+  if (options.absolutePriceLevel === 'VERY_EXPENSIVE' && bias > -expensiveBias) {
+    bias = -expensiveBias;
+  }
 
   options.logger?.('planning.bias.trend', {
     windowHours,
