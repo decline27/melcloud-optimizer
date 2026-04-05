@@ -385,7 +385,10 @@ export class TemperatureOptimizer {
 
       targetTemp = midTemp + priceAdjustment + efficiencyAdjustment;
       // Use pre-calculated price level (based on learned thresholds) for accurate description
-      reason = `Summer mode: Hot water COP ${metrics.realHotWaterCOP.toFixed(2)} (${(hotWaterEfficiency * 100).toFixed(0)}% efficiency), price ${this.getPriceDescription(priceStats.priceLevel)} `;
+      const displayHotWaterEfficiency = (hotWaterEfficiency > 0)
+          ? hotWaterEfficiency
+          : (metrics.realHotWaterCOP > 1.0 ? CopNormalizer.roughNormalize(metrics.realHotWaterCOP) : 0);
+      reason = `Summer mode: Hot water COP ${metrics.realHotWaterCOP.toFixed(2)} (${(displayHotWaterEfficiency * 100).toFixed(0)}% efficiency), price ${this.getPriceDescription(priceStats.priceLevel)} `;
 
     } else if (metrics.seasonalMode === 'winter') {
       // Winter optimization: Balance heating efficiency with comfort and prices
@@ -430,7 +433,10 @@ export class TemperatureOptimizer {
 
       targetTemp = midTemp + priceAdjustment + efficiencyAdjustment + outdoorAdjustment;
       // Use pre-calculated price level (based on learned thresholds) for accurate description
-      reason = `Winter mode: Heating COP ${metrics.realHeatingCOP.toFixed(2)} (${(heatingEfficiency * 100).toFixed(0)}% efficiency), outdoor ${outdoorTemp}°C, price ${this.getPriceDescription(priceStats.priceLevel)} `;
+      const displayHeatingEfficiency = (heatingEfficiency > 0)
+          ? heatingEfficiency
+          : (metrics.realHeatingCOP > 1.0 ? CopNormalizer.roughNormalize(metrics.realHeatingCOP) : 0);
+      reason = `Winter mode: Heating COP ${metrics.realHeatingCOP.toFixed(2)} (${(displayHeatingEfficiency * 100).toFixed(0)}% efficiency), outdoor ${outdoorTemp}°C, price ${this.getPriceDescription(priceStats.priceLevel)} `;
 
     } else {
       // Transition mode: Balanced approach using both COPs
