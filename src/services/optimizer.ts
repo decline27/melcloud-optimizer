@@ -1380,9 +1380,7 @@ export class Optimizer {
       expensiveBiasC: 0.3,
       maxAbsBiasC: 0.7,
       logger,
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore: absolutePriceLevel added to PlanningBiasOptions in Task 6
-      absolutePriceLevel: priceData.priceLevel,
+      absolutePriceLevel: priceData.priceLevel as import('../types/index').AbsolutePriceLevel | undefined,
     });
     const scaledPlanningBiasRaw = planningBiasResult.biasC * thermalResponse;
     const scaledPlanningBias = Math.abs(scaledPlanningBiasRaw) < 1e-6

@@ -1,5 +1,6 @@
-import { describe, expect, test } from '@jest/globals';
+import { describe, expect, it, test } from '@jest/globals';
 import { computePlanningBias, updateThermalResponse } from '../../src/services/planning-utils';
+import type { AbsolutePriceLevel } from '../../src/types/index';
 
 const makePrice = (startIso: string, hours: number, cheapCount = 0, expensiveCount = 0) => {
   const arr: { time: string; price: number }[] = [];
@@ -211,5 +212,43 @@ describe('planning-utils', () => {
     const baseline = 1.1;
     const updated = updateThermalResponse(baseline, 0.4, 0.4, { alpha: 0.3, min: 0.5, max: 1.5 });
     expect(updated).toBeCloseTo(baseline, 5);
+  });
+
+  describe('absolutePriceLevel overrides', () => {
+    const makeNeutralPrices = (now: Date) => {
+      const prices: { time: string; price: number }[] = [];
+      for (let i = 1; i <= 12; i += 1) {
+        prices.push({ time: new Date(now.getTime() + i * 3600000).toISOString(), price: 1.0 });
+      }
+      return prices;
+    };
+
+    it('VERY_CHEAP absolute level floors bias at cheapBiasC', () => {
+      const now = new Date('2024-06-01T00:00:00Z');
+      const prices = makeNeutralPrices(now);
+      const result = computePlanningBias(prices, now, {
+        windowHours: 6,
+        lookaheadHours: 12,
+        cheapBiasC: 1.5,
+        expensiveBiasC: 1.5,
+        maxAbsBiasC: 2.0,
+        absolutePriceLevel: 'VERY_CHEAP' as AbsolutePriceLevel,
+      });
+      expect(result.biasC).toBeGreaterThanOrEqual(1.5);
+    });
+
+    it('VERY_EXPENSIVE absolute level caps bias at -expensiveBiasC', () => {
+      const now = new Date('2024-06-01T00:00:00Z');
+      const prices = makeNeutralPrices(now);
+      const result = computePlanningBias(prices, now, {
+        windowHours: 6,
+        lookaheadHours: 12,
+        cheapBiasC: 1.5,
+        expensiveBiasC: 1.5,
+        maxAbsBiasC: 2.0,
+        absolutePriceLevel: 'VERY_EXPENSIVE' as AbsolutePriceLevel,
+      });
+      expect(result.biasC).toBeLessThanOrEqual(-1.5);
+    });
   });
 });
