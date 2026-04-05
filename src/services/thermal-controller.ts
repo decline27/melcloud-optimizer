@@ -259,7 +259,8 @@ export class ThermalController {
                 veryCheapThreshold: (veryCheapThreshold * 100).toFixed(1) + '%',
                 meetsVeryCheapPreheat: meetsVeryCheapPreheat,
                 veryCheapDetails: {
-                    priceCheck: `${(currentPricePercentile * 100).toFixed(1)}% <= ${(veryCheapThreshold * 100).toFixed(1)}% = ${currentPricePercentile <= veryCheapThreshold}`,
+                    isCheapForThisHouse: `${houseContext.isCheapForThisHouse} (${houseContext.priceSource}, absoluteLevel=${houseContext.absoluteLevel})`,
+                    economicSpread: `spread=${houseContext.economicSpread.toFixed(3)}, breakeven=${houseContext.houseBreakevenSpread.toFixed(3)}`,
                     copCheck: `${heatingEfficiency.toFixed(2)} > ${adaptiveThresholds.goodCOPThreshold} = ${heatingEfficiency > adaptiveThresholds.goodCOPThreshold}`,
                     tempDeltaCheck: `${tempDelta.toFixed(1)} > 0.5 = ${tempDelta > 0.5}`
                 },
