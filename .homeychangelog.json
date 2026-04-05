@@ -241,5 +241,8 @@
   },
   "14.0.45": {
     "en": "Fix Melcloud connection bug"
+  },
+  "14.0.46": {
+    "en": "AI optimasation done"
   }
 }
