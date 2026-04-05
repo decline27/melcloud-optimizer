@@ -259,7 +259,8 @@ export class ThermalController {
                 veryCheapThreshold: (veryCheapThreshold * 100).toFixed(1) + '%',
                 meetsVeryCheapPreheat: meetsVeryCheapPreheat,
                 veryCheapDetails: {
-                    priceCheck: `${(currentPricePercentile * 100).toFixed(1)}% <= ${(veryCheapThreshold * 100).toFixed(1)}% = ${currentPricePercentile <= veryCheapThreshold}`,
+                    isCheapForThisHouse: `${houseContext.isCheapForThisHouse} (${houseContext.priceSource}, absoluteLevel=${houseContext.absoluteLevel})`,
+                    economicSpread: `spread=${houseContext.economicSpread.toFixed(3)}, breakeven=${houseContext.houseBreakevenSpread.toFixed(3)}`,
                     copCheck: `${heatingEfficiency.toFixed(2)} > ${adaptiveThresholds.goodCOPThreshold} = ${heatingEfficiency > adaptiveThresholds.goodCOPThreshold}`,
                     tempDeltaCheck: `${tempDelta.toFixed(1)} > 0.5 = ${tempDelta > 0.5}`
                 },
@@ -620,9 +621,12 @@ export class ThermalController {
         const referenceCop = this.copNormalizer?.getRange().max ?? DEFAULT_REFERENCE_COP;
 
         if (typeof heatingCop === 'number' && Number.isFinite(heatingCop)) {
-            const normalizedCop = this.copNormalizer
+            let normalizedCop = this.copNormalizer
                 ? this.copNormalizer.normalize(heatingCop)
                 : CopNormalizer.roughNormalize(heatingCop);
+            if (normalizedCop <= 0 && heatingCop > 1.0) {
+                normalizedCop = CopNormalizer.roughNormalize(heatingCop);
+            }
             const effectiveCop = Math.max(MIN_EFFECTIVE_COP, referenceCop * normalizedCop);
             if (!Number.isFinite(effectiveCop) || effectiveCop <= 0) {
                 return null;

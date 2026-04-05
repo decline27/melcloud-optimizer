@@ -153,6 +153,32 @@ function makeMockPriceAnalyzer(cheapPercentile = 0.3) {
   } as any;
 }
 
+describe('getEffectiveCop stale range fallback (gate)', () => {
+  it('stale range: minObserved > heatingCop → effectiveCop is higher than MIN_EFFECTIVE_COP (1.2)', () => {
+    // Arrange: build a normalizer whose learned min (3.0) is above the incoming COP (2.97)
+    // so that normalize(2.97) returns 0 (below-min clamp).
+    const staleCopNormalizer = new CopNormalizer();
+    (staleCopNormalizer as any).state.minObserved = 3.0;
+    (staleCopNormalizer as any).state.maxObserved = 5.0;
+    expect(staleCopNormalizer.normalize(2.97)).toBe(0); // precondition
+
+    const logger = makeLogger();
+    const controller = new ThermalController(logger, undefined, undefined, staleCopNormalizer);
+
+    // Act: call the private method directly
+    const result = (controller as any).getEffectiveCop(2.97) as {
+      effectiveCop: number;
+      normalizedCop: number;
+      referenceCop: number;
+    } | null;
+
+    // Assert: fallback to roughNormalize → normalizedCop > 0 → effectiveCop > MIN_EFFECTIVE_COP
+    expect(result).not.toBeNull();
+    expect(result!.normalizedCop).toBeGreaterThan(0);   // roughNormalize(2.97) ≈ 0.594
+    expect(result!.effectiveCop).toBeGreaterThan(1.2);  // NOT clamped to MIN_EFFECTIVE_COP
+  });
+});
+
 describe('normalizeHeatingEfficiency stale range fix', () => {
   it('returns roughNormalize fallback when copNormalizer returns 0 for valid COP', () => {
     // Simulate a stale CopNormalizer range (summer range: min=3.5, max=5.0)
