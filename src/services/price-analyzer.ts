@@ -9,6 +9,7 @@ interface DailyPriceSummary {
   min: number;
   max: number;
   avg: number;
+  currency?: string;
 }
 
 /** Settings accessor interface for historical price storage */
@@ -62,14 +63,23 @@ export class PriceAnalyzer {
   }
 
   /** Record today's price summary for historical context */
-  public recordDailyPriceSummary(prices: PricePoint[]): void {
+  public recordDailyPriceSummary(prices: PricePoint[], currency?: string): void {
     if (!prices || prices.length === 0) return;
 
+    // If a currency is provided and differs from what's in history, clear stale history
+    if (currency) {
+      const storedCurrency = this.historicalPrices[0]?.currency;
+      if (storedCurrency && storedCurrency !== currency) {
+        this.historicalPrices = [];
+        this.logger.log?.(`Historical price history cleared: currency changed from ${storedCurrency} to ${currency}`);
+      }
+    }
+
     const today = new Date().toISOString().split('T')[0];
-    
+
     // Check if we already have today's summary
     const existingIndex = this.historicalPrices.findIndex(s => s.date === today);
-    
+
     const numericPrices = prices.map(p => p.price).filter(p => Number.isFinite(p));
     if (numericPrices.length === 0) return;
 
@@ -77,7 +87,8 @@ export class PriceAnalyzer {
       date: today,
       min: Math.min(...numericPrices),
       max: Math.max(...numericPrices),
-      avg: numericPrices.reduce((a, b) => a + b, 0) / numericPrices.length
+      avg: numericPrices.reduce((a, b) => a + b, 0) / numericPrices.length,
+      ...(currency ? { currency } : {})
     };
 
     if (existingIndex >= 0) {
@@ -141,12 +152,13 @@ export class PriceAnalyzer {
     return this.priceProvider.getPrices();
   }
 
-  public analyzePrice(currentPrice: number, futurePrices: PricePoint[] | Pick<TibberPriceInfo, 'prices' | 'priceLevel'>): PriceClassificationStats {
+  public analyzePrice(currentPrice: number, futurePrices: PricePoint[] | Pick<TibberPriceInfo, 'prices' | 'priceLevel' | 'currencyCode'>): PriceClassificationStats {
     const priceList = Array.isArray(futurePrices) ? futurePrices : futurePrices.prices;
     const providerPriceLevel = !Array.isArray(futurePrices) ? futurePrices.priceLevel : undefined;
+    const currencyCode = !Array.isArray(futurePrices) ? (futurePrices as Pick<TibberPriceInfo, 'currencyCode'>).currencyCode : undefined;
 
     // Record daily summary for historical context (used by ENTSO-E when no provider level)
-    this.recordDailyPriceSummary(priceList);
+    this.recordDailyPriceSummary(priceList, currencyCode);
 
     const adaptiveThresholds = this.adaptiveLearner?.getStrategyThresholds();
     const historicalAvgPrice = this.getHistoricalAvgPrice();

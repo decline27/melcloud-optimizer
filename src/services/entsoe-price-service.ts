@@ -13,6 +13,9 @@ type HomeyLike = {
     warn?(message: string, ...args: any[]): void;
     error?(message: string, ...args: any[]): void;
   };
+  i18n?: {
+    getCurrency?(): string;
+  };
 };
 
 interface CacheEntry {
@@ -40,7 +43,15 @@ export class EntsoePriceService implements PriceProvider {
         return code.trim().toUpperCase();
       }
     } catch (_error) {
-      // Ignore setting lookup errors and fall back to EUR
+      // Ignore setting lookup errors
+    }
+    try {
+      const i18nCode = this.homey.i18n?.getCurrency?.();
+      if (typeof i18nCode === 'string' && i18nCode.trim()) {
+        return i18nCode.trim().toUpperCase();
+      }
+    } catch (_error) {
+      // Ignore i18n errors
     }
     return 'EUR';
   }
