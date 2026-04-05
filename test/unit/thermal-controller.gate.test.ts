@@ -140,3 +140,27 @@ describe('ThermalController preheat cost/benefit gate', () => {
     );
   });
 });
+
+describe('normalizeHeatingEfficiency stale range fix', () => {
+  it('returns roughNormalize fallback when copNormalizer returns 0 for valid COP', () => {
+    // Simulate a stale CopNormalizer range (summer range: min=3.5, max=5.0)
+    // When winter COP = 2.97, normalize() returns 0 (below learned min)
+    const staleCopNormalizer = new CopNormalizer();
+    // Force a stale range by directly updating with high summer values
+    for (let i = 0; i < 10; i++) staleCopNormalizer.updateRange(3.5 + (i * 0.15));
+    // Now normalized COP of 2.97 should be 0 from the stale normalizer
+    expect(staleCopNormalizer.normalize(2.97)).toBe(0);
+
+    const makeThermalController = () => {
+      const logger = makeLogger();
+      const thermalModelService = makeThermalModelService(0.2, 0.9);
+      return new ThermalController(logger, thermalModelService, undefined, new CopNormalizer());
+    };
+    const controller = makeThermalController();
+    (controller as any).copNormalizer = staleCopNormalizer;
+
+    // normalizeHeatingEfficiency must NOT return 0 for cop=2.97 (a physically valid COP)
+    const result = (controller as any).normalizeHeatingEfficiency(2.97);
+    expect(result).toBeGreaterThan(0.2);  // roughNormalize(2.97) ≈ 0.494
+  });
+});

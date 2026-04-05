@@ -422,9 +422,16 @@ export class ThermalController {
     }
 
     private normalizeHeatingEfficiency(cop?: number): number {
-        if (typeof cop === 'number' && Number.isFinite(cop)) {
+        if (typeof cop === 'number' && Number.isFinite(cop) && cop > 0) {
             if (this.copNormalizer) {
-                return this.copNormalizer.normalize(cop);
+                const normalized = this.copNormalizer.normalize(cop);
+                // Stale range protection: if copNormalizer returns 0 for a valid COP > 1.0,
+                // the learned range is from a different season. Fall back to rough normalization
+                // so preheat is not silently blocked.
+                if (normalized <= 0 && cop > 1.0) {
+                    return CopNormalizer.roughNormalize(cop);
+                }
+                return normalized;
             }
             return CopNormalizer.roughNormalize(cop);
         }
