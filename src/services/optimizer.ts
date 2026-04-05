@@ -34,6 +34,7 @@ import {
   HotWaterService,
   hasHotWaterService
 } from '../types';
+import type { AbsolutePriceLevel } from '../types/index';
 import { validateNumber, validateBoolean } from '../util/validation';
 import { computePlanningBias, updateThermalResponse } from './planning-utils';
 import { applySetpointConstraints } from '../util/setpoint-constraints';
@@ -1371,6 +1372,10 @@ export class Optimizer {
       cheapPercentile,
       veryCheapMultiplier: adaptiveThresholds?.veryCheapMultiplier
     });
+    const VALID_PRICE_LEVELS = new Set<string>(['VERY_CHEAP', 'CHEAP', 'NORMAL', 'EXPENSIVE', 'VERY_EXPENSIVE']);
+    const absolutePriceLevel = VALID_PRICE_LEVELS.has(priceData.priceLevel ?? '')
+      ? priceData.priceLevel as AbsolutePriceLevel
+      : undefined;
     const planningBiasResult = computePlanningBias(planningPrices, planningReferenceTime, {
       windowHours: baseWindowHours,
       lookaheadHours: baseLookaheadHours,
@@ -1380,7 +1385,7 @@ export class Optimizer {
       expensiveBiasC: 0.3,
       maxAbsBiasC: 0.7,
       logger,
-      absolutePriceLevel: priceData.priceLevel as import('../types/index').AbsolutePriceLevel | undefined,
+      absolutePriceLevel,
     });
     const scaledPlanningBiasRaw = planningBiasResult.biasC * thermalResponse;
     const scaledPlanningBias = Math.abs(scaledPlanningBiasRaw) < 1e-6

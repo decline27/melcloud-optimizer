@@ -1,6 +1,5 @@
 import { describe, expect, it, test } from '@jest/globals';
 import { computePlanningBias, updateThermalResponse } from '../../src/services/planning-utils';
-import type { AbsolutePriceLevel } from '../../src/types/index';
 
 const makePrice = (startIso: string, hours: number, cheapCount = 0, expensiveCount = 0) => {
   const arr: { time: string; price: number }[] = [];
@@ -232,7 +231,7 @@ describe('planning-utils', () => {
         cheapBiasC: 1.5,
         expensiveBiasC: 1.5,
         maxAbsBiasC: 2.0,
-        absolutePriceLevel: 'VERY_CHEAP' as AbsolutePriceLevel,
+        absolutePriceLevel: 'VERY_CHEAP',
       });
       expect(result.biasC).toBeGreaterThanOrEqual(1.5);
     });
@@ -246,7 +245,7 @@ describe('planning-utils', () => {
         cheapBiasC: 1.5,
         expensiveBiasC: 1.5,
         maxAbsBiasC: 2.0,
-        absolutePriceLevel: 'VERY_EXPENSIVE' as AbsolutePriceLevel,
+        absolutePriceLevel: 'VERY_EXPENSIVE',
       });
       expect(result.biasC).toBeLessThanOrEqual(-1.5);
     });
