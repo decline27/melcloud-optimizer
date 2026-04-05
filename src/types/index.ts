@@ -89,6 +89,21 @@ export interface TibberPriceInfo {
   forecast?: unknown;
 }
 
+export type AbsolutePriceLevel =
+  | 'VERY_CHEAP'
+  | 'CHEAP'
+  | 'NORMAL'
+  | 'EXPENSIVE'
+  | 'VERY_EXPENSIVE';
+
+export interface HousePriceContext {
+  absoluteLevel: AbsolutePriceLevel;
+  isCheapForThisHouse: boolean;
+  houseBreakevenSpread: number;
+  economicSpread: number;
+  priceSource: 'tibber_native' | 'entsoe_historical' | 'local_percentile';
+}
+
 export interface PriceProvider {
   getPrices(): Promise<TibberPriceInfo>;
   updateTimeZoneSettings?(offsetHours: number, useDst: boolean, timeZoneName?: string): void;
@@ -243,6 +258,7 @@ export interface ThermalStrategy {
   estimatedSavings: number;
   duration?: number; // Hours for the strategy
   confidenceLevel: number; // 0-1 confidence in the strategy
+  houseContext?: HousePriceContext;
 }
 
 export interface HotWaterUsagePattern {
