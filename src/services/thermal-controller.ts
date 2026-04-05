@@ -620,9 +620,12 @@ export class ThermalController {
         const referenceCop = this.copNormalizer?.getRange().max ?? DEFAULT_REFERENCE_COP;
 
         if (typeof heatingCop === 'number' && Number.isFinite(heatingCop)) {
-            const normalizedCop = this.copNormalizer
+            let normalizedCop = this.copNormalizer
                 ? this.copNormalizer.normalize(heatingCop)
                 : CopNormalizer.roughNormalize(heatingCop);
+            if (normalizedCop <= 0 && heatingCop > 1.0) {
+                normalizedCop = CopNormalizer.roughNormalize(heatingCop);
+            }
             const effectiveCop = Math.max(MIN_EFFECTIVE_COP, referenceCop * normalizedCop);
             if (!Number.isFinite(effectiveCop) || effectiveCop <= 0) {
                 return null;
