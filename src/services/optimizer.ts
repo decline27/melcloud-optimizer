@@ -1891,7 +1891,7 @@ export class Optimizer {
       const hotWaterService = this.getHotWaterService();
       if (hotWaterService) {
         try {
-          const tankPriceLevel = zone1Result.thermalStrategy?.houseContext?.absoluteLevel ?? inputs.priceStats.priceLevel;
+          const tankPriceLevel = zone1Result.thermalStrategy?.houseContext?.absoluteLevel ?? inputs.priceStats.priceLevel ?? 'NORMAL';
           tankTarget = hotWaterService.getOptimalTankTemperature(
             this.getTankConstraints().minTemp,
             this.getTankConstraints().maxTemp,
