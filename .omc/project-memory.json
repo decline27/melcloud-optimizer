@@ -345,8 +345,8 @@
   "hotPaths": [
     {
       "path": "src/services/optimizer.ts",
-      "accessCount": 17,
-      "lastAccessed": 1775464853123,
+      "accessCount": 19,
+      "lastAccessed": 1775486278374,
       "type": "file"
     },
     {
@@ -380,6 +380,12 @@
       "type": "directory"
     },
     {
+      "path": "src/services/tibber-api.ts",
+      "accessCount": 5,
+      "lastAccessed": 1775486604023,
+      "type": "file"
+    },
+    {
       "path": "src/util/night-setback.ts",
       "accessCount": 4,
       "lastAccessed": 1775464335329,
@@ -396,6 +402,12 @@
       "accessCount": 4,
       "lastAccessed": 1775464559565,
       "type": "file"
+    },
+    {
+      "path": "src",
+      "accessCount": 4,
+      "lastAccessed": 1775482652872,
+      "type": "directory"
     },
     {
       "path": "test/unit/night-setback.test.ts",
@@ -428,21 +440,27 @@
       "type": "file"
     },
     {
-      "path": "src",
-      "accessCount": 2,
-      "lastAccessed": 1775462997042,
-      "type": "directory"
-    },
-    {
       "path": "test/unit/optimizer.night-setback.test.ts",
       "accessCount": 2,
       "lastAccessed": 1775464845969,
       "type": "file"
     },
     {
-      "path": "src/services/tibber-api.ts",
-      "accessCount": 1,
-      "lastAccessed": 1775462599095,
+      "path": "src/services/melcloud-api.ts",
+      "accessCount": 2,
+      "lastAccessed": 1775482723970,
+      "type": "file"
+    },
+    {
+      "path": "src/services/entsoe-price-service.ts",
+      "accessCount": 2,
+      "lastAccessed": 1775482865311,
+      "type": "file"
+    },
+    {
+      "path": "src/services/price-cache-service.ts",
+      "accessCount": 2,
+      "lastAccessed": 1775486836256,
       "type": "file"
     },
     {
@@ -503,12 +521,6 @@
       "path": "src/services/hot-water-usage-learner.ts",
       "accessCount": 1,
       "lastAccessed": 1775462617572,
-      "type": "file"
-    },
-    {
-      "path": "src/services/entsoe-price-service.ts",
-      "accessCount": 1,
-      "lastAccessed": 1775462621187,
       "type": "file"
     },
     {
