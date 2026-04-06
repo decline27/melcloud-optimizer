@@ -74,6 +74,9 @@ export class PriceCacheService implements PriceProvider {
     if (!this.cached) return false;
     if (!this.isToday(this.cached.fetchedAt)) return false;
     if (this.isPastTomorrowThreshold() && !this.cached.hasTomorrow) return false;
+    // Invalidate after 55 min so the hourly optimizer run always gets a fresh current price
+    const ageMin = (Date.now() - new Date(this.cached.fetchedAt).getTime()) / 60000;
+    if (ageMin > 55) return false;
     return true;
   }
 
