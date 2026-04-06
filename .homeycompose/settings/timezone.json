@@ -11,31 +11,28 @@
       "id": "comfort_profile",
       "type": "group",
       "label": {
-        "en": "Comfort Profile"
+        "en": "Night Setback"
       },
       "children": [
         {
-          "id": "day_start_hour",
-          "type": "number",
+          "id": "night_setback_enabled",
+          "type": "checkbox",
           "label": {
-            "en": "Day Start Hour (0-23)"
+            "en": "Enable Night Setback"
           },
           "hint": {
-            "en": "Hour when day temperature should be used (e.g., 6 for 6:00 AM)."
+            "en": "Lower the heating target during sleeping hours. Only applies when home is occupied."
           },
-          "min": 0,
-          "max": 23,
-          "step": 1,
-          "value": 6
+          "value": false
         },
         {
-          "id": "day_end_hour",
+          "id": "night_start_hour",
           "type": "number",
           "label": {
-            "en": "Day End Hour (0-23)"
+            "en": "Night Start Hour (0-23)"
           },
           "hint": {
-            "en": "Hour when night temperature should start (e.g., 22 for 10:00 PM)."
+            "en": "Hour when night setback begins (e.g., 22 for 10:00 PM)."
           },
           "min": 0,
           "max": 23,
@@ -43,32 +40,46 @@
           "value": 22
         },
         {
-          "id": "night_temp_reduction",
+          "id": "night_end_hour",
           "type": "number",
           "label": {
-            "en": "Night Temperature Reduction (°C)"
+            "en": "Night End Hour (0-23)"
           },
           "hint": {
-            "en": "How much to reduce temperature during night hours."
+            "en": "Hour when daytime band resumes (e.g., 6 for 6:00 AM)."
           },
           "min": 0,
-          "max": 5,
-          "step": 0.5,
-          "value": 2
+          "max": 23,
+          "step": 1,
+          "value": 6
         },
         {
-          "id": "pre_heat_hours",
+          "id": "comfort_lower_night",
           "type": "number",
           "label": {
-            "en": "Pre-heating Hours"
+            "en": "Night Lower Temperature (°C)"
           },
           "hint": {
-            "en": "Hours before day start to begin pre-heating."
+            "en": "Minimum comfort temperature during night hours."
           },
-          "min": 0,
-          "max": 4,
+          "min": 14,
+          "max": 22,
           "step": 0.5,
-          "value": 1
+          "value": 17
+        },
+        {
+          "id": "comfort_upper_night",
+          "type": "number",
+          "label": {
+            "en": "Night Upper Temperature (°C)"
+          },
+          "hint": {
+            "en": "Maximum comfort temperature during night hours. Keep 1-2°C below daytime upper."
+          },
+          "min": 15,
+          "max": 23,
+          "step": 0.5,
+          "value": 19
         }
       ]
     }

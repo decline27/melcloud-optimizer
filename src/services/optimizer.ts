@@ -803,7 +803,7 @@ export class Optimizer {
     if (this.settingsLoader) {
       const nightSettings = this.settingsLoader.loadNightSetbackSettings();
       nightMode = nightSettings.enabled && isNightHour(
-        new Date().getHours(),
+        this.timeZoneHelper.getLocalTime().hour,
         nightSettings.startHour,
         nightSettings.endHour
       );

@@ -154,6 +154,10 @@ export class SettingsLoader {
         const endHour = this.getNumber('night_end_hour', 6, { min: 0, max: 23 });
         const minTemp = this.getNumber('comfort_lower_night', 17.0, { min: 14, max: 22 });
         const maxTemp = this.getNumber('comfort_upper_night', 19.0, { min: 15, max: 23 });
+        if (minTemp >= maxTemp) {
+            this.logger.log('Night setback band invalid (min >= max), using defaults');
+            return { enabled, startHour, endHour, minTemp: 17.0, maxTemp: 19.0 };
+        }
         return { enabled, startHour, endHour, minTemp, maxTemp };
     }
 

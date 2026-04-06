@@ -103,11 +103,6 @@ describe('Temperature Optimization', () => {
           case 'min_tank_temp': return 40;
           case 'max_tank_temp': return 50;
           case 'tank_temp_step': return 1.0;
-          // Comfort profile settings
-          case 'day_start_hour': return 7;
-          case 'day_end_hour': return 23;
-          case 'night_temp_reduction': return 3;
-          case 'preheat_hours': return 2;
           // Weather settings
           case 'enable_weather': return true;
           case 'location_lat': return '55.578697114527856';
