@@ -86,3 +86,80 @@ describe('PriceCacheService — cache validity', () => {
     expect(mockProvider.getPrices).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('PriceCacheService — getPrices', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it('stores fetched data in settings after successful fetch', async () => {
+    jest.setSystemTime(new Date('2026-04-06T08:00:00Z'));
+    const { service, mockSettings, fakeData } = makeService(null);
+    await service.getPrices();
+    expect(mockSettings.set).toHaveBeenCalledWith(
+      'tibber_price_cache_home1',
+      expect.objectContaining({ data: fakeData, hasTomorrow: false })
+    );
+  });
+
+  it('returns provider data on successful fetch', async () => {
+    jest.setSystemTime(new Date('2026-04-06T08:00:00Z'));
+    const { service, fakeData } = makeService(null);
+    const result = await service.getPrices();
+    expect(result).toBe(fakeData);
+  });
+
+  it('on provider failure with cached data → returns cache and warns', async () => {
+    jest.setSystemTime(new Date('2026-04-06T08:00:00Z'));
+    // Build a cached entry from a previous fetch
+    const { fakeData } = makeService(null);
+    const cachedEntry = yesterdayEntry(fakeData);
+
+    // Now build the service with a failing provider and the cached entry
+    const mockProvider: PriceProvider = { getPrices: jest.fn().mockRejectedValue(new Error('Tibber down')) };
+    const stored: Record<string, unknown> = { 'tibber_price_cache_home1': cachedEntry };
+    const mockSettings = {
+      get: jest.fn((key: string) => stored[key] ?? null),
+      set: jest.fn()
+    };
+    const mockLogger = { log: jest.fn(), warn: jest.fn(), error: jest.fn() };
+    const service = new PriceCacheService(mockProvider, mockSettings, mockLogger, 'home1');
+
+    const result = await service.getPrices();
+    expect(result).toBe((cachedEntry as any).data);
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Tibber API failed')
+    );
+  });
+
+  it('on provider failure with no cache → propagates error', async () => {
+    jest.setSystemTime(new Date('2026-04-06T08:00:00Z'));
+    const mockProvider: PriceProvider = { getPrices: jest.fn().mockRejectedValue(new Error('Tibber down')) };
+    const mockSettings = { get: jest.fn(() => null), set: jest.fn() };
+    const mockLogger = { log: jest.fn(), warn: jest.fn(), error: jest.fn() };
+    const service = new PriceCacheService(mockProvider, mockSettings, mockLogger, 'home1');
+    await expect(service.getPrices()).rejects.toThrow('Tibber down');
+  });
+
+  it('detects hasTomorrow=true when prices include tomorrow timestamps', async () => {
+    jest.setSystemTime(new Date('2026-04-06T08:00:00Z'));
+    const tomorrow = new Date('2026-04-07T00:00:00Z');
+    const dataWithTomorrow: TibberPriceInfo = {
+      current: { price: 0.1, time: new Date().toISOString() },
+      prices: [
+        { time: new Date().toISOString(), price: 0.1 },
+        { time: tomorrow.toISOString(), price: 0.2 }
+      ],
+      quarterHourly: [],
+      currencyCode: 'NOK'
+    };
+    const mockProvider: PriceProvider = { getPrices: jest.fn().mockResolvedValue(dataWithTomorrow) };
+    const mockSettings = { get: jest.fn(() => null), set: jest.fn() };
+    const mockLogger = { log: jest.fn(), warn: jest.fn(), error: jest.fn() };
+    const service = new PriceCacheService(mockProvider, mockSettings, mockLogger, 'home1');
+    await service.getPrices();
+    expect(mockSettings.set).toHaveBeenCalledWith(
+      'tibber_price_cache_home1',
+      expect.objectContaining({ hasTomorrow: true })
+    );
+  });
+});
