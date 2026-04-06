@@ -1,0 +1,347 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1775461495337,
+  "projectRoot": "/Users/kjetilvetlejord/Documents/mel/com.melcloud.optimize",
+  "techStack": {
+    "languages": [
+      {
+        "name": "JavaScript/TypeScript",
+        "version": ">=16.0.0",
+        "confidence": "high",
+        "markers": [
+          "package.json"
+        ]
+      },
+      {
+        "name": "TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "tsconfig.json"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "jest",
+        "version": "29.7.0",
+        "category": "testing"
+      }
+    ],
+    "packageManager": "npm",
+    "runtime": "Node.js 16.0.0"
+  },
+  "build": {
+    "buildCommand": "npm run build",
+    "testCommand": "npm test",
+    "lintCommand": "npm run lint",
+    "devCommand": "npm run dev",
+    "scripts": {
+      "build": "tsc",
+      "build:app": "homey app build",
+      "build:ts": "tsc",
+      "start": "homey app run",
+      "lint": "tsc --noEmit",
+      "dev": "homey app run --debug",
+      "test": "jest",
+      "test:unit": "jest --config jest.config.unit.js",
+      "test:unit:ci": "jest --config jest.config.unit.js --runInBand",
+      "test:full": "jest --config jest.config.js",
+      "test:integration": "jest test/integration/",
+      "test:watch": "jest --watch",
+      "test:coverage": "jest --coverage",
+      "test:ci": "jest --ci --coverage --watchAll=false",
+      "clean": "rm -rf .homeybuild coverage results",
+      "simulate": "npm run build:ts && node .homeybuild/scripts/simulate.js --data data/timeseries.csv --config data/config.yaml --output results/",
+      "gen:scenarios": "tsc -p tsconfig.fixtures.json && node .homeybuild/test/fixtures/generate-scenarios.js",
+      "validate": "homey app validate",
+      "homey:install": "homey app install"
+    }
+  },
+  "conventions": {
+    "namingStyle": "camelCase/PascalCase",
+    "importStyle": "ES modules",
+    "testPattern": "*.test.ts",
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "assets",
+      "docs",
+      "scripts",
+      "src",
+      "test"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "assets": {
+      "path": "assets",
+      "purpose": "Static assets",
+      "fileCount": 3,
+      "lastAccessed": 1775461495214,
+      "keyFiles": [
+        "entsoe_area_map.json",
+        "icon.svg"
+      ]
+    },
+    "capabilities": {
+      "path": "capabilities",
+      "purpose": null,
+      "fileCount": 5,
+      "lastAccessed": 1775461495216,
+      "keyFiles": [
+        "heating_cop.json",
+        "holiday_mode.json",
+        "hotwater_cop.json",
+        "legionella_now.json",
+        "occupied.json"
+      ]
+    },
+    "coverage": {
+      "path": "coverage",
+      "purpose": null,
+      "fileCount": 10,
+      "lastAccessed": 1775461495298,
+      "keyFiles": [
+        "base.css",
+        "block-navigation.js",
+        "clover.xml",
+        "favicon.png",
+        "index.html"
+      ]
+    },
+    "coverage-unit": {
+      "path": "coverage-unit",
+      "purpose": null,
+      "fileCount": 9,
+      "lastAccessed": 1775461495299,
+      "keyFiles": [
+        "base.css",
+        "block-navigation.js",
+        "favicon.png",
+        "index.html",
+        "lcov.info"
+      ]
+    },
+    "dashboard-output": {
+      "path": "dashboard-output",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1775461495299,
+      "keyFiles": [
+        "enhanced-dashboard.html",
+        "melcloud-historical-data.json"
+      ]
+    },
+    "data": {
+      "path": "data",
+      "purpose": "Data files",
+      "fileCount": 4,
+      "lastAccessed": 1775461495300,
+      "keyFiles": [
+        "config.yaml",
+        "cop_curve.csv",
+        "device_limits.csv",
+        "timeseries.csv"
+      ]
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 0,
+      "lastAccessed": 1775461495301,
+      "keyFiles": []
+    },
+    "documentation": {
+      "path": "documentation",
+      "purpose": null,
+      "fileCount": 10,
+      "lastAccessed": 1775461495302,
+      "keyFiles": [
+        "ALGORITHM_REFERENCE.md",
+        "ARCHITECTURE.md",
+        "CODE_REVIEW.md",
+        "HOME_AWAY_OPTIMIZATION.md",
+        "MELCLOUD_API_REFERENCE.md"
+      ]
+    },
+    "drivers": {
+      "path": "drivers",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1775461495303,
+      "keyFiles": []
+    },
+    "locales": {
+      "path": "locales",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1775461495303,
+      "keyFiles": [
+        "en.json"
+      ]
+    },
+    "openspec": {
+      "path": "openspec",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1775461495304,
+      "keyFiles": [
+        "AGENTS.md",
+        "project.md"
+      ]
+    },
+    "results": {
+      "path": "results",
+      "purpose": null,
+      "fileCount": 5,
+      "lastAccessed": 1775461495306,
+      "keyFiles": [
+        "baseline_decisions.csv",
+        "cold_front_cheap_night.csv",
+        "cold_front_cheap_night.summary.json",
+        "metrics.json",
+        "v2_decisions.csv"
+      ]
+    },
+    "review": {
+      "path": "review",
+      "purpose": null,
+      "fileCount": 3,
+      "lastAccessed": 1775461495306,
+      "keyFiles": [
+        "CODE_REVIEW_2025-11-28.md",
+        "heat_pump_algorithm_review_corrected.md",
+        "pr-trajectory-aware-planning-bias.md"
+      ]
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 2,
+      "lastAccessed": 1775461495306,
+      "keyFiles": [
+        "generate_entsoe_area_map.py",
+        "simulate.ts"
+      ]
+    },
+    "settings": {
+      "path": "settings",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1775461495307,
+      "keyFiles": [
+        "index.html"
+      ]
+    },
+    "specs": {
+      "path": "specs",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1775461495307,
+      "keyFiles": []
+    },
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 6,
+      "lastAccessed": 1775461495309,
+      "keyFiles": [
+        "api.ts",
+        "app.ts",
+        "constants.ts",
+        "entsoe.ts",
+        "global.d.ts"
+      ]
+    },
+    "test": {
+      "path": "test",
+      "purpose": "Test files",
+      "fileCount": 10,
+      "lastAccessed": 1775461495309,
+      "keyFiles": [
+        "README.md",
+        "config.example.json",
+        "config.json",
+        "decision-helper.test.ts",
+        "enhanced-savings-calculator-integration.test.ts"
+      ]
+    },
+    "types": {
+      "path": "types",
+      "purpose": "Type definitions",
+      "fileCount": 1,
+      "lastAccessed": 1775461495312,
+      "keyFiles": [
+        "homey.d.ts"
+      ]
+    },
+    "widgets": {
+      "path": "widgets",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1775461495312,
+      "keyFiles": []
+    },
+    "src/config": {
+      "path": "src/config",
+      "purpose": "Configuration files",
+      "fileCount": 1,
+      "lastAccessed": 1775461495320,
+      "keyFiles": [
+        "comfort-defaults.ts"
+      ]
+    },
+    "src/services": {
+      "path": "src/services",
+      "purpose": "Business logic services",
+      "fileCount": 26,
+      "lastAccessed": 1775461495321,
+      "keyFiles": [
+        "accounting-service.ts",
+        "adaptive-parameters.ts",
+        "base-api-service.ts"
+      ]
+    },
+    "src/types": {
+      "path": "src/types",
+      "purpose": "Type definitions",
+      "fileCount": 3,
+      "lastAccessed": 1775461495321,
+      "keyFiles": [
+        "enhanced-cop-data.ts",
+        "homey-extensions.ts",
+        "index.ts"
+      ]
+    },
+    "test/fixtures": {
+      "path": "test/fixtures",
+      "purpose": "Test fixtures",
+      "fileCount": 1,
+      "lastAccessed": 1775461495321,
+      "keyFiles": [
+        "generate-scenarios.ts"
+      ]
+    },
+    "test/mocks": {
+      "path": "test/mocks",
+      "purpose": "Mock data",
+      "fileCount": 4,
+      "lastAccessed": 1775461495322,
+      "keyFiles": [
+        "homey.mock.ts",
+        "index.ts",
+        "logger.mock.ts"
+      ]
+    }
+  },
+  "hotPaths": [],
+  "userDirectives": []
+}

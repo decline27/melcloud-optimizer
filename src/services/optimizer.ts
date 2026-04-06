@@ -1891,34 +1891,51 @@ export class Optimizer {
       let tankTarget = currentTankTarget;
       let tankReason = 'Maintaining current tank temperature';
 
-      const hotWaterService = this.getHotWaterService();
-      if (hotWaterService) {
-        try {
-          const tankPriceLevel = zone1Result.thermalStrategy?.houseContext?.absoluteLevel ?? inputs.priceStats.priceLevel ?? 'NORMAL';
-          tankTarget = hotWaterService.getOptimalTankTemperature(
-            this.getTankConstraints().minTemp,
-            this.getTankConstraints().maxTemp,
-            inputs.priceStats.currentPrice,
-            tankPriceLevel
-          );
-          tankReason = `Optimized using learned hot water usage patterns with Tibber price level ${tankPriceLevel} `;
-        } catch (hwErr) {
-          this.logger.error('Hot water service optimization failed, falling back to price heuristics', hwErr as Error);
+      const hwAction: { action?: string; reason?: string } | null = zone1Result.hotWaterAction ?? null;
+      const tankCons = this.getTankConstraints();
+
+      if (hwAction?.action === 'heat_now') {
+        // Cheap price window or upcoming usage peak: pre-heat to max
+        tankTarget = tankCons.maxTemp;
+        tankReason = `Pre-heating tank: ${hwAction.reason ?? 'cheap window or upcoming usage'}`;
+      } else if (hwAction?.action === 'delay') {
+        // Expensive price window: reduce to minimum to save energy
+        tankTarget = tankCons.minTemp;
+        tankReason = `Conserving tank energy: ${hwAction.reason ?? 'waiting for cheaper window'}`;
+      } else if (hwAction?.action === 'maintain') {
+        // No strong signal: hold at mid-range
+        tankTarget = Math.round((tankCons.minTemp + tankCons.maxTemp) / 2);
+        tankReason = `Maintaining tank at mid-range (${hwAction.reason ?? 'no price or usage signal'})`;
+      } else {
+        // No hotWaterAction available: fall back to direct price-level heuristic
+        if (inputs.priceStats.priceLevel === 'VERY_CHEAP' || inputs.priceStats.priceLevel === 'CHEAP') {
+          tankTarget = tankCons.maxTemp;
+          tankReason = `Price level ${inputs.priceStats.priceLevel}: pre-heating tank`;
+        } else if (inputs.priceStats.priceLevel === 'EXPENSIVE' || inputs.priceStats.priceLevel === 'VERY_EXPENSIVE') {
+          tankTarget = tankCons.minTemp;
+          tankReason = `Price level ${inputs.priceStats.priceLevel}: conserving energy`;
+        } else {
+          tankTarget = Math.round((tankCons.minTemp + tankCons.maxTemp) / 2);
+          tankReason = `Price level ${inputs.priceStats.priceLevel}: maintaining mid-range tank temperature`;
         }
       }
 
-      if (tankTarget === currentTankTarget) {
-        if (inputs.priceStats.priceLevel === 'VERY_CHEAP' || inputs.priceStats.priceLevel === 'CHEAP') {
-          tankTarget = this.getTankConstraints().maxTemp;
-          tankReason = `Tibber price level ${inputs.priceStats.priceLevel}, pre - heating tank`;
-        } else if (inputs.priceStats.priceLevel === 'EXPENSIVE' || inputs.priceStats.priceLevel === 'VERY_EXPENSIVE') {
-          tankTarget = this.getTankConstraints().minTemp;
-          tankReason = `Tibber price level ${inputs.priceStats.priceLevel}, conserving energy`;
-        } else {
-          tankTarget = (this.getTankConstraints().minTemp + this.getTankConstraints().maxTemp) / 2;
-          tankReason = `Tibber price level ${inputs.priceStats.priceLevel}, maintaining mid - range tank temperature`;
+      // Occupancy modifier: cap tank target when no one is home to conserve energy,
+      // unless we are in an explicit cheap-window heat_now that makes pre-heating worthwhile.
+      if (!this.occupied && hwAction?.action !== 'heat_now') {
+        const awayMax = tankCons.minTemp + Math.round((tankCons.maxTemp - tankCons.minTemp) * 0.3);
+        if (tankTarget > awayMax) {
+          tankTarget = awayMax;
+          tankReason += ` (away: capped at ${awayMax}°C)`;
         }
       }
+
+      this.logger.log('Tank target resolved', {
+        hwAction: hwAction?.action ?? 'none',
+        occupied: this.occupied,
+        tankTarget,
+        tankReason
+      });
 
       this.logger.log(
         `[HotWaterModel] Adaptive interpretation: percentile = ${inputs.priceStats.pricePercentile.toFixed(1)}% → '${inputs.priceStats.priceLevel}'(learned hot water sensitivity thresholds).`,
