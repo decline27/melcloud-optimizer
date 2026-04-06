@@ -108,13 +108,11 @@ describe('PriceCacheService — getPrices', () => {
     expect(result).toBe(fakeData);
   });
 
-  it('on provider failure with cached data → returns cache and warns', async () => {
-    jest.setSystemTime(new Date('2026-04-06T08:00:00Z'));
-    // Build a cached entry from a previous fetch
+  it('on provider failure with today cache → returns cache and warns', async () => {
+    jest.setSystemTime(new Date('2026-04-06T14:00:00Z')); // after 13:30 → cache invalid (no tomorrow)
     const { fakeData } = makeService(null);
-    const cachedEntry = yesterdayEntry(fakeData);
+    const cachedEntry = todayEntry(fakeData, false); // today, no tomorrow → invalid after 13:30
 
-    // Now build the service with a failing provider and the cached entry
     const mockProvider: PriceProvider = { getPrices: jest.fn().mockRejectedValue(new Error('Tibber down')) };
     const stored: Record<string, unknown> = { 'tibber_price_cache_home1': cachedEntry };
     const mockSettings = {
@@ -128,6 +126,35 @@ describe('PriceCacheService — getPrices', () => {
     expect(result).toBe((cachedEntry as any).data);
     expect(mockLogger.warn).toHaveBeenCalledWith(
       expect.stringContaining('Tibber API failed')
+    );
+    // Staleness label should say 'today', not 'yesterday'
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('today')
+    );
+  });
+
+  it('on provider failure with yesterday cache → returns cache and warns with staleness', async () => {
+    jest.setSystemTime(new Date('2026-04-06T08:00:00Z'));
+    const { fakeData } = makeService(null);
+    const cachedEntry = yesterdayEntry(fakeData);
+
+    const mockProvider: PriceProvider = { getPrices: jest.fn().mockRejectedValue(new Error('Tibber down')) };
+    const stored: Record<string, unknown> = { 'tibber_price_cache_home1': cachedEntry };
+    const mockSettings = {
+      get: jest.fn((key: string) => stored[key] ?? null),
+      set: jest.fn()
+    };
+    const mockLogger = { log: jest.fn(), warn: jest.fn(), error: jest.fn() };
+    const service = new PriceCacheService(mockProvider, mockSettings, mockLogger, 'home1');
+
+    const result = await service.getPrices();
+    expect(result).toBe((cachedEntry as any).data);
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Tibber API failed')
+    );
+    // Staleness label should say 'yesterday'
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('yesterday')
     );
   });
 
