@@ -345,8 +345,32 @@
   "hotPaths": [
     {
       "path": "src/services/optimizer.ts",
-      "accessCount": 8,
-      "lastAccessed": 1775463042021,
+      "accessCount": 17,
+      "lastAccessed": 1775464853123,
+      "type": "file"
+    },
+    {
+      "path": "settings/index.html",
+      "accessCount": 15,
+      "lastAccessed": 1775465016928,
+      "type": "file"
+    },
+    {
+      "path": "src/services/settings-loader.ts",
+      "accessCount": 12,
+      "lastAccessed": 1775464735513,
+      "type": "file"
+    },
+    {
+      "path": "src/services/constraint-manager.ts",
+      "accessCount": 6,
+      "lastAccessed": 1775464874426,
+      "type": "file"
+    },
+    {
+      "path": "test/mocks/index.ts",
+      "accessCount": 5,
+      "lastAccessed": 1775464846514,
       "type": "file"
     },
     {
@@ -356,9 +380,33 @@
       "type": "directory"
     },
     {
-      "path": "settings/index.html",
+      "path": "src/util/night-setback.ts",
       "accessCount": 4,
-      "lastAccessed": 1775463224740,
+      "lastAccessed": 1775464335329,
+      "type": "file"
+    },
+    {
+      "path": "test/unit/settings-loader.test.ts",
+      "accessCount": 4,
+      "lastAccessed": 1775464393297,
+      "type": "file"
+    },
+    {
+      "path": "test/unit/constraint-manager.test.ts",
+      "accessCount": 4,
+      "lastAccessed": 1775464559565,
+      "type": "file"
+    },
+    {
+      "path": "test/unit/night-setback.test.ts",
+      "accessCount": 3,
+      "lastAccessed": 1775464247826,
+      "type": "file"
+    },
+    {
+      "path": "test/unit/home-away-optimization.test.ts",
+      "accessCount": 3,
+      "lastAccessed": 1775464746193,
       "type": "file"
     },
     {
@@ -386,9 +434,9 @@
       "type": "directory"
     },
     {
-      "path": "src/services/constraint-manager.ts",
+      "path": "test/unit/optimizer.night-setback.test.ts",
       "accessCount": 2,
-      "lastAccessed": 1775463002006,
+      "lastAccessed": 1775464845969,
       "type": "file"
     },
     {
@@ -470,21 +518,21 @@
       "type": "file"
     },
     {
-      "path": "src/services/settings-loader.ts",
-      "accessCount": 1,
-      "lastAccessed": 1775462988261,
-      "type": "file"
-    },
-    {
-      "path": "test/unit/constraint-manager.test.ts",
-      "accessCount": 1,
-      "lastAccessed": 1775463224175,
-      "type": "file"
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-06-night-setback.md",
       "accessCount": 1,
       "lastAccessed": 1775463451723,
+      "type": "file"
+    },
+    {
+      "path": "src/util/validation.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775464266253,
+      "type": "file"
+    },
+    {
+      "path": "src/util/error-handler.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775464266337,
       "type": "file"
     }
   ],
