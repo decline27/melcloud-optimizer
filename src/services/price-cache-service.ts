@@ -79,8 +79,8 @@ export class PriceCacheService implements PriceProvider {
 
   private hasTomorrowPrices(data: TibberPriceInfo): boolean {
     const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(0, 0, 0, 0);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    tomorrow.setUTCHours(0, 0, 0, 0);
     const tomorrowMs = tomorrow.getTime();
     const allPrices = [...(data.prices ?? []), ...(data.quarterHourly ?? [])];
     return allPrices.some(p => {
