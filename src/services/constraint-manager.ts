@@ -210,16 +210,17 @@ export class ConstraintManager {
     }
 
     /**
-     * Get current comfort band based on occupancy state
+     * Get current comfort band based on occupancy and night state.
+     * Priority: away > night (occupied only) > occupied (day).
      * @param occupied Whether home is occupied
      * @param settings Settings object with comfort band values
+     * @param nightMode Whether night setback is currently active
      * @returns Comfort band with min/max temperatures
      */
     getCurrentComfortBand(occupied: boolean, settings?: {
         get(key: string): unknown;
-    }): ComfortBand {
+    }, nightMode?: boolean): ComfortBand {
         if (!settings) {
-            // Fallback to Zone 1 constraints if no settings available
             return {
                 minTemp: this.zone1.minTemp,
                 maxTemp: this.zone1.maxTemp
@@ -232,16 +233,8 @@ export class ConstraintManager {
             return Number.isFinite(numeric) ? numeric : null;
         };
 
-        if (occupied) {
-            // Use occupied (home) comfort band - defaults match settings page HTML
-            const comfortLowerOccupied = toNumber(settings.get('comfort_lower_occupied')) ?? 20.0;
-            const comfortUpperOccupied = toNumber(settings.get('comfort_upper_occupied')) ?? 21.0;
-            return {
-                minTemp: Math.max(comfortLowerOccupied, 16),
-                maxTemp: Math.min(comfortUpperOccupied, 26)
-            };
-        } else {
-            // Use away comfort band - defaults match settings page HTML
+        if (!occupied) {
+            // Away band — night mode does not override away
             const comfortLowerAway = toNumber(settings.get('comfort_lower_away')) ?? 19.0;
             const comfortUpperAway = toNumber(settings.get('comfort_upper_away')) ?? 20.5;
             return {
@@ -249,5 +242,23 @@ export class ConstraintManager {
                 maxTemp: Math.min(comfortUpperAway, 26)
             };
         }
+
+        if (nightMode) {
+            // Night setback band — only when occupied
+            const nightMin = toNumber(settings.get('comfort_lower_night')) ?? 17.0;
+            const nightMax = toNumber(settings.get('comfort_upper_night')) ?? 19.0;
+            return {
+                minTemp: Math.max(nightMin, 14),
+                maxTemp: Math.min(nightMax, 23)
+            };
+        }
+
+        // Occupied daytime band
+        const comfortLowerOccupied = toNumber(settings.get('comfort_lower_occupied')) ?? 20.0;
+        const comfortUpperOccupied = toNumber(settings.get('comfort_upper_occupied')) ?? 21.0;
+        return {
+            minTemp: Math.max(comfortLowerOccupied, 16),
+            maxTemp: Math.min(comfortUpperOccupied, 26)
+        };
     }
 }

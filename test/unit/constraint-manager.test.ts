@@ -271,6 +271,71 @@ describe('ConstraintManager', () => {
         });
     });
 
+    describe('getCurrentComfortBand - night mode', () => {
+        let cm: ConstraintManager;
+
+        beforeEach(() => {
+            cm = new ConstraintManager(mockLogger);
+        });
+
+        const makeSettings = (overrides: Record<string, unknown> = {}) => ({
+            get: (key: string) => ({
+                comfort_lower_occupied: 20,
+                comfort_upper_occupied: 21,
+                comfort_lower_away: 19,
+                comfort_upper_away: 20.5,
+                comfort_lower_night: 17,
+                comfort_upper_night: 19,
+                ...overrides,
+            }[key] ?? null)
+        });
+
+        test('returns night band when occupied=true and nightMode=true', () => {
+            const band = cm.getCurrentComfortBand(true, makeSettings(), true);
+            expect(band.minTemp).toBe(17);
+            expect(band.maxTemp).toBe(19);
+        });
+
+        test('returns occupied band when nightMode=false', () => {
+            const band = cm.getCurrentComfortBand(true, makeSettings(), false);
+            expect(band.minTemp).toBe(20);
+            expect(band.maxTemp).toBe(21);
+        });
+
+        test('returns occupied band when nightMode undefined (backward compat)', () => {
+            const band = cm.getCurrentComfortBand(true, makeSettings());
+            expect(band.minTemp).toBe(20);
+            expect(band.maxTemp).toBe(21);
+        });
+
+        test('returns away band even when nightMode=true (away overrides night)', () => {
+            const band = cm.getCurrentComfortBand(false, makeSettings(), true);
+            expect(band.minTemp).toBe(19);
+            expect(band.maxTemp).toBe(20.5);
+        });
+
+        test('clamps night temps to safe range (14-23)', () => {
+            const band = cm.getCurrentComfortBand(true, makeSettings({
+                comfort_lower_night: 10,  // below 14 → clamped to 14
+                comfort_upper_night: 30,  // above 23 → clamped to 23
+            }), true);
+            expect(band.minTemp).toBe(14);
+            expect(band.maxTemp).toBe(23);
+        });
+
+        test('uses defaults when night settings are missing', () => {
+            const settingsWithoutNight = {
+                get: (key: string) => ({
+                    comfort_lower_occupied: 20,
+                    comfort_upper_occupied: 21,
+                }[key] ?? null)
+            };
+            const band = cm.getCurrentComfortBand(true, settingsWithoutNight, true);
+            expect(band.minTemp).toBe(17.0); // default
+            expect(band.maxTemp).toBe(19.0); // default
+        });
+    });
+
     describe('Constraint Immutability', () => {
         test('returns copies of constraints, not references', () => {
             const constraints1 = constraintManager.getZone1Constraints();
