@@ -123,13 +123,10 @@ describe('PriceCacheService — getPrices', () => {
     const service = new PriceCacheService(mockProvider, mockSettings, mockLogger, 'home1');
 
     const result = await service.getPrices();
-    expect(result).toBe((cachedEntry as any).data);
-    expect(mockLogger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('Tibber API failed')
-    );
+    expect(result).toBe((cachedEntry as { data: TibberPriceInfo }).data);
     // Staleness label should say 'today', not 'yesterday'
     expect(mockLogger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('today')
+      expect.stringMatching(/Tibber API failed.*today/)
     );
   });
 
@@ -148,13 +145,10 @@ describe('PriceCacheService — getPrices', () => {
     const service = new PriceCacheService(mockProvider, mockSettings, mockLogger, 'home1');
 
     const result = await service.getPrices();
-    expect(result).toBe((cachedEntry as any).data);
-    expect(mockLogger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('Tibber API failed')
-    );
+    expect(result).toBe((cachedEntry as { data: TibberPriceInfo }).data);
     // Staleness label should say 'yesterday'
     expect(mockLogger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('yesterday')
+      expect.stringMatching(/Tibber API failed.*yesterday/)
     );
   });
 
@@ -169,7 +163,9 @@ describe('PriceCacheService — getPrices', () => {
 
   it('detects hasTomorrow=true when prices include tomorrow timestamps', async () => {
     jest.setSystemTime(new Date('2026-04-06T08:00:00Z'));
-    const tomorrow = new Date('2026-04-07T00:00:00Z');
+    const tomorrow = new Date();
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    tomorrow.setUTCHours(0, 0, 0, 0);
     const dataWithTomorrow: TibberPriceInfo = {
       current: { price: 0.1, time: new Date().toISOString() },
       prices: [
