@@ -2356,7 +2356,7 @@
         Homey.get("comfort_upper_occupied", function (err, value) { if (hasValidValue(err, value)) comfortUpperOccElement.value = value; });
         Homey.get("comfort_lower_away", function (err, value) { if (hasValidValue(err, value)) comfortLowerAwayElement.value = value; });
         Homey.get("comfort_upper_away", function (err, value) { if (hasValidValue(err, value)) comfortUpperAwayElement.value = value; });
-        Homey.get("night_setback_enabled", function (err, value) { if (hasValidValue(err, value) && nightSetbackEnabledElement) { nightSetbackEnabledElement.checked = value; updateNightSetbackVisibility(); } });
+        Homey.get("night_setback_enabled", function (err, value) { if (hasValidValue(err, value) && nightSetbackEnabledElement) { nightSetbackEnabledElement.checked = !!value; updateNightSetbackVisibility(); } });
         Homey.get("night_start_hour", function (err, value) { if (hasValidValue(err, value) && nightStartHourElement) nightStartHourElement.value = value; });
         Homey.get("night_end_hour", function (err, value) { if (hasValidValue(err, value) && nightEndHourElement) nightEndHourElement.value = value; });
         Homey.get("comfort_lower_night", function (err, value) { if (hasValidValue(err, value) && comfortLowerNightElement) comfortLowerNightElement.value = value; });
@@ -3139,14 +3139,26 @@
 
           const nightEnabled = nightSetbackEnabledElement ? nightSetbackEnabledElement.checked : false;
           Homey.set("night_setback_enabled", nightEnabled, function (err) { if (err) console.error('Error saving night_setback_enabled:', err); });
-          const nsh = nightStartHourElement ? parseInt(nightStartHourElement.value, 10) : 22;
-          Homey.set("night_start_hour", nsh, function (err) { if (err) console.error('Error saving night_start_hour:', err); });
-          const neh = nightEndHourElement ? parseInt(nightEndHourElement.value, 10) : 6;
-          Homey.set("night_end_hour", neh, function (err) { if (err) console.error('Error saving night_end_hour:', err); });
-          const cln = comfortLowerNightElement ? parseFloat(comfortLowerNightElement.value) : 17.0;
-          Homey.set("comfort_lower_night", cln, function (err) { if (err) console.error('Error saving comfort_lower_night:', err); });
-          const cun = comfortUpperNightElement ? parseFloat(comfortUpperNightElement.value) : 19.0;
-          Homey.set("comfort_upper_night", cun, function (err) { if (err) console.error('Error saving comfort_upper_night:', err); });
+          if (nightStartHourElement) {
+            const nsh = parseInt(nightStartHourElement.value, 10);
+            if (!isNaN(nsh) && nsh >= 0 && nsh <= 23) {
+              Homey.set("night_start_hour", nsh, function (err) { if (err) console.error('Error saving night_start_hour:', err); });
+            }
+          }
+          if (nightEndHourElement) {
+            const neh = parseInt(nightEndHourElement.value, 10);
+            if (!isNaN(neh) && neh >= 0 && neh <= 23) {
+              Homey.set("night_end_hour", neh, function (err) { if (err) console.error('Error saving night_end_hour:', err); });
+            }
+          }
+          if (comfortLowerNightElement && comfortUpperNightElement) {
+            const cln = parseFloat(comfortLowerNightElement.value);
+            const cun = parseFloat(comfortUpperNightElement.value);
+            if (!isNaN(cln) && !isNaN(cun) && cln >= 14 && cln <= 22 && cun >= 15 && cun <= 23 && cln < cun) {
+              Homey.set("comfort_lower_night", cln, function (err) { if (err) console.error('Error saving comfort_lower_night:', err); });
+              Homey.set("comfort_upper_night", cun, function (err) { if (err) console.error('Error saving comfort_upper_night:', err); });
+            }
+          }
 
           if (preheatEnableElement) {
             Homey.set("preheat_enable", preheatEnableElement.checked, function (err) { if (err) console.error('Error saving preheat_enable:', err); });
