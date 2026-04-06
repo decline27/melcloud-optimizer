@@ -1,6 +1,7 @@
 import { HomeyLogger } from '../util/logger';
 import { HomeyApp } from '../types';
 import { validateNumber } from '../util/validation';
+import { NightSetbackSettings } from '../util/night-setback';
 
 /**
  * COP (Coefficient of Performance) settings
@@ -142,6 +143,18 @@ export class SettingsLoader {
         this.logger.log(`Occupancy loaded - ${occupied ? 'Home (Occupied)' : 'Away'}`);
 
         return { occupied };
+    }
+
+    /**
+     * Load night setback settings
+     */
+    loadNightSetbackSettings(): NightSetbackSettings {
+        const enabled = this.getBoolean('night_setback_enabled', false);
+        const startHour = this.getNumber('night_start_hour', 22, { min: 0, max: 23 });
+        const endHour = this.getNumber('night_end_hour', 6, { min: 0, max: 23 });
+        const minTemp = this.getNumber('comfort_lower_night', 17.0, { min: 14, max: 22 });
+        const maxTemp = this.getNumber('comfort_upper_night', 19.0, { min: 15, max: 23 });
+        return { enabled, startHour, endHour, minTemp, maxTemp };
     }
 
     /**

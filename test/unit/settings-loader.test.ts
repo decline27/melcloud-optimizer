@@ -316,6 +316,59 @@ describe('SettingsLoader', () => {
         });
     });
 
+    describe('loadNightSetbackSettings', () => {
+        test('returns defaults when no settings stored', () => {
+            const mockHomey = { settings: { get: jest.fn().mockReturnValue(null) } } as any;
+            const loader = new SettingsLoader(mockHomey, mockLogger);
+
+            const result = loader.loadNightSetbackSettings();
+
+            expect(result.enabled).toBe(false);
+            expect(result.startHour).toBe(22);
+            expect(result.endHour).toBe(6);
+            expect(result.minTemp).toBe(17.0);
+            expect(result.maxTemp).toBe(19.0);
+        });
+
+        test('returns stored values when all settings are present', () => {
+            const stored: Record<string, unknown> = {
+                night_setback_enabled: true,
+                night_start_hour: 23,
+                night_end_hour: 7,
+                comfort_lower_night: 16.5,
+                comfort_upper_night: 18.5,
+            };
+            const mockHomey = {
+                settings: { get: jest.fn((key: string) => stored[key] ?? null) }
+            } as any;
+            const loader = new SettingsLoader(mockHomey, mockLogger);
+
+            const result = loader.loadNightSetbackSettings();
+
+            expect(result.enabled).toBe(true);
+            expect(result.startHour).toBe(23);
+            expect(result.endHour).toBe(7);
+            expect(result.minTemp).toBe(16.5);
+            expect(result.maxTemp).toBe(18.5);
+        });
+
+        test('clamps out-of-range hours to defaults', () => {
+            const stored: Record<string, unknown> = {
+                night_start_hour: 99,  // invalid
+                night_end_hour: -1,    // invalid
+            };
+            const mockHomey = {
+                settings: { get: jest.fn((key: string) => stored[key] ?? null) }
+            } as any;
+            const loader = new SettingsLoader(mockHomey, mockLogger);
+
+            const result = loader.loadNightSetbackSettings();
+
+            expect(result.startHour).toBe(22); // default
+            expect(result.endHour).toBe(6);   // default
+        });
+    });
+
     describe('Error Handling', () => {
         test('handles save errors', () => {
             mockHomey.settings.set.mockImplementation(() => {
