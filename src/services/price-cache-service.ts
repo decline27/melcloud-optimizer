@@ -40,6 +40,7 @@ export class PriceCacheService implements PriceProvider {
       if (stored && typeof stored === 'object' &&
           'data' in (stored as object) && 'fetchedAt' in (stored as object)) {
         this.cached = stored as TibberPriceCache;
+        this.cached.hasTomorrow ??= false;
         this.logger.log(`PriceCacheService: loaded cached prices from settings (fetchedAt: ${this.cached.fetchedAt})`);
       }
     } catch (err) {
