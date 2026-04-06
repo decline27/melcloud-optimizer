@@ -342,6 +342,151 @@
       ]
     }
   },
-  "hotPaths": [],
+  "hotPaths": [
+    {
+      "path": "src/services/optimizer.ts",
+      "accessCount": 8,
+      "lastAccessed": 1775463042021,
+      "type": "file"
+    },
+    {
+      "path": "",
+      "accessCount": 4,
+      "lastAccessed": 1775463046613,
+      "type": "directory"
+    },
+    {
+      "path": "settings/index.html",
+      "accessCount": 4,
+      "lastAccessed": 1775463224740,
+      "type": "file"
+    },
+    {
+      "path": "src/services",
+      "accessCount": 2,
+      "lastAccessed": 1775462622348,
+      "type": "directory"
+    },
+    {
+      "path": "src/services/temperature-optimizer.ts",
+      "accessCount": 2,
+      "lastAccessed": 1775462680073,
+      "type": "file"
+    },
+    {
+      "path": "src/services/thermal-controller.ts",
+      "accessCount": 2,
+      "lastAccessed": 1775462680591,
+      "type": "file"
+    },
+    {
+      "path": "src",
+      "accessCount": 2,
+      "lastAccessed": 1775462997042,
+      "type": "directory"
+    },
+    {
+      "path": "src/services/constraint-manager.ts",
+      "accessCount": 2,
+      "lastAccessed": 1775463002006,
+      "type": "file"
+    },
+    {
+      "path": "src/services/tibber-api.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775462599095,
+      "type": "file"
+    },
+    {
+      "path": "src/app.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775462602343,
+      "type": "file"
+    },
+    {
+      "path": "src/services/hot-water-optimizer.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775462602802,
+      "type": "file"
+    },
+    {
+      "path": "src/services/zone-optimizer.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775462605792,
+      "type": "file"
+    },
+    {
+      "path": "src/services/price-analyzer.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775462606274,
+      "type": "file"
+    },
+    {
+      "path": "src/services/cop-helper.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775462609605,
+      "type": "file"
+    },
+    {
+      "path": "src/services/thermal-model/thermal-model-service.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775462610246,
+      "type": "file"
+    },
+    {
+      "path": "src/types/index.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775462610489,
+      "type": "file"
+    },
+    {
+      "path": "drivers/boiler/driver.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775462614185,
+      "type": "file"
+    },
+    {
+      "path": "src/constants.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775462614351,
+      "type": "file"
+    },
+    {
+      "path": "src/services/hot-water-usage-learner.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775462617572,
+      "type": "file"
+    },
+    {
+      "path": "src/services/entsoe-price-service.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775462621187,
+      "type": "file"
+    },
+    {
+      "path": "src/services/house-price-context.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775462727790,
+      "type": "file"
+    },
+    {
+      "path": "src/services/settings-loader.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775462988261,
+      "type": "file"
+    },
+    {
+      "path": "test/unit/constraint-manager.test.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775463224175,
+      "type": "file"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-04-06-night-setback.md",
+      "accessCount": 1,
+      "lastAccessed": 1775463451723,
+      "type": "file"
+    }
+  ],
   "userDirectives": []
 }
