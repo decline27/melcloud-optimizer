@@ -550,6 +550,45 @@
       </div>
 
       <div class="homey-form-group">
+        <label class="homey-form-label">Night Setback</label>
+        <div class="homey-form-row">
+          <div class="homey-form-col">
+            <label class="homey-form-checkbox">
+              <input type="checkbox" id="night_setback_enabled" />
+              <span>Enable night setback</span>
+            </label>
+            <p class="homey-form-helper">Lower the heating target during sleeping hours. Only applies when home is occupied. Suggested default: <b>Disabled</b>.</p>
+          </div>
+        </div>
+        <div id="night-setback-controls">
+          <div class="homey-form-row">
+            <div class="homey-form-col">
+              <label class="homey-form-label" for="night_start_hour">Night start hour (0–23)</label>
+              <input class="homey-form-input" id="night_start_hour" type="number" min="0" max="23" step="1" value="22" />
+              <p class="homey-form-helper">Hour when night setback begins. Suggested default: <b>22</b> (10 PM).</p>
+            </div>
+            <div class="homey-form-col">
+              <label class="homey-form-label" for="night_end_hour">Night end hour (0–23)</label>
+              <input class="homey-form-input" id="night_end_hour" type="number" min="0" max="23" step="1" value="6" />
+              <p class="homey-form-helper">Hour when daytime band resumes. Suggested default: <b>6</b> (6 AM).</p>
+            </div>
+          </div>
+          <div class="homey-form-row">
+            <div class="homey-form-col">
+              <label class="homey-form-label" for="comfort_lower_night">Night Lower (°C)</label>
+              <input class="homey-form-input" id="comfort_lower_night" type="number" min="14" max="22" step="0.5" value="17" />
+              <p class="homey-form-helper">Suggested default: <b>17.0°C</b>.</p>
+            </div>
+            <div class="homey-form-col">
+              <label class="homey-form-label" for="comfort_upper_night">Night Upper (°C)</label>
+              <input class="homey-form-input" id="comfort_upper_night" type="number" min="15" max="23" step="0.5" value="19" />
+              <p class="homey-form-helper">Suggested default: <b>19.0°C</b>. Keep 1–2°C below daytime upper.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="homey-form-group">
         <label class="homey-form-label">Price‑Aware Preheating</label>
         <label class="homey-form-checkbox">
           <input type="checkbox" id="preheat_enable" checked />
@@ -2043,6 +2082,22 @@
         const comfortUpperOccElement = document.getElementById("comfort_upper_occupied");
         const comfortLowerAwayElement = document.getElementById("comfort_lower_away");
         const comfortUpperAwayElement = document.getElementById("comfort_upper_away");
+        const nightSetbackEnabledElement = document.getElementById("night_setback_enabled");
+        const nightStartHourElement = document.getElementById("night_start_hour");
+        const nightEndHourElement = document.getElementById("night_end_hour");
+        const comfortLowerNightElement = document.getElementById("comfort_lower_night");
+        const comfortUpperNightElement = document.getElementById("comfort_upper_night");
+        const nightSetbackControls = document.getElementById("night-setback-controls");
+        function updateNightSetbackVisibility() {
+          if (nightSetbackControls) {
+            nightSetbackControls.style.opacity = nightSetbackEnabledElement && nightSetbackEnabledElement.checked ? '1' : '0.5';
+            nightSetbackControls.style.pointerEvents = nightSetbackEnabledElement && nightSetbackEnabledElement.checked ? '' : 'none';
+          }
+        }
+        if (nightSetbackEnabledElement) {
+          nightSetbackEnabledElement.addEventListener('change', updateNightSetbackVisibility);
+          updateNightSetbackVisibility();
+        }
         const preheatEnableElement = document.getElementById("preheat_enable");
         const preheatHorizonElement = document.getElementById("preheat_horizon_hours");
         const preheatPercentileElement = document.getElementById("preheat_cheap_percentile");
@@ -2301,6 +2356,11 @@
         Homey.get("comfort_upper_occupied", function (err, value) { if (hasValidValue(err, value)) comfortUpperOccElement.value = value; });
         Homey.get("comfort_lower_away", function (err, value) { if (hasValidValue(err, value)) comfortLowerAwayElement.value = value; });
         Homey.get("comfort_upper_away", function (err, value) { if (hasValidValue(err, value)) comfortUpperAwayElement.value = value; });
+        Homey.get("night_setback_enabled", function (err, value) { if (hasValidValue(err, value) && nightSetbackEnabledElement) { nightSetbackEnabledElement.checked = value; updateNightSetbackVisibility(); } });
+        Homey.get("night_start_hour", function (err, value) { if (hasValidValue(err, value) && nightStartHourElement) nightStartHourElement.value = value; });
+        Homey.get("night_end_hour", function (err, value) { if (hasValidValue(err, value) && nightEndHourElement) nightEndHourElement.value = value; });
+        Homey.get("comfort_lower_night", function (err, value) { if (hasValidValue(err, value) && comfortLowerNightElement) comfortLowerNightElement.value = value; });
+        Homey.get("comfort_upper_night", function (err, value) { if (hasValidValue(err, value) && comfortUpperNightElement) comfortUpperNightElement.value = value; });
         Homey.get("preheat_enable", function (err, value) { if (!err && value !== undefined && value !== null && value !== "") preheatEnableElement.checked = !!value; });
         Homey.get("preheat_horizon_hours", function (err, value) { if (hasValidValue(err, value)) preheatHorizonElement.value = value; });
         Homey.get("preheat_cheap_percentile", function (err, value) { if (hasValidValue(err, value)) preheatPercentileElement.value = value; });
@@ -3077,6 +3137,17 @@
             } else if (comfortLowerAwayElement.value || comfortUpperAwayElement.value) { Homey.alert('Invalid Away band. Lower 17–22, Upper 18–23, Lower < Upper'); return; }
           }
 
+          const nightEnabled = nightSetbackEnabledElement ? nightSetbackEnabledElement.checked : false;
+          Homey.set("night_setback_enabled", nightEnabled, function (err) { if (err) console.error('Error saving night_setback_enabled:', err); });
+          const nsh = nightStartHourElement ? parseInt(nightStartHourElement.value, 10) : 22;
+          Homey.set("night_start_hour", nsh, function (err) { if (err) console.error('Error saving night_start_hour:', err); });
+          const neh = nightEndHourElement ? parseInt(nightEndHourElement.value, 10) : 6;
+          Homey.set("night_end_hour", neh, function (err) { if (err) console.error('Error saving night_end_hour:', err); });
+          const cln = comfortLowerNightElement ? parseFloat(comfortLowerNightElement.value) : 17.0;
+          Homey.set("comfort_lower_night", cln, function (err) { if (err) console.error('Error saving comfort_lower_night:', err); });
+          const cun = comfortUpperNightElement ? parseFloat(comfortUpperNightElement.value) : 19.0;
+          Homey.set("comfort_upper_night", cun, function (err) { if (err) console.error('Error saving comfort_upper_night:', err); });
+
           if (preheatEnableElement) {
             Homey.set("preheat_enable", preheatEnableElement.checked, function (err) { if (err) console.error('Error saving preheat_enable:', err); });
           }
@@ -3328,7 +3399,7 @@
           );
           return ok1 && ok2 && ok3 && ok4;
         }
-        ['comfort_lower_occupied','comfort_upper_occupied','comfort_lower_away','comfort_upper_away','use_weather_data','latitude','longitude','min_tank_temp','max_tank_temp','tank_temp_step']
+        ['comfort_lower_occupied','comfort_upper_occupied','comfort_lower_away','comfort_upper_away','use_weather_data','latitude','longitude','min_tank_temp','max_tank_temp','tank_temp_step','night_setback_enabled','night_start_hour','night_end_hour','comfort_lower_night','comfort_upper_night']
           .forEach(id => document.getElementById(id)?.addEventListener('input', validateAll));
         // Run once now to enable Save if defaults are valid
         try { validateAll(); } catch (_) {}
