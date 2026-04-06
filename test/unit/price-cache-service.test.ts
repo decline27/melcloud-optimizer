@@ -186,3 +186,90 @@ describe('PriceCacheService — getPrices', () => {
     );
   });
 });
+
+describe('PriceCacheService — settings persistence', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it('loads valid cache from settings in constructor, uses it without fetching', async () => {
+    jest.setSystemTime(new Date('2026-04-06T08:00:00Z'));
+    const { fakeData } = makeService(null);
+    const { service, mockProvider } = makeService(todayEntry(fakeData, false));
+    await service.getPrices();
+    expect(mockProvider.getPrices).not.toHaveBeenCalled();
+  });
+
+  it('handles missing settings key gracefully (null)', async () => {
+    jest.setSystemTime(new Date('2026-04-06T08:00:00Z'));
+    const { service, mockProvider } = makeService(null);
+    await service.getPrices();
+    expect(mockProvider.getPrices).toHaveBeenCalledTimes(1);
+  });
+
+  it('handles corrupt settings value gracefully', async () => {
+    jest.setSystemTime(new Date('2026-04-06T08:00:00Z'));
+    const mockProvider: PriceProvider = { getPrices: jest.fn().mockResolvedValue(
+      { current: { price: 0.1, time: new Date().toISOString() }, prices: [{ time: new Date().toISOString(), price: 0.1 }], quarterHourly: [], currencyCode: 'NOK' }
+    ) };
+    const mockSettings = { get: jest.fn(() => 'not-an-object'), set: jest.fn() };
+    const mockLogger = { log: jest.fn(), warn: jest.fn(), error: jest.fn() };
+    const service = new PriceCacheService(mockProvider, mockSettings, mockLogger, 'home1');
+    await service.getPrices();
+    expect(mockProvider.getPrices).toHaveBeenCalledTimes(1);
+  });
+
+  it('handles settings.get throwing gracefully', async () => {
+    jest.setSystemTime(new Date('2026-04-06T08:00:00Z'));
+    const mockProvider: PriceProvider = { getPrices: jest.fn().mockResolvedValue(
+      { current: { price: 0.1, time: new Date().toISOString() }, prices: [{ time: new Date().toISOString(), price: 0.1 }], quarterHourly: [], currencyCode: 'NOK' }
+    ) };
+    const mockSettings = { get: jest.fn(() => { throw new Error('settings error'); }), set: jest.fn() };
+    const mockLogger = { log: jest.fn(), warn: jest.fn(), error: jest.fn() };
+    const service = new PriceCacheService(mockProvider, mockSettings, mockLogger, 'home1');
+    await service.getPrices();
+    expect(mockProvider.getPrices).toHaveBeenCalledTimes(1);
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      expect.stringContaining('failed to load cache from settings'),
+      expect.any(Error)
+    );
+  });
+
+  it('settings.set failure logs error but still returns data', async () => {
+    jest.setSystemTime(new Date('2026-04-06T08:00:00Z'));
+    const fakeData: TibberPriceInfo = {
+      current: { price: 0.1, time: new Date().toISOString() },
+      prices: [{ time: new Date().toISOString(), price: 0.1 }],
+      quarterHourly: [],
+      currencyCode: 'NOK'
+    };
+    const mockProvider: PriceProvider = { getPrices: jest.fn().mockResolvedValue(fakeData) };
+    const mockSettings = {
+      get: jest.fn(() => null),
+      set: jest.fn(() => { throw new Error('write error'); })
+    };
+    const mockLogger = { log: jest.fn(), warn: jest.fn(), error: jest.fn() };
+    const service = new PriceCacheService(mockProvider, mockSettings, mockLogger, 'home1');
+    const result = await service.getPrices();
+    expect(result).toBe(fakeData);
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      expect.stringContaining('failed to save cache to settings'),
+      expect.any(Error)
+    );
+  });
+
+  it('uses home-id-scoped settings key', () => {
+    const mockProvider: PriceProvider = { getPrices: jest.fn() };
+    const mockSettings = { get: jest.fn(() => null), set: jest.fn() };
+    const mockLogger = { log: jest.fn(), warn: jest.fn(), error: jest.fn() };
+    new PriceCacheService(mockProvider, mockSettings, mockLogger, 'my-home-abc');
+    expect(mockSettings.get).toHaveBeenCalledWith('tibber_price_cache_my-home-abc');
+  });
+
+  it('uses "default" key when homeId is undefined', () => {
+    const mockProvider: PriceProvider = { getPrices: jest.fn() };
+    const mockSettings = { get: jest.fn(() => null), set: jest.fn() };
+    const mockLogger = { log: jest.fn(), warn: jest.fn(), error: jest.fn() };
+    new PriceCacheService(mockProvider, mockSettings, mockLogger, undefined);
+    expect(mockSettings.get).toHaveBeenCalledWith('tibber_price_cache_default');
+  });
+});
