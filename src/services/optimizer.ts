@@ -39,6 +39,7 @@ import { validateNumber, validateBoolean } from '../util/validation';
 import { computePlanningBias, updateThermalResponse } from './planning-utils';
 import { applySetpointConstraints } from '../util/setpoint-constraints';
 import { SettingsAccessor } from '../util/settings-accessor';
+import { isNightHour } from '../util/night-setback';
 import { AdaptiveParametersLearner } from './adaptive-parameters';
 import { COMFORT_CONSTANTS } from '../constants';
 import { resolvePriceThresholds } from './price-classifier';
@@ -798,9 +799,19 @@ export class Optimizer {
    * @returns Object with minTemp and maxTemp based on occupied/away settings
    */
   private getCurrentComfortBand(): { minTemp: number; maxTemp: number } {
+    let nightMode = false;
+    if (this.settingsLoader) {
+      const nightSettings = this.settingsLoader.loadNightSetbackSettings();
+      nightMode = nightSettings.enabled && isNightHour(
+        new Date().getHours(),
+        nightSettings.startHour,
+        nightSettings.endHour
+      );
+    }
     return this.constraintManager.getCurrentComfortBand(
       this.occupied,
-      this.homey ? this.homey.settings : undefined
+      this.homey ? this.homey.settings : undefined,
+      nightMode
     );
   }
 

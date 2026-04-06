@@ -136,25 +136,30 @@ export const createMockCOPHelper = () => ({
 });
 
 // Mock Homey
-export const createMockHomey = () => ({
+export const createMockHomey = () => {
+  const defaultSettings: Record<string, any> = {
+    'melcloud_user': 'test@example.com',
+    'melcloud_pass': 'password',
+    'tibber_token': 'test-token',
+    'device_id': 'device-1',
+    'building_id': '1',
+    'comfort_lower_occupied': 20,
+    'comfort_upper_occupied': 21,
+    'comfort_lower_away': 19,
+    'comfort_upper_away': 20.5,
+    'comfort_lower_night': 17,
+    'comfort_upper_night': 19,
+    'night_setback_enabled': false,
+    'night_start_hour': 22,
+    'night_end_hour': 6,
+    'cop_weight': 0.3,
+    'auto_seasonal_mode': true,
+    'summer_mode': false
+  };
+  return {
+  originalSettings: defaultSettings,
   settings: {
-    get: jest.fn((key) => {
-      const settings: Record<string, any> = {
-        'melcloud_user': 'test@example.com',
-        'melcloud_pass': 'password',
-        'tibber_token': 'test-token',
-        'device_id': 'device-1',
-        'building_id': '1',
-        'comfort_lower_occupied': 20,
-        'comfort_upper_occupied': 21,
-        'comfort_lower_away': 19,
-        'comfort_upper_away': 20.5,
-        'cop_weight': 0.3,
-        'auto_seasonal_mode': true,
-        'summer_mode': false
-      };
-      return settings[key];
-    }),
+    get: jest.fn((key) => defaultSettings[key]),
     set: jest.fn(),
     unset: jest.fn(),
     on: jest.fn()
@@ -184,4 +189,5 @@ export const createMockHomey = () => ({
   },
   version: '1.0.0',
   platform: 'local'
-});
+  };
+};
