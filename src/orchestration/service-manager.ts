@@ -2,6 +2,7 @@ import WeatherApi from '../../weather';
 import { MelCloudApi } from '../services/melcloud-api';
 import { TibberApi } from '../services/tibber-api';
 import { EntsoePriceService } from '../services/entsoe-price-service';
+import { PriceCacheService } from '../services/price-cache-service';
 import { Optimizer } from '../services/optimizer';
 import { COPHelper } from '../services/cop-helper';
 import type { PriceProvider } from '../types';
@@ -82,7 +83,12 @@ function selectPriceProvider(
       if (homeId) {
         homey.app.log?.(`Using Tibber home ID: ${homeId}`);
       }
-      return tibberApi;
+      const cacheLogger = {
+        log: (msg: string, ...args: unknown[]) => homey.app.log(msg, ...args),
+        warn: (msg: string, ...args: unknown[]) => homey.app.warn ? homey.app.warn(msg, ...args) : homey.app.log(msg, ...args),
+        error: (msg: string, ...args: unknown[]) => homey.app.error(msg, ...args)
+      };
+      return new PriceCacheService(tibberApi, homey.settings, cacheLogger, homeId);
     }
     homey.app.warn?.('Tibber selected as price source but token not configured. Falling back to ENTSO-E.');
   }
