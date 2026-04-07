@@ -1914,9 +1914,8 @@ export class Optimizer {
         tankTarget = tankCons.minTemp;
         tankReason = `Conserving tank energy: ${hwAction.reason ?? 'waiting for cheaper window'}`;
       } else if (hwAction?.action === 'maintain') {
-        // No strong signal: hold at mid-range
-        tankTarget = Math.round((tankCons.minTemp + tankCons.maxTemp) / 2);
-        tankReason = `Maintaining tank at mid-range (${hwAction.reason ?? 'no price or usage signal'})`;
+        // No strong signal: keep current setpoint as-is (tankTarget already = currentTankTarget)
+        tankReason = `Maintaining current tank setpoint (${hwAction.reason ?? 'no price or usage signal'})`;
       } else {
         // No hotWaterAction available: fall back to direct price-level heuristic
         if (inputs.priceStats.priceLevel === 'VERY_CHEAP' || inputs.priceStats.priceLevel === 'CHEAP') {

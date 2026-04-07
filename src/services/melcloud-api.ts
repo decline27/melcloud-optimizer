@@ -248,8 +248,8 @@ export class MelCloudApi extends BaseApiService {
         headers: headersObj
       };
 
-      // Return a promise that resolves with the API response
-      return new Promise<T>((resolve, reject) => {
+      // Return a promise that resolves with the API response (with retry for transient errors)
+      const makeRequest = (): Promise<T> => new Promise<T>((resolve, reject) => {
         const req = https.request(requestOptions, (res) => {
           let data = '';
 
@@ -284,13 +284,17 @@ export class MelCloudApi extends BaseApiService {
                 }
               }
 
-              const bodyMessage = parsedBody?.ErrorMessage ||
+              const rawBodyMessage = parsedBody?.ErrorMessage ||
                 parsedBody?.message ||
                 parsedBody?.Message ||
                 parsedBody?.error ||
                 parsedBody?.detail ||
                 (typeof parsedBody === 'string' ? parsedBody : null) ||
                 trimmedBody;
+              // Strip HTML bodies (e.g. IIS 500 error pages) to keep error messages readable
+              const bodyMessage = typeof rawBodyMessage === 'string' && rawBodyMessage.trimStart().startsWith('<')
+                ? `HTTP ${statusCode} server error`
+                : rawBodyMessage;
 
               const composedDetails = bodyMessage ? `${statusCode} ${statusMessage} - ${bodyMessage}`.trim() : `${statusCode} ${statusMessage}`;
 
@@ -332,7 +336,7 @@ export class MelCloudApi extends BaseApiService {
 
         // Handle request errors
         req.on('error', (error) => {
-          reject(new Error(`API request error: ${error.message}`));
+          reject(new Error(`API request error: ${error.message || (error as any).code || String(error)}`));
         });
 
         // Send the request body if provided
@@ -343,6 +347,29 @@ export class MelCloudApi extends BaseApiService {
         // End the request
         req.end();
       });
+
+      const maxRetries = 2;
+      let lastError: Error | null = null;
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        if (attempt > 0) {
+          this.logger.warn(`Retrying MELCloud ${method} ${endpoint} after transient error (attempt ${attempt + 1}/${maxRetries + 1})`);
+          await new Promise(r => setTimeout(r, 1000 * attempt));
+        }
+        try {
+          return await makeRequest();
+        } catch (error) {
+          const statusCode = error instanceof AppError ? (error as AppError).context?.statusCode : undefined;
+          const isTransient =
+            (typeof statusCode === 'number' && statusCode >= 500) ||
+            !(error instanceof AppError); // network errors: EAI_AGAIN, ECONNRESET, etc.
+          if (isTransient && attempt < maxRetries) {
+            lastError = error instanceof Error ? error : new Error(String(error));
+            continue;
+          }
+          throw error;
+        }
+      }
+      throw lastError ?? new Error('Request failed after retries');
     })();
 
     // Track the request promise (Task 1.2)

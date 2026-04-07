@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1775461495337,
+  "lastScanned": 1775580622142,
   "projectRoot": "/Users/kjetilvetlejord/Documents/mel/com.melcloud.optimize",
   "techStack": {
     "languages": [
@@ -85,7 +85,7 @@
       "path": "assets",
       "purpose": "Static assets",
       "fileCount": 3,
-      "lastAccessed": 1775461495214,
+      "lastAccessed": 1775580622098,
       "keyFiles": [
         "entsoe_area_map.json",
         "icon.svg"
@@ -95,7 +95,7 @@
       "path": "capabilities",
       "purpose": null,
       "fileCount": 5,
-      "lastAccessed": 1775461495216,
+      "lastAccessed": 1775580622101,
       "keyFiles": [
         "heating_cop.json",
         "holiday_mode.json",
@@ -108,7 +108,7 @@
       "path": "coverage",
       "purpose": null,
       "fileCount": 10,
-      "lastAccessed": 1775461495298,
+      "lastAccessed": 1775580622120,
       "keyFiles": [
         "base.css",
         "block-navigation.js",
@@ -121,7 +121,7 @@
       "path": "coverage-unit",
       "purpose": null,
       "fileCount": 9,
-      "lastAccessed": 1775461495299,
+      "lastAccessed": 1775580622125,
       "keyFiles": [
         "base.css",
         "block-navigation.js",
@@ -134,7 +134,7 @@
       "path": "dashboard-output",
       "purpose": null,
       "fileCount": 2,
-      "lastAccessed": 1775461495299,
+      "lastAccessed": 1775580622127,
       "keyFiles": [
         "enhanced-dashboard.html",
         "melcloud-historical-data.json"
@@ -144,7 +144,7 @@
       "path": "data",
       "purpose": "Data files",
       "fileCount": 4,
-      "lastAccessed": 1775461495300,
+      "lastAccessed": 1775580622127,
       "keyFiles": [
         "config.yaml",
         "cop_curve.csv",
@@ -156,14 +156,14 @@
       "path": "docs",
       "purpose": "Documentation",
       "fileCount": 0,
-      "lastAccessed": 1775461495301,
+      "lastAccessed": 1775580622128,
       "keyFiles": []
     },
     "documentation": {
       "path": "documentation",
       "purpose": null,
       "fileCount": 10,
-      "lastAccessed": 1775461495302,
+      "lastAccessed": 1775580622129,
       "keyFiles": [
         "ALGORITHM_REFERENCE.md",
         "ARCHITECTURE.md",
@@ -176,14 +176,14 @@
       "path": "drivers",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1775461495303,
+      "lastAccessed": 1775580622129,
       "keyFiles": []
     },
     "locales": {
       "path": "locales",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1775461495303,
+      "lastAccessed": 1775580622129,
       "keyFiles": [
         "en.json"
       ]
@@ -192,7 +192,7 @@
       "path": "openspec",
       "purpose": null,
       "fileCount": 2,
-      "lastAccessed": 1775461495304,
+      "lastAccessed": 1775580622129,
       "keyFiles": [
         "AGENTS.md",
         "project.md"
@@ -202,7 +202,7 @@
       "path": "results",
       "purpose": null,
       "fileCount": 5,
-      "lastAccessed": 1775461495306,
+      "lastAccessed": 1775580622130,
       "keyFiles": [
         "baseline_decisions.csv",
         "cold_front_cheap_night.csv",
@@ -215,7 +215,7 @@
       "path": "review",
       "purpose": null,
       "fileCount": 3,
-      "lastAccessed": 1775461495306,
+      "lastAccessed": 1775580622131,
       "keyFiles": [
         "CODE_REVIEW_2025-11-28.md",
         "heat_pump_algorithm_review_corrected.md",
@@ -226,7 +226,7 @@
       "path": "scripts",
       "purpose": "Build/utility scripts",
       "fileCount": 2,
-      "lastAccessed": 1775461495306,
+      "lastAccessed": 1775580622131,
       "keyFiles": [
         "generate_entsoe_area_map.py",
         "simulate.ts"
@@ -236,7 +236,7 @@
       "path": "settings",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1775461495307,
+      "lastAccessed": 1775580622131,
       "keyFiles": [
         "index.html"
       ]
@@ -245,14 +245,14 @@
       "path": "specs",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1775461495307,
+      "lastAccessed": 1775580622131,
       "keyFiles": []
     },
     "src": {
       "path": "src",
       "purpose": "Source code",
       "fileCount": 6,
-      "lastAccessed": 1775461495309,
+      "lastAccessed": 1775580622132,
       "keyFiles": [
         "api.ts",
         "app.ts",
@@ -265,7 +265,7 @@
       "path": "test",
       "purpose": "Test files",
       "fileCount": 10,
-      "lastAccessed": 1775461495309,
+      "lastAccessed": 1775580622132,
       "keyFiles": [
         "README.md",
         "config.example.json",
@@ -278,7 +278,7 @@
       "path": "types",
       "purpose": "Type definitions",
       "fileCount": 1,
-      "lastAccessed": 1775461495312,
+      "lastAccessed": 1775580622132,
       "keyFiles": [
         "homey.d.ts"
       ]
@@ -287,14 +287,14 @@
       "path": "widgets",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1775461495312,
+      "lastAccessed": 1775580622132,
       "keyFiles": []
     },
     "src/config": {
       "path": "src/config",
       "purpose": "Configuration files",
       "fileCount": 1,
-      "lastAccessed": 1775461495320,
+      "lastAccessed": 1775580622140,
       "keyFiles": [
         "comfort-defaults.ts"
       ]
@@ -303,7 +303,7 @@
       "path": "src/services",
       "purpose": "Business logic services",
       "fileCount": 26,
-      "lastAccessed": 1775461495321,
+      "lastAccessed": 1775580622141,
       "keyFiles": [
         "accounting-service.ts",
         "adaptive-parameters.ts",
@@ -314,7 +314,7 @@
       "path": "src/types",
       "purpose": "Type definitions",
       "fileCount": 3,
-      "lastAccessed": 1775461495321,
+      "lastAccessed": 1775580622141,
       "keyFiles": [
         "enhanced-cop-data.ts",
         "homey-extensions.ts",
@@ -325,7 +325,7 @@
       "path": "test/fixtures",
       "purpose": "Test fixtures",
       "fileCount": 1,
-      "lastAccessed": 1775461495321,
+      "lastAccessed": 1775580622141,
       "keyFiles": [
         "generate-scenarios.ts"
       ]
@@ -334,7 +334,7 @@
       "path": "test/mocks",
       "purpose": "Mock data",
       "fileCount": 4,
-      "lastAccessed": 1775461495322,
+      "lastAccessed": 1775580622141,
       "keyFiles": [
         "homey.mock.ts",
         "index.ts",
@@ -345,8 +345,8 @@
   "hotPaths": [
     {
       "path": "src/services/optimizer.ts",
-      "accessCount": 19,
-      "lastAccessed": 1775486278374,
+      "accessCount": 27,
+      "lastAccessed": 1775580854881,
       "type": "file"
     },
     {
@@ -362,10 +362,28 @@
       "type": "file"
     },
     {
+      "path": "src/services/melcloud-api.ts",
+      "accessCount": 10,
+      "lastAccessed": 1775581493597,
+      "type": "file"
+    },
+    {
+      "path": "src/services/hot-water-optimizer.ts",
+      "accessCount": 9,
+      "lastAccessed": 1775580863896,
+      "type": "file"
+    },
+    {
       "path": "src/services/constraint-manager.ts",
       "accessCount": 6,
       "lastAccessed": 1775464874426,
       "type": "file"
+    },
+    {
+      "path": "src",
+      "accessCount": 6,
+      "lastAccessed": 1775580709885,
+      "type": "directory"
     },
     {
       "path": "test/mocks/index.ts",
@@ -404,12 +422,6 @@
       "type": "file"
     },
     {
-      "path": "src",
-      "accessCount": 4,
-      "lastAccessed": 1775482652872,
-      "type": "directory"
-    },
-    {
       "path": "test/unit/night-setback.test.ts",
       "accessCount": 3,
       "lastAccessed": 1775464247826,
@@ -419,6 +431,12 @@
       "path": "test/unit/home-away-optimization.test.ts",
       "accessCount": 3,
       "lastAccessed": 1775464746193,
+      "type": "file"
+    },
+    {
+      "path": "src/util/error-handler.ts",
+      "accessCount": 3,
+      "lastAccessed": 1775581414322,
       "type": "file"
     },
     {
@@ -446,12 +464,6 @@
       "type": "file"
     },
     {
-      "path": "src/services/melcloud-api.ts",
-      "accessCount": 2,
-      "lastAccessed": 1775482723970,
-      "type": "file"
-    },
-    {
       "path": "src/services/entsoe-price-service.ts",
       "accessCount": 2,
       "lastAccessed": 1775482865311,
@@ -464,15 +476,21 @@
       "type": "file"
     },
     {
-      "path": "src/app.ts",
-      "accessCount": 1,
-      "lastAccessed": 1775462602343,
+      "path": "src/services/hot-water-usage-learner.ts",
+      "accessCount": 2,
+      "lastAccessed": 1775580736672,
       "type": "file"
     },
     {
-      "path": "src/services/hot-water-optimizer.ts",
+      "path": "src/constants.ts",
+      "accessCount": 2,
+      "lastAccessed": 1775580747693,
+      "type": "file"
+    },
+    {
+      "path": "src/app.ts",
       "accessCount": 1,
-      "lastAccessed": 1775462602802,
+      "lastAccessed": 1775462602343,
       "type": "file"
     },
     {
@@ -512,18 +530,6 @@
       "type": "file"
     },
     {
-      "path": "src/constants.ts",
-      "accessCount": 1,
-      "lastAccessed": 1775462614351,
-      "type": "file"
-    },
-    {
-      "path": "src/services/hot-water-usage-learner.ts",
-      "accessCount": 1,
-      "lastAccessed": 1775462617572,
-      "type": "file"
-    },
-    {
       "path": "src/services/house-price-context.ts",
       "accessCount": 1,
       "lastAccessed": 1775462727790,
@@ -542,16 +548,28 @@
       "type": "file"
     },
     {
-      "path": "src/util/error-handler.ts",
-      "accessCount": 1,
-      "lastAccessed": 1775464266337,
-      "type": "file"
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-05-house-price-context.md",
       "accessCount": 1,
       "lastAccessed": 1775482576474,
       "type": "file"
+    },
+    {
+      "path": "src/services/hot-water/hot-water-analyzer.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775580706542,
+      "type": "file"
+    },
+    {
+      "path": "src/services/hot-water/hot-water-service.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775580720427,
+      "type": "file"
+    },
+    {
+      "path": "src/services/base-api-service.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775581274923,
+      "type": "directory"
     }
   ],
   "userDirectives": []

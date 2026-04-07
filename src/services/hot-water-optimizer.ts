@@ -599,6 +599,9 @@ export class HotWaterOptimizer {
                     const normalizedHWCOP = CopNormalizer.roughNormalize(hotWaterCOP, 4.0);
                     if (currentPrice < avgPrice * priceRatioThreshold && normalizedHWCOP > COP_THRESHOLDS.GOOD) {
                         currentAction = 'heat_now';
+                    } else if (currentPrice > avgPrice * (1 + this.priceAnalyzer.getCheapPercentile() * 1.2)) {
+                        // Expensive hour: reduce tank to save energy, heat later at cheaper price
+                        currentAction = 'delay';
                     }
                 }
             }
