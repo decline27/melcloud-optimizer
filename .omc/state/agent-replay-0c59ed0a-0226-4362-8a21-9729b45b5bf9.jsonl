@@ -1,0 +1,11 @@
+{"t":0,"agent":"system","event":"keyword_detected","keyword":"ai-slop-cleaner"}
+{"t":0,"agent":"system","event":"skill_invoked","skill_name":"superpowers:brainstorming"}
+{"t":0,"agent":"ae7b807","agent_type":"architect","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"ae7b807","agent_type":"architect","event":"agent_stop","success":true,"duration_ms":275580}
+{"t":0,"agent":"ab25436","agent_type":"architect","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"ab25436","agent_type":"architect","event":"agent_stop","success":true,"duration_ms":290670}
+{"t":0,"agent":"system","event":"keyword_detected","keyword":"tdd"}
+{"t":0,"agent":"system","event":"skill_invoked","skill_name":"superpowers:test-driven-development"}
+{"t":0,"agent":"aa37823","agent_type":"unknown","event":"agent_stop","success":true}
+{"t":0,"agent":"system","event":"keyword_detected","keyword":"tdd"}
+{"t":0,"agent":"system","event":"keyword_detected","keyword":"ai-slop-cleaner"}

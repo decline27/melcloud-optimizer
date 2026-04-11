@@ -259,8 +259,10 @@ export class TemperatureOptimizer {
           // Use adaptive COP normalization based on observed range
           const normalizedCOP = this.copNormalizer.normalize(seasonalCOP);
 
-          // Calculate COP efficiency factor (0 = poor, 1 = excellent)
-          const copEfficiencyFactor = normalizedCOP;
+          // Stale-range guard: if learned range excludes a physically valid COP, fall back to roughNormalize
+          const copEfficiencyFactor = (normalizedCOP <= 0 && seasonalCOP > 1.0)
+            ? CopNormalizer.roughNormalize(seasonalCOP)
+            : normalizedCOP;
 
           let copAdjustment = 0;
 
@@ -394,9 +396,13 @@ export class TemperatureOptimizer {
       // Winter optimization: Balance heating efficiency with comfort and prices
       const priceWeight = adaptiveParams?.priceWeightWinter || DEFAULT_WEIGHTS.PRICE_WINTER;
 
-      // Update COP range and normalize  
+      // Update COP range and normalize
       this.copNormalizer.updateRange(metrics.realHeatingCOP);
-      const heatingEfficiency = this.copNormalizer.normalize(metrics.realHeatingCOP);
+      const heatingEfficiencyRaw = this.copNormalizer.normalize(metrics.realHeatingCOP);
+      // Stale-range guard: if learned range excludes a physically valid COP, fall back to roughNormalize
+      const heatingEfficiency = (heatingEfficiencyRaw <= 0 && metrics.realHeatingCOP > 1.0)
+        ? CopNormalizer.roughNormalize(metrics.realHeatingCOP)
+        : heatingEfficiencyRaw;
 
       // Price adjustment (inverted: low price = higher temp)
       const priceAdjustment = (0.5 - normalizedPrice) * tempRange * priceWeight;
@@ -446,9 +452,17 @@ export class TemperatureOptimizer {
       this.copNormalizer.updateRange(metrics.realHeatingCOP);
       this.copNormalizerHotWater.updateRange(metrics.realHotWaterCOP);
 
-      const heatingEfficiency = this.copNormalizer.normalize(metrics.realHeatingCOP);
-      const hotWaterEfficiency = this.copNormalizerHotWater.normalize(metrics.realHotWaterCOP);
-      const combinedEfficiency = (heatingEfficiency + hotWaterEfficiency) / 2;
+      const heatingEfficiencyRawT = this.copNormalizer.normalize(metrics.realHeatingCOP);
+      // Stale-range guard: fall back to roughNormalize when learned range excludes a valid COP
+      const heatingEfficiency = (heatingEfficiencyRawT <= 0 && metrics.realHeatingCOP > 1.0)
+        ? CopNormalizer.roughNormalize(metrics.realHeatingCOP)
+        : heatingEfficiencyRawT;
+      const hotWaterEfficiencyRawT = this.copNormalizerHotWater.normalize(metrics.realHotWaterCOP);
+      const hotWaterEfficiency = (hotWaterEfficiencyRawT <= 0 && metrics.realHotWaterCOP > 1.0)
+        ? CopNormalizer.roughNormalize(metrics.realHotWaterCOP)
+        : hotWaterEfficiencyRawT;
+      // P2-2: zone1 target depends on heating COP only — hot-water COP is a different domain
+      const combinedEfficiency = heatingEfficiency;
 
       const priceAdjustment = (0.5 - normalizedPrice) * tempRange * priceWeight;
 

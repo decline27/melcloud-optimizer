@@ -404,7 +404,7 @@ export class ThermalController {
                     maxCoastingForBuilding
                 );
 
-                const estimatedSavings = this.calculateCoastingSavings(currentPrice, coastingHours);
+                const estimatedSavings = this.calculateCoastingSavings(currentPrice, coastingHours, copData.heating);
 
                 return {
                     action: 'coast',
@@ -627,7 +627,11 @@ export class ThermalController {
             if (normalizedCop <= 0 && heatingCop > 1.0) {
                 normalizedCop = CopNormalizer.roughNormalize(heatingCop);
             }
-            const effectiveCop = Math.max(MIN_EFFECTIVE_COP, referenceCop * normalizedCop);
+            // Use the actual measured COP as the heat-delivery rate.
+            // The previous formula (referenceCop * normalizedCop) conflated the
+            // percentile position with the physics, inflating the apparent electric
+            // cost by up to 2× and systematically blocking profitable preheats.
+            const effectiveCop = Math.max(MIN_EFFECTIVE_COP, heatingCop);
             if (!Number.isFinite(effectiveCop) || effectiveCop <= 0) {
                 return null;
             }
@@ -733,8 +737,13 @@ export class ThermalController {
         }
     }
 
-    private calculateCoastingSavings(currentPrice: number, coastingHours: number): number {
-        return DEFAULT_HEATING_POWER_KW * coastingHours * currentPrice;
+    private calculateCoastingSavings(currentPrice: number, coastingHours: number, heatingCop: number): number {
+        const cop = Math.max(heatingCop, 1.0);
+        const heatLossRate = this.thermalMassModel.heatLossRate;
+        const heatPowerKw = heatLossRate > 0
+            ? heatLossRate * this.thermalMassModel.thermalCapacity
+            : DEFAULT_HEATING_POWER_KW;
+        return (heatPowerKw / cop) * coastingHours * currentPrice;
     }
 
     /**

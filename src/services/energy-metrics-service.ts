@@ -199,8 +199,16 @@ export class EnergyMetricsService {
       const dailyEnergyConsumption = (heatingConsumed + hotWaterConsumed) / sampledDays;
 
       // Calculate efficiency scores using adaptive COP normalization (separate ranges)
-      const heatingEfficiency = this.copNormalizer.normalize(realHeatingCOP);
-      const hotWaterEfficiency = this.copNormalizerHotWater.normalize(realHotWaterCOP);
+      // Stale range protection: if the learned range minimum equals the current COP,
+      // normalize() returns 0. Fall back to rough normalization to match thermal-controller behaviour.
+      const heatingEfficiencyRaw = this.copNormalizer.normalize(realHeatingCOP);
+      const heatingEfficiency = (heatingEfficiencyRaw <= 0 && realHeatingCOP > 1.0)
+        ? CopNormalizer.roughNormalize(realHeatingCOP)
+        : heatingEfficiencyRaw;
+      const hotWaterEfficiencyRaw = this.copNormalizerHotWater.normalize(realHotWaterCOP);
+      const hotWaterEfficiency = (hotWaterEfficiencyRaw <= 0 && realHotWaterCOP > 1.0)
+        ? CopNormalizer.roughNormalize(realHotWaterCOP, 4.0)
+        : hotWaterEfficiencyRaw;
 
       // Determine seasonal mode and optimization focus
       const seasonalMode = this.determineSeason(heatingConsumed, hotWaterConsumed);

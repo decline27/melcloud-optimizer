@@ -274,3 +274,84 @@ describe('calculateThermalMassStrategy — HousePriceContext integration', () =>
     expect(result.houseContext?.priceSource).toBe('local_percentile');
   });
 });
+
+// ---------------------------------------------------------------------------
+// P1-6  calculateCoastingSavings must use physics, not a hardcoded 2 kW
+// ---------------------------------------------------------------------------
+
+describe('calculateCoastingSavings physics-based formula (P1-6)', () => {
+  it('uses heatLossRate × thermalCapacity / COP instead of hardcoded DEFAULT_HEATING_POWER_KW', () => {
+    // Arrange: controller with a known thermal mass model
+    //   heatLossRate  = 0.5 °C/h  (how fast the house cools under current conditions)
+    //   thermalCapacity = 2.0 kWh/°C
+    //   heatingCop    = 4.0
+    //   coastingHours = 2.0 h
+    //   currentPrice  = 0.20 €/kWh
+    //
+    // Physics:
+    //   heatPower     = 0.5 × 2.0            = 1.0 kW
+    //   electricPower = 1.0 / 4.0            = 0.25 kW
+    //   savings       = 0.25 × 2.0 × 0.20   = 0.10 €
+    //
+    // Buggy (DEFAULT_HEATING_POWER_KW = 2.0 kW, no COP):
+    //   savings       = 2.0 × 2.0 × 0.20    = 0.80 €  (8× too high)
+    const controller = new ThermalController(makeLogger(), undefined, undefined, new CopNormalizer());
+    (controller as any).thermalMassModel = {
+      thermalCapacity: 2.0,
+      heatLossRate: 0.5,
+      maxPreheatingTemp: 23,
+      preheatingEfficiency: 0.85,
+    };
+
+    const result = (controller as any).calculateCoastingSavings(0.20, 2.0, 4.0) as number;
+
+    expect(result).toBeCloseTo(0.10, 3);
+    // Explicitly must NOT be the hardcoded-power value
+    expect(result).not.toBeCloseTo(0.80, 1);
+  });
+
+  it('falls back to DEFAULT_HEATING_POWER_KW / COP when heatLossRate is zero', () => {
+    // When the thermal model has no learned cooling rate, fall back gracefully.
+    // Even then, divide by COP so the fallback is in electric-kWh not heat-kWh.
+    //   DEFAULT_HEATING_POWER_KW (2.0) / 3.0 × 1.0 × 0.15 ≈ 0.10
+    const controller = new ThermalController(makeLogger(), undefined, undefined, new CopNormalizer());
+    (controller as any).thermalMassModel = {
+      thermalCapacity: 2.5,
+      heatLossRate: 0,
+      maxPreheatingTemp: 23,
+      preheatingEfficiency: 0.85,
+    };
+
+    const result = (controller as any).calculateCoastingSavings(0.15, 1.0, 3.0) as number;
+
+    // Must be > 0 and equal to (2.0 / 3.0) × 1.0 × 0.15 ≈ 0.10
+    expect(result).toBeCloseTo((2.0 / 3.0) * 1.0 * 0.15, 3);
+  });
+});
+
+describe('getEffectiveCop: effectiveCop must equal actual heatingCop, not referenceCop × normalizedCop', () => {
+  it('effectiveCop approximates the actual heatingCop rather than the percentile-discounted value', () => {
+    // P1-5: the formula  effectiveCop = referenceCop * normalizedCop  inflates electric costs.
+    // For a learned range [2.0, 4.0] and heatingCop = 3.0:
+    //   normalizedCop = (3.0 - 2.0) / (4.0 - 2.0) = 0.5
+    //   referenceCop  = 4.0  (getRange().max)
+    //   buggy result  = 4.0 * 0.5 = 2.0  ← overstates electric input by 50 %
+    //   correct result = 3.0  (the actual measured COP)
+    const copNormalizer = new CopNormalizer();
+    (copNormalizer as any).state.minObserved = 2.0;
+    (copNormalizer as any).state.maxObserved = 4.0;
+
+    const controller = new ThermalController(makeLogger(), undefined, undefined, copNormalizer);
+
+    const heatingCop = 3.0;
+    const result = (controller as any).getEffectiveCop(heatingCop) as {
+      effectiveCop: number;
+      normalizedCop: number;
+      referenceCop: number;
+    } | null;
+
+    expect(result).not.toBeNull();
+    // Must be within 0.1 of the actual COP — not 2.0 (the broken percentile product).
+    expect(result!.effectiveCop).toBeCloseTo(heatingCop, 1);
+  });
+});

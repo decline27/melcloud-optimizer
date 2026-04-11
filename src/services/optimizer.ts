@@ -18,6 +18,7 @@ import { EnergyMetricsService } from './energy-metrics-service';
 import { TemperatureOptimizer, PriceStats, ComfortBand } from './temperature-optimizer';
 import { SavingsService } from './savings-service';
 import { CalibrationService, CalibrationResult } from './calibration-service';
+import { ComfortViolationTracker } from './comfort-violation-tracker';
 import {
   OptimizationMetrics,
   TankOptimizationResult,
@@ -172,6 +173,7 @@ export class Optimizer {
   private thermalController: ThermalController;
   private hotWaterOptimizer: HotWaterOptimizer;
   private zoneOptimizer: ZoneOptimizer;
+  private comfortTracker = new ComfortViolationTracker();
 
   // New service-based architecture
   private constraintManager: ConstraintManager;
@@ -2348,18 +2350,26 @@ export class Optimizer {
   }
 
   /**
-   * Count comfort violations based on current indoor temperature and active comfort band.
-   * Returns 1 when outside band, otherwise 0 (single-sample evaluation).
+   * Record an indoor temperature sample for comfort-violation tracking.
+   * Call this from the 5-minute device poll so violations that recover before
+   * the hourly optimizer run are still counted.
+   */
+  public recordComfortSample(indoorTemp: number): void {
+    this.comfortTracker.record(indoorTemp);
+  }
+
+  /**
+   * Count comfort violations accumulated since the last optimizer run.
+   * Includes the current snapshot and resets the buffer for the next window.
    */
   private countComfortViolations(
     indoorTemp: number | undefined,
     band: { minTemp: number; maxTemp: number }
   ): number {
-    if (!Number.isFinite(indoorTemp as number)) {
-      return 0;
-    }
-    const t = indoorTemp as number;
-    return t < band.minTemp - 1e-3 || t > band.maxTemp + 1e-3 ? 1 : 0;
+    return this.comfortTracker.countAndReset(
+      band,
+      Number.isFinite(indoorTemp as number) ? (indoorTemp as number) : undefined
+    );
   }
 
   private handleOptimizationError(error: unknown, logger: DecisionLogger): EnhancedOptimizationResult {
