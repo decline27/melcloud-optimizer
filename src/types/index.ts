@@ -262,7 +262,8 @@ export interface ThermalStrategy {
 }
 
 export interface HotWaterUsagePattern {
-  hourlyDemand: number[];      // 24-hour demand pattern (kWh per hour)
+  hourlyDemand: number[];      // 24-hour relative demand pattern used for scheduling shape
+  dailyUsageKWh: number;       // Measured daily hot water energy demand
   peakHours: number[];         // Hours with high demand
   minimumBuffer: number;       // Minimum hot water energy to maintain (kWh)
   lastLearningUpdate: Date;    // When pattern was last updated

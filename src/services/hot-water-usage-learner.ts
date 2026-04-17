@@ -99,6 +99,7 @@ export class HotWaterUsageLearner {
   private createDefaultPattern(): HotWaterUsagePattern {
     return {
       hourlyDemand: new Array(24).fill(0),
+      dailyUsageKWh: 0,
       peakHours: [...DEFAULT_HOT_WATER_PEAK_HOURS],
       minimumBuffer: HOT_WATER_LEARNER_CONFIG.DEFAULT_MINIMUM_BUFFER,
       lastLearningUpdate: new Date(),
@@ -129,6 +130,7 @@ export class HotWaterUsageLearner {
       }
 
       const stats = service.getUsageStatistics(daysToAnalyze);
+      const measuredDailyUsageKwh = this.deriveMeasuredDailyUsage(stats);
       
       // Use patterns from analyzer if available
       if (stats && stats.patterns) {
@@ -136,6 +138,7 @@ export class HotWaterUsageLearner {
         
         this.pattern = {
             hourlyDemand: patterns.hourlyUsagePattern,
+            dailyUsageKWh: measuredDailyUsageKwh,
             peakHours: this.derivePeakHours(patterns.hourlyUsagePattern),
             minimumBuffer: this.pattern.minimumBuffer, // Preserve existing or default
             lastLearningUpdate: new Date(patterns.lastUpdated),
@@ -163,6 +166,7 @@ export class HotWaterUsageLearner {
 
       this.pattern = {
         hourlyDemand,
+        dailyUsageKWh: measuredDailyUsageKwh,
         peakHours,
         minimumBuffer,
         lastLearningUpdate: new Date(),
@@ -193,6 +197,21 @@ export class HotWaterUsageLearner {
     const peakHours = ranked.slice(0, topCount).map(item => item.hour);
 
     return peakHours.length > 0 ? peakHours : [...DEFAULT_HOT_WATER_PEAK_HOURS];
+  }
+
+  private deriveMeasuredDailyUsage(stats: any): number {
+    const explicitAverage = Number(stats?.statistics?.avgDailyHotWaterEnergyProduced);
+    if (Number.isFinite(explicitAverage) && explicitAverage > 0) {
+      return explicitAverage;
+    }
+
+    const totalProduced = Number(stats?.statistics?.totalHotWaterEnergyProduced);
+    const coveredDays = Number(stats?.statistics?.coveredDays);
+    if (Number.isFinite(totalProduced) && totalProduced > 0 && Number.isFinite(coveredDays) && coveredDays > 0) {
+      return totalProduced / coveredDays;
+    }
+
+    return this.pattern.dailyUsageKWh;
   }
 
   /**
@@ -241,7 +260,33 @@ export class HotWaterUsageLearner {
    * Get estimated daily hot water energy consumption
    */
   getEstimatedDailyConsumption(): number {
-    return this.pattern.hourlyDemand.reduce((sum, val) => sum + Math.max(val, 0), 0);
+    return this.pattern.dailyUsageKWh;
+  }
+
+  /**
+   * Reconcile the learner's daily energy estimate to a measured source of truth.
+   * This keeps the scheduling shape while correcting polluted historical kWh totals.
+   */
+  reconcileDailyConsumption(measuredDailyUsageKWh: number): boolean {
+    if (!Number.isFinite(measuredDailyUsageKWh) || measuredDailyUsageKWh <= 0) {
+      return false;
+    }
+
+    if (Math.abs(this.pattern.dailyUsageKWh - measuredDailyUsageKWh) < 1e-6) {
+      return false;
+    }
+
+    const previousDailyUsageKWh = this.pattern.dailyUsageKWh;
+    this.pattern = {
+      ...this.pattern,
+      dailyUsageKWh: measuredDailyUsageKWh
+    };
+
+    this.logger?.log('Reconciled hot water daily usage estimate', {
+      previousDailyUsageKWh,
+      measuredDailyUsageKWh
+    });
+    return true;
   }
 
   /**

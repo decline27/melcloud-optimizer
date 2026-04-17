@@ -233,6 +233,51 @@ describe('HotWaterDataCollector', () => {
     expect(allData).toEqual([dataPoint1, dataPoint2]);
   });
 
+  test('restores latest raw counters from dedicated settings entry', () => {
+    const latestTimestamp = new Date().toISOString();
+    const restoredHomey: any = {
+      log: jest.fn(),
+      error: jest.fn(),
+      warn: jest.fn(),
+      settings: {
+        get: jest.fn((key: string) => {
+          if (key === 'hot_water_usage_data') {
+            return JSON.stringify([{
+              timestamp: latestTimestamp,
+              localDayKey: latestTimestamp.split('T')[0],
+              tankTemperature: 45,
+              targetTankTemperature: 50,
+              hotWaterEnergyProduced: 0.4,
+              hotWaterEnergyConsumed: 0.2,
+              hotWaterCOP: 2,
+              isHeating: true,
+              hourOfDay: 14,
+              dayOfWeek: 2
+            }]);
+          }
+          if (key === 'hot_water_usage_last_raw_counters') {
+            return JSON.stringify({
+              timestamp: latestTimestamp,
+              localDayKey: latestTimestamp.split('T')[0],
+              rawHotWaterEnergyProduced: 5.4,
+              rawHotWaterEnergyConsumed: 2.3
+            });
+          }
+          return undefined;
+        }),
+        set: jest.fn(),
+        unset: jest.fn()
+      },
+      env: { userDataPath: os.tmpdir() }
+    };
+
+    const restoredCollector = new HotWaterDataCollector(restoredHomey);
+    const [restoredPoint] = restoredCollector.getAllDataPoints();
+
+    expect(restoredPoint.rawHotWaterEnergyProduced).toBe(5.4);
+    expect(restoredPoint.rawHotWaterEnergyConsumed).toBe(2.3);
+  });
+
   test('getAggregatedData returns aggregated data', () => {
     const aggregatedData = collector.getAggregatedData();
     expect(Array.isArray(aggregatedData)).toBe(true);

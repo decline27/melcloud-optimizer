@@ -235,21 +235,26 @@ export class HotWaterService {
    */
   private isHeatingHotWater(deviceState: any): boolean {
     try {
-      // This is a simplified check - the actual logic may depend on the specific device model
-      // For most heat pumps, hot water heating is indicated by specific operation modes or flags
-      
-      // Check if the device is in hot water mode
-      const isHotWaterMode = deviceState.OperationMode === 1; // Assuming 1 is hot water mode
-      
-      // Check if the tank temperature is below target (indicating heating is needed)
-      const tankTemp = deviceState.TankWaterTemperature || 0;
-      const targetTemp = deviceState.SetTankWaterTemperature || 0;
-      const isBelowTarget = tankTemp < targetTemp;
-      
-      // Some devices have a specific flag for hot water heating
-      const hasHotWaterFlag = deviceState.HotWaterActive || false;
-      
-      return isHotWaterMode || (isBelowTarget && hasHotWaterFlag);
+      // MELCloud ATW devices are inconsistent about exposing a dedicated DHW-active flag.
+      // Treat a meaningful tank deficit on an online, non-prohibited unit as active DHW recovery.
+      const isHotWaterMode = deviceState.OperationMode === 1;
+      const tankTemp = Number(deviceState.TankWaterTemperature) || 0;
+      const targetTemp = Number(deviceState.SetTankWaterTemperature) || 0;
+      const tankDeficit = targetTemp - tankTemp;
+      const isBelowTarget = tankDeficit > 0;
+      const hasHotWaterFlag = Boolean(deviceState.HotWaterActive);
+      const powerOn = deviceState.Power !== false;
+      const offline = Boolean(deviceState.Offline);
+      const hotWaterAllowed = deviceState.ProhibitHotWater !== true;
+      const hasActiveDemand = Number(deviceState.DemandPercentage) > 0 || Boolean(deviceState.ForcedHotWaterMode);
+      const recoveryHeating = isBelowTarget &&
+        tankDeficit >= 1 &&
+        powerOn &&
+        !offline &&
+        hotWaterAllowed &&
+        hasActiveDemand;
+
+      return isHotWaterMode || hasHotWaterFlag || recoveryHeating;
     } catch (error) {
       this.homey.error(`Error checking if device is heating hot water: ${error}`);
       return false;

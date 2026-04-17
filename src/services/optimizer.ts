@@ -1062,6 +1062,18 @@ export class Optimizer {
     const currentTarget = deviceState.SetTemperature || deviceState.SetTemperatureZone1;
     const outdoorTemp = deviceState.OutdoorTemperature || 0;
 
+    const hotWaterService = this.getHotWaterService();
+    if (hotWaterService && typeof hotWaterService.collectData === 'function') {
+      try {
+        await hotWaterService.collectData(deviceState);
+        this.refreshHotWaterUsagePattern();
+      } catch (error) {
+        this.logger.warn('Hot water data collection failed during optimization input gathering', {
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+
     if (currentTemp === undefined && deviceState.RoomTemperature === undefined && deviceState.RoomTemperatureZone1 === undefined) {
       throw new Error('No temperature data available from device');
     }
@@ -1550,15 +1562,42 @@ export class Optimizer {
         // Use HotWaterUsageLearner for pattern-based hot water optimization
         if (this.hotWaterUsageLearner.hasConfidentPattern()) {
           const currentHour = this.timeZoneHelper.getLocalTime().hour;
-          const estimatedDailyHotWaterKwh = this.hotWaterUsageLearner.getEstimatedDailyConsumption();
+          const measuredDailyHotWaterKwh = this.lastEnergyData?.TotalHotWaterProduced ?? 0;
+          const learnedDailyHotWaterKwhBeforeReconcile = this.hotWaterUsageLearner.getEstimatedDailyConsumption();
+          const learnerReconciledToMeasured = measuredDailyHotWaterKwh > 0
+            ? this.hotWaterUsageLearner.reconcileDailyConsumption(measuredDailyHotWaterKwh)
+            : false;
+          const learnedDailyHotWaterKwh = this.hotWaterUsageLearner.getEstimatedDailyConsumption();
+          const estimatedDailyHotWaterKwh = measuredDailyHotWaterKwh > 0
+            ? measuredDailyHotWaterKwh
+            : learnedDailyHotWaterKwh;
           const hotWaterPattern = this.hotWaterUsageLearner.getPattern();
+          const nonZeroDemandHours = hotWaterPattern.hourlyDemand
+            .map((demand, hour) => ({ hour, demand }))
+            .filter(({ demand }) => demand > 0)
+            .sort((a, b) => b.demand - a.demand)
+            .slice(0, 6);
+
+          this.logger.log('Hot water learner state', {
+            currentHour,
+            dataPoints: this.hotWaterUsageLearner.getDataPointCount(),
+            peakHours: hotWaterPattern.peakHours,
+            estimatedDailyHotWaterKwh,
+            estimatedDailyHotWaterKwhSource: measuredDailyHotWaterKwh > 0 ? 'melcloud_daily_total' : 'learner_history',
+            measuredDailyHotWaterKwh,
+            learnedDailyHotWaterKwh,
+            learnedDailyHotWaterKwhBeforeReconcile,
+            learnerReconciledToMeasured,
+            lastLearningUpdate: hotWaterPattern.lastLearningUpdate,
+            topDemandHours: nonZeroDemandHours
+          });
 
           const hotWaterSchedule = this.hotWaterOptimizer.optimizeHotWaterSchedulingByPattern(
             currentHour,
             priceData.prices,
             optimizationResult.metrics.realHotWaterCOP,
             hotWaterPattern,
-            undefined,
+            planningReferenceTimeMs,
             {
               currencyCode: priceData.currencyCode || this.getCurrency(),
               gridFeePerKwh: this.getGridFee(),
@@ -1906,6 +1945,16 @@ export class Optimizer {
 
       const hwAction: { action?: string; reason?: string } | null = zone1Result.hotWaterAction ?? null;
       const tankCons = this.getTankConstraints();
+      const hotWaterService = this.getHotWaterService();
+      const fallbackTankTarget = (): number => {
+        if (inputs.priceStats.priceLevel === 'VERY_CHEAP' || inputs.priceStats.priceLevel === 'CHEAP') {
+          return tankCons.maxTemp;
+        }
+        if (inputs.priceStats.priceLevel === 'EXPENSIVE' || inputs.priceStats.priceLevel === 'VERY_EXPENSIVE') {
+          return tankCons.minTemp;
+        }
+        return Math.round((tankCons.minTemp + tankCons.maxTemp) / 2);
+      };
 
       if (hwAction?.action === 'heat_now') {
         // Cheap price window or upcoming usage peak: pre-heat to max
@@ -1916,20 +1965,34 @@ export class Optimizer {
         tankTarget = tankCons.minTemp;
         tankReason = `Conserving tank energy: ${hwAction.reason ?? 'waiting for cheaper window'}`;
       } else if (hwAction?.action === 'maintain') {
-        // No strong signal: keep current setpoint as-is (tankTarget already = currentTankTarget)
-        tankReason = `Maintaining current tank setpoint (${hwAction.reason ?? 'no price or usage signal'})`;
+        // "Maintain" should preserve a steady strategy, not pin the tank to whatever setpoint happened
+        // to be active previously. Prefer the hot-water service's adaptive target, then fall back to
+        // price-aware midpoint logic so the controller can move away from stale high targets.
+        const predictedTarget = hotWaterService?.getOptimalTankTemperature?.(
+          tankCons.minTemp,
+          tankCons.maxTemp,
+          inputs.priceStats.currentPrice,
+          inputs.priceStats.priceLevel
+        );
+        const maintainSource = Number.isFinite(predictedTarget) ? 'service_prediction' : 'price_fallback';
+        tankTarget = Number.isFinite(predictedTarget) ? Number(predictedTarget) : fallbackTankTarget();
+        this.logger.log('Tank maintain target decision', {
+          currentTankTarget,
+          predictedTarget: Number.isFinite(predictedTarget) ? Number(predictedTarget) : null,
+          maintainSource,
+          resolvedTarget: tankTarget,
+          priceLevel: inputs.priceStats.priceLevel,
+          currentPrice: inputs.priceStats.currentPrice
+        });
+        tankReason = `Maintaining adaptive tank target (${hwAction.reason ?? 'no immediate price or usage signal'})`;
       } else {
         // No hotWaterAction available: fall back to direct price-level heuristic
-        if (inputs.priceStats.priceLevel === 'VERY_CHEAP' || inputs.priceStats.priceLevel === 'CHEAP') {
-          tankTarget = tankCons.maxTemp;
-          tankReason = `Price level ${inputs.priceStats.priceLevel}: pre-heating tank`;
-        } else if (inputs.priceStats.priceLevel === 'EXPENSIVE' || inputs.priceStats.priceLevel === 'VERY_EXPENSIVE') {
-          tankTarget = tankCons.minTemp;
-          tankReason = `Price level ${inputs.priceStats.priceLevel}: conserving energy`;
-        } else {
-          tankTarget = Math.round((tankCons.minTemp + tankCons.maxTemp) / 2);
-          tankReason = `Price level ${inputs.priceStats.priceLevel}: maintaining mid-range tank temperature`;
-        }
+        tankTarget = fallbackTankTarget();
+        tankReason = inputs.priceStats.priceLevel === 'VERY_CHEAP' || inputs.priceStats.priceLevel === 'CHEAP'
+          ? `Price level ${inputs.priceStats.priceLevel}: pre-heating tank`
+          : inputs.priceStats.priceLevel === 'EXPENSIVE' || inputs.priceStats.priceLevel === 'VERY_EXPENSIVE'
+            ? `Price level ${inputs.priceStats.priceLevel}: conserving energy`
+            : `Price level ${inputs.priceStats.priceLevel}: maintaining mid-range tank temperature`;
       }
 
       // Occupancy modifier: cap tank target when no one is home to conserve energy,

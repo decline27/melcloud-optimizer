@@ -141,6 +141,134 @@ describe('Optimizer hotwater & enhanced edge cases', () => {
     expect(result.tankData).toBeDefined();
   });
 
+  test('runOptimization forwards device state to the hot water service collector', async () => {
+    const collectData = jest.fn().mockResolvedValue(true);
+    const getUsageStatistics = jest.fn().mockReturnValue({
+      statistics: {
+        usageByHourOfDay: new Array(24).fill(0),
+        dataPointCount: 0
+      }
+    });
+    const homey: any = {
+      settings: {
+        get: jest.fn(),
+        set: jest.fn()
+      },
+      hotWaterService: {
+        collectData,
+        getUsageStatistics
+      }
+    };
+    optimizer = new Optimizer(mockMel, mockTibber, 'device-1', 1, logger as any, undefined, homey);
+
+    await optimizer.runOptimization();
+
+    expect(collectData).toHaveBeenCalledWith(expect.objectContaining({
+      RoomTemperature: 20,
+      SetTemperature: 20,
+      OutdoorTemperature: 5
+    }));
+  });
+
+  test('optimizeTank does not pin maintain actions to the previous tank setpoint', async () => {
+    const homey: any = {
+      settings: {
+        get: jest.fn(),
+        set: jest.fn()
+      },
+      hotWaterService: {
+        getUsageStatistics: jest.fn().mockReturnValue({
+          statistics: {
+            usageByHourOfDay: new Array(24).fill(0.5),
+            dataPointCount: 24
+          }
+        }),
+        getOptimalTankTemperature: jest.fn().mockReturnValue(48)
+      }
+    };
+    optimizer = new Optimizer(mockMel, mockTibber, 'device-1', 1, logger as any, undefined, homey);
+    optimizer.setTankTemperatureConstraints(true, 42, 53, 2);
+
+    const result = await (optimizer as any).optimizeTank(
+      {
+        deviceState: { SetTankWaterTemperature: 52 },
+        priceStats: {
+          currentPrice: 1.12,
+          priceLevel: 'NORMAL',
+          pricePercentile: 84.6
+        },
+        priceClassification: {
+          thresholds: {}
+        }
+      },
+      {
+        hotWaterAction: {
+          action: 'maintain',
+          reason: 'Predictive scheduling found no immediate action'
+        }
+      },
+      jest.fn()
+    );
+
+    expect(homey.hotWaterService.getOptimalTankTemperature).toHaveBeenCalledWith(42, 53, 1.12, 'NORMAL');
+    expect(result.toTemp).toBe(50);
+    expect(result.needsApply).toBe(true);
+  });
+
+  test('runOptimization prefers MELCloud daily hot water total over learner daily history', async () => {
+    mockMel.getEnhancedCOPData.mockResolvedValue({
+      current: { heating: 3.09, hotWater: 2.52, outdoor: 8 },
+      daily: {
+        TotalHeatingConsumed: 9.05,
+        TotalHeatingProduced: 28.0,
+        TotalHotWaterConsumed: 2.29,
+        TotalHotWaterProduced: 5.78,
+        CoP: [],
+        AverageHeatingCOP: 3.09,
+        AverageHotWaterCOP: 2.52
+      },
+      trends: { heatingTrend: 'stable', hotWaterTrend: 'stable' },
+      historical: { heating: 3.09, hotWater: 2.52 }
+    });
+
+    const homey: any = {
+      settings: {
+        get: jest.fn(),
+        set: jest.fn()
+      },
+      hotWaterService: {
+        collectData: jest.fn().mockResolvedValue(true),
+        getUsageStatistics: jest.fn().mockReturnValue({
+          statistics: {
+            avgDailyHotWaterEnergyProduced: 46.5,
+            usageByHourOfDay: new Array(24).fill(0.5),
+            dataPointCount: 24
+          },
+          patterns: {
+            hourlyUsagePattern: new Array(24).fill(1),
+            lastUpdated: new Date().toISOString(),
+            confidence: 100
+          }
+        }),
+        getOptimalTankTemperature: jest.fn().mockReturnValue(45)
+      }
+    };
+    optimizer = new Optimizer(mockMel, mockTibber, 'device-1', 1, logger as any, undefined, homey);
+
+    await optimizer.runOptimization();
+
+    const learnerStateCall = (logger.log as jest.Mock).mock.calls.find(([message]) => message === 'Hot water learner state');
+    expect(learnerStateCall).toBeDefined();
+    expect(learnerStateCall[1]).toEqual(expect.objectContaining({
+      estimatedDailyHotWaterKwh: 5.78,
+      estimatedDailyHotWaterKwhSource: 'melcloud_daily_total',
+      measuredDailyHotWaterKwh: 5.78,
+      learnedDailyHotWaterKwh: 5.78,
+      learnedDailyHotWaterKwhBeforeReconcile: 46.5,
+      learnerReconciledToMeasured: true
+    }));
+  });
+
   test('calculateDailySavings falls back to non-price-aware calculation on Tibber error', async () => {
     mockTibber.getPrices.mockRejectedValueOnce(new Error('boom'));
     const projection = await optimizer.getSavingsService().calculateDailySavings(1);

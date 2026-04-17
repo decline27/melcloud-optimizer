@@ -541,4 +541,31 @@ describe('HotWaterOptimizer', () => {
       expect(result.reasoning).toContain('NOK');
     });
   });
+
+  test('optimizeHotWaterSchedulingByPattern keeps late-evening peaks in the next-day planning window', () => {
+    const now = new Date('2026-04-17T21:00:00Z');
+    const currentHour = 23; // Europe/Stockholm local time in the user log
+    const priceData = Array.from({ length: 24 }, (_, i) => ({
+      time: new Date(now.getTime() + i * 3600000).toISOString(),
+      price: i < 6 ? 1.2 : 0.6 + (i * 0.01)
+    }));
+
+    const result = hotWaterOptimizer.optimizeHotWaterSchedulingByPattern(
+      currentHour,
+      priceData,
+      2.5,
+      {
+        peakHours: [20, 19, 18, 22, 16],
+        hourlyDemand: Array.from({ length: 24 }, (_, hour) => [16, 18, 19, 20, 22].includes(hour) ? 2 : 0.2)
+      },
+      now.getTime(),
+      {
+        estimatedDailyHotWaterKwh: 8
+      }
+    );
+
+    expect(result.schedulePoints).toHaveLength(5);
+    expect(result.schedulePoints.every(point => point.priority > 0)).toBe(true);
+    expect(result.estimatedSavings).toBeGreaterThanOrEqual(0);
+  });
 });

@@ -56,3 +56,4 @@ pids/
 # Temporary files
 tmp/
 temp/
+.omx/

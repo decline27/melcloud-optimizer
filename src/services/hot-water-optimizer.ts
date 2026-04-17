@@ -94,6 +94,19 @@ export class HotWaterOptimizer {
         return hourStart.getTime() + 3600000;
     }
 
+    private buildPeakWindowHours(currentHour: number, peakHour: number, lookbackHours: number = 4): number[] {
+        const hoursUntilPeak = (peakHour - currentHour + 24) % 24;
+        const startOffset = Math.max(0, hoursUntilPeak - (lookbackHours - 1));
+        const endOffset = Math.min(23, hoursUntilPeak);
+        const validHours: number[] = [];
+
+        for (let offset = startOffset; offset <= endOffset; offset += 1) {
+            validHours.push((currentHour + offset) % 24);
+        }
+
+        return validHours;
+    }
+
     private filterPricesToWindow(prices: TimedPricePoint[], startMs: number, endMs: number): TimedPricePoint[] {
         return prices.filter((pricePoint) => {
             const ts = Date.parse(pricePoint.time);
@@ -480,18 +493,20 @@ export class HotWaterOptimizer {
                     estimatedSavings: 0
                 };
             }
+            this.logger.log('DHW pattern scheduler inputs', {
+                currentHour,
+                peakHours: usagePattern.peakHours,
+                next24hCount: next24h.length,
+                quarterHourlyCount: Array.isArray(options.quarterHourly) ? options.quarterHourly.length : 0,
+                estimatedDailyHotWaterKwh: options.estimatedDailyHotWaterKwh ?? null
+            });
             const schedulePoints: SchedulePoint[] = [];
 
             // For each peak demand hour, find optimal heating time
             usagePattern.peakHours.forEach(peakHour => {
-                // Find valid heating window (4 hours before peak)
-                const validHours: number[] = [];
-                for (let i = 0; i < 4; i++) {
-                    const hour = (peakHour - i + 24) % 24;
-                    if (hour >= currentHour || hour < currentHour - 12) { // Future hours only
-                        validHours.push(hour);
-                    }
-                }
+                // Schedule inside the next 24h only, covering the peak hour and up to 3 hours before it.
+                const validHours = this.buildPeakWindowHours(currentHour, peakHour);
+                const priority = usagePattern.hourlyDemand[peakHour];
 
                 if (validHours.length > 0) {
                     // Find cheapest hour in valid window (hourly baseline)
@@ -556,12 +571,29 @@ export class HotWaterOptimizer {
                         ? next24h.filter((p: any) => Number.isFinite(p.price) && p.price <= refPrice).length / next24h.length
                         : 0;
 
+                    this.logger.log('DHW peak scheduling decision', {
+                        peakHour,
+                        validHours,
+                        selectedHour: cheapestHour,
+                        selectedPrice: Number.isFinite(refPrice) ? refPrice : null,
+                        pricePercentile,
+                        priority,
+                        withinPriceHorizon: priceIndex < next24h.length
+                    });
+
                     schedulePoints.push({
                         hour: cheapestHour,
                         reason: `Prepare for peak demand at ${peakHour}:00`,
-                        priority: usagePattern.hourlyDemand[peakHour],
+                        priority,
                         cop: hotWaterCOP,
                         pricePercentile
+                    });
+                } else {
+                    this.logger.log('DHW peak scheduling skipped', {
+                        peakHour,
+                        reason: 'no valid future hours in planning window',
+                        currentHour,
+                        priority
                     });
                 }
             });

@@ -171,6 +171,64 @@ describe('HotWaterService (unit)', () => {
     expect(storedPoints[1].hotWaterEnergyProduced).toBeCloseTo(0.2, 5);
   });
 
+  test('collectData marks DHW recovery as heating for MELCloud boiler state shape', async () => {
+    const homey: any = makeHomey();
+    const svc = new HotWaterService(homey);
+
+    const storedPoints: any[] = [];
+    (svc as any).dataCollector = {
+      addDataPoint: jest.fn(async (point: any) => storedPoints.push(point)),
+      getAllDataPoints: jest.fn(() => storedPoints)
+    };
+    (svc as any).analyzer = { updatePatterns: jest.fn().mockResolvedValue(undefined) };
+    (svc as any).lastDataCollectionTime = Date.now() - (6 * 60 * 1000);
+
+    await svc.collectData({
+      SetTankWaterTemperature: 46,
+      TankWaterTemperature: 41.5,
+      OperationMode: 0,
+      ForcedHotWaterMode: false,
+      Power: true,
+      Offline: false,
+      ProhibitHotWater: false,
+      DemandPercentage: 100,
+      IdleZone1: true,
+      IdleZone2: true
+    } as any);
+
+    expect(storedPoints).toHaveLength(1);
+    expect(storedPoints[0].isHeating).toBe(true);
+  });
+
+  test('collectData does not mark heating when tank is already at target and no DHW flag exists', async () => {
+    const homey: any = makeHomey();
+    const svc = new HotWaterService(homey);
+
+    const storedPoints: any[] = [];
+    (svc as any).dataCollector = {
+      addDataPoint: jest.fn(async (point: any) => storedPoints.push(point)),
+      getAllDataPoints: jest.fn(() => storedPoints)
+    };
+    (svc as any).analyzer = { updatePatterns: jest.fn().mockResolvedValue(undefined) };
+    (svc as any).lastDataCollectionTime = Date.now() - (6 * 60 * 1000);
+
+    await svc.collectData({
+      SetTankWaterTemperature: 46,
+      TankWaterTemperature: 46,
+      OperationMode: 0,
+      ForcedHotWaterMode: false,
+      Power: true,
+      Offline: false,
+      ProhibitHotWater: false,
+      DemandPercentage: 0,
+      IdleZone1: true,
+      IdleZone2: true
+    } as any);
+
+    expect(storedPoints).toHaveLength(1);
+    expect(storedPoints[0].isHeating).toBe(false);
+  });
+
   test('getOptimalTankTemperature returns analyzer result and handles errors', () => {
     const homey: any = makeHomey();
     const svc = new HotWaterService(homey);

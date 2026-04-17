@@ -14,6 +14,8 @@ import { DateTime } from 'luxon';
 const HOT_WATER_DATA_SETTINGS_KEY = 'hot_water_usage_data';
 // Settings key for aggregated historical data
 const HOT_WATER_AGGREGATED_DATA_SETTINGS_KEY = 'hot_water_usage_aggregated_data';
+// Settings key for the latest raw counters so increment calculation survives persistence/restart
+const HOT_WATER_LAST_RAW_COUNTERS_SETTINGS_KEY = 'hot_water_usage_last_raw_counters';
 // Maximum number of data points to keep in memory
 const DEFAULT_MAX_DATA_POINTS = 2016; // ~7 days of data at 5-minute intervals
 // Maximum age of data points in days
@@ -51,6 +53,13 @@ export interface AggregatedHotWaterDataPoint {
   heatingHours: number;
   usageByHour: number[]; // 24 values representing usage for each hour
   dataPointCount: number;
+}
+
+interface StoredRawCounterState {
+  timestamp: string;
+  localDayKey?: string;
+  rawHotWaterEnergyProduced?: number;
+  rawHotWaterEnergyConsumed?: number;
 }
 
 export class HotWaterDataCollector {
@@ -119,6 +128,7 @@ export class HotWaterDataCollector {
         // Persist the reset state so future loads start clean
         this.saveData();
       } else {
+        this.restoreLatestRawCounterState();
         // Clean up data on load (remove old data points, trim to max size)
         this.cleanupDataOnLoad();
       }
@@ -193,6 +203,62 @@ export class HotWaterDataCollector {
     return points.map(({ localTimeString, timeZoneName, timeZoneOffset, rawHotWaterEnergyProduced, rawHotWaterEnergyConsumed, ...rest }) => rest);
   }
 
+  private getLatestRawCounterState(): StoredRawCounterState | null {
+    const latest = this.dataPoints[this.dataPoints.length - 1];
+    if (!latest) {
+      return null;
+    }
+
+    if (
+      typeof latest.rawHotWaterEnergyProduced !== 'number' &&
+      typeof latest.rawHotWaterEnergyConsumed !== 'number'
+    ) {
+      return null;
+    }
+
+    return {
+      timestamp: latest.timestamp,
+      localDayKey: latest.localDayKey,
+      rawHotWaterEnergyProduced: latest.rawHotWaterEnergyProduced,
+      rawHotWaterEnergyConsumed: latest.rawHotWaterEnergyConsumed
+    };
+  }
+
+  private restoreLatestRawCounterState(): void {
+    if (this.dataPoints.length === 0) {
+      return;
+    }
+
+    try {
+      const stored = this.homey.settings.get(HOT_WATER_LAST_RAW_COUNTERS_SETTINGS_KEY);
+      if (!stored || typeof stored !== 'string') {
+        return;
+      }
+
+      const parsed = JSON.parse(stored) as StoredRawCounterState;
+      if (!parsed || typeof parsed.timestamp !== 'string') {
+        return;
+      }
+
+      const latest = this.dataPoints[this.dataPoints.length - 1];
+      const samePoint = latest.timestamp === parsed.timestamp ||
+        (!!latest.localDayKey && !!parsed.localDayKey && latest.localDayKey === parsed.localDayKey);
+
+      if (!samePoint) {
+        return;
+      }
+
+      if (typeof parsed.rawHotWaterEnergyProduced === 'number') {
+        latest.rawHotWaterEnergyProduced = parsed.rawHotWaterEnergyProduced;
+      }
+      if (typeof parsed.rawHotWaterEnergyConsumed === 'number') {
+        latest.rawHotWaterEnergyConsumed = parsed.rawHotWaterEnergyConsumed;
+      }
+    } catch (error) {
+      this.homey.error(`Error restoring hot water raw counters: ${error}`);
+    }
+  }
+
   private async saveData(): Promise<void> {
     // Guard against recursive calls that cause CPU spike and crash
     if (this._isSaving) {
@@ -231,6 +297,12 @@ export class HotWaterDataCollector {
       // Save to Homey settings
       this.homey.settings.set(HOT_WATER_DATA_SETTINGS_KEY, dataJson);
       this.homey.settings.set(HOT_WATER_AGGREGATED_DATA_SETTINGS_KEY, aggregatedDataJson);
+      const latestRawCounters = this.getLatestRawCounterState();
+      if (latestRawCounters) {
+        this.homey.settings.set(HOT_WATER_LAST_RAW_COUNTERS_SETTINGS_KEY, JSON.stringify(latestRawCounters));
+      } else {
+        this.homey.settings.unset(HOT_WATER_LAST_RAW_COUNTERS_SETTINGS_KEY);
+      }
 
     } catch (error) {
       this.homey.error(`Error saving hot water usage data: ${error}`);
@@ -602,10 +674,13 @@ export class HotWaterDataCollector {
    */
   public getDataStatistics(days: number = 7): {
     dataPointCount: number;
+    coveredDays: number;
     avgTankTemperature: number;
     avgTargetTankTemperature: number;
     totalHotWaterEnergyProduced: number;
     totalHotWaterEnergyConsumed: number;
+    avgDailyHotWaterEnergyProduced: number;
+    avgDailyHotWaterEnergyConsumed: number;
     avgHotWaterCOP: number;
     heatingActivePercentage: number;
     usageByHourOfDay: number[];
@@ -619,10 +694,13 @@ export class HotWaterDataCollector {
       if (recentData.length === 0) {
         return {
           dataPointCount: 0,
+          coveredDays: 0,
           avgTankTemperature: 0,
           avgTargetTankTemperature: 0,
           totalHotWaterEnergyProduced: 0,
           totalHotWaterEnergyConsumed: 0,
+          avgDailyHotWaterEnergyProduced: 0,
+          avgDailyHotWaterEnergyConsumed: 0,
           avgHotWaterCOP: 0,
           heatingActivePercentage: 0,
           usageByHourOfDay: new Array(24).fill(0),
@@ -637,6 +715,9 @@ export class HotWaterDataCollector {
       const avgTargetTankTemperature = recentData.reduce((sum, dp) => sum + dp.targetTankTemperature, 0) / dataPointCount;
       const totalHotWaterEnergyProduced = recentData.reduce((sum, dp) => sum + dp.hotWaterEnergyProduced, 0);
       const totalHotWaterEnergyConsumed = recentData.reduce((sum, dp) => sum + dp.hotWaterEnergyConsumed, 0);
+      const coveredDays = new Set(recentData.map(dp => dp.localDayKey || dp.timestamp.split('T')[0])).size;
+      const avgDailyHotWaterEnergyProduced = coveredDays > 0 ? totalHotWaterEnergyProduced / coveredDays : 0;
+      const avgDailyHotWaterEnergyConsumed = coveredDays > 0 ? totalHotWaterEnergyConsumed / coveredDays : 0;
       const avgHotWaterCOP = totalHotWaterEnergyConsumed > 0 ? totalHotWaterEnergyProduced / totalHotWaterEnergyConsumed : 0;
       const heatingActiveCount = recentData.filter(dp => dp.isHeating).length;
       const heatingActivePercentage = (heatingActiveCount / dataPointCount) * 100;
@@ -662,10 +743,13 @@ export class HotWaterDataCollector {
 
       return {
         dataPointCount,
+        coveredDays,
         avgTankTemperature,
         avgTargetTankTemperature,
         totalHotWaterEnergyProduced,
         totalHotWaterEnergyConsumed,
+        avgDailyHotWaterEnergyProduced,
+        avgDailyHotWaterEnergyConsumed,
         avgHotWaterCOP,
         heatingActivePercentage,
         usageByHourOfDay,
@@ -676,10 +760,13 @@ export class HotWaterDataCollector {
       this.homey.error(`Error getting hot water usage statistics: ${error}`);
       return {
         dataPointCount: 0,
+        coveredDays: 0,
         avgTankTemperature: 0,
         avgTargetTankTemperature: 0,
         totalHotWaterEnergyProduced: 0,
         totalHotWaterEnergyConsumed: 0,
+        avgDailyHotWaterEnergyProduced: 0,
+        avgDailyHotWaterEnergyConsumed: 0,
         avgHotWaterCOP: 0,
         heatingActivePercentage: 0,
         usageByHourOfDay: new Array(24).fill(0),
@@ -762,6 +849,7 @@ export class HotWaterDataCollector {
         // Clear settings
         this.homey.settings.unset(HOT_WATER_DATA_SETTINGS_KEY);
         this.homey.settings.unset(HOT_WATER_AGGREGATED_DATA_SETTINGS_KEY);
+        this.homey.settings.unset(HOT_WATER_LAST_RAW_COUNTERS_SETTINGS_KEY);
         
 
         
@@ -769,6 +857,7 @@ export class HotWaterDataCollector {
       } else {
         // Only clear detailed data points, keep aggregated data
         this.homey.settings.unset(HOT_WATER_DATA_SETTINGS_KEY);
+        this.homey.settings.unset(HOT_WATER_LAST_RAW_COUNTERS_SETTINGS_KEY);
         this.homey.log('Cleared detailed hot water usage data (kept aggregated data)');
       }
       

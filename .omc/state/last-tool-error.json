@@ -1,7 +1,0 @@
-{
-  "tool_name": "Read",
-  "tool_input_preview": "{\"file_path\":\"/Users/kjetilvetlejord/Documents/mel/com.melcloud.optimize/src/services/optimizer.ts\",\"offset\":600,\"limit\":1000}",
-  "error": "File content (12184 tokens) exceeds maximum allowed tokens (10000). Use offset and limit parameters to read specific portions of the file, or search for specific content instead of reading the whole file.",
-  "timestamp": "2026-04-11T08:09:44.665Z",
-  "retry_count": 4
-}

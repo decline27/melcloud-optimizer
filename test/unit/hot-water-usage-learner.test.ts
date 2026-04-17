@@ -33,6 +33,7 @@ describe('HotWaterUsageLearner', () => {
 
       expect(pattern.hourlyDemand).toHaveLength(24);
       expect(pattern.hourlyDemand.every(d => d === 0)).toBe(true);
+      expect(pattern.dailyUsageKWh).toBe(0);
       expect(pattern.peakHours).toEqual([...DEFAULT_HOT_WATER_PEAK_HOURS]);
       expect(pattern.minimumBuffer).toBe(HOT_WATER_LEARNER_CONFIG.DEFAULT_MINIMUM_BUFFER);
       expect(pattern.dataPoints).toBe(0);
@@ -41,6 +42,7 @@ describe('HotWaterUsageLearner', () => {
     it('should use provided initial pattern', () => {
       const initialPattern = {
         hourlyDemand: new Array(24).fill(1),
+        dailyUsageKWh: 4.2,
         peakHours: [7, 8, 19],
         minimumBuffer: 2.5,
         lastLearningUpdate: new Date(),
@@ -51,6 +53,7 @@ describe('HotWaterUsageLearner', () => {
       const pattern = learner.getPattern();
 
       expect(pattern.peakHours).toEqual([7, 8, 19]);
+      expect(pattern.dailyUsageKWh).toBe(4.2);
       expect(pattern.minimumBuffer).toBe(2.5);
       expect(pattern.dataPoints).toBe(50);
     });
@@ -130,6 +133,9 @@ describe('HotWaterUsageLearner', () => {
 
       const mockService = {
         getUsageStatistics: jest.fn().mockReturnValue({
+          statistics: {
+            avgDailyHotWaterEnergyProduced: 3.6,
+          },
           patterns: {
             hourlyUsagePattern: hourlyUsagePattern,
             lastUpdated: new Date().toISOString(),
@@ -144,6 +150,7 @@ describe('HotWaterUsageLearner', () => {
       // Confidence 100 * 1.68 = 168 data points
       expect(learner.getDataPointCount()).toBe(168);
       expect(learner.getPeakHours()).toContain(19);
+      expect(learner.getEstimatedDailyConsumption()).toBeCloseTo(3.6, 5);
     });
 
     it('should handle service errors gracefully', () => {
@@ -186,6 +193,9 @@ describe('HotWaterUsageLearner', () => {
       const hourlyUsagePattern = new Array(24).fill(1.0);
       const mockService = {
         getUsageStatistics: jest.fn().mockReturnValue({
+          statistics: {
+            avgDailyHotWaterEnergyProduced: 4.5,
+          },
           patterns: {
             hourlyUsagePattern: hourlyUsagePattern,
             lastUpdated: new Date().toISOString(),
@@ -196,7 +206,45 @@ describe('HotWaterUsageLearner', () => {
       learner.refreshFromService(mockService as any);
 
       const daily = learner.getEstimatedDailyConsumption();
-      expect(daily).toBe(24); // 1 kWh * 24 hours
+      expect(daily).toBe(4.5);
+    });
+
+    it('getEstimatedDailyConsumption should not treat normalized hourly demand as physical kWh', () => {
+      const learner = new HotWaterUsageLearner(mockLogger);
+      const mockService = {
+        getUsageStatistics: jest.fn().mockReturnValue({
+          statistics: {
+            totalHotWaterEnergyProduced: 12,
+            coveredDays: 4,
+          },
+          patterns: {
+            hourlyUsagePattern: new Array(24).fill(1),
+            lastUpdated: new Date().toISOString(),
+            confidence: 100,
+          },
+        }),
+      };
+
+      learner.refreshFromService(mockService as any);
+
+      expect(learner.getEstimatedDailyConsumption()).toBe(3);
+    });
+
+    it('reconcileDailyConsumption should replace polluted daily kWh while keeping learned shape', () => {
+      const learner = new HotWaterUsageLearner(mockLogger, {
+        hourlyDemand: new Array(24).fill(1),
+        dailyUsageKWh: 46.5,
+        peakHours: [20, 22, 19],
+        minimumBuffer: 2.5,
+        lastLearningUpdate: new Date(),
+        dataPoints: 168
+      });
+
+      const changed = learner.reconcileDailyConsumption(5.78);
+
+      expect(changed).toBe(true);
+      expect(learner.getEstimatedDailyConsumption()).toBeCloseTo(5.78, 5);
+      expect(learner.getPeakHours()).toEqual([20, 22, 19]);
     });
   });
 
