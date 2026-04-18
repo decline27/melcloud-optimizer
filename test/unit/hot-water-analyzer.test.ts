@@ -105,4 +105,101 @@ describe('HotWaterAnalyzer', () => {
     const tuesdayUsage = analyzer.predictUsage(8, 1);
     expect(mondayUsage).toBeGreaterThan(tuesdayUsage);
   });
+
+  test('getOptimalTankTemperature keeps normal-price target above floor when current DHW demand is high', () => {
+    const homey = mockHomey();
+    const dataCollector = {
+      getCombinedDataForAnalysis: () => ({ detailed: new Array(12).fill(0), aggregated: [] })
+    } as any;
+
+    const analyzer = new HotWaterAnalyzer(homey, dataCollector);
+    const fixedNow = DateTime.fromISO('2026-04-18T09:00:00');
+    const nowSpy = jest.spyOn(DateTime, 'now').mockReturnValue(fixedNow as any);
+    const predictUsageSpy = jest.spyOn(analyzer, 'predictUsage').mockImplementation((hour: number) => {
+      return hour === 9 ? 3.5 : 0.8;
+    });
+    const predictNext24Spy = jest.spyOn(analyzer, 'predictNext24Hours').mockReturnValue(
+      [3.5, ...new Array(23).fill(0.8)]
+    );
+
+    const optimal = analyzer.getOptimalTankTemperature(42, 53, 1.12, 'NORMAL');
+
+    expect(optimal).toBeGreaterThanOrEqual(49);
+
+    predictUsageSpy.mockRestore();
+    predictNext24Spy.mockRestore();
+    nowSpy.mockRestore();
+  });
+
+  test('updatePatterns weights recent samples more than stale ones', async () => {
+    const homey = mockHomey();
+    const now = DateTime.fromISO('2026-04-18T09:00:00');
+    const nowSpy = jest.spyOn(DateTime, 'now').mockReturnValue(now as any);
+
+    const detailed = [] as any[];
+    for (let i = 0; i < 8; i++) {
+      const recentMorning = now.minus({ days: i % 2, minutes: i * 10 }).set({ hour: 7, minute: 0 });
+      detailed.push({
+        timestamp: recentMorning.toISO(),
+        tankTemperature: 40,
+        targetTankTemperature: 45,
+        hotWaterEnergyProduced: 1.0,
+        hotWaterEnergyConsumed: 0.5,
+        hotWaterCOP: 2,
+        isHeating: true,
+        hourOfDay: 7,
+        dayOfWeek: (recentMorning.weekday + 6) % 7
+      });
+
+      const recentEvening = recentMorning.set({ hour: 20 });
+      detailed.push({
+        timestamp: recentEvening.toISO(),
+        tankTemperature: 40,
+        targetTankTemperature: 45,
+        hotWaterEnergyProduced: 0,
+        hotWaterEnergyConsumed: 0.2,
+        hotWaterCOP: 0,
+        isHeating: false,
+        hourOfDay: 20,
+        dayOfWeek: (recentEvening.weekday + 6) % 7
+      });
+
+      const staleMorning = now.minus({ days: 14, minutes: i * 10 }).set({ hour: 7, minute: 0 });
+      detailed.push({
+        timestamp: staleMorning.toISO(),
+        tankTemperature: 40,
+        targetTankTemperature: 45,
+        hotWaterEnergyProduced: 0,
+        hotWaterEnergyConsumed: 0.2,
+        hotWaterCOP: 0,
+        isHeating: false,
+        hourOfDay: 7,
+        dayOfWeek: (staleMorning.weekday + 6) % 7
+      });
+
+      const staleEvening = staleMorning.set({ hour: 20 });
+      detailed.push({
+        timestamp: staleEvening.toISO(),
+        tankTemperature: 40,
+        targetTankTemperature: 45,
+        hotWaterEnergyProduced: 1.0,
+        hotWaterEnergyConsumed: 0.5,
+        hotWaterCOP: 2,
+        isHeating: true,
+        hourOfDay: 20,
+        dayOfWeek: (staleEvening.weekday + 6) % 7
+      });
+    }
+
+    const dataCollector = { getCombinedDataForAnalysis: () => ({ detailed, aggregated: [] }) } as any;
+    const analyzer = new HotWaterAnalyzer(homey, dataCollector);
+
+    const updated = await analyzer.updatePatterns();
+    expect(updated).toBe(true);
+
+    const patterns = analyzer.getPatterns();
+    expect(patterns.hourlyUsagePattern[7]).toBeGreaterThan(patterns.hourlyUsagePattern[20]);
+
+    nowSpy.mockRestore();
+  });
 });

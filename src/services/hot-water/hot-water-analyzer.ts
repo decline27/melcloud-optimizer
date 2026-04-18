@@ -17,6 +17,7 @@ const MIN_DATA_POINTS_FOR_ANALYSIS = 12; // 12 hours at hourly intervals (reduce
 
 // Number of data points for full confidence
 const FULL_CONFIDENCE_DATA_POINTS = 168; // 7 days at hourly intervals
+const RECENCY_HALF_LIFE_DAYS = 7;
 
 export interface HotWaterUsagePatterns {
   // Usage patterns by hour of day (0-23)
@@ -118,6 +119,7 @@ export class HotWaterAnalyzer {
     try {
       // Get combined data for analysis
       const { detailed, aggregated } = this.dataCollector.getCombinedDataForAnalysis();
+      const analysisNow = DateTime.now();
 
       // Check if we have enough data for analysis
       if (detailed.length < MIN_DATA_POINTS_FOR_ANALYSIS) {
@@ -129,18 +131,17 @@ export class HotWaterAnalyzer {
 
       // Calculate hourly usage pattern
       const hourlyUsage = new Array(24).fill(0);
-      const hourlyCount = new Array(24).fill(0);
+      const hourlyWeight = new Array(24).fill(0);
 
       detailed.forEach(dp => {
-        if (dp.hotWaterEnergyProduced > 0) {
-          hourlyUsage[dp.hourOfDay] += dp.hotWaterEnergyProduced;
-          hourlyCount[dp.hourOfDay]++;
-        }
+        const weight = this.getRecencyWeight(dp, analysisNow);
+        hourlyUsage[dp.hourOfDay] += Math.max(dp.hotWaterEnergyProduced, 0) * weight;
+        hourlyWeight[dp.hourOfDay] += weight;
       });
 
       // Calculate average usage per hour
       const hourlyUsagePattern = hourlyUsage.map((usage, hour) => {
-        return hourlyCount[hour] > 0 ? usage / hourlyCount[hour] : 0;
+        return hourlyWeight[hour] > 0 ? usage / hourlyWeight[hour] : 0;
       });
 
       // Normalize hourly usage pattern (average = 1)
@@ -151,18 +152,17 @@ export class HotWaterAnalyzer {
 
       // Calculate daily usage pattern
       const dailyUsage = new Array(7).fill(0);
-      const dailyCount = new Array(7).fill(0);
+      const dailyWeight = new Array(7).fill(0);
 
       detailed.forEach(dp => {
-        if (dp.hotWaterEnergyProduced > 0) {
-          dailyUsage[dp.dayOfWeek] += dp.hotWaterEnergyProduced;
-          dailyCount[dp.dayOfWeek]++;
-        }
+        const weight = this.getRecencyWeight(dp, analysisNow);
+        dailyUsage[dp.dayOfWeek] += Math.max(dp.hotWaterEnergyProduced, 0) * weight;
+        dailyWeight[dp.dayOfWeek] += weight;
       });
 
       // Calculate average usage per day
       const dailyUsagePattern = dailyUsage.map((usage, day) => {
-        return dailyCount[day] > 0 ? usage / dailyCount[day] : 0;
+        return dailyWeight[day] > 0 ? usage / dailyWeight[day] : 0;
       });
 
       // Normalize daily usage pattern (average = 1)
@@ -173,19 +173,18 @@ export class HotWaterAnalyzer {
 
       // Calculate hourly by day usage pattern
       const hourlyByDayUsage = Array(7).fill(0).map(() => Array(24).fill(0));
-      const hourlyByDayCount = Array(7).fill(0).map(() => Array(24).fill(0));
+      const hourlyByDayWeight = Array(7).fill(0).map(() => Array(24).fill(0));
 
       detailed.forEach(dp => {
-        if (dp.hotWaterEnergyProduced > 0) {
-          hourlyByDayUsage[dp.dayOfWeek][dp.hourOfDay] += dp.hotWaterEnergyProduced;
-          hourlyByDayCount[dp.dayOfWeek][dp.hourOfDay]++;
-        }
+        const weight = this.getRecencyWeight(dp, analysisNow);
+        hourlyByDayUsage[dp.dayOfWeek][dp.hourOfDay] += Math.max(dp.hotWaterEnergyProduced, 0) * weight;
+        hourlyByDayWeight[dp.dayOfWeek][dp.hourOfDay] += weight;
       });
 
       // Calculate average usage per hour per day
       const hourlyByDayUsagePattern = hourlyByDayUsage.map((dayUsage, day) => {
         return dayUsage.map((usage, hour) => {
-          return hourlyByDayCount[day][hour] > 0 ? usage / hourlyByDayCount[day][hour] : 0;
+          return hourlyByDayWeight[day][hour] > 0 ? usage / hourlyByDayWeight[day][hour] : 0;
         });
       });
 
@@ -252,6 +251,16 @@ export class HotWaterAnalyzer {
       const oldVal = i < oldArray.length ? oldArray[i] : val;
       return (val * blendFactor) + (oldVal * (1 - blendFactor));
     });
+  }
+
+  private getRecencyWeight(dataPoint: HotWaterUsageDataPoint, referenceNow: DateTime): number {
+    const pointTime = DateTime.fromISO(dataPoint.timestamp);
+    if (!pointTime.isValid) {
+      return 1;
+    }
+
+    const ageDays = Math.max(0, referenceNow.diff(pointTime, 'days').days);
+    return Math.pow(0.5, ageDays / RECENCY_HALF_LIFE_DAYS);
   }
 
   /**
@@ -367,6 +376,7 @@ export class HotWaterAnalyzer {
         next6HoursUsage.push(this.predictUsage(hour, dayOfWeek));
       }
       const avgNext6HoursUsage = next6HoursUsage.reduce((sum, val) => sum + val, 0) / next6HoursUsage.length;
+      const nearTermPeakUsage = Math.max(currentPredictedUsage, ...next6HoursUsage);
 
       // Decision logic for optimal temperature using Tibber price levels
       let optimalTemp;
@@ -374,10 +384,10 @@ export class HotWaterAnalyzer {
       // Use Tibber's sophisticated price level analysis
       if (priceLevel === 'VERY_CHEAP' || priceLevel === 'CHEAP') {
         // Cheap electricity: Heat more based on predicted usage
-        if (avgNext6HoursUsage > 1.5) {
+        if (nearTermPeakUsage > 1.8 || maxPredictedUsage > 2.2) {
           optimalTemp = maxTemp; // Maximum temperature for high usage
         }
-        else if (avgNext6HoursUsage > 1.0) {
+        else if (avgNext6HoursUsage > 1.0 || nearTermPeakUsage > 1.3) {
           optimalTemp = minTemp + ((maxTemp - minTemp) * 0.8); // 80% of range for moderate usage
         }
         else {
@@ -386,26 +396,26 @@ export class HotWaterAnalyzer {
       }
       else if (priceLevel === 'EXPENSIVE' || priceLevel === 'VERY_EXPENSIVE') {
         // Expensive electricity: Conservative approach based on immediate usage
-        if (currentPredictedUsage > 1.5) {
-          optimalTemp = minTemp + ((maxTemp - minTemp) * 0.5); // 50% of range for high current usage
+        if (currentPredictedUsage > 1.8 || nearTermPeakUsage > 2.2) {
+          optimalTemp = minTemp + ((maxTemp - minTemp) * 0.6); // 60% of range when usage is urgent despite high prices
         }
-        else if (currentPredictedUsage > 1.0) {
-          optimalTemp = minTemp + ((maxTemp - minTemp) * 0.3); // 30% of range for moderate usage
+        else if (currentPredictedUsage > 1.0 || nearTermPeakUsage > 1.4) {
+          optimalTemp = minTemp + ((maxTemp - minTemp) * 0.4); // 40% of range for moderate immediate usage
         }
         else {
           optimalTemp = minTemp; // Minimum temperature for low usage
         }
       }
       else {
-        // NORMAL price level: Balanced approach
-        if (avgNext6HoursUsage > 1.5) {
-          optimalTemp = minTemp + ((maxTemp - minTemp) * 0.7); // 70% of range
+        // NORMAL price level: Balanced approach, but immediate DHW demand should still lift the target.
+        if (currentPredictedUsage > 1.8 || nearTermPeakUsage > 2.2) {
+          optimalTemp = minTemp + ((maxTemp - minTemp) * 0.7); // 70% of range for strong near-term demand
         }
-        else if (avgNext6HoursUsage > 1.0) {
-          optimalTemp = minTemp + ((maxTemp - minTemp) * 0.5); // 50% of range
+        else if (avgNext6HoursUsage > 1.0 || nearTermPeakUsage > 1.4) {
+          optimalTemp = minTemp + ((maxTemp - minTemp) * 0.55); // 55% of range for moderate demand
         }
         else {
-          optimalTemp = minTemp + ((maxTemp - minTemp) * 0.3); // 30% of range
+          optimalTemp = minTemp + ((maxTemp - minTemp) * 0.4); // 40% of range for low demand
         }
       }
 
@@ -414,7 +424,7 @@ export class HotWaterAnalyzer {
 
       this.homey.log(`Calculated optimal tank temperature: ${optimalTemp}°C (min: ${minTemp}°C, max: ${maxTemp}°C)`);
       this.homey.log(`Tibber price level: ${priceLevel}, Current price: ${currentPrice}`);
-      this.homey.log(`Current predicted usage: ${currentPredictedUsage.toFixed(2)}, Next 6h avg: ${avgNext6HoursUsage.toFixed(2)}, Max 24h: ${maxPredictedUsage.toFixed(2)}`);
+      this.homey.log(`Current predicted usage: ${currentPredictedUsage.toFixed(2)}, Next 6h avg: ${avgNext6HoursUsage.toFixed(2)}, Near-term peak: ${nearTermPeakUsage.toFixed(2)}, Max 24h: ${maxPredictedUsage.toFixed(2)}`);
 
       return optimalTemp;
     } catch (error) {
