@@ -265,5 +265,8 @@
   },
   "14.0.53": {
     "en": "Bug hunting"
+  },
+  "14.0.54": {
+    "en": "Summer fix: no longer stuck in \"transition\" when there's no heating; stop redundant room setpoint changes when the house is already warm; more accurate COP history; clearer hot-water reasons."
   }
 }
