@@ -635,8 +635,24 @@ export class HotWaterOptimizer {
             let scheduledTime: string | undefined;
             const peaksStr = usagePattern.peakHours.join(', ');
 
-            // Check if current hour is a scheduled heating time
-            const isScheduledNow = schedulePoints.some(point => point.hour === currentHour);
+            // Each peak's window only spans the 3 hours before it, so "cheapest hour in the
+            // window" can still be an expensive hour (e.g. evening peaks at 18-20h where every
+            // candidate is in the top decile). Only treat a slot as a heating window when it is
+            // actually cheap by the user's cheap-percentile setting; the FTC keeps the tank at
+            // its configured minimum on its own, so skipping an expensive slot is safe.
+            const cheapPercentile = this.priceAnalyzer.getCheapPercentile();
+            const isScheduledNow = schedulePoints.some(
+                point => point.hour === currentHour && point.pricePercentile <= cheapPercentile
+            );
+
+            const currentPriceNow = next24h[0]?.price;
+            // Strictly-cheaper share: with "<=" a flat day puts the common price at the 100th
+            // percentile and every hour would read as expensive.
+            const currentPricePercentile = Number.isFinite(currentPriceNow)
+                ? next24h.filter((p: any) => Number.isFinite(p.price) && p.price < currentPriceNow).length / next24h.length
+                : 0;
+            // Expensive band mirrors the cheap band: the top cheapPercentile of the window.
+            const isExpensiveNow = currentPricePercentile > 1 - cheapPercentile;
 
             if (isScheduledNow) {
                 currentAction = 'heat_now';
@@ -648,7 +664,7 @@ export class HotWaterOptimizer {
                     return hoursUntilPeak <= 2 && hoursUntilPeak > 0;
                 });
 
-                if (nextPeak && hotWaterCOP > 0) {
+                if (nextPeak && hotWaterCOP > 0 && !isExpensiveNow) {
                     // Emergency heating before peak
                     currentAction = 'heat_now';
                     actionReason = `Pre-heating: usage peak within 2h (peak at ${nextPeak}h)`;

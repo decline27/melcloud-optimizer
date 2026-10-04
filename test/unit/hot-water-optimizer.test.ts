@@ -567,6 +567,29 @@ describe('HotWaterOptimizer', () => {
       expect(result.reasoning).toMatch(/conserving tank|price high/i);
       expect(result.reasoning).not.toMatch(/Predictive scheduling based on usage pattern/);
     });
+
+    test('does not heat in an expensive evening hour just because it is the least-bad slot before a peak', () => {
+      // Live case 2026-10-04 17h: peaks at 18-20h, every hour in their 3h windows is in the
+      // top decile, cheap hours are tomorrow midday. Previously returned heat_now at 2.48/kWh.
+      const prices = [2.48, 2.70, 2.29, 2.08, 1.92, 1.78, 1.73, 1.69, 1.72, 1.95, 2.10, 2.21,
+        2.23, 2.27, 1.88, 1.62, 0.79, 0.64, 0.58, 0.23, 0.25, 0.72, 1.25, 1.97];
+      const priceData = prices.map((price, i) => ({ hour: (17 + i) % 24, time: `${(17 + i) % 24}:00`, price }));
+      const usagePattern = {
+        peakHours: [15, 20, 4, 18, 19],
+        hourlyDemand: Array(24).fill(0.1).map((v, i) => ([15, 20, 4, 18, 19].includes(i) ? 2 : v))
+      };
+
+      const result = hotWaterOptimizer.optimizeHotWaterSchedulingByPattern(
+        17,
+        priceData,
+        2.77,
+        usagePattern,
+        undefined,
+        { currencyCode: 'SEK', estimatedDailyHotWaterKwh: 4.6 }
+      );
+
+      expect(result.currentAction).not.toBe('heat_now');
+    });
   });
 
   test('optimizeHotWaterSchedulingByPattern keeps late-evening peaks in the next-day planning window', () => {
