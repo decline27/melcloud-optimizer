@@ -375,11 +375,14 @@ export class MelCloudApi extends BaseApiService {
     // Track the request promise (Task 1.2)
     this.pendingRequests.set(requestKey, requestPromise);
 
-    // Clean up the tracking when request completes (success or failure)
-    requestPromise
-      .finally(() => {
-        this.pendingRequests.delete(requestKey);
-      });
+    // Clean up the tracking when request completes (success or failure).
+    // Use then(cleanup, cleanup) rather than finally(): finally() returns a derived promise
+    // that re-rejects, and since nothing awaits it every failed MELCloud call surfaced as an
+    // unhandledRejection (reported by Homey as an app crash) even when the caller caught it.
+    const cleanup = () => {
+      this.pendingRequests.delete(requestKey);
+    };
+    requestPromise.then(cleanup, cleanup);
 
     return requestPromise;
   }
