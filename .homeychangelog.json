@@ -295,5 +295,8 @@
   },
   "14.0.66": {
     "en": "Important fixes to how the optimizer learns and reports."
+  },
+  "14.0.67": {
+    "en": "Hot water is no longer heated during expensive evening hours just before usage peaks; the tank is kept lower and reheated in the cheapest upcoming hour instead. Also fixed: a failed MELCloud request was reported as an app crash even when it was handled, which caused thousands of false crash reports."
   }
 }
