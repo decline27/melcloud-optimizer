@@ -209,9 +209,9 @@
     } else if (projectionMajor === null) {
       note = 'Monthly projection appears once a few days of measured savings are collected.';
     } else {
-      // Measured, not modelled: see src/util/run-price-ledger.ts. Coasting's energy saving is
-      // not included, so this is a lower bound - keep the wording from implying otherwise.
-      note = 'Measured: price paid when the heat pump ran, compared with the day\'s average price.';
+      // See src/util/run-price-ledger.ts: run times and room/outdoor temperatures are measured;
+      // the normal pump is a steady-state comparison at the comfort-band midpoint.
+      note = 'Compared with a heat pump holding the middle of your comfort band and running evenly through the day.';
     }
 
     return {

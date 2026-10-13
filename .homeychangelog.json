@@ -307,5 +307,8 @@
   },
   "14.0.70": {
     "en": "Savings are now measured instead of estimated: the app records when the heat pump actually runs and compares the price it paid with the day's average price. Earlier figures came from a model that greatly overstated savings and are no longer counted, so the savings card starts fresh. A day where heating ran in more expensive hours is shown as a loss."
+  },
+  "14.0.71": {
+    "en": "Savings now compare with a normal heat pump that holds the middle of your comfort band and runs evenly through the day. Both parts are counted: buying heat in cheaper hours, and using less energy when the room is allowed to drift lower in expensive hours."
   }
 }

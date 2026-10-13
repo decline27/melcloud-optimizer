@@ -863,8 +863,13 @@ const apiHandlers: ApiHandlers = {
         try {
           const nowMs = Date.now();
           const currentPrice = Number(result.priceData?.current);
+          // A normal heat pump holds the middle of the user's own comfort band.
+          const band = result.comfortBand;
+          const baselineC = band && Number.isFinite(band.minTemp) && Number.isFinite(band.maxTemp)
+            ? (band.minTemp + band.maxTemp) / 2
+            : null;
           if (Number.isFinite(currentPrice)) {
-            recordHourPrice(homey.settings, nowMs, currentPrice);
+            recordHourPrice(homey.settings, nowMs, currentPrice, baselineC);
           }
           const dayStartMs = localDayStartMs(
             nowMs,
@@ -875,14 +880,20 @@ const apiHandlers: ApiHandlers = {
             readRunPriceLedger(homey.settings),
             dayStartMs,
             nowMs + 1,
-            Number(result.energyMetrics?.dailyEnergyConsumption)
+            Number(result.energyMetrics?.dailyEnergyConsumption),
+            Number(result.energyMetrics?.dailyHeatingConsumption)
           );
           if (measuredSavings) {
-            homey.app.log('Measured savings (run-weighted price vs average)', {
+            homey.app.log('Measured savings vs a normal heat pump at the comfort-band midpoint', {
               hoursUsed: measuredSavings.hoursUsed,
+              baselineC,
               averagePrice: measuredSavings.averagePrice.toFixed(4),
               paidPrice: measuredSavings.paidPrice.toFixed(4),
               energyKWh: measuredSavings.energyKWh.toFixed(2),
+              baselineEnergyKWh: measuredSavings.baselineEnergyKWh.toFixed(2),
+              energyRatio: measuredSavings.energyRatio.toFixed(3),
+              timingSavings: measuredSavings.timingSavings.toFixed(2),
+              energySavings: measuredSavings.energySavings.toFixed(2),
               savings: measuredSavings.savings.toFixed(2)
             });
           }

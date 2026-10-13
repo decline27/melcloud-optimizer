@@ -1273,10 +1273,19 @@ module.exports = class BoilerDevice extends Homey.Device {
    */
   private async updateOperationalStates(deviceState: MelCloudDevice) {
     try {
-      // Feed the measured-savings ledger: one sample per poll, run or not.
+      // Feed the measured-savings ledger: one sample per poll, run or not, with the room and
+      // outdoor temperature for the energy comparison. MELCloud reports -39 for a missing sensor.
       if (deviceState.OperationMode !== undefined) {
         try {
-          recordRunSample(this.homey.settings, Date.now(), isRunningOperationMode(deviceState.OperationMode));
+          const room = Number(deviceState.RoomTemperatureZone1);
+          const outdoor = Number(deviceState.OutdoorTemperature);
+          recordRunSample(
+            this.homey.settings,
+            Date.now(),
+            isRunningOperationMode(deviceState.OperationMode),
+            Number.isFinite(room) && room > -39 ? room : null,
+            Number.isFinite(outdoor) && outdoor > -39 ? outdoor : null
+          );
         } catch (ledgerErr) {
           this.logger.error('Failed to record run sample', ledgerErr as Error);
         }

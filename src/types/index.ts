@@ -244,6 +244,8 @@ export interface OptimizationMetrics {
   realHeatingCOP: number;
   realHotWaterCOP: number;
   dailyEnergyConsumption: number;
+  /** Space-heating share of dailyEnergyConsumption (kWh/day), when MELCloud reports the split. */
+  dailyHeatingConsumption?: number;
   heatingEfficiency: number;
   hotWaterEfficiency: number;
   seasonalMode: 'summer' | 'winter' | 'transition';
@@ -314,6 +316,8 @@ export interface EnhancedOptimizationResult {
   };
   savings?: number;
   energyMetrics?: OptimizationMetrics;
+  /** The user's comfort band in force for this run. Its midpoint is the savings baseline. */
+  comfortBand?: { minTemp: number; maxTemp: number };
   hotWaterAction?: {
     action: 'heat_now' | 'delay' | 'maintain';
     reason: string;

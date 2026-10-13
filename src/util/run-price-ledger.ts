@@ -16,9 +16,16 @@
  * runs mostly in cheap hours pays less. Per-kWh adders (grid fee, energy tax) are the same in
  * every hour and cancel in the difference, so spot prices are sufficient.
  *
- * It is deliberately conservative: energy saved by coasting (a lower average room temperature)
- * does not appear, only the retiming of the energy that was used. It can be negative, and is
- * reported as such.
+ * That is the **timing** part. The **energy** part compares against a heat pump holding the
+ * midpoint of the user's own comfort band all day. Heat loss scales with the indoor-outdoor
+ * difference, so over the same hours a normal pump would have needed
+ *
+ *     heating energy × Σ(baseline − outdoor) / Σ(indoor − outdoor)
+ *
+ * using the measured indoor and outdoor temperature of each hour. Coasting below the midpoint
+ * makes the ratio > 1 (a saving); holding the room above it makes it < 1 (a cost). This is a
+ * steady-state degree-hour model: it ignores the building's heat storage within the window, which
+ * mostly cancels over a day. Both parts can be negative and are reported as such.
  *
  * Storage is bounded: only the last LEDGER_RETENTION_HOURS hour buckets are kept.
  */
@@ -28,6 +35,19 @@ export const LEDGER_RETENTION_HOURS = 48;
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
+
+/**
+ * Below this mean indoor-outdoor difference the degree-hour ratio is dominated by sensor noise
+ * (mild days, summer), so the energy part is not attempted and only timing is reported.
+ */
+const MIN_MEAN_GRADIENT_C = 3;
+
+/**
+ * Sanity bound on the energy ratio. Moving the room around inside a comfort band changes heat
+ * loss by a few percent to perhaps 20 %; a ratio outside this range means a bad reading.
+ */
+const ENERGY_RATIO_MIN = 0.7;
+const ENERGY_RATIO_MAX = 1.3;
 
 /**
  * MELCloud `OperationMode` values in which the compressor is producing heat: 1 hot water,
@@ -43,6 +63,12 @@ export interface LedgerHour {
   total: number;
   /** Spot price for this hour, recorded by the hourly optimizer run. */
   price?: number;
+  /** Midpoint of the user's comfort band for this hour: what a normal heat pump would hold. */
+  baselineC?: number;
+  /** Sums and count of indoor/outdoor readings from the polls, for hourly means. */
+  indoorSum?: number;
+  outdoorSum?: number;
+  tempSamples?: number;
 }
 
 export interface RunPriceLedger {
@@ -64,11 +90,22 @@ export interface RunPriceSavings {
   paidPrice: number;
   /** Energy attributed to the hours used, kWh. */
   energyKWh: number;
-  /** energyKWh × averagePrice. */
+  /**
+   * Normal-pump heating energy ÷ actual heating energy over the same hours. 1 when the energy
+   * part could not be computed (no temperatures, no baseline, or too small a gradient).
+   */
+  energyRatio: number;
+  /** Energy a normal pump would have used over the same hours, kWh. */
+  baselineEnergyKWh: number;
+  /** baselineEnergyKWh × averagePrice: a normal pump, running evenly. */
   baselineCost: number;
   /** energyKWh × paidPrice. */
   actualCost: number;
-  /** baselineCost − actualCost. Negative when the pump ran in dearer-than-average hours. */
+  /** From running in cheaper hours: energyKWh × (averagePrice − paidPrice). */
+  timingSavings: number;
+  /** From using less energy than a normal pump: (baselineEnergyKWh − energyKWh) × averagePrice. */
+  energySavings: number;
+  /** baselineCost − actualCost = timingSavings + energySavings. */
   savings: number;
 }
 
@@ -112,29 +149,78 @@ function writeLedger(settings: SettingsLike, ledger: RunPriceLedger, nowMs: numb
   settings.set(RUN_PRICE_LEDGER_SETTING, { hours: pruned });
 }
 
-/** Record one device poll. */
-export function recordRunSample(settings: SettingsLike, nowMs: number, running: boolean): void {
+/**
+ * Record one device poll. Indoor and outdoor temperatures are optional; a reading is only kept
+ * when both are finite, so the hourly means always pair up.
+ */
+export function recordRunSample(
+  settings: SettingsLike,
+  nowMs: number,
+  running: boolean,
+  indoorC?: number | null,
+  outdoorC?: number | null
+): void {
   const ledger = readLedger(settings);
   const key = String(hourStartMs(nowMs));
   const hour = ledger.hours[key] ?? { run: 0, total: 0 };
-  ledger.hours[key] = { ...hour, run: hour.run + (running ? 1 : 0), total: hour.total + 1 };
-  writeLedger(settings, ledger, nowMs);
-}
-
-/** Record the spot price for the hour containing `nowMs`. */
-export function recordHourPrice(settings: SettingsLike, nowMs: number, price: number): void {
-  if (!Number.isFinite(price)) return;
-  const ledger = readLedger(settings);
-  const key = String(hourStartMs(nowMs));
-  const hour = ledger.hours[key] ?? { run: 0, total: 0 };
-  ledger.hours[key] = { ...hour, price };
+  const next: LedgerHour = { ...hour, run: hour.run + (running ? 1 : 0), total: hour.total + 1 };
+  if (Number.isFinite(indoorC) && Number.isFinite(outdoorC)) {
+    next.indoorSum = (hour.indoorSum ?? 0) + (indoorC as number);
+    next.outdoorSum = (hour.outdoorSum ?? 0) + (outdoorC as number);
+    next.tempSamples = (hour.tempSamples ?? 0) + 1;
+  }
+  ledger.hours[key] = next;
   writeLedger(settings, ledger, nowMs);
 }
 
 /**
- * Savings for hours in [fromMs, toMs). `dailyEnergyKWh` is a full day's consumption; the share
- * attributed to the window is proportional to the hours actually covered, so a half-elapsed day
- * is not credited with a whole day's energy.
+ * Record the spot price, and the normal-pump baseline temperature, for the hour containing
+ * `nowMs`. The baseline is the midpoint of the user's comfort band in force for that hour.
+ */
+export function recordHourPrice(
+  settings: SettingsLike,
+  nowMs: number,
+  price: number,
+  baselineC?: number | null
+): void {
+  if (!Number.isFinite(price)) return;
+  const ledger = readLedger(settings);
+  const key = String(hourStartMs(nowMs));
+  const hour = ledger.hours[key] ?? { run: 0, total: 0 };
+  const next: LedgerHour = { ...hour, price };
+  if (Number.isFinite(baselineC)) next.baselineC = baselineC as number;
+  ledger.hours[key] = next;
+  writeLedger(settings, ledger, nowMs);
+}
+
+/**
+ * Normal-pump heating energy ÷ actual heating energy over the given hours (steady-state
+ * degree-hours). 1 when it cannot be computed reliably.
+ */
+function computeEnergyRatio(hours: LedgerHour[]): number {
+  const withTemps = hours.filter(h =>
+    (h.tempSamples ?? 0) > 0 && Number.isFinite(h.baselineC));
+  if (withTemps.length === 0) return 1;
+
+  let baselineDegreeHours = 0;
+  let actualDegreeHours = 0;
+  for (const h of withTemps) {
+    const indoor = (h.indoorSum as number) / (h.tempSamples as number);
+    const outdoor = (h.outdoorSum as number) / (h.tempSamples as number);
+    baselineDegreeHours += (h.baselineC as number) - outdoor;
+    actualDegreeHours += indoor - outdoor;
+  }
+
+  if (actualDegreeHours / withTemps.length < MIN_MEAN_GRADIENT_C || baselineDegreeHours <= 0) return 1;
+  const ratio = baselineDegreeHours / actualDegreeHours;
+  return Math.min(ENERGY_RATIO_MAX, Math.max(ENERGY_RATIO_MIN, ratio));
+}
+
+/**
+ * Savings for hours in [fromMs, toMs). `dailyEnergyKWh` is a full day's consumption and
+ * `dailyHeatingKWh` its space-heating share; the energy attributed to the window is proportional
+ * to the hours actually covered, so a half-elapsed day is not credited with a whole day's energy.
+ * Without `dailyHeatingKWh` the energy part is zero (hot-water energy does not depend on the room).
  *
  * Returns null when no hour in the window has both a price and a poll.
  */
@@ -142,7 +228,8 @@ export function computeRunPriceSavings(
   ledger: RunPriceLedger,
   fromMs: number,
   toMs: number,
-  dailyEnergyKWh: number
+  dailyEnergyKWh: number,
+  dailyHeatingKWh?: number
 ): RunPriceSavings | null {
   const usable = Object.entries(ledger.hours)
     .map(([key, hour]) => ({ start: Number(key), hour }))
@@ -160,20 +247,33 @@ export function computeRunPriceSavings(
     ? usable.reduce((sum, { hour }) => sum + (hour.run / hour.total) * (hour.price as number), 0) / dutySum
     : averagePrice;
 
+  const windowShare = usable.length / 24;
   const energyKWh = Number.isFinite(dailyEnergyKWh) && dailyEnergyKWh > 0
-    ? dailyEnergyKWh * (usable.length / 24)
+    ? dailyEnergyKWh * windowShare
+    : 0;
+  const heatingKWh = Number.isFinite(dailyHeatingKWh) && (dailyHeatingKWh as number) > 0
+    ? Math.min(energyKWh, (dailyHeatingKWh as number) * windowShare)
     : 0;
 
-  const baselineCost = energyKWh * averagePrice;
+  const energyRatio = heatingKWh > 0 ? computeEnergyRatio(usable.map(({ hour }) => hour)) : 1;
+  const baselineEnergyKWh = energyKWh - heatingKWh + heatingKWh * energyRatio;
+
+  const baselineCost = baselineEnergyKWh * averagePrice;
   const actualCost = energyKWh * paidPrice;
+  const timingSavings = energyKWh * (averagePrice - paidPrice);
+  const energySavings = (baselineEnergyKWh - energyKWh) * averagePrice;
 
   return {
     hoursUsed: usable.length,
     averagePrice,
     paidPrice,
     energyKWh,
+    energyRatio,
+    baselineEnergyKWh,
     baselineCost,
     actualCost,
+    timingSavings,
+    energySavings,
     savings: baselineCost - actualCost
   };
 }

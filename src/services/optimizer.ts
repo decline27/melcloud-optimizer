@@ -2647,6 +2647,7 @@ export class Optimizer {
       },
       savings: savings.total,
       energyMetrics: zone1Result.metrics ?? undefined,
+      comfortBand: { minTemp: inputs.constraintsBand.minTemp, maxTemp: inputs.constraintsBand.maxTemp },
       weather: zone1Result.weatherInfo || undefined,
       hotWaterAction: zone1Result.hotWaterAction || undefined,
       priceForecast: inputs.priceForecast ? {
