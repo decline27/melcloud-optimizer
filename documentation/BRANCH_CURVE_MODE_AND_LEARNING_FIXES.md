@@ -336,9 +336,17 @@ EffectiveFlags:      SetTemperatureZone1  0x200000080   (= 0x200000000 | 0x80)
 - **There is no remote curve offset — not in MELCloud, and not even in the local serial
   protocol.** The two serious open-source Ecodan projects (CN105-to-MQTT, esphome-ecodan-hp) both
   force the unit into *Fixed Flow* mode and reimplement weather compensation themselves.
-- Therefore, while the unit stays in Curve mode, **space-heating price optimization has no lever**.
-  The writes are accepted and persist in `Device/Get`, but almost certainly do not move flow
-  temperature. **This is not yet empirically verified — see section 7.**
+- ~~Therefore, while the unit stays in Curve mode, space-heating price optimization has no lever.~~
+  **Refuted 2026-10-13.** With a room sensor fitted, `SetTemperatureZone1` works as a room
+  thermostat in Curve mode: the curve sets flow temperature, the setpoint gates heating on/off.
+  Live test: room 22.5 °C, setpoint 21 °C, unit idle; setpoint raised to 24 °C at 17:23, unit
+  reported heating at the next poll (17:28) with DHW idle. The previous 24 h fit the same model
+  (17–21 down-shift below the room coasted ~1 K; 14–15 raise kept heating on in cheap hours;
+  01–04 raise to 23 °C on a 3 °C night added nothing because heating was already on).
+  So **coasting works; preheating is "keep the curve running", not "more power"**. The owner keeps
+  Curve mode on purpose (cheaper to run than Room mode) — do not propose switching.
+  Note: the Homey `operational_state.zone1` capability always reads idle (Device/Get lacks
+  `Zone1InHeatMode`); use the unit `operational_state` / `IdleZone1`.
 
 ---
 
@@ -473,11 +481,20 @@ investigation and turned out to be wrong.
 - The UI caption claims "seasonal COP adjustments"; `calculateHeatingEnergy` and
   `calculateHotWaterEnergy` accept COP parameters and **never read them**.
 
-**Phase 4 — space heating.** Blocked on the empirical test in section 5: write a large
-`SetTemperatureZone1` step in Curve mode and watch `FlowTemperature` for an hour. If nothing
-moves, zone-1 optimization is a no-op on this hardware and the only paths forward are an explicit,
-informed opt-in to Room mode (`OperationModeZone1 = 0`, flag `0x8`) or Flow mode with
-self-implemented weather compensation. **Never switch a user's mode silently.**
+**Phase 4 — space heating.** Unblocked 2026-10-13: the setpoint is an on/off thermostat gate in
+Curve mode (see section 5). The existing setpoint logic already behaves correctly under that
+reading ("heat until X"). Remaining work: learn the cooling rate during thermo-off periods (thermal
+collection is still skipped outside Room mode, so preheat confidence stays 0) and use it to size
+coasting. **Never switch a user's mode silently.**
+
+**Also 2026-10-13 (14.0.69–70):**
+- The FTC does not start a DHW reheat on tank deficit alone (tank 16–19 °C under target for hours,
+  pump idle) but starts within minutes of a setpoint *raise*. `optimizeTank` now raises the tank
+  setpoint one step when the tank is below the user minimum.
+- The displayed daily saving is now measured, not modelled: `src/util/run-price-ledger.ts` records
+  per-hour run share (each poll) and price (each hourly run); saving = energy × (average price −
+  run-weighted price). The modelled baseline had shown 45–60 SEK/day. Pre-v3 history entries are no
+  longer counted.
 
 **Phase 5 — COP weighting.** `delivered_price / COP(forecast_ambient)`. A curve already exists at
 `data/cop_curve.csv` (keyed by `temp_out_c, delta_c`) with a bilinear interpolator in

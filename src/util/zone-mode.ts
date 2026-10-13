@@ -4,14 +4,19 @@
  * MELCloud reports the zone control mode in `OperationModeZone1` / `OperationModeZone2`.
  * The meaning of the zone setpoint depends entirely on this mode:
  *
- *  - 0 Room   — `SetTemperatureZoneN` is a room-temperature target.
- *  - 1 Flow   — `SetTemperatureZoneN` is a target water (flow) temperature.
- *  - 2 Curve  — the unit follows a weather-compensation curve; the setpoint is a
- *               curve/water reference, not a room temperature.
+ *  - 0 Room   — the unit modulates flow temperature to reach `SetTemperatureZoneN`.
+ *  - 1 Flow   — the unit holds a fixed flow temperature (`SetHeatFlowTemperatureZoneN`).
+ *  - 2 Curve  — the unit follows its weather-compensation curve for flow temperature.
  *
- * Treating a Flow/Curve setpoint as a room target produces nonsensical values (e.g. a
- * "room target" of 29 °C) and corrupts any model that learns from
- * (targetTemperature - indoorTemperature).
+ * `SetTemperatureZoneN` is a room temperature in every mode. With a room sensor fitted it acts as
+ * a thermostat even in Curve mode: room at or above the setpoint means thermo-off, below means
+ * the curve runs (measured live 2026-10-13: a raise above the room switched an idle unit to
+ * heating within one poll). What Curve mode removes is *power*: a higher setpoint cannot make
+ * the curve deliver more heat, so (target - indoor) says whether heat flows, not how fast. Any
+ * model that learns a heating rate from that difference is only valid in Room mode.
+ *
+ * (The nonsense 29 °C "room target" seen in August came from reading the ATA-shaped
+ * `SetTemperature` field, not from the zone mode.)
  */
 
 export enum ZoneOperationMode {

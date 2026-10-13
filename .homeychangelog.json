@@ -304,5 +304,8 @@
   },
   "14.0.69": {
     "en": "Hot water no longer stays cold for hours: when the tank drops below your minimum temperature, the app now raises the tank setpoint a step so the heat pump starts reheating, even during expensive hours."
+  },
+  "14.0.70": {
+    "en": "Savings are now measured instead of estimated: the app records when the heat pump actually runs and compares the price it paid with the day's average price. Earlier figures came from a model that greatly overstated savings and are no longer counted, so the savings card starts fresh. A day where heating ran in more expensive hours is shown as a loss."
   }
 }

@@ -5,6 +5,7 @@ import { HotWaterService } from '../../src/services/hot-water/hot-water-service'
 import { ErrorHandler } from '../../src/util/error-handler';
 import { HomeyLogger, LogLevel } from '../../src/util/logger';
 import { MelCloudDevice } from '../../src/types';
+import { isRunningOperationMode, recordRunSample } from '../../src/util/run-price-ledger';
 // Circuit breaker protection is handled by the API service layer (base-api-service.ts)
 
 /**
@@ -1272,6 +1273,15 @@ module.exports = class BoilerDevice extends Homey.Device {
    */
   private async updateOperationalStates(deviceState: MelCloudDevice) {
     try {
+      // Feed the measured-savings ledger: one sample per poll, run or not.
+      if (deviceState.OperationMode !== undefined) {
+        try {
+          recordRunSample(this.homey.settings, Date.now(), isRunningOperationMode(deviceState.OperationMode));
+        } catch (ledgerErr) {
+          this.logger.error('Failed to record run sample', ledgerErr as Error);
+        }
+      }
+
       // Main operational state based on OperationMode
       if (deviceState.OperationMode !== undefined && this.hasCapability('operational_state')) {
         const operationState = this.getOperationModeState(deviceState.OperationMode);

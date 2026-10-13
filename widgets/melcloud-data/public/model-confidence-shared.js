@@ -203,16 +203,15 @@
     let note;
 
     if (!history.length && todayMajor === null && last7Major === null) {
-      note = 'Optimizer is learning your baseline; savings will appear after a few hourly runs.';
+      note = 'Measuring when the heat pump runs; savings appear after the next hourly run.';
     } else if (!history.length) {
       note = 'No savings history yet.';
     } else if (projectionMajor === null) {
-      note = 'Monthly projection appears once a few days of smart savings history are collected.';
+      note = 'Monthly projection appears once a few days of measured savings are collected.';
     } else {
-      // The baseline is a flat kWh table: calculateHeatingEnergy and calculateHotWaterEnergy in
-      // fixed-baseline-calculator.ts accept COP parameters and never read them. Do not restore
-      // the "seasonal COP adjustments" wording unless that is actually wired up.
-      note = 'Estimates compare the optimizer to a constant-temperature heating baseline.';
+      // Measured, not modelled: see src/util/run-price-ledger.ts. Coasting's energy saving is
+      // not included, so this is a lower bound - keep the wording from implying otherwise.
+      note = 'Measured: price paid when the heat pump ran, compared with the day\'s average price.';
     }
 
     return {

@@ -125,9 +125,11 @@ The points most likely to bite:
    -3 K down / +1 K up.
 3. **`SetTemperatureZone1`, not `SetTemperature`.** The latter is ATA-shaped and was the source of
    a nonsense 29 C "room target" that poisoned the thermal model.
-4. **Never learn from a device that is not in Room mode** (`OperationModeZone1 === 0`). In
-   Flow/Curve mode the zone setpoint is not a room target. There is **no remote curve offset** in
-   MELCloud or in the local FTC protocol.
+4. **Never learn a heating rate from a device that is not in Room mode** (`OperationModeZone1 === 0`).
+   With a room sensor, the zone setpoint is still a room thermostat in Curve mode (on/off gate,
+   verified live 2026-10-13), but the curve, not the setpoint, decides how much heat flows.
+   There is **no remote curve offset** in MELCloud or in the local FTC protocol. The owner keeps
+   Curve mode deliberately; do not propose Room mode.
 5. **Attribute comfort violations only when the optimizer actually moved the setpoint.** Summer
    solar gain otherwise ratchets every learned parameter to its bound - measured, not theoretical.
 6. **Write magnitude and write frequency are independent** (`maxDeltaPerChangeC` vs

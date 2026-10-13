@@ -24,7 +24,6 @@ import {
   EnhancedOptimizationResult,
   WeeklyCalibrationResult,
   AugmentedOptimizationResult,
-  OptimizerCostSnapshot,
   HourlyOptimizationData,
   ThermalModelDataPoint,
   ThermalModelResponseData,
@@ -66,6 +65,13 @@ import {
   saveHistoricalData
 } from './src/orchestration/service-manager';
 import { buildDecisionFromOptimization, buildPlaceholderDecision } from './src/util/decision-helper';
+import {
+  computeRunPriceSavings,
+  localDayStartMs,
+  readRunPriceLedger,
+  recordHourPrice,
+  type RunPriceSavings
+} from './src/util/run-price-ledger';
 
 
 
@@ -235,8 +241,13 @@ async function httpRequest(
  * there, so `baselineMinor - optimizedMinor` produced `cost - saving` — the quantity the 7-day
  * total and the monthly projection were built from. Entries without this field are read using
  * their stored `valueMajor`, which was always the saving and is correct as written.
+ *
+ * v3 entries are **measured** (run-weighted price vs the day's average, see
+ * src/util/run-price-ledger.ts) and `valueMajor` is the signed saving. Entries before v3 were
+ * derived from a modelled baseline that overstated savings by an order of magnitude, so the
+ * reader no longer counts them in any total.
  */
-const SAVINGS_ENTRY_SCHEMA_VERSION = 2;
+const SAVINGS_ENTRY_SCHEMA_VERSION = 3;
 
 const serviceState = getServiceState();
 let melCloud = serviceState.melCloud;
@@ -845,9 +856,42 @@ const apiHandlers: ApiHandlers = {
         // Run the enhanced optimization with real API data
         const result = await activeOptimizer.runOptimization() as AugmentedOptimizationResult;
 
+        // Measured savings: record this hour's price, then compare what the pump actually paid
+        // (run-weighted) against the day's average price. This replaces the modelled baseline as
+        // the displayed figure; see src/util/run-price-ledger.ts for why.
+        let measuredSavings: RunPriceSavings | null = null;
+        try {
+          const nowMs = Date.now();
+          const currentPrice = Number(result.priceData?.current);
+          if (Number.isFinite(currentPrice)) {
+            recordHourPrice(homey.settings, nowMs, currentPrice);
+          }
+          const dayStartMs = localDayStartMs(
+            nowMs,
+            parseInt(homey.settings.get('time_zone_offset')),
+            !!homey.settings.get('use_dst')
+          );
+          measuredSavings = computeRunPriceSavings(
+            readRunPriceLedger(homey.settings),
+            dayStartMs,
+            nowMs + 1,
+            Number(result.energyMetrics?.dailyEnergyConsumption)
+          );
+          if (measuredSavings) {
+            homey.app.log('Measured savings (run-weighted price vs average)', {
+              hoursUsed: measuredSavings.hoursUsed,
+              averagePrice: measuredSavings.averagePrice.toFixed(4),
+              paidPrice: measuredSavings.paidPrice.toFixed(4),
+              energyKWh: measuredSavings.energyKWh.toFixed(2),
+              savings: measuredSavings.savings.toFixed(2)
+            });
+          }
+        } catch (ledgerErr: any) {
+          homey.app.error('Failed to compute measured savings:', ledgerErr?.message || String(ledgerErr));
+        }
+
         // Calculate enhanced savings with baseline comparison early for timeline (using result.savings)
         let enhancedSavingsData = null;
-        let optimizerCostSnapshot: OptimizerCostSnapshot | null = null;
         try {
           if (baselineComparisonEnabled && enhancedCalculator?.hasBaselineCapability()) {
             // Use result.savings for early calculation
@@ -888,18 +932,6 @@ const apiHandlers: ApiHandlers = {
               baselinePercentage: enhancedSavingsData.baselineComparison?.baselinePercentage.toFixed(1) || 'n/a',
               confidence: enhancedSavingsData.baselineComparison?.confidenceLevel.toFixed(2) || 'n/a'
             });
-
-            const baselineBreakdown = enhancedSavingsData.baselineComparison?.breakdown;
-            if (baselineBreakdown) {
-              const baselineCostMajor = Number(baselineBreakdown.baselineCost);
-              const optimizedCostMajor = Number(baselineBreakdown.actualCost);
-              if (Number.isFinite(baselineCostMajor) && Number.isFinite(optimizedCostMajor)) {
-                optimizerCostSnapshot = {
-                  baselineCostMajor,
-                  optimizedCostMajor
-                };
-              }
-            }
           }
         } catch (enhancedErr: any) {
           homey.app.error('Error calculating enhanced savings with baseline (early):', enhancedErr.message || String(enhancedErr));
@@ -909,25 +941,10 @@ const apiHandlers: ApiHandlers = {
         // SINGLE SOURCE OF TRUTH: Calculate finalDailySavings ONCE
         // This value is used for BOTH timeline and widget display
         // ============================================================
-        let finalDailySavings: number = 0;
-        {
-          const hourlySavings = Number(result.savings || 0);
-          // Default: project hourly savings to daily
-          let projectedDaily = hourlySavings * 24;
-
-          // Prefer enhanced daily savings calculation if available
-          if (enhancedSavingsData?.dailySavings !== undefined && Number.isFinite(enhancedSavingsData.dailySavings)) {
-            projectedDaily = enhancedSavingsData.dailySavings;
-          }
-
-          // Use baseline savings if available (comparison vs traditional 21°C heat pump)
-          if (enhancedSavingsData?.baselineComparison?.baselineSavings !== undefined &&
-              Number.isFinite(enhancedSavingsData.baselineComparison.baselineSavings)) {
-            finalDailySavings = enhancedSavingsData.baselineComparison.baselineSavings;
-          } else {
-            finalDailySavings = projectedDaily;
-          }
-        }
+        // Measured savings only. The baseline comparison (vs a modelled 21 °C heat pump) and the
+        // hourly-estimate projection are both models of a house we have not measured; until the
+        // ledger has data for today the honest figure is zero, not a guess.
+        const finalDailySavings: number = measuredSavings ? measuredSavings.savings : 0;
 
         // Quick-win DHW scheduling: toggle forced hot-water when cheap
         try {
@@ -1189,157 +1206,32 @@ const apiHandlers: ApiHandlers = {
             // Update display_savings_history (read-only estimates for UI)
             // Uses finalDailySavings (single source of truth) calculated earlier
             try {
-              const calculatorHasBaseline = enhancedCalculator && typeof enhancedCalculator.calculateEnhancedDailySavingsWithBaseline === 'function';
-              if (optimizerCostSnapshot || calculatorHasBaseline) {
+              // Only measured data is written. Days without ledger data keep no entry rather
+              // than a modelled one; see src/util/run-price-ledger.ts.
+              if (measuredSavings) {
                 const displayHistoryRaw = homey.settings.get('display_savings_history') || [];
                 const displayHistory = Array.isArray(displayHistoryRaw) ? displayHistoryRaw.slice() : [];
                 const entryIndex = displayHistory.findIndex((item: any) => item && item.date === todayStr);
                 const entry = entryIndex >= 0 ? { ...displayHistory[entryIndex] } : { date: todayStr };
-                const hasStoredBaseline = Number.isFinite(entry?.baselineMinor) && Number.isFinite(entry?.optimizedMinor);
-
-                let baselineCostMajor: number | null = null;
-                let optimizedCostMajor: number | null = null;
-                let baselineSource: 'optimizer' | 'stored' | 'fallback' | null = null;
-
-                if (optimizerCostSnapshot) {
-                  baselineCostMajor = optimizerCostSnapshot.baselineCostMajor;
-                  optimizedCostMajor = optimizerCostSnapshot.optimizedCostMajor;
-                  baselineSource = 'optimizer';
-                } else if (hasStoredBaseline) {
-                  baselineSource = 'stored';
-                } else if (calculatorHasBaseline) {
-                  // Gather historical optimizations (today only preferred)
-                  const historicalOptimizations = Array.isArray(historicalData?.optimizations)
-                    ? historicalData.optimizations.filter(opt => {
-                      if (!opt || !opt.timestamp) return false;
-                      return opt.timestamp.startsWith(todayStr);
-                    })
-                    : [];
-
-                  // Estimate actual consumption and cost from metrics
-                  const dailyConsumption = Number(result.energyMetrics?.dailyEnergyConsumption);
-                  const gridFee = Number(homey.settings.get('grid_fee_per_kwh')) || 0;
-                  const priceAverage = Number(result.priceData?.average);
-                  const priceCurrent = Number(result.priceData?.current);
-                  let pricePerKWh = Number.isFinite(priceAverage) && priceAverage > 0 ? priceAverage : undefined;
-                  if (pricePerKWh === undefined && Number.isFinite(priceCurrent) && priceCurrent > 0) {
-                    pricePerKWh = priceCurrent;
-                  }
-                  if (pricePerKWh !== undefined && Number.isFinite(gridFee) && gridFee > 0) {
-                    pricePerKWh += gridFee;
-                  } else if (pricePerKWh === undefined && Number.isFinite(gridFee) && gridFee > 0) {
-                    pricePerKWh = gridFee;
-                  }
-
-                  const actualConsumptionKWh = Number.isFinite(dailyConsumption) && dailyConsumption > 0 ? dailyConsumption : undefined;
-                  let actualCost = actualConsumptionKWh !== undefined && pricePerKWh !== undefined
-                    ? actualConsumptionKWh * pricePerKWh
-                    : undefined;
-
-                  if ((actualCost === undefined || Number.isNaN(actualCost)) && enhancedSavingsData?.baselineComparison?.breakdown?.actualCost !== undefined) {
-                    const fallbackCost = Number(enhancedSavingsData.baselineComparison.breakdown.actualCost);
-                    if (Number.isFinite(fallbackCost) && fallbackCost >= 0) {
-                      actualCost = fallbackCost;
-                    }
-                  }
-
-                  // determineSeason now discriminates on heating efficiency, so 'summer' means the
-                  // pump is genuinely not space heating. The baseline must reflect that: a
-                  // constant-temperature thermostat in the same house and weather would not have
-                  // called for heat either, so charging it for heating makes the whole comparison
-                  // fiction. Measured live in August: ~3.5 of a 6.5 kWh/day baseline was space
-                  // heating that never happened — over half the displayed "saving".
-                  const spaceHeatingActive = result.energyMetrics?.seasonalMode !== 'summer';
-
-                  const baselineOptions: any = {
-                    enableBaseline: true,
-                    baselineConfig: {
-                      heatingSetpoint: 21,
-                      hotWaterSetpoint: 60,
-                      operatingProfile: 'always_on',
-                      spaceHeatingActive
-                    }
-                  };
-
-                  if (!spaceHeatingActive) {
-                    homey.app.log('Baseline excludes space heating: season is summer, so the comparison is hot-water only');
-                  }
-
-                  if (actualConsumptionKWh !== undefined) baselineOptions.actualConsumptionKWh = actualConsumptionKWh;
-                  if (actualCost !== undefined) baselineOptions.actualCost = actualCost;
-                  if (pricePerKWh !== undefined) baselineOptions.pricePerKWh = pricePerKWh;
-
-                  const currentHourLocal = local.getHours();
-                  const baselineResult = enhancedCalculator!.calculateEnhancedDailySavingsWithBaseline(
-                    Number.isFinite(computedSavings) ? Number(computedSavings) : 0,
-                    historicalOptimizations,
-                    currentHourLocal,
-                    undefined,
-                    baselineOptions
-                  );
-
-                  const comparison = baselineResult?.baselineComparison;
-                  baselineCostMajor = comparison?.breakdown && Number.isFinite(comparison.breakdown.baselineCost)
-                    ? Number(comparison.breakdown.baselineCost)
-                    : null;
-                  optimizedCostMajor = comparison?.breakdown && Number.isFinite(comparison.breakdown.actualCost)
-                    ? Number(comparison.breakdown.actualCost)
-                    : null;
-                  if (baselineCostMajor !== null && optimizedCostMajor !== null) {
-                    baselineSource = 'fallback';
-                  }
-                }
-
+                entry.currency = currencyCode;
+                entry.decimals = decimals;
+                // Signed: a day where the pump ran in dearer-than-average hours is a loss.
+                entry.valueMajor = finalDailySavings;
+                entry.baselineMinor = toMinor(Math.max(0, measuredSavings.baselineCost));
+                entry.optimizedMinor = toMinor(Math.max(0, measuredSavings.actualCost));
+                entry.schemaVersion = SAVINGS_ENTRY_SCHEMA_VERSION;
                 const seasonModeValue = result.energyMetrics?.seasonalMode;
-                let entryUpdated = false;
-
-                // Use finalDailySavings (single source of truth) for widget display
-                if (Number.isFinite(finalDailySavings)) {
-                  entry.currency = currencyCode;
-                  entry.decimals = decimals;
-                  entry.valueMajor = finalDailySavings;
-                  entryUpdated = true;
-                }
-
-                if ((baselineSource === 'optimizer' || baselineSource === 'fallback') &&
-                  baselineCostMajor !== null && optimizedCostMajor !== null) {
-                  entry.currency = currencyCode;
-                  entry.decimals = decimals;
-                  entry.baselineMinor = toMinor(Math.max(0, baselineCostMajor));
-                  // optimizedMinor holds the optimized COST, so that the reader's
-                  // baseline - optimized genuinely yields the saving. It previously held the
-                  // saving itself, which made that subtraction compute cost - saving: a
-                  // quantity with no meaning, summed into the 7-day total and the projection.
-                  entry.optimizedMinor = toMinor(Math.max(0, optimizedCostMajor));
-                  entry.schemaVersion = SAVINGS_ENTRY_SCHEMA_VERSION;
-                  entryUpdated = true;
-                } else if (!hasStoredBaseline && baselineSource !== 'stored') {
-                  homey.app.log('Skipping display_savings_history update: no baseline data available for today');
-                }
-
-                if (seasonModeValue && entry.seasonMode !== seasonModeValue) {
-                  entry.seasonMode = seasonModeValue;
-                  entryUpdated = true;
-                }
+                if (seasonModeValue) entry.seasonMode = seasonModeValue;
+                entry.updatedAt = new Date().toISOString();
 
                 if (entryIndex >= 0) {
                   displayHistory[entryIndex] = entry;
-                } else if (entryUpdated) {
+                } else {
                   displayHistory.push(entry);
                 }
-
-                if (entryUpdated) {
-                  entry.updatedAt = new Date().toISOString();
-                  displayHistory.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-                  const trimmedDisplay = displayHistory.slice(Math.max(0, displayHistory.length - 30));
-                  homey.settings.set('display_savings_history', trimmedDisplay);
-
-                  try {
-                    const baselineLog = baselineCostMajor !== null ? baselineCostMajor.toFixed(2) : 'n/a';
-                    const optimizedLog = optimizedCostMajor !== null ? optimizedCostMajor.toFixed(2) : 'n/a';
-                    homey.app.log(`Updated display_savings_history (${baselineSource || 'stored'}): baseline=${baselineLog}, optimized=${optimizedLog} (${todayStr})`);
-                  } catch (_: any) { }
-                }
+                displayHistory.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+                homey.settings.set('display_savings_history', displayHistory.slice(Math.max(0, displayHistory.length - 30)));
+                homey.app.log(`Updated display_savings_history (measured): baseline=${measuredSavings.baselineCost.toFixed(2)}, optimized=${measuredSavings.actualCost.toFixed(2)}, saving=${finalDailySavings.toFixed(2)} (${todayStr})`);
               }
             } catch (displayErr: any) {
               homey.app.error('Failed to update display_savings_history:', displayErr && displayErr.message ? displayErr.message : String(displayErr));
@@ -2908,21 +2800,19 @@ const apiHandlers: ApiHandlers = {
             // Their valueMajor was always the saving and is correct as stored, so use it
             // directly rather than recomputing. Without this the fix would silently rewrite
             // history to a different wrong number.
-            const isCostSchema = Number(entry.schemaVersion) >= SAVINGS_ENTRY_SCHEMA_VERSION;
+            // Only measured (v3+) entries count. Older ones came from a modelled baseline and
+            // are skipped entirely rather than mixed into the totals.
+            const isMeasured = Number(entry.schemaVersion) >= SAVINGS_ENTRY_SCHEMA_VERSION;
 
-            if (isCostSchema && Number.isFinite(baselineMinor) && Number.isFinite(optimizedMinor)) {
-              baselineMajor = Number(minorToMajor(Math.max(0, baselineMinor), entryDecimals).toFixed(entryDecimals));
-              optimizedMajor = Number(minorToMajor(Math.max(0, optimizedMinor), entryDecimals).toFixed(entryDecimals));
-              const savingsMinor = Math.max(0, baselineMinor - optimizedMinor);
-              valueMajor = Number(minorToMajor(savingsMinor, entryDecimals).toFixed(entryDecimals));
-            } else if (typeof entry.valueMajor === 'number') {
-              // Legacy entry, or a new one with no baseline available: valueMajor is the saving.
+            if (isMeasured && typeof entry.valueMajor === 'number' && Number.isFinite(entry.valueMajor)) {
               if (Number.isFinite(baselineMinor)) {
                 baselineMajor = Number(minorToMajor(Math.max(0, baselineMinor), entryDecimals).toFixed(entryDecimals));
               }
-              valueMajor = Number(entry.valueMajor);
-            } else if (typeof entry.value === 'number') {
-              valueMajor = Number(entry.value);
+              if (Number.isFinite(optimizedMinor)) {
+                optimizedMajor = Number(minorToMajor(Math.max(0, optimizedMinor), entryDecimals).toFixed(entryDecimals));
+              }
+              // Signed: a loss day is shown as a loss.
+              valueMajor = Number(Number(entry.valueMajor).toFixed(entryDecimals));
             }
 
             if (typeof valueMajor === 'number') {
@@ -2959,6 +2849,10 @@ const apiHandlers: ApiHandlers = {
               smartSavingsDisplay.seasonMode = todayHistory.seasonMode;
             }
           }
+
+          // The widget's "Avg savings /day" must be the measured figure too, not the sum of
+          // hourly per-action estimates in savings_history. Null until a measured day exists.
+          savingsMetrics.averageDailySavings = last7Days > 0 ? last7Total / last7Days : null;
 
           if (last7Days > 0) {
             smartSavingsDisplay.last7 = Number(last7Total.toFixed(decimals));
