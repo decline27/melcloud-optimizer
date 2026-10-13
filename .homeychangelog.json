@@ -301,5 +301,8 @@
   },
   "14.0.68": {
     "en": "bug fixes"
+  },
+  "14.0.69": {
+    "en": "Hot water no longer stays cold for hours: when the tank drops below your minimum temperature, the app now raises the tank setpoint a step so the heat pump starts reheating, even during expensive hours."
   }
 }

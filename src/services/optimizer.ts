@@ -2233,10 +2233,30 @@ export class Optimizer {
         }
       }
 
+      // Low-tank kick. The FTC does not start a reheat just because the tank has fallen far
+      // below its setpoint: measured live, the tank sat 16-19 °C under target for hours with the
+      // pump idle, then started within minutes of the setpoint being *raised*. So a 'delay' that
+      // holds the setpoint at the minimum can leave the tank cold indefinitely. Once the tank is
+      // below the user's minimum, raise the setpoint one step above where it is now, whatever the
+      // price: that is the smallest write that starts a reheat. Skipped while a DHW run is
+      // already in progress so a reheat in flight doesn't get re-kicked.
+      const tankWaterTemp = Number(inputs.deviceState.TankWaterTemperature);
+      const dhwRunning = inputs.deviceState.OperationMode === 1;
+      const lowTankKick = Number.isFinite(tankWaterTemp) && tankWaterTemp < tankCons.minTemp && !dhwRunning
+        ? Math.min(tankCons.maxTemp, currentTankTarget + tankCons.tempStep)
+        : null;
+      if (lowTankKick !== null && tankTarget < lowTankKick) {
+        tankTarget = lowTankKick;
+        tankReason = `Tank at ${tankWaterTemp}°C is below minimum ${tankCons.minTemp}°C: ` +
+          `raising setpoint to ${lowTankKick}°C to start a reheat`;
+      }
+
       this.logger.log('Tank target resolved', {
         hwAction: hwAction?.action ?? 'none',
         effectiveAction: effectiveAction ?? 'none',
         scheduledOverride: hwActionOverride ?? null,
+        tankWaterTemp: Number.isFinite(tankWaterTemp) ? tankWaterTemp : null,
+        lowTankKick,
         occupied: this.occupied,
         tankTarget,
         tankReason

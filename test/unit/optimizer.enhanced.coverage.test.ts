@@ -495,3 +495,57 @@ describe('Tank reheat commitment', () => {
     expect(typeof homey.__store.dhw_scheduled_reheat_ms).toBe('number');
   });
 });
+
+describe('Low-tank kick', () => {
+  const logger = createMockLogger();
+  const homey = { settings: { get: jest.fn(), set: jest.fn() } } as any;
+
+  function makeInputs(deviceState: Record<string, any>) {
+    return {
+      deviceState: { SetTankWaterTemperature: 42, ...deviceState },
+      priceStats: { currentPrice: 3.5, priceLevel: 'VERY_EXPENSIVE', pricePercentile: 95 },
+      priceClassification: { thresholds: {} }
+    };
+  }
+
+  function makeOptimizer() {
+    const opt: any = new Optimizer(mockMel, mockTibber, 'device-1', 1, logger as any, undefined, homey);
+    opt.setTankTemperatureConstraints(true, 42, 53, 2);
+    return opt;
+  }
+
+  const delay = { hotWaterAction: { action: 'delay', reason: 'price high' } };
+
+  test('a tank below the minimum gets a one-step raise even while prices are high', async () => {
+    // Live case 2026-10-13: tank 23 °C, setpoint held at the 42 °C minimum, pump idle for hours.
+    const result = await makeOptimizer().optimizeTank(makeInputs({ TankWaterTemperature: 23, OperationMode: 0 }), delay, jest.fn());
+
+    expect(result.toTemp).toBe(44);
+    expect(result.needsApply).toBe(true);
+    expect(result.reason).toContain('below minimum');
+  });
+
+  test('no kick while a DHW run is already in progress', async () => {
+    const result = await makeOptimizer().optimizeTank(makeInputs({ TankWaterTemperature: 30, OperationMode: 1 }), delay, jest.fn());
+
+    expect(result.toTemp).toBe(42);
+    expect(result.reason).not.toContain('below minimum');
+  });
+
+  test('no kick when the tank is at or above the minimum', async () => {
+    const result = await makeOptimizer().optimizeTank(makeInputs({ TankWaterTemperature: 46, OperationMode: 0 }), delay, jest.fn());
+
+    expect(result.toTemp).toBe(42);
+    expect(result.reason).not.toContain('below minimum');
+  });
+
+  test('the kick never exceeds the user maximum', async () => {
+    const result = await makeOptimizer().optimizeTank(
+      makeInputs({ SetTankWaterTemperature: 52, TankWaterTemperature: 30, OperationMode: 0 }),
+      { hotWaterAction: { action: 'maintain', reason: 'no signal' } },
+      jest.fn()
+    );
+
+    expect(result.toTemp).toBeLessThanOrEqual(53);
+  });
+});
