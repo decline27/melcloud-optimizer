@@ -27,6 +27,15 @@
  * steady-state degree-hour model: it ignores the building's heat storage within the window, which
  * mostly cancels over a day. Both parts can be negative and are reported as such.
  *
+ * Two corrections keep weather from being scored as the optimizer's doing (both seen live on a
+ * sunny 2026-10-14, cold morning and 14 °C midday):
+ *  - A normal pump does not run evenly; it runs in proportion to heat demand. Its heating energy
+ *    is priced at the demand-weighted price, Σ price × (baseline − outdoor)⁺ / Σ (baseline −
+ *    outdoor)⁺, so cheap mild hours where nobody would heat do not drag its price down.
+ *    Hot-water energy keeps the plain average.
+ *  - A room above the midpoint counts as extra heating only in proportion to how much the pump
+ *    ran that hour. Sun warming an idle house costs nothing, for either pump.
+ *
  * Storage is bounded: only the last LEDGER_RETENTION_HOURS hour buckets are kept.
  */
 
@@ -86,6 +95,11 @@ export interface RunPriceSavings {
   hoursUsed: number;
   /** Mean price over those hours: what an evenly-running pump would pay. */
   averagePrice: number;
+  /**
+   * Demand-weighted price: what a normal pump pays for heating, running in proportion to
+   * (baseline − outdoor). Equals averagePrice when temperatures or the baseline are missing.
+   */
+  normalPumpHeatingPrice: number;
   /** Run-weighted mean price: what this pump actually paid. */
   paidPrice: number;
   /** Energy attributed to the hours used, kWh. */
@@ -97,13 +111,13 @@ export interface RunPriceSavings {
   energyRatio: number;
   /** Energy a normal pump would have used over the same hours, kWh. */
   baselineEnergyKWh: number;
-  /** baselineEnergyKWh × averagePrice: a normal pump, running evenly. */
+  /** A normal pump: heating at normalPumpHeatingPrice, hot water at averagePrice. */
   baselineCost: number;
   /** energyKWh × paidPrice. */
   actualCost: number;
-  /** From running in cheaper hours: energyKWh × (averagePrice − paidPrice). */
+  /** From running in cheaper hours than a normal pump would, for the same energy. */
   timingSavings: number;
-  /** From using less energy than a normal pump: (baselineEnergyKWh − energyKWh) × averagePrice. */
+  /** From using less heating energy than a normal pump, priced at normalPumpHeatingPrice. */
   energySavings: number;
   /** baselineCost − actualCost = timingSavings + energySavings. */
   savings: number;
@@ -218,15 +232,39 @@ function computeEnergyRatio(hours: LedgerHour[]): number {
   let baselineDegreeHours = 0;
   let actualDegreeHours = 0;
   for (const h of withTemps) {
-    const indoor = (h.indoorSum as number) / (h.tempSamples as number);
+    const measuredIndoor = (h.indoorSum as number) / (h.tempSamples as number);
     const outdoor = (h.outdoorSum as number) / (h.tempSamples as number);
-    baselineDegreeHours += (h.baselineC as number) - outdoor;
+    const baseline = h.baselineC as number;
+    // Above the midpoint, only the share the pump itself produced counts: sun on an idle
+    // house would have warmed the normal pump's house just the same.
+    const duty = h.total > 0 ? h.run / h.total : 0;
+    const indoor = measuredIndoor > baseline
+      ? baseline + (measuredIndoor - baseline) * duty
+      : measuredIndoor;
+    baselineDegreeHours += baseline - outdoor;
     actualDegreeHours += indoor - outdoor;
   }
 
   if (actualDegreeHours / withTemps.length < MIN_MEAN_GRADIENT_C || baselineDegreeHours <= 0) return 1;
   const ratio = baselineDegreeHours / actualDegreeHours;
   return Math.min(ENERGY_RATIO_MAX, Math.max(ENERGY_RATIO_MIN, ratio));
+}
+
+/**
+ * Price a normal pump pays for heating: each hour weighted by its heat demand
+ * (baseline − outdoor)⁺. Null when no hour has temperatures, a baseline and positive demand.
+ */
+function computeDemandWeightedPrice(hours: LedgerHour[]): number | null {
+  let weightSum = 0;
+  let weightedPrice = 0;
+  for (const h of hours) {
+    if (!((h.tempSamples ?? 0) > 0) || !Number.isFinite(h.baselineC) || typeof h.price !== 'number') continue;
+    const outdoor = (h.outdoorSum as number) / (h.tempSamples as number);
+    const demand = Math.max(0, (h.baselineC as number) - outdoor);
+    weightSum += demand;
+    weightedPrice += demand * h.price;
+  }
+  return weightSum > 0 ? weightedPrice / weightSum : null;
 }
 
 /**
@@ -268,17 +306,21 @@ export function computeRunPriceSavings(
     ? Math.min(energyKWh, (dailyHeatingKWh as number) * windowShare)
     : 0;
 
-  const energyRatio = heatingKWh > 0 ? computeEnergyRatio(usable.map(({ hour }) => hour)) : 1;
-  const baselineEnergyKWh = energyKWh - heatingKWh + heatingKWh * energyRatio;
+  const hours = usable.map(({ hour }) => hour);
+  const energyRatio = heatingKWh > 0 ? computeEnergyRatio(hours) : 1;
+  const normalPumpHeatingPrice = computeDemandWeightedPrice(hours) ?? averagePrice;
+  const otherKWh = energyKWh - heatingKWh;
+  const baselineEnergyKWh = otherKWh + heatingKWh * energyRatio;
 
-  const baselineCost = baselineEnergyKWh * averagePrice;
+  const baselineCost = heatingKWh * energyRatio * normalPumpHeatingPrice + otherKWh * averagePrice;
   const actualCost = energyKWh * paidPrice;
-  const timingSavings = energyKWh * (averagePrice - paidPrice);
-  const energySavings = (baselineEnergyKWh - energyKWh) * averagePrice;
+  const timingSavings = heatingKWh * (normalPumpHeatingPrice - paidPrice) + otherKWh * (averagePrice - paidPrice);
+  const energySavings = heatingKWh * (energyRatio - 1) * normalPumpHeatingPrice;
 
   return {
     hoursUsed: usable.length,
     averagePrice,
+    normalPumpHeatingPrice,
     paidPrice,
     energyKWh,
     energyRatio,

@@ -313,5 +313,8 @@
   },
   "14.0.72": {
     "en": "Heating now pauses during expensive hours when the room is warm enough, instead of running through morning and evening price peaks. It never lets the room fall below your comfort minimum. Also fixed: the tank could be set 1 °C above your maximum; the last hour of each day was missing from savings; the monthly projection now waits for a full day of data."
+  },
+  "14.0.73": {
+    "en": "Fairer savings comparison: the normal heat pump it is compared with now heats mostly when it is cold outside, like a real one, instead of evenly all day. A room warmed above the comfort midpoint by the sun no longer counts against the optimizer."
   }
 }

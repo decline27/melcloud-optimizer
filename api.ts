@@ -890,6 +890,7 @@ const apiHandlers: ApiHandlers = {
               hoursUsed: measuredSavings.hoursUsed,
               baselineC,
               averagePrice: measuredSavings.averagePrice.toFixed(4),
+              normalPumpHeatingPrice: measuredSavings.normalPumpHeatingPrice.toFixed(4),
               paidPrice: measuredSavings.paidPrice.toFixed(4),
               energyKWh: measuredSavings.energyKWh.toFixed(2),
               baselineEnergyKWh: measuredSavings.baselineEnergyKWh.toFixed(2),

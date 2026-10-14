@@ -143,6 +143,43 @@ describe('run-price ledger', () => {
       expect(r.energyRatio).toBeLessThanOrEqual(1.3);
     });
 
+    test('sun warming an idle house above the midpoint is not an energy cost', () => {
+      // Pump idle (0 runs), room 23.5 from sun, outdoor 13: a normal pump would be idle too.
+      const sunny = { hours: {
+        [DAY0]: { run: 0, total: 12, price: 1, baselineC: 22, indoorSum: 23.5 * 12, outdoorSum: 13 * 12, tempSamples: 12 },
+        [DAY0 + HOUR]: { run: 0, total: 12, price: 1, baselineC: 22, indoorSum: 23.5 * 12, outdoorSum: 13 * 12, tempSamples: 12 }
+      } };
+      const r = computeRunPriceSavings(sunny, DAY0, DAY0 + 2 * HOUR, 24, 12)!;
+      expect(r.energyRatio).toBeCloseTo(1);
+      expect(r.energySavings).toBeCloseTo(0);
+    });
+
+    test('a normal pump pays the demand-weighted price, not the flat average', () => {
+      // Cold expensive morning (outdoor 2, price 3) and a mild cheap midday (outdoor 18, price 1).
+      // Demand weights 20 and 4: the normal pump mostly heats in the morning.
+      const day = { hours: {
+        [DAY0]: { run: 12, total: 12, price: 3, baselineC: 22, indoorSum: 22 * 12, outdoorSum: 2 * 12, tempSamples: 12 },
+        [DAY0 + HOUR]: { run: 2, total: 12, price: 1, baselineC: 22, indoorSum: 22 * 12, outdoorSum: 18 * 12, tempSamples: 12 }
+      } };
+      const r = computeRunPriceSavings(day, DAY0, DAY0 + 2 * HOUR, 24, 24)!;
+      expect(r.averagePrice).toBeCloseTo(2);
+      expect(r.normalPumpHeatingPrice).toBeCloseTo((20 * 3 + 4 * 1) / 24);
+      // Running mostly in the cold hour is what a normal pump does too, so it is not a timing loss
+      // against the normal pump the way it would be against the flat average.
+      const flatTiming = r.energyKWh * (r.averagePrice - r.paidPrice);
+      expect(r.timingSavings).toBeGreaterThan(flatTiming);
+    });
+
+    test('timing and energy parts always add up to the total', () => {
+      const day = { hours: {
+        [DAY0]: { run: 9, total: 12, price: 2.3, baselineC: 22, indoorSum: 21.5 * 12, outdoorSum: 11 * 12, tempSamples: 12 },
+        [DAY0 + HOUR]: { run: 3, total: 12, price: 0.9, baselineC: 22, indoorSum: 22.8 * 12, outdoorSum: 13 * 12, tempSamples: 12 }
+      } };
+      const r = computeRunPriceSavings(day, DAY0, DAY0 + 2 * HOUR, 6, 4.4)!;
+      expect(r.timingSavings + r.energySavings).toBeCloseTo(r.savings);
+      expect(r.baselineCost - r.actualCost).toBeCloseTo(r.savings);
+    });
+
     test('poll temperatures and the hourly baseline are recorded', () => {
       const settings = makeSettings();
       recordRunSample(settings, DAY0 + 60000, true, 21.5, 4);
