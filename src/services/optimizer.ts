@@ -1435,16 +1435,11 @@ export class Optimizer {
     }
 
     // Collect thermal learning data point AFTER weather fetch to use real weather data.
-    // Skipped outside Room mode: the thermal analyser derives its heating rate from
-    // (targetTemperature - indoorTemperature), and in Flow/Curve mode the setpoint is a water
-    // reference (e.g. 29°C) rather than a room target. That inflates the denominator and holds
-    // the heating branch permanently open, which is how the model learned a negative heating rate.
-    if (this.useThermalLearning && this.thermalModelService && !roomTargetIsRoomTemp) {
-      this.logger.log(
-        `Thermal data point skipped — zone1 is in ${describeZoneMode(operationModeZone1)} mode; ` +
-        `setpoint ${currentTarget ?? 'n/a'}°C is a water/curve reference, not a room target`
-      );
-    } else if (this.useThermalLearning && this.thermalModelService) {
+    // Collected in every mode, tagged with it. Outside Room mode the curve, not the setpoint,
+    // decides how fast the room heats, so the analyser learns only the cooling rate from those
+    // points (from whole heating-off stretches). The August "negative heating rate" came from
+    // reading the ATA-shaped SetTemperature field (29 °C), not from the zone mode itself.
+    if (this.useThermalLearning && this.thermalModelService) {
       try {
         const dataPoint = {
           timestamp: new Date().toISOString(),
@@ -1452,6 +1447,7 @@ export class Optimizer {
           outdoorTemperature: outdoorTemp,
           targetTemperature: currentTarget ?? 20,
           heatingActive: !deviceState.IdleZone1,
+          roomTargetMode: roomTargetIsRoomTemp,
           weatherConditions: weatherInfo?.current ? {
             windSpeed: weatherInfo.current.windSpeed ?? 0,
             humidity: weatherInfo.current.humidity ?? 0,
@@ -1465,6 +1461,8 @@ export class Optimizer {
           outdoorTemp: dataPoint.outdoorTemperature,
           targetTemp: dataPoint.targetTemperature,
           heatingActive: dataPoint.heatingActive,
+          zoneMode: describeZoneMode(operationModeZone1),
+          learns: roomTargetIsRoomTemp ? 'heating and cooling' : 'cooling only',
           hasWeather: !!weatherInfo?.current
         });
       } catch (error) {

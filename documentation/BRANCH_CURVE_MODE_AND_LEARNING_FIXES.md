@@ -507,6 +507,15 @@ coasting. **Never switch a user's mode silently.**
 - Yesterday's savings entry is finalised after midnight (its last hour was dropped); the projection
   and daily average use completed days only; the reader uses the local date, not UTC.
 
+**2026-10-14 (14.0.73–74):**
+- Measured savings no longer score weather: the normal pump's heating is priced at the
+  demand-weighted price (Σ price·(baseline − outdoor)⁺), and room excess above the midpoint counts
+  only in proportion to the pump's run share.
+- Thermal data is collected in every zone mode again, tagged `roomTargetMode`. Non-Room points teach
+  only the cooling rate, from whole heating-off stretches of ≥ 2 h (`coolingRatesFromStretches`), so
+  0.5 °C sensor quantisation no longer biases the rate upwards. The heating rate is never learned
+  outside Room mode. `modelConfidence` is still a point count, not accuracy.
+
 **Phase 5 — COP weighting.** `delivered_price / COP(forecast_ambient)`. A curve already exists at
 `data/cop_curve.csv` (keyed by `temp_out_c, delta_c`) with a bilinear interpolator in
 `simulate.ts`, but it is never loaded at runtime. Guard the division — EMHASS has a live COP

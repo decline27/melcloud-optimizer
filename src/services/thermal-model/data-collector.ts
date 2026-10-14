@@ -59,6 +59,12 @@ export interface ThermalDataPoint {
     precipitation: number;
   };
   energyUsage?: number; // Optional if available from MELCloud
+  /**
+   * False when zone 1 was not in Room mode (Curve/Flow) at collection time. Then
+   * (target - indoor) says whether heat flowed, not how fast, so the point may only teach the
+   * cooling rate. Absent on points collected before this field existed, which were all Room mode.
+   */
+  roomTargetMode?: boolean;
 }
 
 export interface AggregatedDataPoint {

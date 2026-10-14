@@ -48,6 +48,56 @@ export interface HeatingPrediction {
 // Settings key for thermal characteristics storage
 const THERMAL_CHARACTERISTICS_SETTINGS_KEY = 'thermal_model_characteristics';
 
+/**
+ * Shortest heating-off stretch used for a cooling-rate sample. MELCloud reports room temperature
+ * in 0.5 °C steps, so over a single hour most real cooling reads as "no change"; a pairwise
+ * method then keeps only the pairs that happened to tick down, which overstates the rate.
+ */
+const MIN_COOLING_STRETCH_HOURS = 2;
+
+/** Points further apart than this break a stretch (a missed run means unknown heating state). */
+const MAX_STRETCH_GAP_HOURS = 1.5;
+
+/**
+ * Cooling rates (h⁻¹ per °C of indoor-outdoor difference) from whole heating-off stretches of
+ * non-Room-mode points. A stretch that warmed (sun, cooking) is skipped: it measures free gains,
+ * not heat loss. A stretch with no measurable drop counts as zero rather than being dropped, so
+ * sensor quantisation does not bias the rate upwards.
+ */
+export function coolingRatesFromStretches(sortedData: ThermalDataPoint[]): number[] {
+  const rates: number[] = [];
+  const hoursBetween = (a: ThermalDataPoint, b: ThermalDataPoint) =>
+    (DateTime.fromISO(b.timestamp).toMillis() - DateTime.fromISO(a.timestamp).toMillis()) / 3600000;
+
+  const flush = (stretch: ThermalDataPoint[]) => {
+    if (stretch.length < 2) return;
+    const first = stretch[0];
+    const last = stretch[stretch.length - 1];
+    const duration = hoursBetween(first, last);
+    if (duration < MIN_COOLING_STRETCH_HOURS) return;
+    const drop = first.indoorTemperature - last.indoorTemperature;
+    if (drop < 0) return;
+    const meanGradient = stretch.reduce((sum, p) => sum + (p.indoorTemperature - p.outdoorTemperature), 0) / stretch.length;
+    if (meanGradient <= 0) return;
+    const rate = (drop / duration) / meanGradient;
+    if (Number.isFinite(rate)) rates.push(rate);
+  };
+
+  let stretch: ThermalDataPoint[] = [];
+  for (const point of sortedData) {
+    const eligible = point.roomTargetMode === false && !point.heatingActive;
+    const contiguous = stretch.length === 0 || hoursBetween(stretch[stretch.length - 1], point) <= MAX_STRETCH_GAP_HOURS;
+    if (eligible && contiguous) {
+      stretch.push(point);
+      continue;
+    }
+    flush(stretch);
+    stretch = eligible ? [point] : [];
+  }
+  flush(stretch);
+  return rates;
+}
+
 export class ThermalAnalyzer {
   private thermalCharacteristics!: ThermalCharacteristics; // Using definite assignment assertion
   private minimumDataPointsRequired: number = 24; // Require at least 24 data points for initial model
@@ -146,8 +196,11 @@ export class ThermalAnalyzer {
       // Target-indoor temperature difference
       const targetDiff = previous.targetTemperature - previous.indoorTemperature;
 
-      // Calculate rates
-      if (previous.heatingActive && targetDiff > 0) {
+      // Calculate rates. Pairwise rates are only taken from Room-mode points; Curve/Flow points
+      // contribute cooling from whole heating-off stretches below (see coolingRatesFromStretches).
+      if (previous.roomTargetMode === false) {
+        // fall through to the outdoor/wind impact terms only
+      } else if (previous.heatingActive && targetDiff > 0) {
         // Heating rate calculation
         const rate = (tempChange / timeDiff) / targetDiff;
         if (!isNaN(rate) && isFinite(rate)) {
@@ -188,6 +241,8 @@ export class ThermalAnalyzer {
         }
       }
     }
+
+    coolingRates.push(...coolingRatesFromStretches(sortedData));
 
     // Update the model with new calculated values
     // Adaptive blend factor: increases with confidence to reduce anchor bias

@@ -671,7 +671,8 @@ export class ThermalModelService {
         outdoorTemperature,
         targetTemperature,
         heatingActive,
-        weatherConditions
+        weatherConditions,
+        ...(typeof dataPoint.roomTargetMode === 'boolean' ? { roomTargetMode: dataPoint.roomTargetMode } : {})
       };
 
       // Add to collector

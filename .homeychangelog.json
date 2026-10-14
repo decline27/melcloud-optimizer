@@ -316,5 +316,8 @@
   },
   "14.0.73": {
     "en": "Fairer savings comparison: the normal heat pump it is compared with now heats mostly when it is cold outside, like a real one, instead of evenly all day. A room warmed above the comfort midpoint by the sun no longer counts against the optimizer."
+  },
+  "14.0.74": {
+    "en": "The house model learns again when the heat pump runs on its weather curve: it measures how fast the house cools while heating is off, which the app uses to judge how long it can pause heating. Model confidence starts rising after about a day of data."
   }
 }
