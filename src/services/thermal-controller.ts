@@ -51,6 +51,11 @@ const BOOST_SAVINGS_FACTOR = 0.15;
 
 // Scalable constants - these are caps/defaults, actual values derived from thermal model
 const MAX_COASTING_HOURS_CAP = 6;
+/**
+ * A coasting setpoint sits at least this far below the room so the room-sensor gate actually
+ * switches heating off. MELCloud reports room temperature, and accepts setpoints, in 0.5 °C.
+ */
+const COAST_BELOW_ROOM_C = 0.5;
 const COASTING_HOURS_PER_CAPACITY = 1.5;  // Hours of coasting per unit thermal capacity
 const PREHEAT_DURATION_CAP = 3;
 const PREHEAT_HOURS_PER_CAPACITY = 0.8;   // Hours of preheat per unit thermal capacity
@@ -389,9 +394,24 @@ export class ThermalController {
                     houseContext
                 };
 
-            } else if (currentPricePercentile >= (1.0 - preheatCheapPercentile * adaptiveThresholds.veryCheapMultiplier) && currentTemp > targetTemp - 0.5) {
-                // Coasting logic - scale max coasting with thermal capacity
-                const coastingTarget = Math.max(targetTemp - adaptiveThresholds.coastingReduction, comfortBand.minTemp);
+            } else if (currentPricePercentile >= expensiveThreshold && currentTemp > comfortBand.minTemp) {
+                // Coasting: stop heating through an expensive hour while the room has headroom
+                // above the user's comfort minimum.
+                //
+                // Price: the same "expensive" threshold this controller uses everywhere else. It
+                // was previously the stricter very-cheap mirror (top ~20 %), although coasting
+                // pays at any delivered price ratio and saves energy as well as money.
+                // Comfort: the test is headroom above the band minimum, not closeness to the
+                // current target. The old `currentTemp > targetTemp - 0.5` failed at exactly
+                // 0.5 below target - 2026-10-14 07:00, room 21.5 / target 22 at 2.33 SEK/kWh, so
+                // the pump ran flat out through the morning peak.
+                // Target: below the room. With a room sensor the setpoint is an on/off gate (also
+                // in Curve mode), so heating only stops if the setpoint is under the room
+                // temperature. Never below the comfort minimum.
+                const coastingTarget = Math.max(
+                    Math.min(targetTemp - adaptiveThresholds.coastingReduction, currentTemp - COAST_BELOW_ROOM_C),
+                    comfortBand.minTemp
+                );
                 // Derive max coasting hours from thermal capacity: higher capacity = longer safe coasting
                 // Apply learned multiplier for fine-tuning based on actual thermal response
                 const baseCoastingHours = this.thermalMassModel.thermalCapacity * COASTING_HOURS_PER_CAPACITY;

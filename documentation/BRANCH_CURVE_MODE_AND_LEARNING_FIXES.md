@@ -496,6 +496,17 @@ coasting. **Never switch a user's mode silently.**
   run-weighted price). The modelled baseline had shown 45–60 SEK/day. Pre-v3 history entries are no
   longer counted.
 
+**2026-10-14 (14.0.71–72):**
+- Savings also include an energy part against a normal pump at the comfort-band midpoint
+  (steady-state degree-hours from polled room/outdoor temperature).
+- First full measured night: the pump ran flat out 07–09 at 2.33 SEK/kWh with room 21.5 / target 22.
+  The coast branch never fired: it needed a top-~20 % price and `room > target − 0.5` (strict, so
+  21.5 vs 22 failed). Coasting now uses the controller's own expensive threshold, requires headroom
+  above the comfort minimum, and sets the target below the room (gate) but never below the minimum.
+- `applySetpointConstraints` re-clamps after step rounding (tank max 53 on a 2 °C grid had become 54).
+- Yesterday's savings entry is finalised after midnight (its last hour was dropped); the projection
+  and daily average use completed days only; the reader uses the local date, not UTC.
+
 **Phase 5 — COP weighting.** `delivered_price / COP(forecast_ambient)`. A curve already exists at
 `data/cop_curve.csv` (keyed by `temp_out_c, delta_c`) with a bilinear interpolator in
 `simulate.ts`, but it is never loaded at runtime. Guard the division — EMHASS has a live COP

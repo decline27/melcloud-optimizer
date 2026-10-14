@@ -310,5 +310,8 @@
   },
   "14.0.71": {
     "en": "Savings now compare with a normal heat pump that holds the middle of your comfort band and runs evenly through the day. Both parts are counted: buying heat in cheaper hours, and using less energy when the room is allowed to drift lower in expensive hours."
+  },
+  "14.0.72": {
+    "en": "Heating now pauses during expensive hours when the room is warm enough, instead of running through morning and evening price peaks. It never lets the room fall below your comfort minimum. Also fixed: the tank could be set 1 °C above your maximum; the last hour of each day was missing from savings; the monthly projection now waits for a full day of data."
   }
 }

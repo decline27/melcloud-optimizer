@@ -137,10 +137,18 @@ export function applySetpointConstraints(input: SetpointConstraintsInput): Setpo
     };
   }
 
-  const stepped = roundToStep(constrained, stepC);
+  let stepped = roundToStep(constrained, stepC);
   const stepApplied = Math.abs(stepped - constrained) > EPS;
   if (stepApplied) {
     notes.push(`rounded to ${stepC}°C step`);
+  }
+  // Rounding can land outside the user's bounds: a 53 °C maximum on a 2 °C grid rounds to 54
+  // (seen live on the tank, 2026-10-13). So can a ramp that starts from a target already outside
+  // the band. The bounds are the user's and are never exceeded.
+  if (stepped > maxC + EPS || stepped < minC - EPS) {
+    stepped = clamp(stepped, minC, maxC);
+    clampApplied = true;
+    notes.push(`kept within ${minC}-${maxC}°C after rounding`);
   }
 
   const deltaC = stepped - current;

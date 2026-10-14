@@ -293,3 +293,51 @@ describe('maxDeltaPerChangeC ramp limiting', () => {
     expect(result.constrainedC).toBe(20);
   });
 });
+
+describe('rounding never leaves the user bounds', () => {
+  // Live 2026-10-13: tank max 53 °C, step 2 °C, ramp 4 °C. 50 -> proposed 53 rounded to 54.
+  test('a maximum off the step grid is not exceeded by rounding', () => {
+    const result = applySetpointConstraints({
+      proposedC: 53,
+      currentTargetC: 50,
+      minC: 42,
+      maxC: 53,
+      stepC: 2,
+      deadbandC: 2,
+      minChangeMinutes: 0,
+      lastChangeMs: null,
+      maxDeltaPerChangeC: 4
+    });
+    expect(result.constrainedC).toBe(53);
+    expect(result.changed).toBe(true);
+    expect(result.reason).toContain('kept within 42-53');
+  });
+
+  test('a minimum off the step grid is not undercut by rounding', () => {
+    const result = applySetpointConstraints({
+      proposedC: 41,
+      currentTargetC: 46,
+      minC: 41,
+      maxC: 53,
+      stepC: 2,
+      deadbandC: 2,
+      minChangeMinutes: 0,
+      lastChangeMs: null
+    });
+    expect(result.constrainedC).toBeGreaterThanOrEqual(41);
+  });
+
+  test('values on the grid inside the bounds are untouched', () => {
+    const result = applySetpointConstraints({
+      proposedC: 52,
+      currentTargetC: 48,
+      minC: 42,
+      maxC: 53,
+      stepC: 2,
+      deadbandC: 2,
+      minChangeMinutes: 0,
+      lastChangeMs: null
+    });
+    expect(result.constrainedC).toBe(52);
+  });
+});

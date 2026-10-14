@@ -132,6 +132,19 @@ export function localDayStartMs(nowMs: number, tzOffsetHours: number, useDST: bo
   return Math.floor((nowMs + offsetMs) / DAY_MS) * DAY_MS - offsetMs;
 }
 
+/** Local calendar date (YYYY-MM-DD) for `nowMs`, by the same offset rule as localDayStartMs. */
+export function localDateString(nowMs: number, tzOffsetHours: number, useDST: boolean): string {
+  const dayStart = localDayStartMs(nowMs, tzOffsetHours, useDST);
+  // Midday of the local day is unambiguously inside it whatever the offset.
+  const localMidday = dayStart + 12 * HOUR_MS;
+  let offsetHours = Number.isFinite(tzOffsetHours) ? tzOffsetHours : 0;
+  if (useDST) {
+    const month = new Date(nowMs).getUTCMonth();
+    if (month > 2 && month < 10) offsetHours += 1;
+  }
+  return new Date(localMidday + offsetHours * HOUR_MS).toISOString().slice(0, 10);
+}
+
 function readLedger(settings: SettingsLike): RunPriceLedger {
   const raw = settings.get(RUN_PRICE_LEDGER_SETTING);
   if (raw && typeof raw === 'object' && raw.hours && typeof raw.hours === 'object') {

@@ -3,6 +3,7 @@ import {
   hourStartMs,
   isRunningOperationMode,
   LEDGER_RETENTION_HOURS,
+  localDateString,
   localDayStartMs,
   readRunPriceLedger,
   recordHourPrice,
@@ -160,5 +161,14 @@ describe('run-price ledger', () => {
     // Without DST the same instant is still 12 Oct locally (23:30), starting at 23:00 UTC on 11 Oct.
     expect(localDayStartMs(now, 1, false)).toBe(Date.UTC(2026, 9, 11, 23, 0));
     expect(hourStartMs(now)).toBe(Date.UTC(2026, 9, 12, 22, 0));
+  });
+});
+
+describe('local date', () => {
+  test('is the local day, not the UTC day, in the first local hours', () => {
+    // 14 Oct 00:30 CEST is still 13 Oct in UTC.
+    const now = Date.UTC(2026, 9, 13, 22, 30);
+    expect(localDateString(now, 1, true)).toBe('2026-10-14');
+    expect(localDateString(Date.UTC(2026, 9, 14, 12, 0), 1, true)).toBe('2026-10-14');
   });
 });

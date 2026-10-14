@@ -67,6 +67,7 @@ import {
 import { buildDecisionFromOptimization, buildPlaceholderDecision } from './src/util/decision-helper';
 import {
   computeRunPriceSavings,
+  localDateString,
   localDayStartMs,
   readRunPriceLedger,
   recordHourPrice,
@@ -860,6 +861,9 @@ const apiHandlers: ApiHandlers = {
         // (run-weighted) against the day's average price. This replaces the modelled baseline as
         // the displayed figure; see src/util/run-price-ledger.ts for why.
         let measuredSavings: RunPriceSavings | null = null;
+        // Yesterday's full day, so its last hour (whose polls arrive after the last run of the
+        // day) is counted once the day is over.
+        let measuredYesterday: RunPriceSavings | null = null;
         try {
           const nowMs = Date.now();
           const currentPrice = Number(result.priceData?.current);
@@ -876,13 +880,11 @@ const apiHandlers: ApiHandlers = {
             parseInt(homey.settings.get('time_zone_offset')),
             !!homey.settings.get('use_dst')
           );
-          measuredSavings = computeRunPriceSavings(
-            readRunPriceLedger(homey.settings),
-            dayStartMs,
-            nowMs + 1,
-            Number(result.energyMetrics?.dailyEnergyConsumption),
-            Number(result.energyMetrics?.dailyHeatingConsumption)
-          );
+          const ledger = readRunPriceLedger(homey.settings);
+          const dailyEnergy = Number(result.energyMetrics?.dailyEnergyConsumption);
+          const dailyHeating = Number(result.energyMetrics?.dailyHeatingConsumption);
+          measuredSavings = computeRunPriceSavings(ledger, dayStartMs, nowMs + 1, dailyEnergy, dailyHeating);
+          measuredYesterday = computeRunPriceSavings(ledger, dayStartMs - 24 * 3600000, dayStartMs, dailyEnergy, dailyHeating);
           if (measuredSavings) {
             homey.app.log('Measured savings vs a normal heat pump at the comfort-band midpoint', {
               hoursUsed: measuredSavings.hoursUsed,
@@ -1219,30 +1221,39 @@ const apiHandlers: ApiHandlers = {
             try {
               // Only measured data is written. Days without ledger data keep no entry rather
               // than a modelled one; see src/util/run-price-ledger.ts.
-              if (measuredSavings) {
+              if (measuredSavings || measuredYesterday) {
                 const displayHistoryRaw = homey.settings.get('display_savings_history') || [];
                 const displayHistory = Array.isArray(displayHistoryRaw) ? displayHistoryRaw.slice() : [];
-                const entryIndex = displayHistory.findIndex((item: any) => item && item.date === todayStr);
-                const entry = entryIndex >= 0 ? { ...displayHistory[entryIndex] } : { date: todayStr };
-                entry.currency = currencyCode;
-                entry.decimals = decimals;
-                // Signed: a day where the pump ran in dearer-than-average hours is a loss.
-                entry.valueMajor = finalDailySavings;
-                entry.baselineMinor = toMinor(Math.max(0, measuredSavings.baselineCost));
-                entry.optimizedMinor = toMinor(Math.max(0, measuredSavings.actualCost));
-                entry.schemaVersion = SAVINGS_ENTRY_SCHEMA_VERSION;
-                const seasonModeValue = result.energyMetrics?.seasonalMode;
-                if (seasonModeValue) entry.seasonMode = seasonModeValue;
-                entry.updatedAt = new Date().toISOString();
+                const upsert = (date: string, measured: RunPriceSavings, final: boolean) => {
+                  const index = displayHistory.findIndex((item: any) => item && item.date === date);
+                  const entry = index >= 0 ? { ...displayHistory[index] } : { date };
+                  entry.currency = currencyCode;
+                  entry.decimals = decimals;
+                  // Signed: a day where the pump ran in dearer-than-average hours is a loss.
+                  entry.valueMajor = measured.savings;
+                  entry.baselineMinor = toMinor(Math.max(0, measured.baselineCost));
+                  entry.optimizedMinor = toMinor(Math.max(0, measured.actualCost));
+                  entry.schemaVersion = SAVINGS_ENTRY_SCHEMA_VERSION;
+                  entry.final = final;
+                  const seasonModeValue = result.energyMetrics?.seasonalMode;
+                  // Today follows the current season; a finalised day keeps the one it had.
+                  if (seasonModeValue && (!final || !entry.seasonMode)) entry.seasonMode = seasonModeValue;
+                  entry.updatedAt = new Date().toISOString();
+                  if (index >= 0) displayHistory[index] = entry; else displayHistory.push(entry);
+                  homey.app.log(`Updated display_savings_history (measured${final ? ', final' : ''}): baseline=${measured.baselineCost.toFixed(2)}, optimized=${measured.actualCost.toFixed(2)}, saving=${measured.savings.toFixed(2)} (${date})`);
+                };
 
-                if (entryIndex >= 0) {
-                  displayHistory[entryIndex] = entry;
-                } else {
-                  displayHistory.push(entry);
+                if (measuredSavings) upsert(todayStr, measuredSavings, false);
+
+                // Finalise yesterday once, after midnight, with every hour of the day included.
+                const yesterdayStr = new Date(Date.parse(`${todayStr}T00:00:00Z`) - 24 * 3600000).toISOString().slice(0, 10);
+                const yesterdayEntry = displayHistory.find((item: any) => item && item.date === yesterdayStr);
+                if (measuredYesterday && yesterdayEntry?.final !== true) {
+                  upsert(yesterdayStr, measuredYesterday, true);
                 }
+
                 displayHistory.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
                 homey.settings.set('display_savings_history', displayHistory.slice(Math.max(0, displayHistory.length - 30)));
-                homey.app.log(`Updated display_savings_history (measured): baseline=${measuredSavings.baselineCost.toFixed(2)}, optimized=${measuredSavings.actualCost.toFixed(2)}, saving=${finalDailySavings.toFixed(2)} (${todayStr})`);
               }
             } catch (displayErr: any) {
               homey.app.error('Failed to update display_savings_history:', displayErr && displayErr.message ? displayErr.message : String(displayErr));
@@ -2774,7 +2785,13 @@ const apiHandlers: ApiHandlers = {
 
       if (displaySavingsHistoryRaw && Array.isArray(displaySavingsHistoryRaw)) {
         try {
-          const todayIso = new Date().toISOString().slice(0, 10);
+          // Local date, matching how the writer names entries (not the UTC date, which is still
+          // yesterday for the first local hours of the day).
+          const todayIso = localDateString(
+            Date.now(),
+            parseInt(homey.settings.get('time_zone_offset')),
+            !!homey.settings.get('use_dst')
+          );
           const todayMidnight = new Date(`${todayIso}T00:00:00`);
           const last7Cutoff = new Date(todayMidnight);
           last7Cutoff.setDate(todayMidnight.getDate() - 6);
@@ -2796,6 +2813,10 @@ const apiHandlers: ApiHandlers = {
 
           let last7Total = 0;
           let last7Days = 0;
+          // Completed days only, for the average and the projection: a few hours of one day
+          // projected to a month is noise (it showed -10.5/month from ~12 hours on 2026-10-14).
+          let completedTotal = 0;
+          let completedDays = 0;
           for (const entry of entries) {
             if (!entry || !entry.date) continue;
             const entryDate = new Date(`${entry.date}T00:00:00`);
@@ -2806,11 +2827,6 @@ const apiHandlers: ApiHandlers = {
             let optimizedMajor: number | null = null;
             let valueMajor: number | null = null;
 
-            // Entries written before SAVINGS_ENTRY_SCHEMA_VERSION stored the *saving* in
-            // optimizedMinor, so subtracting it from the baseline would yield cost - saving.
-            // Their valueMajor was always the saving and is correct as stored, so use it
-            // directly rather than recomputing. Without this the fix would silently rewrite
-            // history to a different wrong number.
             // Only measured (v3+) entries count. Older ones came from a modelled baseline and
             // are skipped entirely rather than mixed into the totals.
             const isMeasured = Number(entry.schemaVersion) >= SAVINGS_ENTRY_SCHEMA_VERSION;
@@ -2842,6 +2858,10 @@ const apiHandlers: ApiHandlers = {
             if (typeof valueMajor === 'number') {
               last7Total += valueMajor;
               last7Days += 1;
+              if (entry.date < todayIso) {
+                completedTotal += valueMajor;
+                completedDays += 1;
+              }
             }
           }
 
@@ -2862,18 +2882,14 @@ const apiHandlers: ApiHandlers = {
           }
 
           // The widget's "Avg savings /day" must be the measured figure too, not the sum of
-          // hourly per-action estimates in savings_history. Null until a measured day exists.
-          savingsMetrics.averageDailySavings = last7Days > 0 ? last7Total / last7Days : null;
+          // hourly per-action estimates in savings_history. Null until a completed day exists.
+          savingsMetrics.averageDailySavings = completedDays > 0 ? completedTotal / completedDays : null;
 
           if (last7Days > 0) {
             smartSavingsDisplay.last7 = Number(last7Total.toFixed(decimals));
-            const avgDaily = last7Total / last7Days;
-            const projectionMonthly = avgDaily * 30;
-            if (!Number.isNaN(projectionMonthly)) {
-              smartSavingsDisplay.projection = Number(projectionMonthly.toFixed(decimals));
-            }
-          } else if (smartSavingsDisplay.today !== null) {
-            const projectionMonthly = smartSavingsDisplay.today * 30;
+          }
+          if (completedDays > 0) {
+            const projectionMonthly = (completedTotal / completedDays) * 30;
             if (!Number.isNaN(projectionMonthly)) {
               smartSavingsDisplay.projection = Number(projectionMonthly.toFixed(decimals));
             }

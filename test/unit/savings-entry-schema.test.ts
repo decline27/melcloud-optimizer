@@ -97,3 +97,30 @@ describe('savings history entry semantics', () => {
     expect(total).toBeCloseTo(3.0, 2);
   });
 });
+
+/** Mirrors the projection in api.ts: completed (pre-today) measured days only. */
+function monthlyProjection(entries: HistoryEntry[], todayIso: string): number | null {
+  const completed = entries
+    .filter(e => e.date < todayIso)
+    .map(e => readSaving(e))
+    .filter((v): v is number => typeof v === 'number');
+  if (completed.length === 0) return null;
+  return (completed.reduce((a, b) => a + b, 0) / completed.length) * 30;
+}
+
+describe('projection', () => {
+  test('a partial day alone does not produce a projection', () => {
+    // Live 2026-10-14: ~12 hours of data projected to -10.5/month.
+    const entries: HistoryEntry[] = [{ date: '2026-10-14', valueMajor: -0.35, schemaVersion: 3 }];
+    expect(monthlyProjection(entries, '2026-10-14')).toBeNull();
+  });
+
+  test('projects from completed days and ignores today', () => {
+    const entries: HistoryEntry[] = [
+      { date: '2026-10-14', valueMajor: 1.0, schemaVersion: 3 },
+      { date: '2026-10-15', valueMajor: 3.0, schemaVersion: 3 },
+      { date: '2026-10-16', valueMajor: -9.0, schemaVersion: 3 }
+    ];
+    expect(monthlyProjection(entries, '2026-10-16')).toBeCloseTo(60, 5);
+  });
+});
