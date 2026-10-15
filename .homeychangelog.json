@@ -322,5 +322,8 @@
   },
   "14.0.75": {
     "en": "Savings now include your grid fee for every kWh the heat pump did not need to buy. Moving heating to cheaper hours is still valued at the spot price difference, since the grid fee is the same in every hour."
+  },
+  "14.0.76": {
+    "en": "On the weather curve, the house model now also learns how fast the house warms while heating runs at different outdoor temperatures. The app uses it to judge how much heat a cheap hour can really store, and skips preheating when the curve can only just hold the room."
   }
 }

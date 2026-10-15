@@ -1628,7 +1628,8 @@ export class Optimizer {
             maxDeltaPerChangeC: this.getZone1Constraints().tempStep
           },
           priceData.priceLevel,                                    // NEW: Tibber native level
-          this.priceAnalyzer.getHistoricalAvgPrice()              // NEW: ENTSO-E fallback
+          this.priceAnalyzer.getHistoricalAvgPrice(),             // NEW: ENTSO-E fallback
+          roomTargetIsRoomTemp
         );
 
         this.logger.log('Thermal strategy result:', {

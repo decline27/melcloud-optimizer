@@ -12,6 +12,7 @@ import {
 import { PriceAnalyzer } from './price-analyzer';
 import { applySetpointConstraints } from '../util/setpoint-constraints';
 import { HousePriceContextResolver, HousePriceContextParams } from './house-price-context';
+import { predictCurveWarming } from './thermal-model/thermal-analyzer';
 
 /**
  * Thermal Controller Constants
@@ -56,6 +57,8 @@ const MAX_COASTING_HOURS_CAP = 6;
  * switches heating off. MELCloud reports room temperature, and accepts setpoints, in 0.5 °C.
  */
 const COAST_BELOW_ROOM_C = 0.5;
+/** The gate decides for one hourly cycle; the next run re-evaluates. */
+const CURVE_PREHEAT_HORIZON_HOURS = 1;
 const COASTING_HOURS_PER_CAPACITY = 1.5;  // Hours of coasting per unit thermal capacity
 const PREHEAT_DURATION_CAP = 3;
 const PREHEAT_HOURS_PER_CAPACITY = 0.8;   // Hours of preheat per unit thermal capacity
@@ -148,7 +151,9 @@ export class ThermalController {
         referenceTimeMs?: number,
         constraintContext?: ConstraintContextForGate,
         tibberPriceLevel?: string,
-        historicalAvgPrice?: number
+        historicalAvgPrice?: number,
+        /** False in Curve/Flow mode: the setpoint gates heating, the curve sets its power. */
+        roomTargetMode?: boolean
     ): ThermalStrategy {
         try {
             // Find cheapest periods in next 24 hours
@@ -213,7 +218,8 @@ export class ThermalController {
                 futurePrices: next24hSource,
                 heatingCop: copData.heating,
                 outdoorTemp: copData.outdoor,
-                referenceTimeMs: nowMs
+                referenceTimeMs: nowMs,
+                roomTargetMode
             };
 
             // Detect upcoming expensive hours in next 6h for preemptive preheat decisions
@@ -502,6 +508,7 @@ export class ThermalController {
         constraintContext?: ConstraintContextForGate;
         referenceTimeMs: number;
         path: string;
+        roomTargetMode?: boolean;
     }): PreheatGateResult {
         try {
             const characteristics = this.thermalModelService?.getThermalCharacteristics?.();
@@ -573,7 +580,7 @@ export class ThermalController {
                 params.comfortBand,
                 params.constraintContext
             );
-            const deltaC = Math.max(0, constrainedTarget - params.currentTemp);
+            let deltaC = Math.max(0, constrainedTarget - params.currentTemp);
             if (deltaC <= 0) {
                 this.logger.log('Preheat cost-benefit gate', {
                     ...baseLog,
@@ -583,6 +590,34 @@ export class ThermalController {
                     constrainedTarget
                 });
                 return { decision: 'skip', reason: 'non-positive-delta', confidence, constrainedTarget };
+            }
+
+            // Curve/Flow mode: a higher setpoint does not add heating power, so the heat this run
+            // can store is what the curve actually delivers at this outdoor temperature in one
+            // hourly cycle, not the setpoint gap. Without learned data near this temperature,
+            // keep the existing estimate rather than guess.
+            if (params.roomTargetMode === false) {
+                const curveRate = predictCurveWarming(characteristics.curveWarming, params.outdoorTemp ?? NaN);
+                if (curveRate !== null) {
+                    const achievableC = Math.max(0, curveRate) * CURVE_PREHEAT_HORIZON_HOURS;
+                    if (achievableC <= 0) {
+                        this.logger.log('Preheat cost-benefit gate', {
+                            ...baseLog,
+                            decision: 'block',
+                            reason: 'curve-cannot-store-heat',
+                            confidence,
+                            curveWarmingPerHour: Number(curveRate.toFixed(3)),
+                            outdoorTemp: params.outdoorTemp
+                        });
+                        return {
+                            decision: 'block',
+                            reason: `Preheat skipped: at ${params.outdoorTemp}°C outside the curve only holds the room (${curveRate.toFixed(2)}°C/h)`,
+                            confidence,
+                            constrainedTarget
+                        };
+                    }
+                    deltaC = Math.min(deltaC, achievableC);
+                }
             }
 
             const thermalCapacity = this.thermalMassModel.thermalCapacity ?? 2.5;

@@ -515,6 +515,10 @@ coasting. **Never switch a user's mode silently.**
   only the cooling rate, from whole heating-off stretches of ≥ 2 h (`coolingRatesFromStretches`), so
   0.5 °C sensor quantisation no longer biases the rate upwards. The heating rate is never learned
   outside Room mode. `modelConfidence` is still a point count, not accuracy.
+- 14.0.76: Curve/Flow mode also learns `curveWarming`: net room warming (°C/h) from heating-on
+  stretches, binned by outdoor temperature (2 °C), rebuilt from stored points each update. The
+  preheat gate caps the storable heat at one hour of learned warming and blocks preheat when the
+  curve only holds the room; with no data within ±2 °C it keeps the old estimate.
 
 **Phase 5 — COP weighting.** `delivered_price / COP(forecast_ambient)`. A curve already exists at
 `data/cop_curve.csv` (keyed by `temp_out_c, delta_c`) with a bilinear interpolator in

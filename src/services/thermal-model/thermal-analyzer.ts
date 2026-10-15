@@ -29,6 +29,23 @@ export interface ThermalCharacteristics {
 
   // Last updated timestamp
   lastUpdated: string;
+
+  /**
+   * Curve/Flow mode only: net room warming (°C/h) while heating runs, by outdoor temperature.
+   * In those modes the weather curve, not the setpoint, sets heating power, so "how fast does the
+   * house warm when the curve runs at X °C outside" is the meaningful heating characteristic.
+   * Rebuilt from the stored data at each update; bounded by the outdoor range (2 °C bins).
+   */
+  curveWarming?: CurveWarmingBin[];
+}
+
+export interface CurveWarmingBin {
+  /** Bin centre, °C outdoor. */
+  outdoorC: number;
+  /** Mean net room warming while heating ran, °C per hour. Can be ≤ 0 (curve only holding). */
+  ratePerHour: number;
+  /** Heating-on stretches behind the mean. */
+  samples: number;
 }
 
 export interface HeatingPrediction {
@@ -58,6 +75,43 @@ const MIN_COOLING_STRETCH_HOURS = 2;
 /** Points further apart than this break a stretch (a missed run means unknown heating state). */
 const MAX_STRETCH_GAP_HOURS = 1.5;
 
+const CURVE_WARMING_BIN_C = 2;
+/** A prediction looks this far either side of the requested outdoor temperature. */
+const CURVE_WARMING_MATCH_C = 2;
+/** Stretches needed near an outdoor temperature before predicting at it. */
+const CURVE_WARMING_MIN_SAMPLES = 2;
+
+const hoursBetween = (a: ThermalDataPoint, b: ThermalDataPoint) =>
+  (DateTime.fromISO(b.timestamp).toMillis() - DateTime.fromISO(a.timestamp).toMillis()) / 3600000;
+
+/**
+ * Contiguous stretches of at least MIN_COOLING_STRETCH_HOURS whose points all satisfy
+ * `eligible`. MELCloud reports room temperature in 0.5 °C steps, so a single hour mostly reads as
+ * "no change"; measuring over whole stretches keeps that quantisation from biasing rates.
+ */
+function stretchesWhere(sortedData: ThermalDataPoint[], eligible: (p: ThermalDataPoint) => boolean): ThermalDataPoint[][] {
+  const result: ThermalDataPoint[][] = [];
+  const flush = (stretch: ThermalDataPoint[]) => {
+    if (stretch.length >= 2 && hoursBetween(stretch[0], stretch[stretch.length - 1]) >= MIN_COOLING_STRETCH_HOURS) {
+      result.push(stretch);
+    }
+  };
+
+  let stretch: ThermalDataPoint[] = [];
+  for (const point of sortedData) {
+    const ok = eligible(point);
+    const contiguous = stretch.length === 0 || hoursBetween(stretch[stretch.length - 1], point) <= MAX_STRETCH_GAP_HOURS;
+    if (ok && contiguous) {
+      stretch.push(point);
+      continue;
+    }
+    flush(stretch);
+    stretch = ok ? [point] : [];
+  }
+  flush(stretch);
+  return result;
+}
+
 /**
  * Cooling rates (h⁻¹ per °C of indoor-outdoor difference) from whole heating-off stretches of
  * non-Room-mode points. A stretch that warmed (sun, cooking) is skipped: it measures free gains,
@@ -66,36 +120,52 @@ const MAX_STRETCH_GAP_HOURS = 1.5;
  */
 export function coolingRatesFromStretches(sortedData: ThermalDataPoint[]): number[] {
   const rates: number[] = [];
-  const hoursBetween = (a: ThermalDataPoint, b: ThermalDataPoint) =>
-    (DateTime.fromISO(b.timestamp).toMillis() - DateTime.fromISO(a.timestamp).toMillis()) / 3600000;
-
-  const flush = (stretch: ThermalDataPoint[]) => {
-    if (stretch.length < 2) return;
+  for (const stretch of stretchesWhere(sortedData, p => p.roomTargetMode === false && !p.heatingActive)) {
     const first = stretch[0];
     const last = stretch[stretch.length - 1];
-    const duration = hoursBetween(first, last);
-    if (duration < MIN_COOLING_STRETCH_HOURS) return;
     const drop = first.indoorTemperature - last.indoorTemperature;
-    if (drop < 0) return;
+    if (drop < 0) continue;
     const meanGradient = stretch.reduce((sum, p) => sum + (p.indoorTemperature - p.outdoorTemperature), 0) / stretch.length;
-    if (meanGradient <= 0) return;
-    const rate = (drop / duration) / meanGradient;
+    if (meanGradient <= 0) continue;
+    const rate = (drop / hoursBetween(first, last)) / meanGradient;
     if (Number.isFinite(rate)) rates.push(rate);
-  };
-
-  let stretch: ThermalDataPoint[] = [];
-  for (const point of sortedData) {
-    const eligible = point.roomTargetMode === false && !point.heatingActive;
-    const contiguous = stretch.length === 0 || hoursBetween(stretch[stretch.length - 1], point) <= MAX_STRETCH_GAP_HOURS;
-    if (eligible && contiguous) {
-      stretch.push(point);
-      continue;
-    }
-    flush(stretch);
-    stretch = eligible ? [point] : [];
   }
-  flush(stretch);
   return rates;
+}
+
+/**
+ * Curve/Flow mode: net room warming (°C/h) while heating ran, from whole heating-on stretches,
+ * binned by the stretch's mean outdoor temperature. Flat and falling stretches are kept: "the
+ * curve only just holds the room at 3 °C" is exactly what a preheat decision needs to know.
+ */
+export function curveWarmingFromStretches(sortedData: ThermalDataPoint[]): CurveWarmingBin[] {
+  const bins = new Map<number, { sum: number; samples: number }>();
+  for (const stretch of stretchesWhere(sortedData, p => p.roomTargetMode === false && p.heatingActive)) {
+    const first = stretch[0];
+    const last = stretch[stretch.length - 1];
+    const rate = (last.indoorTemperature - first.indoorTemperature) / hoursBetween(first, last);
+    if (!Number.isFinite(rate)) continue;
+    const meanOutdoor = stretch.reduce((sum, p) => sum + p.outdoorTemperature, 0) / stretch.length;
+    const centre = Math.round(meanOutdoor / CURVE_WARMING_BIN_C) * CURVE_WARMING_BIN_C;
+    const bin = bins.get(centre) ?? { sum: 0, samples: 0 };
+    bins.set(centre, { sum: bin.sum + rate, samples: bin.samples + 1 });
+  }
+  return [...bins.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([outdoorC, { sum, samples }]) => ({ outdoorC, ratePerHour: sum / samples, samples }));
+}
+
+/**
+ * Predicted net warming (°C/h) when the curve runs at `outdoorC`, from bins within
+ * CURVE_WARMING_MATCH_C, weighted by their sample counts. Null when there is not enough data near
+ * that temperature: the caller must then fall back to its own behaviour rather than guess.
+ */
+export function predictCurveWarming(bins: CurveWarmingBin[] | undefined, outdoorC: number): number | null {
+  if (!bins || bins.length === 0 || !Number.isFinite(outdoorC)) return null;
+  const near = bins.filter(b => Math.abs(b.outdoorC - outdoorC) <= CURVE_WARMING_MATCH_C);
+  const samples = near.reduce((sum, b) => sum + b.samples, 0);
+  if (samples < CURVE_WARMING_MIN_SAMPLES) return null;
+  return near.reduce((sum, b) => sum + b.ratePerHour * b.samples, 0) / samples;
 }
 
 export class ThermalAnalyzer {
@@ -243,6 +313,13 @@ export class ThermalAnalyzer {
     }
 
     coolingRates.push(...coolingRatesFromStretches(sortedData));
+
+    // Rebuilt from all stored points each update (not accumulated), so a stretch is never
+    // counted twice. Left untouched when there is no Curve/Flow data, e.g. a Room-mode house.
+    const curveWarming = curveWarmingFromStretches(sortedData);
+    if (curveWarming.length > 0) {
+      this.thermalCharacteristics.curveWarming = curveWarming;
+    }
 
     // Update the model with new calculated values
     // Adaptive blend factor: increases with confidence to reduce anchor bias

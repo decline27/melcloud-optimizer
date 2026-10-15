@@ -2533,6 +2533,7 @@ const apiHandlers: ApiHandlers = {
         heatingRate: null as number | null,
         coolingRate: null as number | null,
         thermalMass: null as number | null,
+        curveWarming: null as Array<{ outdoorC: number; ratePerHour: number; samples: number }> | null,
         lastUpdated: null as string | null
       };
 
@@ -2547,6 +2548,8 @@ const apiHandlers: ApiHandlers = {
             heatingRate: parsed.heatingRate ?? null,
             coolingRate: parsed.coolingRate ?? null,
             thermalMass: parsed.thermalMass ?? null,
+            // Curve/Flow mode: learned net warming (°C/h) while heating runs, by outdoor temperature.
+            curveWarming: Array.isArray(parsed.curveWarming) ? parsed.curveWarming : null,
             lastUpdated: parsed.lastUpdated ?? null
           };
         } catch (parseErr) {

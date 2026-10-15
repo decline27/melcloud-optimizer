@@ -1,4 +1,4 @@
-import { ThermalAnalyzer, coolingRatesFromStretches } from '../../src/services/thermal-model/thermal-analyzer';
+import { ThermalAnalyzer, coolingRatesFromStretches, curveWarmingFromStretches, predictCurveWarming } from '../../src/services/thermal-model/thermal-analyzer';
 import { ThermalDataPoint } from '../../src/services/thermal-model/data-collector';
 
 const HOUR = 3600000;
@@ -75,5 +75,56 @@ describe('ThermalAnalyzer.updateModel with Curve-mode data', () => {
     expect(after.heatingRate).toBe(before.heatingRate);
     expect(after.coolingRate).not.toBe(before.coolingRate);
     expect(after.coolingRate).toBeGreaterThan(0);
+  });
+});
+
+describe('curve warming (Curve/Flow mode heating characteristic)', () => {
+  test('a heating-on stretch gives net warming per hour, binned by outdoor temperature', () => {
+    // 21 -> 22 over 4 h at 11 °C outside: 0.25 °C/h in the 12 °C bin.
+    const data = [0, 1, 2, 3, 4].map(h => point(h, 21 + h * 0.25, true));
+    expect(curveWarmingFromStretches(data)).toEqual([{ outdoorC: 12, ratePerHour: 0.25, samples: 1 }]);
+  });
+
+  test('a stretch where the curve only holds or loses is kept, not discarded', () => {
+    // Cold night: heating on all night, room still falls 0.5 °C over 4 h.
+    const data = [0, 1, 2, 3, 4].map(h => point(h, 21.5 - (h === 4 ? 0.5 : 0), true, { outdoorTemperature: 3 }));
+    const [bin] = curveWarmingFromStretches(data);
+    expect(bin.outdoorC).toBe(4);
+    expect(bin.ratePerHour).toBeCloseTo(-0.125);
+  });
+
+  test('Room-mode and heating-off points do not contribute', () => {
+    const room = [0, 1, 2, 3].map(h => point(h, 21 + h * 0.5, true, { roomTargetMode: true }));
+    const off = [0, 1, 2, 3].map(h => point(h, 22, false));
+    expect(curveWarmingFromStretches(room)).toEqual([]);
+    expect(curveWarmingFromStretches(off)).toEqual([]);
+  });
+
+  test('prediction uses nearby bins and refuses to guess without data', () => {
+    const bins = [
+      { outdoorC: 2, ratePerHour: 0.0, samples: 3 },
+      { outdoorC: 12, ratePerHour: 0.3, samples: 1 },
+      { outdoorC: 14, ratePerHour: 0.2, samples: 1 }
+    ];
+    expect(predictCurveWarming(bins, 13)).toBeCloseTo(0.25);
+    expect(predictCurveWarming(bins, 2)).toBeCloseTo(0);
+    // Nothing within 2 °C of -5: no prediction.
+    expect(predictCurveWarming(bins, -5)).toBeNull();
+    // A single stretch is not enough.
+    expect(predictCurveWarming([{ outdoorC: 8, ratePerHour: 0.4, samples: 1 }], 8)).toBeNull();
+    expect(predictCurveWarming(undefined, 8)).toBeNull();
+  });
+
+  test('updateModel stores the profile on the characteristics', () => {
+    const analyzer = makeAnalyzer();
+    const data: ThermalDataPoint[] = [];
+    for (let h = 0; h < 24; h++) {
+      const phase = h % 8;
+      const heating = phase < 4;
+      data.push(point(h, heating ? 21 + phase * 0.5 : 23 - (phase - 4) * 0.5, heating));
+    }
+    const after = analyzer.updateModel(data);
+    expect(after.curveWarming?.length).toBeGreaterThan(0);
+    expect(after.curveWarming![0].ratePerHour).toBeGreaterThan(0);
   });
 });
