@@ -77,7 +77,8 @@
 
     if (totalPoints > 0) {
       const updatedText = lastUpdated ? safeDateLabel(lastUpdated) || 'Recently' : 'Recently';
-      return `${totalPoints} data points • Last updated: ${updatedText}`;
+      // A count of collected data (168 hourly points = 100%), not a measure of accuracy.
+      return `${totalPoints} data points (a week = 100%) • Last updated: ${updatedText}`;
     }
     if (lastUpdated) {
       const updatedText = safeDateLabel(lastUpdated) || lastUpdated;

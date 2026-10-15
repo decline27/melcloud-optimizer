@@ -186,39 +186,6 @@
         }
       }
 
-      /* Mobile-optimized info sections */
-      @media (max-width: 640px) {
-        #sys-learning-overview li {
-          margin-bottom: 12px !important;
-          padding: 8px;
-          background: #f9fafb;
-          border-radius: 6px;
-        }
-
-        #sys-learning-overview li > div:first-child {
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          margin-bottom: 4px;
-        }
-
-        #sys-learning-overview .detail {
-          margin-left: 0 !important;
-          padding-top: 4px;
-        }
-
-        #smart-savings-card > div > div {
-          padding: 8px;
-          background: #f9fafb;
-          border-radius: 6px;
-          margin-bottom: 8px !important;
-        }
-
-        #smart-savings-card .metric-label {
-          display: block;
-          margin-bottom: 2px;
-        }
-      }
     </style>
   </head>
   <body>
@@ -349,20 +316,6 @@
       </div>
     </details>
 
-    
-            <div id="smart-savings-note" style="font-size: 0.85em; color: #666; margin-top: 6px;"></div>
-          </div>
-
-          <div id="model_empty_state" class="homey-form-helper" style="margin-top: 12px; font-style: italic; color: #666;">
-            Model builds confidence as your system runs normal heating cycles.
-          </div>
-
-          <div id="model_error_state" style="display: none; margin-top: 12px; color: #d32f2f; font-size: 0.9em;">
-            <span id="model_error_message">—</span>
-          </div>
-        </div>
-      </div>
-    </details>
 
     <details class="homey-form-fieldset">
       <summary class="homey-form-legend">Electricity Price Source</summary>
@@ -481,31 +434,23 @@
           <div class="homey-form-col">
             <label class="homey-form-label" for="deadband_c">Deadband (°C)</label>
             <input class="homey-form-input" id="deadband_c" type="number" min="0.1" max="2.0" step="0.1" value="0.3" />
-            <p class="homey-form-helper">Small window around target to avoid jitter. Suggested default: <b>0.3°C</b>.</p>
+            <p class="homey-form-helper">Small window around target to avoid jitter. Suggested default: <b>0.5°C</b>.</p>
             <p class="homey-form-helper">Impact: Larger deadband = fewer changes and less cycling (smoother), but slower fine‑tuning. Typical range 0.3–0.5°C.</p>
           </div>
           <div class="homey-form-col">
             <label class="homey-form-label" for="min_setpoint_change_minutes">Min Setpoint Interval (min)</label>
             <input class="homey-form-input" id="min_setpoint_change_minutes" type="number" min="5" max="180" step="5" value="30" />
-            <p class="homey-form-helper">Anti–short‑cycling lockout between changes. Suggested default: <b>5 minutes</b>.</p>
+            <p class="homey-form-helper">Anti–short‑cycling lockout between changes. Suggested default: <b>30 minutes</b>. The optimizer runs once an hour, so values below 60 only matter for extra runs.</p>
             <p class="homey-form-helper">Impact: Higher values reduce compressor starts and avoid fighting defrost cycles; too high can slow reactions to big price swings.</p>
           </div>
           <div class="homey-form-col">
             <label class="homey-form-label" for="temp_step_max">Temperature Step (°C)</label>
             <input class="homey-form-input" id="temp_step_max" type="number" min="0.5" max="1.0" step="0.5" value="0.5" />
-            <p class="homey-form-helper">Max temperature change per optimization step. Suggested default: <b>0.5°C</b>.</p>
-            <p class="homey-form-helper">Impact: 1.0°C reduces heat pump strain but slower fine-tuning. 0.5°C provides finer control.</p>
+            <p class="homey-form-helper">Max temperature change per optimization step, and the rounding step for room targets. Suggested default: <b>0.5°C</b>.</p>
+            <p class="homey-form-helper">Impact: 1.0°C means fewer, larger changes. In Curve mode the room target switches heating on and off, so a finer step mostly changes when that happens, not how much heat is given.</p>
           </div>
         </div>
-        <div class="homey-form-row">
-          <div class="homey-form-col">
-            <label class="homey-form-label" for="extreme_weather_min_temp">Extreme Cold Min (°C)</label>
-            <input class="homey-form-input" id="extreme_weather_min_temp" type="number" min="16" max="23" step="0.5" value="20" />
-            <p class="homey-form-helper">Minimum indoor target during deep cold. Suggested default: <b>20°C</b>.</p>
-            <p class="homey-form-helper">Impact: Protects comfort/COP during cold snaps (prevents over‑setbacks). Increase if your home cools quickly.</p>
-          </div>
-        </div>
-        <p class="homey-form-helper">Overall min/max targets now follow the lowest and highest comfort band values. Adjust the comfort bands below to tighten or widen that range.</p>
+        <p class="homey-form-helper">The optimizer always stays inside the comfort band in force (occupied, away or night). The middle of that band is also the "normal heat pump" that savings are measured against.</p>
       </div>
 
       <div class="homey-form-group">
@@ -524,13 +469,13 @@
             <label class="homey-form-label" for="comfort_lower_occupied">Occupied Lower (°C)</label>
             <input class="homey-form-input" id="comfort_lower_occupied" type="number" min="18" max="23" step="0.5" value="20" />
             <p class="homey-form-helper">Suggested default: <b>20.0°C</b>.</p>
-            <p class="homey-form-helper">Impact: Lower values increase savings in expensive hours but feel cooler. Adjust to your comfort.</p>
+            <p class="homey-form-helper">Impact: This is the floor heating pauses down to in expensive hours; it is never undercut. Lower values allow longer pauses (more savings) but feel cooler.</p>
           </div>
           <div class="homey-form-col">
             <label class="homey-form-label" for="comfort_upper_occupied">Occupied Upper (°C)</label>
             <input class="homey-form-input" id="comfort_upper_occupied" type="number" min="19" max="24" step="0.5" value="21" />
             <p class="homey-form-helper">Suggested default: <b>21.0°C</b>.</p>
-            <p class="homey-form-helper">Impact: Higher values allow more preheating in cheap hours (store heat), improving savings when a price spike is coming.</p>
+            <p class="homey-form-helper">Impact: This is the ceiling for preheating in cheap hours. Higher values allow more stored heat before a price spike, at the cost of slightly higher heat loss.</p>
           </div>
         </div>
         <div class="homey-form-row">
@@ -589,27 +534,16 @@
       </div>
 
       <div class="homey-form-group">
-        <label class="homey-form-label">Price‑Aware Preheating</label>
-        <label class="homey-form-checkbox">
-          <input type="checkbox" id="preheat_enable" checked />
-          <span>Enable preheating in cheap hours</span>
-        </label>
-        <p class="homey-form-helper">Suggested default: <b>Enabled</b>. Builds thermal buffer during low-price hours for use during peaks.</p>
+        <label class="homey-form-label">Price‑Aware Preheating and Pausing</label>
         <div class="homey-form-row">
-          <div class="homey-form-col">
-            <label class="homey-form-label" for="preheat_horizon_hours">Horizon (hours)</label>
-            <input class="homey-form-input" id="preheat_horizon_hours" type="number" min="6" max="36" step="1" value="12" />
-            <p class="homey-form-helper">How far ahead to evaluate prices. Suggested default: <b>12 hours</b>.</p>
-            <p class="homey-form-helper">Impact: Longer horizon anticipates evening spikes earlier; too long can include noisy data. Try 12–24h.</p>
-          </div>
           <div class="homey-form-col">
             <label class="homey-form-label" for="preheat_cheap_percentile">Cheap percentile (0–1)</label>
             <input class="homey-form-input" id="preheat_cheap_percentile" type="number" min="0.05" max="0.5" step="0.05" value="0.25" />
-            <p class="homey-form-helper">Treat hours at or below this percentile as cheap. Suggested default: <b>0.25</b> (25th percentile).</p>
-            <p class="homey-form-helper">Impact: Lower values preheat only in the very cheapest hours (more selective). Higher values preheat more often.</p>
+            <p class="homey-form-helper">Hours in the cheapest share of the coming day count as cheap (preheating allowed); hours in the most expensive share of the same size count as expensive (heating pauses while the room is above your comfort minimum). Suggested default: <b>0.25</b> (cheapest and most expensive 25%).</p>
+            <p class="homey-form-helper">Impact: Lower values act only on the most extreme hours. Higher values preheat and pause more often.</p>
           </div>
         </div>
-        <p class="homey-form-helper">Note: Some devices set to Flow/Curve modes may ignore room target changes. The Engine still optimizes within your comfort band, but the unit may apply targets via heating curve.</p>
+        <p class="homey-form-helper">Note: In Curve (weather compensation) mode with a room sensor, the room target switches heating on and off; the curve decides how much heat it gives. Pausing therefore works fully, while preheating can only store as much heat as the curve delivers at the current outdoor temperature (learned over time).</p>
       </div>
     </details>
 
@@ -628,7 +562,7 @@
       <div class="homey-form-group">
         <label class="homey-form-label" for="min_tank_temp">Minimum Tank Temperature (°C)</label>
         <input class="homey-form-input" id="min_tank_temp" type="number" min="30" max="45" step="1" value="40" />
-        <p class="homey-form-helper">Minimum allowed temperature for the hot water tank. Suggested default: 41°C - ensures sufficient hot water is always available while allowing for price optimization.</p>
+        <p class="homey-form-helper">Minimum allowed temperature for the hot water tank. If the tank falls below it (for example after showers), the app starts a reheat straight away, whatever the price. Suggested default: 41°C - ensures sufficient hot water is always available while allowing for price optimization.</p>
       </div>
       <div class="homey-form-group">
         <label class="homey-form-label" for="max_tank_temp">Maximum Tank Temperature (°C)</label>
@@ -638,7 +572,7 @@
       <div class="homey-form-group">
         <label class="homey-form-label" for="tank_temp_step">Tank Temperature Step (°C)</label>
         <input class="homey-form-input" id="tank_temp_step" type="number" min="1.0" max="5.0" step="1.0" value="1.0" />
-        <p class="homey-form-helper">Maximum change in tank temperature per optimization cycle. Must be whole degrees only (1°C, 2°C, etc.). Suggested default: 2°C - allows for meaningful temperature adjustments without causing excessive cycling of the heat pump.</p>
+        <p class="homey-form-helper">Rounding step for tank targets (whole degrees), and the size of the raise used to start a reheat when the tank is below the minimum. A single change can move the target by up to 4°C, or by this step if larger. Suggested default: 2°C.</p>
       </div>
     </details>
 
@@ -691,7 +625,7 @@
       <div class="homey-form-group">
         <label class="homey-form-label" for="grid_fee_per_kwh">Grid Fee (per kWh)</label>
         <input class="homey-form-input" id="grid_fee_per_kwh" type="number" min="0" step="0.01" placeholder="e.g., 1.04" />
-        <p class="homey-form-helper">Optional. Adds your local grid fee to the electricity price when calculating savings. Example: 1.04 SEK/kWh.</p>
+        <p class="homey-form-helper">Optional. Your per-kWh grid (network) fee. Savings count it for every kWh the heat pump did not need to buy; it does not change the value of moving heating to cheaper hours, since you pay it in every hour. Not added when ENTSO-E prices already include it via the consumer markup. Example: 1.04 SEK/kWh.</p>
       </div>
 
       <div class="homey-form-group" id="consumer_markup_section" style="display: none;">
@@ -822,29 +756,6 @@
       </details>
     </details>
 
-    <details class="homey-form-fieldset">
-      <summary class="homey-form-legend">COP Optimization</summary>
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="cop_weight">COP Weight Factor</label>
-        <input class="homey-form-input" id="cop_weight" type="number" min="0.0" max="1.0" step="0.05" value="0.3" />
-        <p class="homey-form-helper">Weight given to COP (Coefficient of Performance) in optimization. Suggested default: 0.3 - balanced approach that considers both price and efficiency. Higher values (0.5-0.8) prioritize energy efficiency over price savings, while lower values (0.1-0.2) prioritize price savings over efficiency. For maximum cost savings, use 0.0-0.1.</p>
-      </div>
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="auto_seasonal_mode">Seasonal Mode Settings</label>
-        <label class="homey-form-checkbox">
-          <input type="checkbox" id="auto_seasonal_mode" checked />
-          <span>Auto Seasonal Mode</span>
-        </label>
-        <p class="homey-form-helper">Automatically switch between summer and winter modes based on the month. Suggested default: Enabled - optimizes for hot water in summer (May-Sep) and heating in winter (Oct-Apr). This provides the best year-round performance without manual intervention.</p>
-      </div>
-      <div class="homey-form-group" id="summer_mode_container">
-        <label class="homey-form-checkbox">
-          <input type="checkbox" id="summer_mode" />
-          <span>Summer Mode</span>
-        </label>
-        <p class="homey-form-helper">When enabled, prioritizes hot water heating over space heating. Only used when Auto Seasonal Mode is disabled. Suggested setting: Enabled during summer months when you primarily use the heat pump for hot water rather than heating.</p>
-      </div>
-    </details>
 
     <details class="homey-form-fieldset">
       <summary class="homey-form-legend">Advanced</summary>
@@ -1011,13 +922,26 @@
             // Format the data for display
             let message = `Thermal Model Data:\n\n`;
             message += `Optimization Count: ${data.optimizationCount} data points\n`;
-            message += `Current K-Factor: ${data.kFactor !== null ? data.kFactor.toFixed(2) : 'Not set'}\n\n`;
+            const learned = data.learned;
+            if (learned) {
+              const pct = learned.confidence !== null ? Math.round(learned.confidence * 100) : null;
+              message += `House model data collected: ${pct !== null ? pct + '%' : 'none yet'} (a week of hourly data = 100%)\n`;
+              message += `Cooling rate: ${learned.coolingRate !== null ? learned.coolingRate.toFixed(3) : 'n/a'} per hour per °C indoor–outdoor difference\n`;
+              if (Array.isArray(learned.curveWarming) && learned.curveWarming.length > 0) {
+                message += `Warming while heating runs (weather curve):\n`;
+                learned.curveWarming.forEach(function (bin) {
+                  const sign = bin.ratePerHour >= 0 ? '+' : '';
+                  message += `  at ${bin.outdoorC}°C outside: ${sign}${bin.ratePerHour.toFixed(2)} °C/h (${bin.samples} periods)\n`;
+                });
+              } else {
+                message += `Warming while heating runs: not learned yet\n`;
+              }
+              message += `\n`;
+            }
 
             if (data.lastCalibration) {
               const calibDate = new Date(data.lastCalibration.timestamp).toLocaleString();
-              message += `Last Calibration: ${calibDate}\n`;
-              message += `K-Factor Change: ${data.lastCalibration.oldK.toFixed(2)} → ${data.lastCalibration.newK.toFixed(2)}\n`;
-              message += `Analysis: ${data.lastCalibration.analysis}\n\n`;
+              message += `Last Calibration: ${calibDate}\n\n`;
             } else {
               message += `Last Calibration: Never performed\n\n`;
             }
@@ -1283,7 +1207,7 @@
                   timeZoneNameStatusElement.style.color = '#00aa44';
                 }
                 // Trigger save
-                save('time_zone_name', resolved);
+                Homey.set('time_zone_name', resolved, function (err) { if (err) console.error('Error saving time_zone_name:', err); });
               }
             } catch (error) {
               console.warn('Failed to detect device timezone', error);
@@ -1326,15 +1250,18 @@
 
         // Check for migration opportunity and show notice
         function checkMigrationOpportunity() {
-          const currentTimezone = load('time_zone_name');
-          const currentOffset = load('time_zone_offset');
-          
-          if (!currentTimezone && currentOffset !== null) {
-            // User has manual settings but no IANA timezone
-            if (migrationNoticeElement) {
-              migrationNoticeElement.style.display = 'block';
-            }
-          }
+          Homey.get('time_zone_name', function (nameErr, currentTimezone) {
+            if (nameErr) return;
+            Homey.get('time_zone_offset', function (offsetErr, currentOffset) {
+              if (offsetErr) return;
+              if (!currentTimezone && currentOffset !== null && currentOffset !== undefined) {
+                // User has manual settings but no IANA timezone
+                if (migrationNoticeElement) {
+                  migrationNoticeElement.style.display = 'block';
+                }
+              }
+            });
+          });
         }
 
         if (convertToAutoButton) {
@@ -1344,7 +1271,7 @@
               if (resolved && timeZoneNameElement) {
                 timeZoneNameElement.value = resolved;
                 timeZoneNameElement.dispatchEvent(new Event('input'));
-                save('time_zone_name', resolved);
+                Homey.set('time_zone_name', resolved, function (err) { if (err) console.error('Error saving time_zone_name:', err); });
                 
                 if (migrationNoticeElement) {
                   migrationNoticeElement.innerHTML = `
@@ -1386,11 +1313,6 @@
         const maxTempZone2Element = document.getElementById("max_temp_zone2");
         const tempStepZone2Element = document.getElementById("temp_step_zone2");
 
-        // COP settings elements
-        const copWeightElement = document.getElementById("cop_weight");
-        const autoSeasonalModeElement = document.getElementById("auto_seasonal_mode");
-        const summerModeElement = document.getElementById("summer_mode");
-        const summerModeContainer = document.getElementById("summer_mode_container");
 
         let entsoeAreaMap = null;
         let entsoeAutoSelectionDone = false;
@@ -2040,7 +1962,6 @@
         // Engine elements
         const deadbandElement = document.getElementById("deadband_c");
         const minChangeMinutesElement = document.getElementById("min_setpoint_change_minutes");
-        const extremeMinElement = document.getElementById("extreme_weather_min_temp");
         const occupiedElement = document.getElementById("occupied");
         const comfortLowerOccElement = document.getElementById("comfort_lower_occupied");
         const comfortUpperOccElement = document.getElementById("comfort_upper_occupied");
@@ -2062,8 +1983,6 @@
           nightSetbackEnabledElement.addEventListener('change', updateNightSetbackVisibility);
           updateNightSetbackVisibility();
         }
-        const preheatEnableElement = document.getElementById("preheat_enable");
-        const preheatHorizonElement = document.getElementById("preheat_horizon_hours");
         const preheatPercentileElement = document.getElementById("preheat_cheap_percentile");
 
         // Weather location warning helper
@@ -2314,7 +2233,6 @@
         // Load engine settings
         Homey.get("deadband_c", function (err, value) { if (hasValidValue(err, value)) deadbandElement.value = value; });
         Homey.get("min_setpoint_change_minutes", function (err, value) { if (hasValidValue(err, value)) minChangeMinutesElement.value = value; });
-        Homey.get("extreme_weather_min_temp", function (err, value) { if (hasValidValue(err, value)) extremeMinElement.value = value; });
         Homey.get("occupied", function (err, value) { if (!err && value !== undefined && value !== null && value !== "") occupiedElement.checked = !!value; });
         Homey.get("comfort_lower_occupied", function (err, value) { if (hasValidValue(err, value)) comfortLowerOccElement.value = value; });
         Homey.get("comfort_upper_occupied", function (err, value) { if (hasValidValue(err, value)) comfortUpperOccElement.value = value; });
@@ -2325,8 +2243,6 @@
         Homey.get("night_end_hour", function (err, value) { if (hasValidValue(err, value) && nightEndHourElement) nightEndHourElement.value = value; });
         Homey.get("comfort_lower_night", function (err, value) { if (hasValidValue(err, value) && comfortLowerNightElement) comfortLowerNightElement.value = value; });
         Homey.get("comfort_upper_night", function (err, value) { if (hasValidValue(err, value) && comfortUpperNightElement) comfortUpperNightElement.value = value; });
-        Homey.get("preheat_enable", function (err, value) { if (!err && value !== undefined && value !== null && value !== "") preheatEnableElement.checked = !!value; });
-        Homey.get("preheat_horizon_hours", function (err, value) { if (hasValidValue(err, value)) preheatHorizonElement.value = value; });
         Homey.get("preheat_cheap_percentile", function (err, value) { if (hasValidValue(err, value)) preheatPercentileElement.value = value; });
 
         Homey.get("log_level", function (err, value) {
@@ -2422,7 +2338,7 @@
                     timeZoneNameStatusElement.style.color = '#00aa44';
                   }
                   // Save the auto-detected timezone
-                  save('time_zone_name', autoDetected);
+                  Homey.set('time_zone_name', autoDetected, function (err) { if (err) console.error('Error saving time_zone_name:', err); });
                   console.log('Auto-detected and saved timezone:', autoDetected);
                   return;
                 }
@@ -2497,27 +2413,6 @@
         });
         
         // Removed: loads for unused hot water pattern settings
-
-        // Load COP settings
-        Homey.get("cop_weight", function (err, value) {
-          if (err) return Homey.alert(err);
-          if (value !== undefined && value !== null && value !== "") copWeightElement.value = value;
-        });
-
-        Homey.get("auto_seasonal_mode", function (err, value) {
-          if (err) return Homey.alert(err);
-          if (value !== undefined && value !== null && value !== "") {
-            autoSeasonalModeElement.checked = !!value;
-            // Show/hide summer mode based on auto seasonal mode
-            summerModeContainer.style.opacity = value ? '0.5' : '1';
-            summerModeElement.disabled = value;
-          }
-        });
-
-        Homey.get("summer_mode", function (err, value) {
-          if (err) return Homey.alert(err);
-          if (value !== undefined && value !== null && value !== "") summerModeElement.checked = !!value;
-        });
 
         // Default values are now provided directly in HTML form fields
 
@@ -2776,13 +2671,6 @@
           zone2SettingsDiv.style.display = this.checked ? 'block' : 'none';
         });
 
-        // Add event listener for the Auto Seasonal Mode checkbox
-        autoSeasonalModeElement.addEventListener('change', function() {
-          // When Auto Seasonal Mode is enabled, disable Summer Mode
-          summerModeElement.disabled = this.checked;
-          summerModeContainer.style.opacity = this.checked ? '0.5' : '1';
-        });
-
         // Add event listener for the detect location button
         detectLocationButton.addEventListener('click', function(e) {
           e.preventDefault();
@@ -2975,31 +2863,6 @@
             });
           }
 
-          // Save COP settings
-          if (copWeightElement) {
-            const copWeight = parseFloat(copWeightElement.value);
-            if (!isNaN(copWeight) && copWeight >= 0.0 && copWeight <= 1.0) {
-              Homey.set("cop_weight", copWeight, function (err) {
-                if (err) console.error('Error saving cop_weight:', err);
-              });
-            } else if (copWeightElement.value) {
-              Homey.alert('Invalid COP weight value. Must be between 0.0 and 1.0.');
-              return;
-            }
-          }
-
-          if (autoSeasonalModeElement) {
-            Homey.set("auto_seasonal_mode", autoSeasonalModeElement.checked, function (err) {
-              if (err) console.error('Error saving auto_seasonal_mode:', err);
-            });
-          }
-
-          if (summerModeElement) {
-            Homey.set("summer_mode", summerModeElement.checked, function (err) {
-              if (err) console.error('Error saving summer_mode:', err);
-            });
-          }
-
           if (deadbandElement) {
             const deadband = parseFloat(deadbandElement.value);
             if (!isNaN(deadband) && deadband >= 0.1 && deadband <= 2.0) {
@@ -3012,13 +2875,6 @@
             if (!isNaN(minChange) && minChange >= 5 && minChange <= 180) {
               Homey.set("min_setpoint_change_minutes", minChange, function (err) { if (err) console.error('Error saving min_setpoint_change_minutes:', err); });
             } else if (minChangeMinutesElement.value) { Homey.alert('Invalid Min Setpoint Interval. 5–180 min'); return; }
-          }
-
-          if (extremeMinElement) {
-            const extremeMin = parseFloat(extremeMinElement.value);
-            if (!isNaN(extremeMin) && extremeMin >= 16 && extremeMin <= 23) {
-              Homey.set("extreme_weather_min_temp", extremeMin, function (err) { if (err) console.error('Error saving extreme_weather_min_temp:', err); });
-            } else if (extremeMinElement.value) { Homey.alert('Invalid Extreme Cold Min. 16–23°C'); return; }
           }
 
           if (occupiedElement) {
@@ -3066,17 +2922,6 @@
             }
           }
 
-          if (preheatEnableElement) {
-            Homey.set("preheat_enable", preheatEnableElement.checked, function (err) { if (err) console.error('Error saving preheat_enable:', err); });
-          }
-          
-          if (preheatHorizonElement) {
-            const horizon = parseInt(preheatHorizonElement.value);
-            if (!isNaN(horizon) && horizon >= 6 && horizon <= 36) {
-              Homey.set("preheat_horizon_hours", horizon, function (err) { if (err) console.error('Error saving preheat_horizon_hours:', err); });
-            } else if (preheatHorizonElement.value) { Homey.alert('Invalid horizon. 6–36h'); return; }
-          }
-          
           if (preheatPercentileElement) {
             const pct = parseFloat(preheatPercentileElement.value);
             if (!isNaN(pct) && pct >= 0.05 && pct <= 0.5) {
@@ -3217,19 +3062,6 @@
         // Button event handlers are now defined as global functions and attached via onclick attributes
       }
       
-      // After Homey has likely populated inputs, run validation once more
-      setTimeout(function(){
-        try {
-          var btn = document.getElementById('save');
-          // If available, try to validate and potentially enable Save
-          if (btn && typeof window !== 'undefined') {
-            var evt = document.createEvent ? document.createEvent('Event') : null;
-            if (evt && evt.initEvent) { evt.initEvent('input', true, true); document.dispatchEvent(evt); }
-            if (typeof validateAll === 'function') validateAll();
-          }
-        } catch (_) { /* ignore */ }
-      }, 300);
-
       // Inline validation helpers and progressive disclosure helpers
       (function attachValidation() {
         function setError(input, msg) {

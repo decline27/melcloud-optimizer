@@ -325,5 +325,8 @@
   },
   "14.0.76": {
     "en": "On the weather curve, the house model now also learns how fast the house warms while heating runs at different outdoor temperatures. The app uses it to judge how much heat a cheap hour can really store, and skips preheating when the curve can only just hold the room."
+  },
+  "14.0.77": {
+    "en": "Settings page cleanup: removed options that had no effect (preheat on/off, preheat horizon, extreme cold minimum, COP weight, seasonal mode) and updated the help texts to match how the app works. Fixed: automatic time zone detection was not saved, and savings days now follow your time zone. The widget is renamed House Model Data, shows the learned warming on the weather curve, and no longer shows old estimated savings."
   }
 }

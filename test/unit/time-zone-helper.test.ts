@@ -94,3 +94,27 @@ describe('TimeZoneHelper', () => {
     expect(afterTz).toBe('GMT+2');
   });
 });
+
+describe('TimeZoneHelper offset from an IANA name', () => {
+  // Intl reports single-digit offsets as "GMT+2"; the parser once required two digits and fell
+  // back to a local-time parse that is only right when the host clock is on UTC.
+  const silent: any = { debug() {}, warn() {}, info() {}, log() {}, error() {} };
+  const offsetOn = (zone: string, iso: string) => {
+    jest.useFakeTimers().setSystemTime(new Date(iso));
+    try {
+      return new TimeZoneHelper(silent, 1, false, zone).getLocalTime().effectiveOffset;
+    } finally {
+      jest.useRealTimers();
+    }
+  };
+
+  test.each([
+    ['Europe/Stockholm', '2026-07-01T12:00:00Z', 2],
+    ['Europe/Stockholm', '2026-01-15T12:00:00Z', 1],
+    ['Asia/Kolkata', '2026-07-01T12:00:00Z', 5.5],
+    ['America/New_York', '2026-07-01T12:00:00Z', -4],
+    ['UTC', '2026-07-01T12:00:00Z', 0]
+  ])('%s at %s is UTC%+d', (zone, iso, expected) => {
+    expect(offsetOn(zone as string, iso as string)).toBe(expected);
+  });
+});

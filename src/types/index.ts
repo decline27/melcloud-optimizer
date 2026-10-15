@@ -564,6 +564,14 @@ export interface ThermalModelResponseData {
   lastOptimization: Record<string, unknown> | null;
   lastCalibration: Record<string, unknown> | null;
   kFactor: number | null;
+  /** Learned house characteristics (thermal_model_characteristics). */
+  learned?: {
+    confidence: number | null;
+    coolingRate: number | null;
+    thermalMass: number | null;
+    curveWarming: Array<{ outdoorC: number; ratePerHour: number; samples: number }> | null;
+    lastUpdated: string | null;
+  } | null;
   dataPoints: ThermalModelDataPoint[];
 }
 
@@ -636,6 +644,9 @@ export type GetModelConfidenceResponse = ApiResult<{
     heatingRate: number | null;
     coolingRate: number | null;
     thermalMass: number | null;
+    /** Curve/Flow mode: learned net warming (°C/h) while heating runs, by outdoor temperature. */
+    curveWarming?: Array<{ outdoorC: number; ratePerHour: number; samples: number }> | null;
+    heatingRateApplies?: boolean;
     lastUpdated: string | null;
   };
   adaptiveParameters: {
@@ -661,20 +672,6 @@ export type GetModelConfidenceResponse = ApiResult<{
     last7DaysSavings: number | null;
     projectedDailySavings: number | null;
   };
-  baselineSavings: {
-    todayVsBaseline: number;
-    percentageSaved: number;
-    confidence: number;
-    projectedMonthly: number;
-  } | null;
-  enhancedSavings: {
-    baselineSavings: number;
-    baselinePercentage: number;
-    projectedSavings: number;
-    confidence: number;
-    method: string;
-    breakdown: any;
-  } | null;
   seasonalMode: string | null;
   priceData: {
     currencySymbol: string;

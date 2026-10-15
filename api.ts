@@ -65,6 +65,7 @@ import {
   saveHistoricalData
 } from './src/orchestration/service-manager';
 import { buildDecisionFromOptimization, buildPlaceholderDecision } from './src/util/decision-helper';
+import { TimeZoneHelper } from './src/util/time-zone-helper';
 import {
   computeRunPriceSavings,
   localDateString,
@@ -249,6 +250,24 @@ async function httpRequest(
  * reader no longer counts them in any total.
  */
 const SAVINGS_ENTRY_SCHEMA_VERSION = 3;
+
+/**
+ * The user's local UTC offset right now, in hours. Reuses TimeZoneHelper, so the IANA time zone
+ * (with its real DST rules) wins whenever it is set; the manual offset/DST fields are only the
+ * fallback, exactly as the settings page describes. Savings day boundaries previously applied
+ * the manual offset with a crude March-October DST rule even when a time zone name was set.
+ */
+function getLocalOffsetHours(homey: HomeyLike): number {
+  const name = homey.settings.get('time_zone_name');
+  const silent = { debug() {}, warn() {}, info() {}, log() {}, error() {} } as any;
+  const helper = new TimeZoneHelper(
+    silent,
+    Number(homey.settings.get('time_zone_offset')) || 2,
+    Boolean(homey.settings.get('use_dst')),
+    typeof name === 'string' && name.length > 0 ? name : undefined
+  );
+  return helper.getLocalTime().effectiveOffset;
+}
 
 const serviceState = getServiceState();
 let melCloud = serviceState.melCloud;
@@ -875,17 +894,18 @@ const apiHandlers: ApiHandlers = {
           if (Number.isFinite(currentPrice)) {
             recordHourPrice(homey.settings, nowMs, currentPrice, baselineC);
           }
-          const dayStartMs = localDayStartMs(
-            nowMs,
-            parseInt(homey.settings.get('time_zone_offset')),
-            !!homey.settings.get('use_dst')
-          );
+          const dayStartMs = localDayStartMs(nowMs, getLocalOffsetHours(homey), false);
           const ledger = readRunPriceLedger(homey.settings);
           const dailyEnergy = Number(result.energyMetrics?.dailyEnergyConsumption);
           const dailyHeating = Number(result.energyMetrics?.dailyHeatingConsumption);
           // The user's per-kWh grid fee: cancels when the same kWh is retimed, counts in full for
           // every kWh a normal pump would have bought and this one did not.
-          const gridFee = Number(homey.settings.get('grid_fee_per_kwh')) || 0;
+          // With ENTSO-E prices and the consumer markup on, the recorded prices already contain the
+          // markup's grid fee; adding the setting as well would count it twice.
+          // Same normalisation as the service initialisation (unset means ENTSO-E).
+          const priceSource = String(homey.settings.get('price_data_source') || 'entsoe').toLowerCase();
+          const markupInPrices = priceSource === 'entsoe' && homey.settings.get('enable_consumer_markup') === true;
+          const gridFee = markupInPrices ? 0 : (Number(homey.settings.get('grid_fee_per_kwh')) || 0);
           measuredSavings = computeRunPriceSavings(ledger, dayStartMs, nowMs + 1, dailyEnergy, dailyHeating, gridFee);
           measuredYesterday = computeRunPriceSavings(ledger, dayStartMs - 24 * 3600000, dayStartMs, dailyEnergy, dailyHeating, gridFee);
           if (measuredSavings) {
@@ -1168,26 +1188,14 @@ const apiHandlers: ApiHandlers = {
             if (computedSavings !== 0) {
               homey.app.log(`Savings accumulation: ${computedSavings > 0 ? '+' : ''}${computedSavings.toFixed(4)} SEK (individual optimization)`);
             }
-            const tzOffset = parseInt(homey.settings.get('time_zone_offset'));
-            const useDST = !!homey.settings.get('use_dst');
-            const now = new Date();
-            const local = new Date(now.getTime());
-            if (!Number.isNaN(tzOffset)) local.setUTCHours(now.getUTCHours() + tzOffset);
-            if (useDST) {
-              const m = now.getUTCMonth();
-              if (m > 2 && m < 10) local.setUTCHours(local.getUTCHours() + 1);
-            }
-            const y = local.getFullYear();
-            const mo = String(local.getMonth() + 1).padStart(2, '0');
-            const d = String(local.getDate()).padStart(2, '0');
-            const todayStr = `${y}-${mo}-${d}`;
+            const todayStr = localDateString(Date.now(), getLocalOffsetHours(homey), false);
 
             const hist = homey.settings.get('savings_history') || [];
             const arr = Array.isArray(hist) ? hist.slice() : [];
             let todayEntry = arr.find(h => h && h.date === todayStr);
 
             // Determine currency/decimals for minor units
-            const currencyCode = homey.settings.get('currency_code') || homey.settings.get('currency') || '';
+            const currencyCode = homey.settings.get('currency') || homey.settings.get('currency_code') || '';
             const decimalsMap: Record<string, number> = { JPY: 0, KWD: 3 };
             const decimals = decimalsMap[String(currencyCode).toUpperCase()] ?? 2;
             const toMinor = (amt: number): number => Math.round((Number(amt) || 0) * Math.pow(10, decimals));
@@ -1413,6 +1421,23 @@ const apiHandlers: ApiHandlers = {
           kFactor: optimizer && typeof optimizer.getThermalModel === 'function'
             ? optimizer.getThermalModel().K
             : null,
+          // What the house model has actually learned (same source as the widget).
+          learned: (() => {
+            try {
+              const raw = homey.settings.get('thermal_model_characteristics');
+              const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+              if (!parsed) return null;
+              return {
+                confidence: parsed.modelConfidence ?? null,
+                coolingRate: parsed.coolingRate ?? null,
+                thermalMass: parsed.thermalMass ?? null,
+                curveWarming: Array.isArray(parsed.curveWarming) ? parsed.curveWarming : null,
+                lastUpdated: parsed.lastUpdated ?? null
+              };
+            } catch {
+              return null;
+            }
+          })(),
           dataPoints: historicalData.optimizations.map(opt => ({
             timestamp: opt.timestamp,
             targetTemp: opt.targetTemp,
@@ -2534,6 +2559,8 @@ const apiHandlers: ApiHandlers = {
         coolingRate: null as number | null,
         thermalMass: null as number | null,
         curveWarming: null as Array<{ outdoorC: number; ratePerHour: number; samples: number }> | null,
+        /** False when the latest data came from Curve/Flow mode, where heatingRate is not learned. */
+        heatingRateApplies: true,
         lastUpdated: null as string | null
       };
 
@@ -2550,6 +2577,7 @@ const apiHandlers: ApiHandlers = {
             thermalMass: parsed.thermalMass ?? null,
             // Curve/Flow mode: learned net warming (°C/h) while heating runs, by outdoor temperature.
             curveWarming: Array.isArray(parsed.curveWarming) ? parsed.curveWarming : null,
+            heatingRateApplies: true,
             lastUpdated: parsed.lastUpdated ?? null
           };
         } catch (parseErr) {
@@ -2613,6 +2641,9 @@ const apiHandlers: ApiHandlers = {
           const dataStr = typeof thermalDataRaw === 'string' ? thermalDataRaw : JSON.stringify(thermalDataRaw);
           const dataParsed = typeof thermalDataRaw === 'string' ? JSON.parse(thermalDataRaw) : thermalDataRaw;
           dataRetention.thermalRawPoints = Array.isArray(dataParsed) ? dataParsed.length : 0;
+          if (Array.isArray(dataParsed) && dataParsed.length > 0) {
+            thermalModel.heatingRateApplies = dataParsed[dataParsed.length - 1]?.roomTargetMode !== false;
+          }
           dataRetention.rawKB = Math.round((dataStr.length / 1024) * 100) / 100;
         } catch (parseErr) {
           homey.app.error('Failed to parse thermal data:', parseErr);
@@ -2746,18 +2777,9 @@ const apiHandlers: ApiHandlers = {
             savingsMetrics.last7DaysSavings = minorToMajor(last7TotalMinor, decimals);
           }
 
-          // Calculate average daily savings from last 7 days
-          if (savingsMetrics.last7DaysSavings !== null) {
-            const daysWithData = savingsHistoryRaw.filter((h: any) => {
-              if (!h || !h.date) return false;
-              const entryDate = new Date(`${h.date}T00:00:00`);
-              return entryDate >= last7Cutoff && entryDate <= todayDate && (h.totalMinor > 0 || h.total > 0);
-            }).length;
-
-            if (daysWithData > 0) {
-              savingsMetrics.averageDailySavings = savingsMetrics.last7DaysSavings / daysWithData;
-            }
-          }
+          // averageDailySavings is deliberately not derived from savings_history (hourly per-action
+          // estimates). It is set only from measured completed days, below, so the widget never
+          // shows the old estimate when no measured day exists yet.
         } catch (parseErr) {
           homey.app.error('Failed to parse savings history:', parseErr);
         }
@@ -2795,11 +2817,7 @@ const apiHandlers: ApiHandlers = {
         try {
           // Local date, matching how the writer names entries (not the UTC date, which is still
           // yesterday for the first local hours of the day).
-          const todayIso = localDateString(
-            Date.now(),
-            parseInt(homey.settings.get('time_zone_offset')),
-            !!homey.settings.get('use_dst')
-          );
+          const todayIso = localDateString(Date.now(), getLocalOffsetHours(homey), false);
           const todayMidnight = new Date(`${todayIso}T00:00:00`);
           const last7Cutoff = new Date(todayMidnight);
           last7Cutoff.setDate(todayMidnight.getDate() - 6);
@@ -2914,106 +2932,11 @@ const apiHandlers: ApiHandlers = {
         }
       }
 
-      // Calculate baseline savings comparison (read-only, UI display only)
-      let baselineSavings = null;
-      let enhancedSavings: any = null;
-      let seasonalMode: string | null = null;
-
-      try {
-        // Get optimizer instance from service manager for read-only calculation
-        const serviceState = getServiceState();
-        const optimizer = serviceState?.optimizer;
-
-        // Run baseline calculation if we have any savings data (even if negative)
-        // Also run if we have recent optimization data, even without savings history yet
-        const hasSavingsData = savingsMetrics.todaySavings !== null && Math.abs(savingsMetrics.todaySavings) > 0.001;
-        const hasRecentData = homey.settings.get('melcloud_historical_data')?.length > 0;
-
-        if (optimizer && (hasSavingsData || hasRecentData)) {
-          // Get actual consumption estimate (use today's savings as proxy for cost delta)
-          // This is a read-only calculation, doesn't affect storage
-          const actualCost = hasSavingsData ? Math.abs(savingsMetrics.todaySavings!) : 5.0; // Default 5 SEK if no savings yet
-          const actualConsumptionKWh = actualCost / 1.5; // Rough estimate: ~1.5 SEK/kWh average
-
-          // Get historical optimizations for context (read-only)
-          const historicalData = homey.settings.get('melcloud_historical_data');
-          let historicalOptimizations: any[] = [];
-          if (historicalData && Array.isArray(historicalData)) {
-            const today = new Date().toISOString().slice(0, 10);
-            historicalOptimizations = historicalData
-              .filter((h: any) => h && h.timestamp && h.timestamp.startsWith(today))
-              .slice(0, 24); // Max 24 hours
-          }
-
-          // Calculate enhanced savings with baseline comparison (READ-ONLY)
-          const currentHourSavings = hasSavingsData ? savingsMetrics.todaySavings! : 0;
-          const result = await optimizer.getSavingsService().calculateEnhancedDailySavingsWithBaseline(
-            currentHourSavings,
-            historicalOptimizations,
-            actualConsumptionKWh,
-            0, // actualCost - set to 0 to get full baseline cost as savings potential
-            true // enable baseline
-          );
-
-          if (result && result.baselineComparison) {
-            enhancedSavings = {
-              baselineSavings: result.baselineComparison.baselineSavings,
-              baselinePercentage: result.baselineComparison.baselinePercentage,
-              projectedSavings: result.projectedSavings,
-              confidence: result.baselineComparison.confidenceLevel,
-              method: result.baselineComparison.method,
-              breakdown: result.baselineComparison.breakdown
-            };
-
-            baselineSavings = {
-              todayVsBaseline: result.baselineComparison.baselineSavings,
-              percentageSaved: result.baselineComparison.baselinePercentage,
-              confidence: result.baselineComparison.confidenceLevel,
-              projectedMonthly: result.projectedSavings * 30
-            };
-          };
-
-          // NOTE: Do NOT override smartSavingsDisplay.today here!
-          // The value was already correctly set from display_savings_history,
-          // which contains finalDailySavings computed in getRunHourlyOptimizer.
-          // This ensures timeline and widget show the same number.
-          // 
-          // Only update projection if we don't have one yet from history
-          if (smartSavingsDisplay.projection === null && enhancedSavings?.baselineSavings !== undefined) {
-            const decimals = smartSavingsDisplay.decimals || 2;
-            smartSavingsDisplay.projection = Number((enhancedSavings.baselineSavings * 30).toFixed(decimals));
-            homey.app.log(`[getModelConfidence] Set projection from baseline (no history): ${smartSavingsDisplay.projection}`);
-          }
-        }
-
-        // Get seasonal mode (read-only)
-        const summerMode = homey.settings.get('summer_mode');
-        const autoSeasonalMode = homey.settings.get('auto_seasonal_mode');
-        if (autoSeasonalMode && serviceState?.weather) {
-          try {
-            const weather = await serviceState.weather.getCurrentWeather();
-            if (weather && weather.temperature !== undefined && weather.temperature !== null) {
-              const temp = weather.temperature;
-              if (temp > 15) {
-                seasonalMode = 'summer';
-              } else if (temp > 5) {
-                seasonalMode = 'transition';
-              } else {
-                seasonalMode = 'winter';
-              }
-            }
-          } catch (weatherErr) {
-            homey.app.error('Error getting weather for seasonal mode:', weatherErr);
-          }
-        } else if (summerMode) {
-          seasonalMode = 'summer';
-        } else {
-          seasonalMode = 'winter'; // Default assumption
-        }
-      } catch (baselineErr) {
-        homey.app.error('Error calculating baseline savings (non-critical):', baselineErr);
-        // Continue without baseline data - graceful degradation
-      }
+      // Season: the one the optimizer actually controls with (consumption-based, stored with each
+      // measured savings entry). The old modelled baseline that used to be recomputed here on every
+      // widget load, and the month/toggle-based season fallback, are gone; neither was displayed
+      // except as a projection fallback that leaked modelled numbers into the widget.
+      const seasonalMode: string | null = smartSavingsDisplay.seasonMode ?? null;
 
       // Build price data for currency context
       const priceData = {
@@ -3174,8 +3097,6 @@ const apiHandlers: ApiHandlers = {
         dataRetention,
         hotWaterPatterns,
         savingsMetrics,
-        baselineSavings,
-        enhancedSavings,
         seasonalMode,
         priceData,
         smartSavingsDisplay,

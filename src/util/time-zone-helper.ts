@@ -220,7 +220,9 @@ export class TimeZoneHelper {
         const parts = formatter.formatToParts(date);
         const tzPart = parts.find(part => part.type === 'timeZoneName')?.value;
         if (tzPart) {
-          const match = tzPart.match(/GMT([+-]\d{2})(?::?(\d{2}))?/);
+          // Intl's shortOffset is "GMT+2", "GMT+5:30" or plain "GMT" (UTC): one or two hour digits.
+          if (tzPart === 'GMT' || tzPart === 'UTC') return 0;
+          const match = tzPart.match(/GMT([+-]\d{1,2})(?::?(\d{2}))?/);
           if (match) {
             const sign = match[1].startsWith('-') ? -1 : 1;
             const hours = Math.abs(parseInt(match[1], 10));

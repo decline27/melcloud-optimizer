@@ -324,7 +324,7 @@
     <div class="widget" id="model-confidence-widget">
       <header class="widget-header">
         <div>
-          <p class="title">Live Model Confidence</p>
+          <p class="title">House Model Data</p>
           <span class="status-pill" id="widget_confidence_status" data-level="Learning">
             Learning
           </span>
@@ -385,7 +385,7 @@
           <span id="savings_season_mode">—</span>
         </div>
         <p class="savings-note" id="savings_note">
-          Optimizer is learning your baseline; savings will appear after a few hourly runs.
+          Measuring when the heat pump runs; savings appear after the next hourly run.
         </p>
       </section>
 
@@ -399,7 +399,7 @@
       <section class="thermal-details">
         <div class="thermal-grid">
           <div class="thermal-metric">
-            <span>Heating rate</span>
+            <span id="thermal_heating_label">Heating rate</span>
             <strong id="thermal_heating_rate">—</strong>
           </div>
           <div class="thermal-metric">
@@ -455,6 +455,7 @@
           savingsNote: document.getElementById('savings_note'),
           updated: document.getElementById('widget_updated'),
           heatingRate: document.getElementById('thermal_heating_rate'),
+          heatingLabel: document.getElementById('thermal_heating_label'),
           coolingRate: document.getElementById('thermal_cooling_rate'),
           thermalMass: document.getElementById('thermal_mass_value'),
           learningCycles: document.getElementById('thermal_learning_cycles'),
@@ -555,7 +556,7 @@
             setText(els.avgPrice, 'Not enough price data');
           }
 
-          setText(els.savingsNote, summary.note || 'Optimizer is learning your baseline; savings will appear after a few hourly runs.');
+          setText(els.savingsNote, summary.note || 'Measuring when the heat pump runs; savings appear after the next hourly run.');
         }
 
         function renderLastAction(decision) {
@@ -585,11 +586,23 @@
           const adaptive = snapshot?.adaptiveParameters || {};
           const retention = snapshot?.dataRetention || {};
 
-          const heating = typeof model.heatingRate === 'number'
-            ? `${model.heatingRate.toFixed(2)} °C/h`
+          // Rates are per hour per °C of difference (setpoint gap for heating, indoor-outdoor for
+          // cooling), not °C/h. On the weather curve the setpoint does not set heating power, so
+          // the classic heating rate is not learned there; show the learned curve warming instead.
+          let heatingLabel = 'Heating rate';
+          let heating = typeof model.heatingRate === 'number'
+            ? `${model.heatingRate.toFixed(3)} /h·°C`
             : '—';
+          if (model.heatingRateApplies === false) {
+            heatingLabel = 'Warming (curve)';
+            const bins = Array.isArray(model.curveWarming) ? model.curveWarming : [];
+            const best = bins.reduce((a, b) => (!a || b.samples > a.samples ? b : a), null);
+            heating = best
+              ? `${best.ratePerHour >= 0 ? '+' : ''}${best.ratePerHour.toFixed(2)} °C/h at ${best.outdoorC}°C`
+              : 'Learning…';
+          }
           const cooling = typeof model.coolingRate === 'number'
-            ? `${model.coolingRate.toFixed(2)} °C/h`
+            ? `${model.coolingRate.toFixed(3)} /h·°C`
             : '—';
           const mass = typeof model.thermalMass === 'number'
             ? model.thermalMass.toFixed(2)
@@ -598,6 +611,7 @@
             ? adaptive.learningCycles.toString()
             : '—';
 
+          setText(els.heatingLabel, heatingLabel);
           setText(els.heatingRate, heating);
           setText(els.coolingRate, cooling);
           setText(els.thermalMass, mass);
