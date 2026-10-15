@@ -209,3 +209,32 @@ describe('local date', () => {
     expect(localDateString(Date.UTC(2026, 9, 14, 12, 0), 1, true)).toBe('2026-10-14');
   });
 });
+
+describe('per-kWh adder (grid fee)', () => {
+  const day = (indoorC: number) => ({ hours: {
+    [DAY0]: { run: 12, total: 12, price: 1, baselineC: 22, indoorSum: indoorC * 12, outdoorSum: 2 * 12, tempSamples: 12 },
+    [DAY0 + HOUR]: { run: 0, total: 12, price: 3, baselineC: 22, indoorSum: indoorC * 12, outdoorSum: 2 * 12, tempSamples: 12 }
+  } });
+
+  test('cancels in the timing part', () => {
+    const without = computeRunPriceSavings(day(22), DAY0, DAY0 + 2 * HOUR, 24, 24)!;
+    const withFee = computeRunPriceSavings(day(22), DAY0, DAY0 + 2 * HOUR, 24, 24, 1.04)!;
+    expect(withFee.timingSavings).toBeCloseTo(without.timingSavings);
+    expect(withFee.savings).toBeCloseTo(without.savings);
+  });
+
+  test('counts in full for kWh not bought', () => {
+    // Coasting at 21 vs the 22 baseline: fewer kWh than a normal pump.
+    const without = computeRunPriceSavings(day(21), DAY0, DAY0 + 2 * HOUR, 24, 24)!;
+    const withFee = computeRunPriceSavings(day(21), DAY0, DAY0 + 2 * HOUR, 24, 24, 1.04)!;
+    const kWhNotBought = withFee.baselineEnergyKWh - withFee.energyKWh;
+    expect(kWhNotBought).toBeGreaterThan(0);
+    expect(withFee.energySavings - without.energySavings).toBeCloseTo(kWhNotBought * 1.04);
+    expect(withFee.timingSavings + withFee.energySavings).toBeCloseTo(withFee.savings);
+  });
+
+  test('costs are delivered costs', () => {
+    const r = computeRunPriceSavings(day(22), DAY0, DAY0 + 2 * HOUR, 24, 24, 1.04)!;
+    expect(r.actualCost).toBeCloseTo(r.energyKWh * (r.paidPrice + 1.04));
+  });
+});

@@ -883,8 +883,11 @@ const apiHandlers: ApiHandlers = {
           const ledger = readRunPriceLedger(homey.settings);
           const dailyEnergy = Number(result.energyMetrics?.dailyEnergyConsumption);
           const dailyHeating = Number(result.energyMetrics?.dailyHeatingConsumption);
-          measuredSavings = computeRunPriceSavings(ledger, dayStartMs, nowMs + 1, dailyEnergy, dailyHeating);
-          measuredYesterday = computeRunPriceSavings(ledger, dayStartMs - 24 * 3600000, dayStartMs, dailyEnergy, dailyHeating);
+          // The user's per-kWh grid fee: cancels when the same kWh is retimed, counts in full for
+          // every kWh a normal pump would have bought and this one did not.
+          const gridFee = Number(homey.settings.get('grid_fee_per_kwh')) || 0;
+          measuredSavings = computeRunPriceSavings(ledger, dayStartMs, nowMs + 1, dailyEnergy, dailyHeating, gridFee);
+          measuredYesterday = computeRunPriceSavings(ledger, dayStartMs - 24 * 3600000, dayStartMs, dailyEnergy, dailyHeating, gridFee);
           if (measuredSavings) {
             homey.app.log('Measured savings vs a normal heat pump at the comfort-band midpoint', {
               hoursUsed: measuredSavings.hoursUsed,
@@ -892,6 +895,7 @@ const apiHandlers: ApiHandlers = {
               averagePrice: measuredSavings.averagePrice.toFixed(4),
               normalPumpHeatingPrice: measuredSavings.normalPumpHeatingPrice.toFixed(4),
               paidPrice: measuredSavings.paidPrice.toFixed(4),
+              gridFee: measuredSavings.perKwhAdder,
               energyKWh: measuredSavings.energyKWh.toFixed(2),
               baselineEnergyKWh: measuredSavings.baselineEnergyKWh.toFixed(2),
               energyRatio: measuredSavings.energyRatio.toFixed(3),

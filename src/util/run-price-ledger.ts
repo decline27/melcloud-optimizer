@@ -111,13 +111,21 @@ export interface RunPriceSavings {
   energyRatio: number;
   /** Energy a normal pump would have used over the same hours, kWh. */
   baselineEnergyKWh: number;
-  /** A normal pump: heating at normalPumpHeatingPrice, hot water at averagePrice. */
+  /** Per-kWh adder (grid fee) included in the costs and in the energy part. */
+  perKwhAdder: number;
+  /**
+   * A normal pump: heating at normalPumpHeatingPrice, hot water at averagePrice, each plus the
+   * per-kWh adder (delivered price).
+   */
   baselineCost: number;
-  /** energyKWh × paidPrice. */
+  /** energyKWh × (paidPrice + adder). */
   actualCost: number;
   /** From running in cheaper hours than a normal pump would, for the same energy. */
   timingSavings: number;
-  /** From using less heating energy than a normal pump, priced at normalPumpHeatingPrice. */
+  /**
+   * From using less heating energy than a normal pump. A kWh not bought saves the whole
+   * delivered price, so this is priced at normalPumpHeatingPrice + adder.
+   */
   energySavings: number;
   /** baselineCost − actualCost = timingSavings + energySavings. */
   savings: number;
@@ -280,8 +288,10 @@ export function computeRunPriceSavings(
   fromMs: number,
   toMs: number,
   dailyEnergyKWh: number,
-  dailyHeatingKWh?: number
+  dailyHeatingKWh?: number,
+  perKwhAdder?: number
 ): RunPriceSavings | null {
+  const adder = Number.isFinite(perKwhAdder) && (perKwhAdder as number) > 0 ? (perKwhAdder as number) : 0;
   const usable = Object.entries(ledger.hours)
     .map(([key, hour]) => ({ start: Number(key), hour }))
     .filter(({ start, hour }) =>
@@ -312,10 +322,12 @@ export function computeRunPriceSavings(
   const otherKWh = energyKWh - heatingKWh;
   const baselineEnergyKWh = otherKWh + heatingKWh * energyRatio;
 
-  const baselineCost = heatingKWh * energyRatio * normalPumpHeatingPrice + otherKWh * averagePrice;
-  const actualCost = energyKWh * paidPrice;
+  // Delivered costs. The adder cancels in the timing part (the same kWh is bought either way)
+  // and counts in full in the energy part (a kWh not bought saves spot + grid fee).
+  const baselineCost = heatingKWh * energyRatio * (normalPumpHeatingPrice + adder) + otherKWh * (averagePrice + adder);
+  const actualCost = energyKWh * (paidPrice + adder);
   const timingSavings = heatingKWh * (normalPumpHeatingPrice - paidPrice) + otherKWh * (averagePrice - paidPrice);
-  const energySavings = heatingKWh * (energyRatio - 1) * normalPumpHeatingPrice;
+  const energySavings = heatingKWh * (energyRatio - 1) * (normalPumpHeatingPrice + adder);
 
   return {
     hoursUsed: usable.length,
@@ -324,6 +336,7 @@ export function computeRunPriceSavings(
     paidPrice,
     energyKWh,
     energyRatio,
+    perKwhAdder: adder,
     baselineEnergyKWh,
     baselineCost,
     actualCost,

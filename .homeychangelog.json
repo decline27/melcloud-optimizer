@@ -319,5 +319,8 @@
   },
   "14.0.74": {
     "en": "The house model learns again when the heat pump runs on its weather curve: it measures how fast the house cools while heating is off, which the app uses to judge how long it can pause heating. Model confidence starts rising after about a day of data."
+  },
+  "14.0.75": {
+    "en": "Savings now include your grid fee for every kWh the heat pump did not need to buy. Moving heating to cheaper hours is still valued at the spot price difference, since the grid fee is the same in every hour."
   }
 }
