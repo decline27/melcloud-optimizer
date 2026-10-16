@@ -2232,22 +2232,33 @@ export class Optimizer {
         }
       }
 
-      // Low-tank kick. The FTC does not start a reheat just because the tank has fallen far
+      // Low-tank recovery. The FTC does not start a reheat just because the tank has fallen far
       // below its setpoint: measured live, the tank sat 16-19 °C under target for hours with the
-      // pump idle, then started within minutes of the setpoint being *raised*. So a 'delay' that
-      // holds the setpoint at the minimum can leave the tank cold indefinitely. Once the tank is
-      // below the user's minimum, raise the setpoint one step above where it is now, whatever the
-      // price: that is the smallest write that starts a reheat. Skipped while a DHW run is
-      // already in progress so a reheat in flight doesn't get re-kicked.
+      // pump idle, then started within minutes of the setpoint being *raised*. So once the tank is
+      // below the user's minimum, whatever the price:
+      //  - not yet reheating: raise the setpoint by the largest single change allowed (the tank
+      //    ramp cap). A one-step (2 °C) raise did not start the pump on 2026-10-16; a 4 °C raise
+      //    on 2026-10-13 started it within 5 minutes.
+      //  - already reheating: never lower the setpoint. On 2026-10-16 a 'delay' dropped the
+      //    target to the minimum mid-reheat, so the tank stopped at 43.5 °C instead of recovering.
       const tankWaterTemp = Number(inputs.deviceState.TankWaterTemperature);
       const dhwRunning = inputs.deviceState.OperationMode === 1;
-      const lowTankKick = Number.isFinite(tankWaterTemp) && tankWaterTemp < tankCons.minTemp && !dhwRunning
-        ? Math.min(tankCons.maxTemp, currentTankTarget + tankCons.tempStep)
-        : null;
-      if (lowTankKick !== null && tankTarget < lowTankKick) {
-        tankTarget = lowTankKick;
-        tankReason = `Tank at ${tankWaterTemp}°C is below minimum ${tankCons.minTemp}°C: ` +
-          `raising setpoint to ${lowTankKick}°C to start a reheat`;
+      const tankBelowMin = Number.isFinite(tankWaterTemp) && tankWaterTemp < tankCons.minTemp;
+      const tankMaxDeltaPerChange = Math.max(tankCons.tempStep, COMFORT_CONSTANTS.DEFAULT_TANK_MAX_DELTA_PER_CHANGE);
+      let lowTankKick: number | null = null;
+      if (tankBelowMin && dhwRunning) {
+        if (tankTarget < currentTankTarget) {
+          tankTarget = currentTankTarget;
+          tankReason = `Tank at ${tankWaterTemp}°C is below minimum ${tankCons.minTemp}°C and reheating: ` +
+            `holding setpoint ${currentTankTarget}°C until it recovers`;
+        }
+      } else if (tankBelowMin) {
+        lowTankKick = Math.min(tankCons.maxTemp, currentTankTarget + tankMaxDeltaPerChange);
+        if (tankTarget < lowTankKick) {
+          tankTarget = lowTankKick;
+          tankReason = `Tank at ${tankWaterTemp}°C is below minimum ${tankCons.minTemp}°C: ` +
+            `raising setpoint to ${lowTankKick}°C to start a reheat`;
+        }
       }
 
       this.logger.log('Tank target resolved', {

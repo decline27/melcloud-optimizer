@@ -331,5 +331,8 @@
   },
   "14.0.78": {
     "en": "Fixed: if MELCloud stopped answering a request, the heat pump device could stop updating in Homey until the app restarted. Requests now time out after 30 seconds and are retried."
+  },
+  "14.0.79": {
+    "en": "Hot water recovers faster after heavy use: when the tank drops below your minimum, the app raises the tank target more firmly so the heat pump starts reheating, and it no longer lowers the target in the middle of that reheat."
   }
 }

@@ -516,16 +516,27 @@ describe('Low-tank kick', () => {
 
   const delay = { hotWaterAction: { action: 'delay', reason: 'price high' } };
 
-  test('a tank below the minimum gets a one-step raise even while prices are high', async () => {
+  test('a tank below the minimum gets the largest allowed raise even while prices are high', async () => {
     // Live case 2026-10-13: tank 23 °C, setpoint held at the 42 °C minimum, pump idle for hours.
     const result = await makeOptimizer().optimizeTank(makeInputs({ TankWaterTemperature: 23, OperationMode: 0 }), delay, jest.fn());
 
-    expect(result.toTemp).toBe(44);
+    // Ramp cap is max(step 2, 4) = 4: 42 -> 46 in one write (a 2 °C raise did not start the pump live).
+    expect(result.toTemp).toBe(46);
     expect(result.needsApply).toBe(true);
     expect(result.reason).toContain('below minimum');
   });
 
-  test('no kick while a DHW run is already in progress', async () => {
+  test('a reheat in progress is not cut short by a price delay', async () => {
+    // Live 2026-10-16 19:00: tank 28 °C, reheat just started, target 46; the delay lowered it to
+    // the 42 °C minimum and the tank stopped at 43.5 °C.
+    const result = await makeOptimizer().optimizeTank(
+      makeInputs({ SetTankWaterTemperature: 46, TankWaterTemperature: 28, OperationMode: 1 }), delay, jest.fn());
+
+    expect(result.toTemp).toBe(46);
+    expect(result.reason).toContain('holding setpoint');
+  });
+
+  test('no extra raise while a DHW run is already in progress', async () => {
     const result = await makeOptimizer().optimizeTank(makeInputs({ TankWaterTemperature: 30, OperationMode: 1 }), delay, jest.fn());
 
     expect(result.toTemp).toBe(42);
