@@ -339,6 +339,18 @@ export class MelCloudApi extends BaseApiService {
           reject(new Error(`API request error: ${error.message || (error as any).code || String(error)}`));
         });
 
+        // Bound every request. Without this a connection that is accepted but never answered
+        // leaves the promise pending forever, and because identical calls are de-duplicated
+        // through pendingRequests, every later poll waits on the same dead promise. Seen live
+        // 2026-10-16: the device poll stopped at 05:00 while the optimizer (another client
+        // instance) kept running. The error is treated as transient and retried below.
+        const requestTimeoutMs = this.circuitBreaker?.getRequestTimeoutMs?.();
+        if (requestTimeoutMs && requestTimeoutMs > 0) {
+          req.setTimeout(requestTimeoutMs, () => {
+            req.destroy(new Error(`MELCloud request timed out after ${requestTimeoutMs}ms`));
+          });
+        }
+
         // Send the request body if provided
         if (options.body) {
           req.write(options.body);

@@ -116,6 +116,14 @@ export class CircuitBreaker {
   }
 
   /**
+   * The configured per-request timeout (ms). Exposed so callers that issue raw requests without
+   * going through execute() can apply the same limit.
+   */
+  public getRequestTimeoutMs(): number | undefined {
+    return this.options.timeout;
+  }
+
+  /**
    * Execute a function with circuit breaker protection
    * @param fn Function to execute
    * @returns Promise resolving to function result
