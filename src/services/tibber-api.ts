@@ -20,6 +20,8 @@ export interface TibberHome {
     city: string | null;
     postalCode: string | null;
     country: string | null;
+    latitude: number | null;
+    longitude: number | null;
   } | null;
 }
 
@@ -98,6 +100,8 @@ export class TibberApi extends BaseApiService {
             city
             postalCode
             country
+            latitude
+            longitude
           }
         }
       }
@@ -126,7 +130,10 @@ export class TibberApi extends BaseApiService {
           address1: home.address.address1 || null,
           city: home.address.city || null,
           postalCode: home.address.postalCode || null,
-          country: home.address.country || null
+          country: home.address.country || null,
+          // Tibber returns coordinates as strings
+          latitude: Number.isFinite(parseFloat(home.address.latitude)) ? parseFloat(home.address.latitude) : null,
+          longitude: Number.isFinite(parseFloat(home.address.longitude)) ? parseFloat(home.address.longitude) : null
         } : null
       }));
     } catch (error) {

@@ -276,11 +276,16 @@
       </div>
 
       <div class="homey-form-group">
+        <label class="homey-form-label" for="occupancy_source">Home / away</label>
+        <select class="homey-form-input" id="occupancy_source">
+          <option value="presence">Automatic: from who is home in Homey</option>
+          <option value="manual">Flows or the switch below</option>
+        </select>
         <label class="homey-form-checkbox">
           <input type="checkbox" id="occupied" checked />
           <span>Home is occupied</span>
         </label>
-        <p class="homey-form-helper">Turn off when you are away to use the lower away range. Can be automated with Flows.</p>
+        <p class="homey-form-helper" id="occupancy_help"></p>
       </div>
 
       <div class="homey-form-group">
@@ -306,20 +311,13 @@
     <details class="homey-form-fieldset">
       <summary class="homey-form-legend">Electricity Prices</summary>
       <div class="homey-form-group">
-        <label class="homey-form-checkbox">
-          <input type="radio" name="price_source" id="price_source_entsoe" value="entsoe" checked />
-          <span>ENTSO-E day-ahead prices (no account needed)</span>
-        </label>
-        <label class="homey-form-checkbox">
-          <input type="radio" name="price_source" id="price_source_tibber" value="tibber" />
-          <span>Tibber (your own API token)</span>
-        </label>
+        <p class="homey-form-helper">Without a Tibber token the app uses ENTSO-E day-ahead prices (no account needed). Enter your Tibber token to use Tibber's prices instead.</p>
         <span class="homey-form-helper" id="price_source_status"></span>
       </div>
 
       <div id="tibber_connection_group">
         <div class="homey-form-group">
-          <label class="homey-form-label" for="tibber_token">Tibber API Token</label>
+          <label class="homey-form-label" for="tibber_token">Tibber API Token (optional)</label>
           <input class="homey-form-input" id="tibber_token" type="password" value="" />
           <p class="homey-form-helper">Get your token from <a href="https://developer.tibber.com/" target="_blank">https://developer.tibber.com/</a></p>
         </div>
@@ -361,7 +359,8 @@
       <div class="homey-form-group">
         <label class="homey-form-label" for="max_tank_temp">Maximum Tank Temperature (°C)</label>
         <input class="homey-form-input" id="max_tank_temp" type="number" min="40" max="60" step="1" value="50" />
-        <p class="homey-form-helper">Upper limit when storing heat in cheap hours. Suggested: 53°C; check your heat pump's recommended maximum.</p>
+        <p class="homey-form-helper">Upper limit when storing heat in cheap hours. Suggested: 53°C.</p>
+        <p class="homey-form-helper" id="tank_unit_max"></p>
       </div>
     </details>
 
@@ -369,20 +368,20 @@
       <summary class="homey-form-legend">Zone 2</summary>
       <div class="homey-form-group">
         <label class="homey-form-checkbox" for="enable_zone2">
-          <input type="checkbox" id="enable_zone2" />
+          <input type="checkbox" id="enable_zone2" checked />
           <span>Optimize Zone 2 temperature</span>
         </label>
-        <p class="homey-form-helper">Only for heat pumps with a second heating zone.</p>
+        <p class="homey-form-helper">On by default for heat pumps with a second heating zone. Leave the limits empty to use your Home comfort range.</p>
       </div>
 
-      <div id="zone2_settings" style="display: none;">
+      <div id="zone2_settings">
         <div class="homey-form-group">
           <label class="homey-form-label" for="min_temp_zone2">Minimum Temperature Zone 2 (°C)</label>
-          <input class="homey-form-input" id="min_temp_zone2" type="number" min="16" max="22" step="0.5" value="18" />
+          <input class="homey-form-input" id="min_temp_zone2" type="number" min="16" max="22" step="0.5" value="" placeholder="Automatic (Home range)" />
         </div>
         <div class="homey-form-group">
           <label class="homey-form-label" for="max_temp_zone2">Maximum Temperature Zone 2 (°C)</label>
-          <input class="homey-form-input" id="max_temp_zone2" type="number" min="20" max="26" step="0.5" value="24" />
+          <input class="homey-form-input" id="max_temp_zone2" type="number" min="20" max="26" step="0.5" value="" placeholder="Automatic (Home range)" />
         </div>
       </div>
     </details>
@@ -1222,10 +1221,7 @@
         const tibberHomeIdElement = document.getElementById("tibber_home_id");
         const refreshTibberHomesButton = document.getElementById("refresh_tibber_homes");
         const tibberHomeStatusElement = document.getElementById("tibber_home_status");
-        const priceSourceTibberElement = document.getElementById("price_source_tibber");
-        const priceSourceEntsoeElement = document.getElementById("price_source_entsoe");
         const priceSourceStatusElement = document.getElementById("price_source_status");
-        const tibberTokenGroup = tibberTokenElement ? tibberTokenElement.closest('.homey-form-group') : null;
         const entsoeQuickDetails = document.getElementById("entsoe_quick_settings");
         const entsoeZoneInput = document.getElementById("entsoe_zone_input");
         const entsoeAutoButton = document.getElementById("entsoe_auto_detect");
@@ -1582,36 +1578,27 @@
           }
         }
 
-        function renderPriceSource(value) {
-          const selection = value === 'tibber' ? 'tibber' : 'entsoe';
-          if (priceSourceTibberElement) {
-            priceSourceTibberElement.checked = selection === 'tibber';
-          }
-          if (priceSourceEntsoeElement) {
-            priceSourceEntsoeElement.checked = selection === 'entsoe';
-          }
-          const tibberConnectionGroup = document.getElementById('tibber_connection_group');
-          if (tibberConnectionGroup) {
-            tibberConnectionGroup.style.display = selection === 'tibber' ? '' : 'none';
+        // Same rule as the app (getPriceSource): a choice stored by an older page wins, otherwise
+        // a Tibber token means Tibber and no token means ENTSO-E.
+        let storedPriceSource = null;
+        function effectivePriceSource() {
+          if (storedPriceSource === 'tibber' || storedPriceSource === 'entsoe') return storedPriceSource;
+          return tibberTokenElement && tibberTokenElement.value.trim() ? 'tibber' : 'entsoe';
+        }
+
+        function renderPriceSource() {
+          const selection = effectivePriceSource();
+          const tibberHomeGroup = document.getElementById('tibber_home_group');
+          if (tibberHomeGroup) {
+            tibberHomeGroup.style.display = selection === 'tibber' ? '' : 'none';
           }
           if (entsoeQuickDetails) {
             entsoeQuickDetails.style.display = selection === 'entsoe' ? '' : 'none';
           }
-          const enableTibberInputs = selection === 'tibber';
-          if (tibberTokenElement) {
-            tibberTokenElement.disabled = !enableTibberInputs;
-          }
-          if (tibberTokenGroup) {
-            if (enableTibberInputs) {
-              tibberTokenGroup.classList.remove('disabled');
-            } else {
-              tibberTokenGroup.classList.add('disabled');
-            }
-          }
           if (priceSourceStatusElement) {
             priceSourceStatusElement.textContent = selection === 'tibber'
-              ? 'Using Tibber data. Remember to keep your token up to date.'
-              : 'Using ENTSO-E day-ahead prices provided by the app.';
+              ? 'Prices: Tibber.'
+              : 'Prices: ENTSO-E day-ahead.';
           }
 
           if (selection === 'entsoe') {
@@ -1625,7 +1612,7 @@
         // Consumer markup helper functions (defined before use)
         function updateConsumerMarkupVisibility() {
           const isEnabled = enableConsumerMarkupElement && enableConsumerMarkupElement.checked;
-          const isEntsoeSelected = priceSourceEntsoeElement && priceSourceEntsoeElement.checked;
+          const isEntsoeSelected = effectivePriceSource() === 'entsoe';
           
           // Only show consumer markup settings when ENTSO-E is selected
           if (consumerMarkupSection) {
@@ -1714,39 +1701,19 @@
           }
         }
 
-        function savePriceSource(value) {
-          const selection = value === 'entsoe' ? 'entsoe' : 'tibber';
-          Homey.set('price_data_source', selection, function (err) {
-            if (err) {
-              console.error('Failed to save price_data_source', err);
-              if (priceSourceStatusElement) {
-                priceSourceStatusElement.textContent = 'Failed to save price source preference.';
-              }
-              return;
+        // A new or removed token decides the price source again, also for users whose older
+        // page stored an explicit choice.
+        if (tibberTokenElement) {
+          tibberTokenElement.addEventListener('change', function () {
+            storedPriceSource = null;
+            persistSetting('price_data_source', null);
+            if (tibberTokenElement.value.trim()) {
+              loadTibberHomes();
+            } else {
+              persistSetting('tibber_token', null);
             }
-            renderPriceSource(selection);
-            if (priceSourceStatusElement) {
-              priceSourceStatusElement.textContent = selection === 'tibber'
-                ? 'Saved: Tibber API selected for pricing.'
-                : 'Saved: ENTSO-E pricing selected.';
-            }
-          });
-        }
-
-        if (priceSourceTibberElement) {
-          priceSourceTibberElement.addEventListener('change', function () {
-            if (priceSourceTibberElement.checked) {
-              savePriceSource('tibber');
-              updateConsumerMarkupVisibility();
-            }
-          });
-        }
-        if (priceSourceEntsoeElement) {
-          priceSourceEntsoeElement.addEventListener('change', function () {
-            if (priceSourceEntsoeElement.checked) {
-              savePriceSource('entsoe');
-              updateConsumerMarkupVisibility();
-            }
+            renderPriceSource();
+            updateConsumerMarkupVisibility();
           });
         }
 
@@ -1827,6 +1794,20 @@
         const enableTankControlElement = document.getElementById("enable_tank_control");
         const minTankTempElement = document.getElementById("min_tank_temp");
         const maxTankTempElement = document.getElementById("max_tank_temp");
+
+        // MELCloud reports the unit's highest tank setpoint (no minimum); cap the field at it.
+        function applyTankUnitMax(option) {
+          const note = document.getElementById('tank_unit_max');
+          const unitMax = option && option.dataset ? Number(option.dataset.maxtank) : NaN;
+          if (!maxTankTempElement || !note) return;
+          if (Number.isFinite(unitMax) && unitMax > 0) {
+            maxTankTempElement.max = String(unitMax);
+            note.textContent = 'Your heat pump allows up to ' + unitMax + '°C.';
+          } else {
+            maxTankTempElement.max = '60';
+            note.textContent = '';
+          }
+        }
         const tankTempStepElement = document.getElementById("tank_temp_step");
         const tankFieldset = document.getElementById("tank_fieldset");
         const tankCapabilityWarning = document.getElementById("tank_capability_warning");
@@ -1882,15 +1863,9 @@
 
         // Load current settings
         Homey.get("price_data_source", function (err, value) {
-          if (err) {
-            console.error('Failed to load price_data_source', err);
-            renderPriceSource('entsoe');
-            return;
-          }
-          renderPriceSource(value);
-          if (value === 'entsoe') {
-            ensureEntsoeDefaultZone();
-          }
+          if (err) console.error('Failed to load price_data_source', err);
+          storedPriceSource = !err && (value === 'tibber' || value === 'entsoe') ? value : null;
+          renderPriceSource();
         });
 
         Homey.get("melcloud_user", function (err, value) {
@@ -1942,6 +1917,7 @@
         Homey.get("tibber_token", function (err, value) {
           if (err) return Homey.alert(err);
           if (value) tibberTokenElement.value = value;
+          renderPriceSource();
         });
 
         // Load saved Tibber home ID
@@ -2041,19 +2017,24 @@
                 defaultOption.text = '-- Select a home --';
                 tibberHomeIdElement.add(defaultOption);
                 
+                const suggestedHomeId = result.suggestedHomeId || null;
                 homes.forEach(function(home) {
                   const option = document.createElement('option');
                   option.value = home.id;
                   option.text = home.name;
-                  if (home.selected) {
+                  if (home.selected || (!result.selectedHomeId && home.id === suggestedHomeId)) {
                     option.selected = true;
                   }
                   tibberHomeIdElement.add(option);
                 });
-                
+
                 if (tibberHomeStatusElement) {
-                  tibberHomeStatusElement.textContent = '✓ Found ' + homes.length + ' homes - please select one';
-                  tibberHomeStatusElement.style.color = '#00aa44';
+                  tibberHomeStatusElement.textContent = result.selectedHomeId
+                    ? '✓ Found ' + homes.length + ' homes'
+                    : suggestedHomeId
+                      ? 'Found ' + homes.length + ' homes. Selected the one nearest your Homey; check it and press Save.'
+                      : 'Found ' + homes.length + ' homes. Select the one your heat pump is in and press Save.';
+                  tibberHomeStatusElement.style.color = result.selectedHomeId ? '#00aa44' : '#b06000';
                 }
               }
             });
@@ -2110,6 +2091,31 @@
         Homey.get("deadband_c", function (err, value) { if (hasValidValue(err, value)) deadbandElement.value = value; });
         Homey.get("min_setpoint_change_minutes", function (err, value) { if (hasValidValue(err, value)) minChangeMinutesElement.value = value; });
         Homey.get("occupied", function (err, value) { if (!err && value !== undefined && value !== null && value !== "") occupiedElement.checked = !!value; });
+
+        // Home/away source. The app stores it once at start (existing installs: Flows/switch).
+        const occupancySourceElement = document.getElementById("occupancy_source");
+        function updateOccupancyHelp() {
+          const help = document.getElementById('occupancy_help');
+          if (!help || !occupancySourceElement) return;
+          help.textContent = occupancySourceElement.value === 'presence'
+            ? 'Away when everyone in Homey has left, home when someone arrives. A Flow or this switch can still override until the next arrival or departure.'
+            : 'Set by your Flows ("Set occupied"), the device switch or this switch. Use this for home-day and away-day schedules.';
+        }
+        if (occupancySourceElement) {
+          occupancySourceElement.addEventListener('change', updateOccupancyHelp);
+          Homey.get("occupancy_source", function (err, value) {
+            if (!err && (value === 'presence' || value === 'manual')) {
+              occupancySourceElement.value = value;
+              updateOccupancyHelp();
+              return;
+            }
+            // Not stored yet: same rule as the app's one-time migration.
+            Homey.get("occupied", function (occErr, occupied) {
+              occupancySourceElement.value = !occErr && occupied !== undefined && occupied !== null ? 'manual' : 'presence';
+              updateOccupancyHelp();
+            });
+          });
+        }
         Homey.get("comfort_lower_occupied", function (err, value) { if (hasValidValue(err, value)) comfortLowerOccElement.value = value; });
         Homey.get("comfort_upper_occupied", function (err, value) { if (hasValidValue(err, value)) comfortUpperOccElement.value = value; });
         Homey.get("comfort_lower_away", function (err, value) { if (hasValidValue(err, value)) comfortLowerAwayElement.value = value; });
@@ -2376,6 +2382,7 @@
               if (device.type) option.dataset.type = device.type;
               if (device.SetTankWaterTemperature !== undefined) option.dataset.settankwatertemperature = String(device.SetTankWaterTemperature);
               if (device.TankWaterTemperature !== undefined) option.dataset.tankwatertemperature = String(device.TankWaterTemperature);
+              if (typeof device.maxTankTemperature === 'number') option.dataset.maxtank = String(device.maxTankTemperature);
               deviceIdElement.add(option);
 
               if (savedDeviceIdStr && deviceIdStr === savedDeviceIdStr) {
@@ -2414,6 +2421,7 @@
                   tankFieldset.style.display = 'none';
                   enableTankControlElement.checked = false;
                 }
+                applyTankUnitMax(option);
               }
             });
 
@@ -2512,6 +2520,8 @@
               document.querySelector('label[for="enable_zone2"]').style.opacity = 0.5;
               zone2Fieldset.style.display = 'none';
             }
+
+            applyTankUnitMax(selectedOption);
 
             // Tank capability (check by device type and actual tank temperature support)
             const t = (selectedOption.dataset.type || '').toString().toLowerCase();
@@ -2733,6 +2743,10 @@
           if (occupiedElement) {
             Homey.set("occupied", occupiedElement.checked, function (err) { if (err) console.error('Error saving occupied:', err); });
           }
+          const occupancySourceSelect = document.getElementById("occupancy_source");
+          if (occupancySourceSelect) {
+            Homey.set("occupancy_source", occupancySourceSelect.value, function (err) { if (err) console.error('Error saving occupancy_source:', err); });
+          }
 
           if (comfortLowerOccElement && comfortUpperOccElement) {
             const clo = parseFloat(comfortLowerOccElement.value);
@@ -2805,12 +2819,13 @@
           let maxTankTemp = NaN;
           if (maxTankTempElement) {
             maxTankTemp = parseFloat(maxTankTempElement.value);
-            if (!isNaN(maxTankTemp) && maxTankTemp >= 40 && maxTankTemp <= 60 && maxTankTemp === Math.round(maxTankTemp)) {
+            const tankLimit = Number(maxTankTempElement.max) || 60;
+            if (!isNaN(maxTankTemp) && maxTankTemp >= 40 && maxTankTemp <= tankLimit && maxTankTemp === Math.round(maxTankTemp)) {
               Homey.set("max_tank_temp", maxTankTemp, function (err) {
                 if (err) console.error('Error saving max_tank_temp:', err);
               });
             } else if (maxTankTempElement.value) {
-              Homey.alert('Invalid maximum tank temperature value. Must be a whole number between 40 and 60.');
+              Homey.alert('Invalid maximum tank temperature value. Must be a whole number between 40 and ' + tankLimit + '.');
               return;
             }
           }
@@ -2852,6 +2867,8 @@
             } else if (minTempZone2Element.value) {
               Homey.alert('Invalid minimum Zone2 temperature value. Must be between 16 and 22.');
               return;
+            } else {
+              persistSetting('min_temp_zone2', null); // empty = Home comfort range
             }
           }
 
@@ -2865,6 +2882,8 @@
             } else if (maxTempZone2Element.value) {
               Homey.alert('Invalid maximum Zone2 temperature value. Must be between 20 and 26.');
               return;
+            } else {
+              persistSetting('max_temp_zone2', null); // empty = Home comfort range
             }
           }
 

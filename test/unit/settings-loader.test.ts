@@ -281,10 +281,18 @@ describe('SettingsLoader', () => {
         });
 
         test('gets grid fee', () => {
-            mockHomey.settings.get.mockReturnValue(0.5);
+            // Tibber prices: the grid fee is added on top.
+            const stored: Record<string, unknown> = { grid_fee_per_kwh: 0.5, price_data_source: 'tibber' };
+            mockHomey.settings.get.mockImplementation((key: string) => stored[key]);
 
-            const gridFee = settingsLoader.getGridFee();
-            expect(gridFee).toBe(0.5);
+            expect(settingsLoader.getGridFee()).toBe(0.5);
+        });
+
+        test('grid fee is not added again when ENTSO-E prices carry the consumer markup', () => {
+            const stored: Record<string, unknown> = { grid_fee_per_kwh: 0.5 };
+            mockHomey.settings.get.mockImplementation((key: string) => stored[key]);
+
+            expect(settingsLoader.getGridFee()).toBe(0);
         });
 
         test('returns 0 for missing grid fee', () => {

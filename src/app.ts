@@ -6,7 +6,8 @@ import { HomeyLogger, LogLevel, LogCategory } from './util/logger';
 import { HotWaterService } from './services/hot-water';
 import { TimeZoneHelper, getTimeZoneName } from './util/time-zone-helper';
 import { AccountingService } from './services/accounting-service';
-import { gridFeeOnTopOfPrices } from './services/settings-loader';
+import { getPriceSource, getZone2Settings, gridFeeOnTopOfPrices } from './services/settings-loader';
+import { migrateOccupancySource } from './services/presence-service';
 import {
   LogEntry,
   ThermalModel,
@@ -118,6 +119,14 @@ export default class HeatOptimizerApp extends App {
       this.logger.info('Heat Pump Optimizer initialized');
     } catch (_) {
       this.log('[App] Logger not ready for marker/info; continuing');
+    }
+
+    // Home/away source: existing installs keep Flows and the switch, new ones use presence.
+    try {
+      const source = migrateOccupancySource(this.homey.settings);
+      this.logger.info(`Home/away source: ${source === 'presence' ? 'Homey presence' : 'Flows / switch'}`);
+    } catch (error) {
+      this.logger.error('Failed to set home/away source:', error as Error);
     }
 
     // Log some additional information
@@ -1100,7 +1109,7 @@ export default class HeatOptimizerApp extends App {
     const melcloudUser = this.homey.settings.get('melcloud_user');
     const melcloudPass = this.homey.settings.get('melcloud_pass');
     const tibberToken = this.homey.settings.get('tibber_token') || this.homey.settings.get('tibberToken');
-    const priceDataSource = this.homey.settings.get('price_data_source') || 'entsoe';
+    const priceDataSource = getPriceSource(this.homey.settings);
 
     if (!melcloudUser || !melcloudPass) {
       this.error('MELCloud credentials are missing');
@@ -1133,20 +1142,11 @@ export default class HeatOptimizerApp extends App {
     }
 
     // Check Zone2 settings if enabled
-    const enableZone2 = this.homey.settings.get('enable_zone2');
-    if (enableZone2) {
-      const minTempZone2 = this.homey.settings.get('min_temp_zone2');
-      const maxTempZone2 = this.homey.settings.get('max_temp_zone2');
-
-      if (minTempZone2 !== undefined && maxTempZone2 !== undefined) {
-        if (minTempZone2 >= maxTempZone2) {
-          this.error('Min Zone2 temperature must be less than max Zone2 temperature');
-          return false;
-        }
-      } else {
-        this.error('Zone2 temperature limits are not set but Zone2 control is enabled');
-        return false;
-      }
+    // Zone 2 limits default to the Home comfort range, so only an inverted pair is an error.
+    const zone2 = getZone2Settings(this.homey.settings);
+    if (zone2.enabled && zone2.min >= zone2.max) {
+      this.error('Min Zone2 temperature must be less than max Zone2 temperature');
+      return false;
     }
 
     // Check hot water tank settings if enabled

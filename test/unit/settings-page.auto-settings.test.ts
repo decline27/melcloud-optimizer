@@ -34,6 +34,7 @@ const DETECTED = {
 };
 
 let deviceList: any = { success: true, devices: [], buildings: [] };
+let tibberHomes: any = { success: true, homes: [], selectedHomeId: null };
 
 function makeHomey(stored: Record<string, unknown>) {
   const store: Record<string, unknown> = { ...stored };
@@ -51,7 +52,8 @@ function makeHomey(stored: Record<string, unknown>) {
     api: (_method: string, apiPath: string, _body: unknown, cb: (err: any, res: any) => void) => {
       const res = apiPath === '/getSettingDefaults'
         ? { success: true, defaults: DEFAULTS, detected: DETECTED, consumer_markup_table: MARKUP_TABLE }
-        : apiPath === '/getDeviceList' ? deviceList : { success: false };
+        : apiPath === '/getDeviceList' ? deviceList
+          : apiPath === '/getTibberHomes' ? tibberHomes : { success: false };
       setTimeout(() => cb(null, res), 0);
     }
   };
@@ -220,3 +222,56 @@ describe('settings page automatic detection', () => {
     expect(doc.getElementById('device_refresh_status')?.textContent).toMatch(/selected it/);
   });
 });
+
+describe('settings page price source, home/away, limits', () => {
+  afterEach(() => {
+    deviceList = { success: true, devices: [], buildings: [] };
+    tibberHomes = { success: true, homes: [], selectedHomeId: null };
+  });
+
+  const shown = (doc: Document, id: string) => (doc.getElementById(id) as HTMLElement).style.display !== 'none';
+
+  test('no token: ENTSO-E; entering a token switches to Tibber and preselects the nearest home', async () => {
+    tibberHomes = {
+      success: true,
+      selectedHomeId: null,
+      suggestedHomeId: 'h2',
+      homes: [{ id: 'h1', name: 'Summer house' }, { id: 'h2', name: 'Home (Malmö)' }]
+    };
+    const { win, doc, sets, unsets } = await loadPage({});
+    expect(doc.getElementById('price_source_status')?.textContent).toMatch(/ENTSO-E/);
+    expect(shown(doc, 'tibber_home_group')).toBe(false);
+
+    const token = doc.getElementById('tibber_token') as HTMLInputElement;
+    token.value = 'tok';
+    token.dispatchEvent(new win.Event('change'));
+    await new Promise(r => setTimeout(r, 30));
+    expect(doc.getElementById('price_source_status')?.textContent).toMatch(/Tibber/);
+    expect(shown(doc, 'tibber_home_group')).toBe(true);
+    expect(unsets).toContain('price_data_source');
+    expect(sets.find(([k]) => k === 'tibber_token')?.[1]).toBe('tok');
+    expect(val(doc, 'tibber_home_id')).toBe('h2');
+    expect(doc.getElementById('tibber_home_status')?.textContent).toMatch(/nearest your Homey/);
+  });
+
+  test('a stored home/away state shows Flows; a fresh install shows presence', async () => {
+    const flowUser = await loadPage({ occupied: false });
+    expect(val(flowUser.doc, 'occupancy_source')).toBe('manual');
+    const fresh = await loadPage({});
+    expect(val(fresh.doc, 'occupancy_source')).toBe('presence');
+    expect(fresh.doc.getElementById('occupancy_help')?.textContent).toMatch(/Flow or this switch can still override/);
+  });
+
+  test("the tank maximum is capped at the unit's own limit", async () => {
+    deviceList = {
+      success: true,
+      buildings: [{ id: 7, name: 'Home' }],
+      devices: [{ id: 42, name: 'Ecodan', buildingId: 7, hasZone2: false, type: 'atw', maxTankTemperature: 55 }]
+    };
+    const { doc } = await loadPage({});
+    await new Promise(r => setTimeout(r, 30));
+    expect((doc.getElementById('max_tank_temp') as HTMLInputElement).max).toBe('55');
+    expect(doc.getElementById('tank_unit_max')?.textContent).toMatch(/up to 55°C/);
+  });
+});
+

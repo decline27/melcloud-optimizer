@@ -1,5 +1,6 @@
 import WeatherApi from '../../weather';
 import { getTimeZoneName } from '../util/time-zone-helper';
+import { getPriceSource, getZone2Settings } from '../services/settings-loader';
 import { MelCloudApi } from '../services/melcloud-api';
 import { TibberApi } from '../services/tibber-api';
 import { EntsoePriceService } from '../services/entsoe-price-service';
@@ -254,10 +255,7 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
   let deviceId = homey.settings.get('device_id') || homey.settings.get('deviceId') || 'Boiler';
   let buildingIdRaw = homey.settings.get('building_id') || homey.settings.get('buildingId') || '456';
   const useWeatherData = homey.settings.get('use_weather_data') !== false;
-  const priceSourceSetting = (homey.settings.get('price_data_source') || 'entsoe') as string;
-  const priceSource = typeof priceSourceSetting === 'string' && priceSourceSetting.toLowerCase() === 'entsoe'
-    ? 'entsoe'
-    : 'tibber';
+  const priceSource = getPriceSource(homey.settings);
 
   // Get timezone settings for all services
   const timeZoneOffset = homey.settings.get('time_zone_offset') || 2;
@@ -462,10 +460,7 @@ export function refreshPriceProvider(homey: HomeyLike): PriceProvider | null {
   const isValidLogger = appLogger && typeof appLogger.warn === 'function';
   const sharedLogger = isValidLogger ? appLogger : new HomeyLogger(homey.app);
 
-  const priceSourceSetting = (homey.settings.get('price_data_source') || 'tibber') as string;
-  const priceSource = typeof priceSourceSetting === 'string' && priceSourceSetting.toLowerCase() === 'entsoe'
-    ? 'entsoe'
-    : 'tibber';
+  const priceSource = getPriceSource(homey.settings);
   const tibberToken = homey.settings.get('tibber_token') || homey.settings.get('tibberToken') || null;
   const tibberHomeId = homey.settings.get('tibber_home_id') || null;
   const timeZoneOffset = homey.settings.get('time_zone_offset') || 2;
@@ -569,9 +564,10 @@ export async function updateOptimizerSettings(homey: HomeyLike): Promise<void> {
     COMFORT_CONSTANTS.DEFAULT_MIN_SETPOINT_CHANGE_MINUTES
   );
 
-  const enableZone2 = homey.settings.get('enable_zone2') === true;
-  const minTempZone2 = toNumber(homey.settings.get('min_temp_zone2')) ?? COMFORT_CONSTANTS.DEFAULT_MIN_TEMP_ZONE2;
-  const maxTempZone2 = toNumber(homey.settings.get('max_temp_zone2')) ?? COMFORT_CONSTANTS.DEFAULT_MAX_TEMP_ZONE2;
+  const zone2Settings = getZone2Settings(homey.settings);
+  const enableZone2 = zone2Settings.enabled;
+  const minTempZone2 = zone2Settings.min;
+  const maxTempZone2 = zone2Settings.max;
   const tempStepZone2 = toNumber(homey.settings.get('temp_step_zone2')) ?? COMFORT_CONSTANTS.DEFAULT_TEMP_STEP_ZONE2;
 
   const enableTankControl = homey.settings.get('enable_tank_control') === true;

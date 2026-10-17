@@ -9,13 +9,38 @@ import { CurrencyDetector } from '../util/currency-detector';
 type SettingsReader = { get(key: string): any };
 
 /**
+ * Where hourly prices come from. A stored choice wins (older pages saved one); otherwise a
+ * Tibber token means Tibber and no token means ENTSO-E, so users just add or remove the token.
+ */
+export function getPriceSource(settings: SettingsReader): 'tibber' | 'entsoe' {
+    const stored = String(settings.get('price_data_source') || '').toLowerCase();
+    if (stored === 'tibber' || stored === 'entsoe') return stored;
+    const token = settings.get('tibber_token') || settings.get('tibberToken');
+    return typeof token === 'string' && token.trim() ? 'tibber' : 'entsoe';
+}
+
+/**
+ * Zone 2 control. On unless the user turned it off; the optimizer skips it on units without a
+ * Zone 2. Without own limits Zone 2 uses the Home (occupied) comfort range of Zone 1.
+ */
+export function getZone2Settings(settings: SettingsReader): { enabled: boolean; min: number; max: number } {
+    const num = (key: string): number | null => {
+        const value = settings.get(key);
+        if (value === null || value === undefined || value === '') return null;
+        const n = Number(value);
+        return Number.isFinite(n) ? n : null;
+    };
+    const min = num('min_temp_zone2') ?? num('comfort_lower_occupied') ?? COMFORT_CONSTANTS.DEFAULT_MIN_TEMP_ZONE2;
+    const max = num('max_temp_zone2') ?? num('comfort_upper_occupied') ?? COMFORT_CONSTANTS.DEFAULT_MAX_TEMP_ZONE2;
+    return { enabled: settings.get('enable_zone2') !== false, min, max };
+}
+
+/**
  * True when the hourly prices already include the ENTSO-E consumer markup (grid fee, energy tax,
  * VAT). The markup is on unless the user turned it off; Tibber prices are consumer prices anyway.
- * Unset price source means ENTSO-E, matching the service initialisation.
  */
 export function consumerMarkupInPrices(settings: SettingsReader): boolean {
-    const priceSource = String(settings.get('price_data_source') || 'entsoe').toLowerCase();
-    return priceSource === 'entsoe' && settings.get('enable_consumer_markup') !== false;
+    return getPriceSource(settings) === 'entsoe' && settings.get('enable_consumer_markup') !== false;
 }
 
 /**

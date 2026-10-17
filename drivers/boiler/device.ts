@@ -6,6 +6,7 @@ import { ErrorHandler } from '../../src/util/error-handler';
 import { HomeyLogger, LogLevel } from '../../src/util/logger';
 import { MelCloudDevice } from '../../src/types';
 import { isRunningOperationMode, recordRunSample } from '../../src/util/run-price-ledger';
+import { PresenceService, syncOccupancyFromPresence } from '../../src/services/presence-service';
 import { COMFORT_CONSTANTS } from '../../src/constants';
 // Circuit breaker protection is handled by the API service layer (base-api-service.ts)
 
@@ -26,6 +27,7 @@ interface EnergyData {
 }
 
 module.exports = class BoilerDevice extends Homey.Device {
+  private presenceService?: PresenceService;
   private melCloudApi?: MelCloudApi;
   private logger!: HomeyLogger;
   private updateInterval?: NodeJS.Timeout;
@@ -1291,6 +1293,14 @@ module.exports = class BoilerDevice extends Homey.Device {
         } catch (ledgerErr) {
           this.logger.error('Failed to record run sample', ledgerErr as Error);
         }
+      }
+
+      // Home/away from Homey presence (when chosen); a failure must not stop the poll.
+      try {
+        if (!this.presenceService) this.presenceService = new PresenceService(this.homey);
+        await syncOccupancyFromPresence(this.homey.settings, this.presenceService, this.logger);
+      } catch (presenceErr) {
+        this.logger.error('Failed to read Homey presence', presenceErr as Error);
       }
 
       // Main operational state based on OperationMode

@@ -35,6 +35,10 @@ returns what it detected (`detected`) so the page can show it.
 | `time_zone_name` | Homey clock zone (`homey.clock.getTimezone()`); the manual offset only if neither exists | `getTimeZoneName` (`src/util/time-zone-helper.ts`) |
 | `currency` | Home country's currency (time zone, then coordinates), else EUR | `CurrencyDetector.getCurrencyWithFallback` (`src/util/currency-detector.ts`) |
 | `entsoe_area_eic` | Zone of the home: country, then nearest reference town for SE/NO/DK/IT; error (no prices) if unknown | `automaticZone` (`src/entsoe.ts`), `zoneAreaForLocation` (`src/util/entsoe-zone-locator.ts`) |
+| `price_data_source` | Tibber when a Tibber token is set, else ENTSO-E; a stored value (older pages) wins, and the page clears it when the token changes | `getPriceSource` (`src/services/settings-loader.ts`) |
+| `tibber_home_id` | Tibber's first home; the page preselects the home nearest the Homey (`suggestedHomeId`) for the user to confirm | `getTibberHomes` (`api.ts`) |
+| `enable_zone2`, `min_temp_zone2`, `max_temp_zone2` | On (skipped on units without Zone 2); limits = Home comfort range | `getZone2Settings` (`src/services/settings-loader.ts`) |
+| `occupancy_source` | Stored once at app start: `manual` if `occupied` was already stored (Flows/switch users), else `presence` | `migrateOccupancySource`, `syncOccupancyFromPresence` (`src/services/presence-service.ts`) |
 | `enable_consumer_markup` | **On** for ENTSO-E (only an explicit `false` turns it off) | `consumerMarkupInPrices` (`src/services/settings-loader.ts`) |
 | `consumer_markup_config` | Built-in table, in EUR, converted at the price FX rate | `DEFAULT_CONSUMER_MARKUP` (`src/services/consumer-markup-defaults.ts`) |
 
@@ -43,6 +47,15 @@ returns what it detected (`detected`) so the page can show it.
   whatever `markup_currency_unit` says.
 - With the markup on, a user `grid_fee_per_kwh` replaces the table's grid fee inside the price
   (added after VAT), so `gridFeeOnTopOfPrices` returns 0 and nothing adds it again.
+
+### Home/away from presence
+
+With `occupancy_source = 'presence'` the device poll (every 5 min) reads Homey users via
+`homey-api` (`homey:manager:api`). Home = any enabled user with `present === true`. Only
+*changes* in presence are written to `occupied`, so the `set_occupied` Flow card, the device
+switch and the page override until the next arrival or departure. `manual` never reads presence.
+Tank: MELCloud reports only the unit's maximum (`Device.MaxTankTemperature`), no minimum; the page
+caps `max_tank_temp` at it.
 
 ### Comfort temperature (page only)
 

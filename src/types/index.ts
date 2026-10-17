@@ -714,6 +714,8 @@ export interface TibberHomeInfo {
 export type GetTibberHomesResponse = ApiResult<{
   homes: TibberHomeInfo[];
   selectedHomeId: string | null;
+  /** Nearest home to the Homey when several exist and none is chosen */
+  suggestedHomeId?: string | null;
 }>;
 
 export interface ApiHandlers {

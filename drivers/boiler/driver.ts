@@ -3,6 +3,7 @@ import { CronJob } from 'cron';
 import { MelCloudApi } from '../../src/services/melcloud-api';
 import { HomeyLogger, LogLevel } from '../../src/util/logger';
 import { TimeZoneHelper, getTimeZoneName } from '../../src/util/time-zone-helper';
+import { getPriceSource } from '../../src/services/settings-loader';
 
 module.exports = class BoilerDriver extends Homey.Driver {
   private melCloudApi?: MelCloudApi;
@@ -145,7 +146,7 @@ module.exports = class BoilerDriver extends Homey.Driver {
       const melcloudPass = this.homey.settings.get('melcloud_pass');
       const tibberToken = this.homey.settings.get('tibber_token');
       const deviceId = this.homey.settings.get('device_id');
-      const priceDataSource = this.homey.settings.get('price_data_source') || 'entsoe';
+      const priceDataSource = getPriceSource(this.homey.settings);
 
       // Check for missing required settings
       const missingSettings = [];

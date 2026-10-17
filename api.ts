@@ -68,7 +68,7 @@ import { buildDecisionFromOptimization, buildPlaceholderDecision } from './src/u
 import { TimeZoneHelper, getTimeZoneName } from './src/util/time-zone-helper';
 import { COMFORT_CONSTANTS, PRICE_CONSTANTS } from './src/constants';
 import { LogLevel } from './src/util/logger';
-import { gridFeeOnTopOfPrices } from './src/services/settings-loader';
+import { getPriceSource, gridFeeOnTopOfPrices } from './src/services/settings-loader';
 import { CurrencyDetector } from './src/util/currency-detector';
 import { getHomeLocation } from './src/util/home-location';
 import { automaticZone } from './src/entsoe';
@@ -815,7 +815,11 @@ const apiHandlers: ApiHandlers = {
           currentTemperatureZone1: device.data && device.data.RoomTemperatureZone1,
           currentTemperatureZone2: device.data && device.data.RoomTemperatureZone2,
           currentSetTemperatureZone1: device.data && device.data.SetTemperatureZone1,
-          currentSetTemperatureZone2: device.data && device.data.SetTemperatureZone2
+          currentSetTemperatureZone2: device.data && device.data.SetTemperatureZone2,
+          // The unit's highest tank setpoint (MELCloud Device.MaxTankTemperature); no minimum is reported
+          maxTankTemperature: device.data && device.data.Device && Number.isFinite(device.data.Device.MaxTankTemperature)
+            ? device.data.Device.MaxTankTemperature
+            : undefined
         }));
 
         // Group devices by building
@@ -2280,10 +2284,31 @@ const apiHandlers: ApiHandlers = {
 
         homey.app.log(`Found ${formattedHomes.length} Tibber home(s)`);
 
+        // Several homes and none chosen: suggest the one nearest the Homey. The user confirms it;
+        // until then prices come from Tibber's first home.
+        let suggestedHomeId: string | null = null;
+        const here = getHomeLocation(homey as any);
+        if (!selectedHomeId && homes.length > 1 && here) {
+          let best = Infinity;
+          for (const home of homes) {
+            const lat = home.address?.latitude;
+            const lon = home.address?.longitude;
+            if (typeof lat !== 'number' || typeof lon !== 'number') continue;
+            const dLat = lat - here.latitude;
+            const dLon = (lon - here.longitude) * Math.cos((here.latitude * Math.PI) / 180);
+            const distance = dLat * dLat + dLon * dLon;
+            if (distance < best) {
+              best = distance;
+              suggestedHomeId = home.id;
+            }
+          }
+        }
+
         return {
           success: true,
           homes: formattedHomes,
-          selectedHomeId
+          selectedHomeId,
+          suggestedHomeId
         };
       } catch (error: any) {
         homey.app.error('Error fetching Tibber homes:', error);
@@ -2514,7 +2539,7 @@ const apiHandlers: ApiHandlers = {
         const melcloudPass = homey.settings.get('melcloud_pass');
         const tibberToken = homey.settings.get('tibber_token');
         const deviceId = homey.settings.get('device_id');
-        const priceDataSource = homey.settings.get('price_data_source') || 'entsoe';
+        const priceDataSource = getPriceSource(homey.settings);
 
         // Check for missing required settings
         const missingSettings = [];

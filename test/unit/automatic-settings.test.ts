@@ -1,7 +1,7 @@
 import { getHomeLocation } from '../../src/util/home-location';
 import { getTimeZoneName } from '../../src/util/time-zone-helper';
 import { CurrencyDetector } from '../../src/util/currency-detector';
-import { consumerMarkupInPrices, gridFeeOnTopOfPrices } from '../../src/services/settings-loader';
+import { consumerMarkupInPrices, getPriceSource, getZone2Settings, gridFeeOnTopOfPrices } from '../../src/services/settings-loader';
 import { automaticZone, countryForZone, resolveZoneToEic } from '../../src/entsoe';
 import { zoneAreaForLocation } from '../../src/util/entsoe-zone-locator';
 import { DEFAULT_CONSUMER_MARKUP, isBuiltInMarkupTable } from '../../src/services/consumer-markup-defaults';
@@ -139,6 +139,29 @@ describe('automatic ENTSO-E zone', () => {
   test('no zone and no known home: a clear error instead of another country\'s prices', () => {
     expect(automaticZone(homey({}))).toBeNull();
     expect(() => resolveZoneToEic(homey({}))).toThrow(/location in Homey/);
+  });
+});
+
+describe('price source from the Tibber token', () => {
+  test('token means Tibber, none means ENTSO-E; a stored choice wins', () => {
+    expect(getPriceSource(homey({}).settings)).toBe('entsoe');
+    expect(getPriceSource(homey({ tibber_token: 'abc' }).settings)).toBe('tibber');
+    expect(getPriceSource(homey({ tibber_token: '  ' }).settings)).toBe('entsoe');
+    expect(getPriceSource(homey({ tibber_token: 'abc', price_data_source: 'entsoe' }).settings)).toBe('entsoe');
+    expect(getPriceSource(homey({ price_data_source: 'tibber' }).settings)).toBe('tibber');
+  });
+
+  test('the markup follows the derived source', () => {
+    expect(consumerMarkupInPrices(homey({ tibber_token: 'abc' }).settings)).toBe(false);
+  });
+});
+
+describe('Zone 2 defaults', () => {
+  test('on unless turned off; limits fall back to the Home comfort range', () => {
+    expect(getZone2Settings(homey({ comfort_lower_occupied: 21, comfort_upper_occupied: 23 }).settings))
+      .toEqual({ enabled: true, min: 21, max: 23 });
+    expect(getZone2Settings(homey({ enable_zone2: false, min_temp_zone2: 18, max_temp_zone2: 24 }).settings))
+      .toEqual({ enabled: false, min: 18, max: 24 });
   });
 });
 
