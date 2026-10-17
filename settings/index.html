@@ -279,7 +279,7 @@
         <label class="homey-form-label" for="occupancy_source">Home / away</label>
         <select class="homey-form-input" id="occupancy_source">
           <option value="presence">Automatic: from who is home in Homey</option>
-          <option value="manual">Flows or the switch below</option>
+          <option value="manual">Always home, unless a Flow or the switch says away</option>
         </select>
         <label class="homey-form-checkbox">
           <input type="checkbox" id="occupied" checked />
@@ -2104,7 +2104,7 @@
                 : '';
           help.textContent = occupancySourceElement.value === 'presence'
             ? 'Away when everyone in Homey has left, home when someone arrives. A Flow or this switch can still override until the next arrival or departure.' + now
-            : 'Set by your Flows ("Set occupied"), the device switch or this switch. Use this for home-day and away-day schedules.';
+            : 'Stays home unless your Flows ("Set occupied"), the device switch or this switch set away. Use Flows for home-day and away-day schedules.';
         }
         if (occupancySourceElement) {
           occupancySourceElement.addEventListener('change', updateOccupancyHelp);
