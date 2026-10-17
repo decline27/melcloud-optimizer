@@ -7,7 +7,18 @@ import { HomeyLogger, LogLevel } from '../../src/util/logger';
 import { MelCloudDevice } from '../../src/types';
 import { isRunningOperationMode, recordRunSample } from '../../src/util/run-price-ledger';
 import { PresenceService, syncOccupancyFromPresence } from '../../src/services/presence-service';
-import { advanceEnergyMeter, dayBefore, EnergyMeterState } from '../../src/util/energy-meter';
+import {
+  applyMeasuredDay,
+  dayBefore,
+  daysAwaitingTotal,
+  EnergyMeterState,
+  estimatedPowerW,
+  expireOpenDays,
+  initEnergyMeter,
+  meterReading,
+  recordCompressorSample
+} from '../../src/util/energy-meter';
+import { ENERGY_METER_CONSTANTS } from '../../src/constants';
 import { getTimeZoneName } from '../../src/util/time-zone-helper';
 import moment from 'moment-timezone';
 import { COMFORT_CONSTANTS } from '../../src/constants';
@@ -31,6 +42,7 @@ interface EnergyData {
 
 module.exports = class BoilerDevice extends Homey.Device {
   private presenceService?: PresenceService;
+  private averageDailyKWh: number | null = null;
   private melCloudApi?: MelCloudApi;
   private logger!: HomeyLogger;
   private updateInterval?: NodeJS.Timeout;
@@ -164,6 +176,7 @@ module.exports = class BoilerDevice extends Homey.Device {
       'operational_state',
       'operational_state.hot_water',
       'operational_state.zone1',
+      'measure_power',
       'meter_power',
       'heating_cop',
       'hotwater_cop',
@@ -1016,31 +1029,75 @@ module.exports = class BoilerDevice extends Homey.Device {
     }
   }
 
+  /** Local date (YYYY-MM-DD) in the home's time zone, the day MELCloud's totals refer to. */
+  private localDate(ms: number = Date.now()): string {
+    return moment.tz(ms, getTimeZoneName(this.homey) || 'UTC').format('YYYY-MM-DD');
+  }
+
+  private loadEnergyMeter(): EnergyMeterState {
+    const stored = this.getStoreValue('energy_meter') as { version?: number; date?: string } | null;
+    // A first-version meter counted MELCloud's list counter, which is the previous day's total.
+    const carriedThrough = stored && stored.version !== 2 && stored.date ? dayBefore(stored.date) : null;
+    return initEnergyMeter(stored, carriedThrough);
+  }
+
+  /** Writes the meter (kWh, never lower) and, once a rate is learned, the estimated power. */
+  private async publishEnergyMeter(state: EnergyMeterState, hz: number | null) {
+    const next = meterReading(state, this.averageDailyKWh);
+    await this.setStoreValue('energy_meter', next);
+    const kWh = Math.round(next.meterKWh * 1000) / 1000;
+    if (this.hasCapability('meter_power') && this.getCapabilityValue('meter_power') !== kWh) {
+      await this.setCapabilityValue('meter_power', kWh);
+    }
+    if (hz !== null && this.hasCapability('measure_power')) {
+      const watts = estimatedPowerW(next, hz);
+      if (watts !== null && this.getCapabilityValue('measure_power') !== watts) {
+        await this.setCapabilityValue('measure_power', watts);
+      }
+    }
+  }
+
   /**
-   * Cumulative energy meter for Homey Energy (`meter_power`, kWh, only goes up), from
-   * MELCloud's per-day counters. State is kept in the device store so it survives restarts.
+   * One compressor sample per poll: feeds the energy meter. Returns the frequency (Hz), or null
+   * when MELCloud did not report it.
    */
-  private async updateEnergyMeter() {
-    if (!this.melCloudApi || !this.hasCapability('meter_power')) return;
+  private async sampleCompressor(): Promise<number | null> {
+    if (!this.melCloudApi) return null;
     try {
-      const todayKWh = await this.melCloudApi.getTodayEnergyConsumed(this.deviceId);
-      if (todayKWh === null) return;
-      const zone = getTimeZoneName(this.homey) || 'UTC';
-      const date = moment.tz(zone).format('YYYY-MM-DD');
-      const state = (this.getStoreValue('energy_meter') as EnergyMeterState | null) || null;
-      let yesterdayFinal: number | null = null;
-      if (state && state.date !== date && state.date === dayBefore(date)) {
-        yesterdayFinal = await this.melCloudApi.getDayEnergyConsumed(this.deviceId, this.buildingId, state.date)
-          .catch(() => null);
-      }
-      const next = advanceEnergyMeter(state, date, todayKWh, yesterdayFinal);
-      await this.setStoreValue('energy_meter', next);
-      const rounded = Math.round(next.totalKWh * 1000) / 1000;
-      if (this.getCapabilityValue('meter_power') !== rounded) {
-        await this.setCapabilityValue('meter_power', rounded);
-      }
+      const hz = await this.melCloudApi.getCompressorFrequency(this.deviceId);
+      if (hz === null) return null;
+      const now = Date.now();
+      const state = recordCompressorSample(this.loadEnergyMeter(), now, this.localDate(now), hz);
+      await this.publishEnergyMeter(state, hz);
+      return hz;
     } catch (error) {
-      this.logger.error('Failed to update energy meter:', error as Error);
+      this.logger.error('Failed to read compressor frequency:', error as Error);
+      return null;
+    }
+  }
+
+  /**
+   * Replace estimates with MELCloud's measured totals for finished days, once published.
+   * A day with the compressor never running may legitimately total 0.
+   */
+  private async reconcileMeasuredDays() {
+    if (!this.melCloudApi) return;
+    try {
+      const today = this.localDate();
+      let state = this.loadEnergyMeter();
+      for (const date of daysAwaitingTotal(state, today)) {
+        const kWh = await this.melCloudApi.getDayEnergyConsumed(this.deviceId, this.buildingId, date).catch(() => null);
+        const day = state.open.find(d => d.date === date);
+        const idleDay = !!day && day.hzHours === 0 && day.sampledHours >= ENERGY_METER_CONSTANTS.MIN_SAMPLED_HOURS_FOR_CALIBRATION;
+        if (kWh !== null && (kWh > 0 || idleDay)) {
+          state = applyMeasuredDay(state, date, kWh);
+          this.logger.log(`Energy meter: ${date} measured ${kWh.toFixed(2)} kWh`);
+        }
+      }
+      state = expireOpenDays(state, today, this.averageDailyKWh);
+      await this.publishEnergyMeter(state, null);
+    } catch (error) {
+      this.logger.error('Failed to reconcile energy meter:', error as Error);
     }
   }
 
@@ -1148,7 +1205,10 @@ module.exports = class BoilerDevice extends Homey.Device {
         this.logger.log(`Hot Water COP set: ${hotWaterCOP} ${((energyTotals as any).hotWaterCOP || energyTotals.AverageHotWaterCOP) ? '(from API)' : '(calculated)'}`);
       }
 
-      await this.updateEnergyMeter();
+      // MELCloud's recent average day (kWh): used by the meter until a rate is learned.
+      const averageDay = (energyTotals.TotalHeatingConsumed || 0) + (energyTotals.TotalHotWaterConsumed || 0);
+      this.averageDailyKWh = averageDay > 0 ? averageDay : this.averageDailyKWh;
+      await this.reconcileMeasuredDays();
 
     } catch (error) {
       this.logger.warn('Failed to update energy data:', {
@@ -1248,16 +1308,23 @@ module.exports = class BoilerDevice extends Homey.Device {
    */
   private async updateOperationalStates(deviceState: MelCloudDevice) {
     try {
+      // Compressor frequency (Hz): feeds the energy meter, and is the run signal. MELCloud's
+      // operation mode stays "heating zones" while the compressor is off between cycles.
+      const compressorHz = await this.sampleCompressor();
+
       // Feed the measured-savings ledger: one sample per poll, run or not, with the room and
       // outdoor temperature for the energy comparison. MELCloud reports -39 for a missing sensor.
       if (deviceState.OperationMode !== undefined) {
         try {
           const room = Number(deviceState.RoomTemperatureZone1);
           const outdoor = Number(deviceState.OutdoorTemperature);
+          const running = compressorHz !== null
+            ? compressorHz > 0
+            : isRunningOperationMode(deviceState.OperationMode);
           recordRunSample(
             this.homey.settings,
             Date.now(),
-            isRunningOperationMode(deviceState.OperationMode),
+            running,
             Number.isFinite(room) && room > -39 ? room : null,
             Number.isFinite(outdoor) && outdoor > -39 ? outdoor : null
           );

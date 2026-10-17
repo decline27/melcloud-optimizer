@@ -49,6 +49,22 @@ export const PRICE_CONSTANTS = {
     DEFAULT_CHEAP_PERCENTILE: 0.25,
 };
 
+/**
+ * Heat pump energy meter for Homey Energy. MELCloud only reports a total per finished day for
+ * most units, so the day is followed through the compressor frequency and corrected to that
+ * total once it is published.
+ */
+export const ENERGY_METER_CONSTANTS = {
+    /** Longest gap between two compressor samples that is still integrated, minutes. */
+    MAX_SAMPLE_GAP_MINUTES: 15,
+    /** Finished days used to learn kWh per compressor Hz-hour. */
+    CALIBRATION_DAYS: 14,
+    /** A day needs this many sampled hours to calibrate (part days would bias the rate). */
+    MIN_SAMPLED_HOURS_FOR_CALIBRATION: 20,
+    /** Days to wait for MELCloud's day total before the estimate is taken as final. */
+    MAX_DAYS_WAITING_FOR_TOTAL: 3,
+};
+
 export const OPTIMIZATION_CONSTANTS = {
     MIN_SAVINGS_FOR_LEARNING: 0.05, // NOK/EUR etc
     MAX_RECONNECT_ATTEMPTS: 3,

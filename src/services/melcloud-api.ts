@@ -470,7 +470,7 @@ export class MelCloudApi extends BaseApiService {
         );
 
         this.devices = this.extractDevices(data);
-        this.logger.log(`MELCloud devices retrieved: ${this.devices.length} devices found`);
+        this.logger.debug(`MELCloud devices retrieved: ${this.devices.length} devices found`);
         return this.devices;
       } catch (error) {
         // Create a standardized error with context
@@ -1184,16 +1184,15 @@ export class MelCloudApi extends BaseApiService {
    * @returns Energy data
    */
   /**
-   * Today's energy use so far (kWh, heating + hot water + cooling) from MELCloud's per-day
-   * counters in the device list. They restart at midnight; null when the device is not listed.
+   * The compressor frequency (Hz, 0 when the compressor is off) from the device list, which
+   * MELCloud refreshes every minute or two. Device/Get does not carry it. Null when unknown.
+   * The operation mode is no substitute: it stays "heating zones" while the compressor cycles.
    */
-  public async getTodayEnergyConsumed(deviceId: string): Promise<number | null> {
+  public async getCompressorFrequency(deviceId: string): Promise<number | null> {
     const devices = await this.getDevices();
     const entry = devices.find(device => String(device.id) === String(deviceId));
-    const state = (entry as any)?.data?.Device;
-    if (!state) return null;
-    const keys = ['DailyHeatingEnergyConsumed', 'DailyHotWaterEnergyConsumed', 'DailyCoolingEnergyConsumed'];
-    return keys.reduce((sum, key) => sum + (Number.isFinite(state[key]) ? state[key] : 0), 0);
+    const hz = (entry as any)?.data?.Device?.HeatPumpFrequency;
+    return typeof hz === 'number' && Number.isFinite(hz) ? hz : null;
   }
 
   /** One day's final energy use (kWh, heating + hot water + cooling) from the energy report. */
