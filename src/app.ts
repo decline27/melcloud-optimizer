@@ -4,8 +4,9 @@ import { COPHelper } from './services/cop-helper';
 import { TimelineHelper, TimelineEventType } from './util/timeline-helper';
 import { HomeyLogger, LogLevel, LogCategory } from './util/logger';
 import { HotWaterService } from './services/hot-water';
-import { TimeZoneHelper } from './util/time-zone-helper';
+import { TimeZoneHelper, getTimeZoneName } from './util/time-zone-helper';
 import { AccountingService } from './services/accounting-service';
+import { gridFeeOnTopOfPrices } from './services/settings-loader';
 import {
   LogEntry,
   ThermalModel,
@@ -314,7 +315,7 @@ export default class HeatOptimizerApp extends App {
     // Initialize Time Zone Helper with current settings
     const tzOffset = this.homey.settings.get('time_zone_offset') || 2;
     const useDST = this.homey.settings.get('use_dst') || false;
-    const timeZoneName = this.homey.settings.get('time_zone_name') || undefined;
+    const timeZoneName = getTimeZoneName(this.homey);
     this.timeZoneHelper = new TimeZoneHelper(
       this.logger,
       Number(tzOffset),
@@ -332,7 +333,7 @@ export default class HeatOptimizerApp extends App {
   private async updateTimezoneSettings(): Promise<void> {
     const tzOffset = this.homey.settings.get('time_zone_offset') || 2;
     const useDST = this.homey.settings.get('use_dst') || false;
-    const timeZoneName = this.homey.settings.get('time_zone_name');
+    const timeZoneName = getTimeZoneName(this.homey);
 
     // Update our own TimeZoneHelper
     if (this.timeZoneHelper) {
@@ -746,7 +747,7 @@ export default class HeatOptimizerApp extends App {
                 (result as any)?.result?.priceData?.current
               );
               if (Number.isFinite(priceNow) && priceNow > 0) {
-                const gridFee: number = Number(this.homey.settings.get('grid_fee_per_kwh')) || 0;
+                const gridFee: number = gridFeeOnTopOfPrices(this.homey.settings);
                 const price = priceNow + (Number.isFinite(gridFee) ? gridFee : 0);
                 // Use MELCloud-derived hourly baseline when provided by API
                 let baselineKWh = Number((result.data as any).hourlyBaselineKWh);

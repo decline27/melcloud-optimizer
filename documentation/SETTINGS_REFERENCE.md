@@ -24,6 +24,33 @@ These settings live under **Fine-tuning (optional)** on the settings page and de
   previously saved every field).
 - Readers must treat `undefined`, `null` and `""` as unset (`Number(null)` is 0).
 
+## Automatic from Homey (14.0.81)
+
+Empty means automatic for these; the app works them out itself and `GET /getSettingDefaults`
+returns what it detected (`detected`) so the page can show it.
+
+| Setting | Empty means | Code |
+|---------|-------------|------|
+| `latitude` / `longitude` | Location set in Homey (`homey:manager:geolocation`) | `getHomeLocation` (`src/util/home-location.ts`) |
+| `time_zone_name` | Homey clock zone (`homey.clock.getTimezone()`); the manual offset only if neither exists | `getTimeZoneName` (`src/util/time-zone-helper.ts`) |
+| `currency` | Home country's currency (time zone, then coordinates), else EUR | `CurrencyDetector.getCurrencyWithFallback` (`src/util/currency-detector.ts`) |
+| `entsoe_area_eic` | Page picks the first zone of the home country on first open | `ensureEntsoeDefaultZone` (settings page) |
+| `enable_consumer_markup` | **On** for ENTSO-E (only an explicit `false` turns it off) | `consumerMarkupInPrices` (`src/services/settings-loader.ts`) |
+| `consumer_markup_config` | Built-in table, in EUR, converted at the price FX rate | `DEFAULT_CONSUMER_MARKUP` (`src/services/consumer-markup-defaults.ts`) |
+
+- Read currency, time zone and location only through these helpers; never `settings.get('currency')` directly.
+- A stored copy of the built-in markup table (saved by pages before 14.0.81) counts as built-in,
+  whatever `markup_currency_unit` says.
+- With the markup on, a user `grid_fee_per_kwh` replaces the table's grid fee inside the price
+  (added after VAT), so `gridFeeOnTopOfPrices` returns 0 and nothing adds it again.
+
+### Comfort temperature (page only)
+
+The page shows comfort temperature T and variation V; they write `comfort_lower_occupied = T − V`
+and `comfort_upper_occupied = T + V`. Away and night follow the occupied range at
+`COMFORT_CONSTANTS.DEFAULT_AWAY_OFFSET_C` / `DEFAULT_NIGHT_OFFSET_C` (2 / 1 °C lower) unless the
+user enters their own values. The raw range keys are still what is stored and what the app reads.
+
 ## Temperature Zone Settings
 
 ### Zone 1 (Primary Heating)

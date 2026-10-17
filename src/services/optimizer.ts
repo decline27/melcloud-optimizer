@@ -10,7 +10,8 @@ import { HotWaterOptimizer } from './hot-water-optimizer';
 import { ZoneOptimizer } from './zone-optimizer';
 import { ConstraintManager } from './constraint-manager';
 import { StateManager } from './state-manager';
-import { SettingsLoader } from './settings-loader';
+import { SettingsLoader, gridFeeOnTopOfPrices } from './settings-loader';
+import { CurrencyDetector } from '../util/currency-detector';
 import { TimeZoneHelper } from '../util/time-zone-helper';
 import { CopNormalizer } from './cop-normalizer';
 import { HotWaterUsageLearner, HotWaterLearnerLogger } from './hot-water-usage-learner';
@@ -620,10 +621,7 @@ export class Optimizer {
       return 'EUR';
     }
 
-    const currency = this.homey.settings.get('currency') ||
-      this.homey.settings.get('currency_code');
-
-    return typeof currency === 'string' ? currency : 'EUR';
+    return CurrencyDetector.getCurrencyWithFallback(this.homey as any);
   }
 
   /**
@@ -638,8 +636,7 @@ export class Optimizer {
       return 0;
     }
 
-    const gridFee = this.homey.settings.get('grid_fee_per_kwh');
-    return typeof gridFee === 'number' && Number.isFinite(gridFee) ? gridFee : 0;
+    return gridFeeOnTopOfPrices(this.homey.settings);
   }
 
   /**

@@ -1,4 +1,5 @@
 import WeatherApi from '../../weather';
+import { getTimeZoneName } from '../util/time-zone-helper';
 import { MelCloudApi } from '../services/melcloud-api';
 import { TibberApi } from '../services/tibber-api';
 import { EntsoePriceService } from '../services/entsoe-price-service';
@@ -261,7 +262,7 @@ export async function initializeServices(homey: HomeyLike): Promise<ServiceState
   // Get timezone settings for all services
   const timeZoneOffset = homey.settings.get('time_zone_offset') || 2;
   const useDST = homey.settings.get('use_dst') || false;
-  const timeZoneName = homey.settings.get('time_zone_name');
+  const timeZoneName = getTimeZoneName(homey);
 
   if (!melcloudUser || !melcloudPass) {
     throw new Error('MELCloud credentials are required. Please configure them in the settings.');
@@ -469,7 +470,7 @@ export function refreshPriceProvider(homey: HomeyLike): PriceProvider | null {
   const tibberHomeId = homey.settings.get('tibber_home_id') || null;
   const timeZoneOffset = homey.settings.get('time_zone_offset') || 2;
   const useDST = homey.settings.get('use_dst') || false;
-  const timeZoneName = homey.settings.get('time_zone_name');
+  const timeZoneName = getTimeZoneName(homey);
 
   const priceProvider = selectPriceProvider(
     homey,

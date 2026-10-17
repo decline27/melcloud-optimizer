@@ -1,6 +1,6 @@
 {
   "id": "com.melcloud.optimize",
-  "version": "14.0.80",
+  "version": "14.0.81",
   "compatibility": ">=12.2.0",
   "sdk": 3,
   "platforms": [
@@ -16,7 +16,8 @@
     "climate"
   ],
   "permissions": [
-    "homey:manager:api"
+    "homey:manager:api",
+    "homey:manager:geolocation"
   ],
   "author": {
     "name": "Kjetil Vetlejord",

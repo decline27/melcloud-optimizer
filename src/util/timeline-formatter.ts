@@ -4,6 +4,7 @@
  */
 
 import { HomeyApp } from '../types';
+import { CurrencyDetector } from './currency-detector';
 
 // Type for Homey-like objects that may have limited interface
 interface HomeyLike {
@@ -188,12 +189,8 @@ export function getTimelineVerbosity(homey: HomeyLike | HomeyApp | undefined): T
 export function getCurrencyCode(homey: HomeyLike | HomeyApp | undefined): string {
   try {
     if (!homey) return 'EUR';
-    const currency = homey.settings?.get?.('currency') || 
-                    homey.settings?.get?.('currency_code') ||
-                    homey.i18n?.getCurrency?.();
-    if (currency && typeof currency === 'string') {
-      return currency.toUpperCase();
-    }
+    // One chain for the whole app: the user's currency, else the home country's.
+    return CurrencyDetector.getCurrencyWithFallback(homey as HomeyApp);
   } catch (error) {
     // Ignore errors, fall back to default
   }

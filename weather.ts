@@ -1,4 +1,5 @@
 import * as https from 'https';
+import { getHomeLocation } from './src/util/home-location';
 
 type NullableNumber = number | null;
 
@@ -8,6 +9,10 @@ type WeatherLogger = {
   homey?: {
     settings?: {
       get(key: string): any;
+    };
+    geolocation?: {
+      getLatitude?(): number;
+      getLongitude?(): number;
     };
   };
 };
@@ -173,11 +178,14 @@ class WeatherApi {
       const lat = Number(latitude);
       const lon = Number(longitude);
 
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-        const homeySettings = this.logger.homey?.settings;
-        const userLat = Number(homeySettings?.get?.('latitude')) || 59.9;
-        const userLon = Number(homeySettings?.get?.('longitude')) || 10.7;
-        return this.getForecast(userLat, userLon);
+      if (latitude === undefined || longitude === undefined || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+        const home = getHomeLocation(this.logger.homey);
+        if (!home) {
+          // Weather for somewhere else would mislead the optimizer; plan without it.
+          this.error('Weather forecast skipped: no home location in settings or in Homey', undefined);
+          return this.emptyForecast();
+        }
+        return this.getForecast(home.latitude, home.longitude);
       }
 
       const url = `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`;
@@ -194,10 +202,7 @@ class WeatherApi {
 
   async getCurrentWeather(): Promise<ForecastInstant> {
     try {
-      const homeySettings = this.logger.homey?.settings;
-      const userLat = Number(homeySettings?.get?.('latitude')) || 59.9;
-      const userLon = Number(homeySettings?.get?.('longitude')) || 10.7;
-      const forecast = await this.getForecast(userLat, userLon);
+      const forecast = await this.getForecast();
       return forecast.current;
     } catch (error) {
       this.error('getCurrentWeather failed', error);

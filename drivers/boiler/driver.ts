@@ -2,7 +2,7 @@ import Homey from 'homey';
 import { CronJob } from 'cron';
 import { MelCloudApi } from '../../src/services/melcloud-api';
 import { HomeyLogger, LogLevel } from '../../src/util/logger';
-import { TimeZoneHelper } from '../../src/util/time-zone-helper';
+import { TimeZoneHelper, getTimeZoneName } from '../../src/util/time-zone-helper';
 
 module.exports = class BoilerDriver extends Homey.Driver {
   private melCloudApi?: MelCloudApi;
@@ -49,8 +49,8 @@ module.exports = class BoilerDriver extends Homey.Driver {
   private getUserTimezone(): string {
     try {
       // Prefer IANA timezone name if set by user
-      const timeZoneName = this.homey.settings.get('time_zone_name');
-      if (timeZoneName && typeof timeZoneName === 'string' && TimeZoneHelper.validateTimezone(timeZoneName)) {
+      const timeZoneName = getTimeZoneName(this.homey);
+      if (timeZoneName && TimeZoneHelper.validateTimezone(timeZoneName)) {
         this.logger.log(`Using configured timezone: ${timeZoneName}`);
         return timeZoneName;
       }

@@ -2,6 +2,7 @@ import { HomeyLogger } from '../util/logger';
 import { HomeyApp } from '../types';
 import { OrchestratorMetrics } from '../metrics';
 import { TimeZoneHelper } from '../util/time-zone-helper';
+import { CurrencyDetector } from '../util/currency-detector';
 
 export class AccountingService {
     private static readonly currencyDecimals: Record<string, number> = {
@@ -153,7 +154,7 @@ export class AccountingService {
         // Here we only read today's total from the already-persisted history to report "today so far".
         let todaySoFar = 0;
         try {
-            const currency = this.homey.settings.get('currency_code') || this.homey.settings.get('currency') || '';
+            const currency = CurrencyDetector.getCurrencyWithFallback(this.homey as any);
             const decimals = this.getCurrencyDecimals(currency);
             const rawHistory = this.homey.settings.get('savings_history') || [];
             const history = (rawHistory as any[]).map((h: any) => this.migrateLegacyEntry(h, currency, decimals));
@@ -192,8 +193,8 @@ export class AccountingService {
 
             const today = this.formatLocalDate();
 
-            // Get currency settings - prefer currency_code, fall back to currency
-            const currency = this.homey.settings.get('currency_code') || this.homey.settings.get('currency') || '';
+            // Currency: the user's, else the home country's
+            const currency = CurrencyDetector.getCurrencyWithFallback(this.homey as any);
             const decimals = this.getCurrencyDecimals(currency);
 
             // Convert amount to minor units
@@ -268,7 +269,7 @@ export class AccountingService {
             last7Cutoff.setDate(todayDate.getDate() - 6);
 
             // Get currency settings
-            const currency = this.homey.settings.get('currency_code') || this.homey.settings.get('currency') || '';
+            const currency = CurrencyDetector.getCurrencyWithFallback(this.homey as any);
             const decimals = this.getCurrencyDecimals(currency);
 
             const rawHistory = this.homey.settings.get('savings_history') || [];

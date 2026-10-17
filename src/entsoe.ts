@@ -205,6 +205,25 @@ export function resolveZoneToEic(homey: HomeyLike, zoneInput?: string, options?:
   return eics[0];
 }
 
+/**
+ * The ISO2 country of a stored zone (ISO, area like SE3 or IT_NORD, or EIC), using the same area
+ * map as resolveZoneToEic. Null when the zone is not in the map.
+ */
+export function countryForZone(homey: { settings: { get(key: string): any } }, zoneInput?: string): string | null {
+  const candidate = (zoneInput ?? homey.settings.get('entsoe_area_eic') ?? '').toString().trim().toUpperCase();
+  if (!candidate) return null;
+  const map = loadAreaMap(homey as HomeyLike);
+  if (!isLikelyEic(candidate)) {
+    const iso = candidate.slice(0, 2);
+    return Object.keys(map).some((area) => area.slice(0, 2) === iso) ? iso : null;
+  }
+  // Map keys are areas (SE4, DK1, IT_NORD); the country is their first two letters.
+  for (const [area, eics] of Object.entries(map)) {
+    if (eics.some((eic) => eic.toUpperCase() === candidate)) return area.slice(0, 2);
+  }
+  return null;
+}
+
 function toEntsoeTimestamp(input: string | Date): string {
   const m = moment.utc(input);
   if (!m.isValid()) {

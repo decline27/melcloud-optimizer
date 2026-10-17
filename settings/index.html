@@ -217,7 +217,6 @@
         <select class="homey-form-input" id="building_id">
           <option value="">Select a building</option>
         </select>
-        <p class="homey-form-helper">Select your building from the dropdown or use Advanced to enter IDs manually.</p>
       </div>
 
       <div class="homey-form-group">
@@ -225,7 +224,7 @@
         <select class="homey-form-input" id="device_id">
           <option value="">Select a device</option>
         </select>
-        <p class="homey-form-helper">Capabilities appear after selection; use Advanced for manual IDs.</p>
+        <p class="homey-form-helper">With a single heat pump on the account it is selected for you.</p>
       </div>
 
       <div class="homey-form-group">
@@ -251,148 +250,129 @@
           <p class="homey-form-helper">The ID of the building (not stored; used only when saving)</p>
         </div>
       </div>
+    </details>
+
+    <!-- Comfort -->
+    <details class="homey-form-fieldset" id="engine_fieldset" open>
+      <summary class="homey-form-legend">Comfort</summary>
 
       <div class="homey-form-group">
-        <label class="homey-form-label" for="time_zone_name">Time Zone (automatic DST handling)</label>
-        <div class="timezone-input-container">
-          <input
-            class="homey-form-input"
-            id="time_zone_name"
-            type="text"
-            list="time_zone_name_list"
-            placeholder="e.g., Europe/Stockholm"
-            autocomplete="off"
-          />
-          <button type="button" class="homey-button-secondary" id="detect_time_zone_name" style="margin-left: 8px;">Auto-detect</button>
-        </div>
-        <datalist id="time_zone_name_list"></datalist>
-        <div class="timezone-info">
-          <p class="homey-form-helper">
-            <strong>✅ Recommended:</strong> Use an IANA time zone like <code>Europe/Stockholm</code> for accurate DST handling.
-            This automatically manages daylight saving time transitions.
-          </p>
-          <div id="timezone_preview" class="timezone-preview" style="display: none;">
-            <p class="homey-form-helper" style="color: #007acc; font-weight: 500;">
-              Current time in selected zone: <span id="timezone_preview_time"></span>
-            </p>
+        <p class="homey-form-helper">Choose the temperature you want and how far it may drift. The app heats more in cheap hours and pauses in expensive ones, always inside that range. The middle is also the "normal heat pump" that savings are measured against.</p>
+      </div>
+
+      <div class="homey-form-group">
+        <div class="homey-form-row">
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="comfort_target_c">Comfort temperature (°C)</label>
+            <input class="homey-form-input" id="comfort_target_c" type="number" min="18.5" max="23.5" step="0.5" />
           </div>
-          <div id="migration_notice" class="migration-notice" style="display: none; background: #f0f8ff; padding: 12px; border-radius: 6px; margin: 8px 0;">
-            <p style="margin: 0; color: #0066cc;">
-              💡 <strong>Upgrade Available:</strong> You're currently using manual timezone settings. 
-              <button type="button" id="convert_to_auto" class="homey-button-secondary" style="margin-left: 8px;">Convert to Automatic</button>
-            </p>
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="comfort_variation_c">Allowed variation (± °C)</label>
+            <input class="homey-form-input" id="comfort_variation_c" type="number" min="0.5" max="2" step="0.5" />
+            <p class="homey-form-helper">More variation saves more; less keeps the room steadier.</p>
           </div>
         </div>
-        <span id="time_zone_name_status" class="homey-form-helper" aria-live="polite"></span>
-        
-        <style>
-          .timezone-input-container {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-          }
-          
-          .timezone-input-container input {
-            flex: 1;
-            margin: 0;
-          }
-          
-          .timezone-preview {
-            background: #f8fffe;
-            border-left: 3px solid #00cc88;
-            padding: 8px 12px;
-            margin: 8px 0;
-            border-radius: 4px;
-          }
-          
-          .migration-notice {
-            background: #f0f8ff;
-            border-left: 3px solid #0066cc;
-            padding: 12px;
-            margin: 8px 0;
-            border-radius: 4px;
-          }
-        </style>
+        <p class="homey-form-helper" id="comfort_band_summary" aria-live="polite"></p>
+      </div>
+
+      <div class="homey-form-group">
+        <label class="homey-form-checkbox">
+          <input type="checkbox" id="occupied" checked />
+          <span>Home is occupied</span>
+        </label>
+        <p class="homey-form-helper">Turn off when you are away to use the lower away range. Can be automated with Flows.</p>
+      </div>
+
+      <div class="homey-form-group">
+        <label class="homey-form-checkbox">
+          <input type="checkbox" id="night_setback_enabled" />
+          <span>Lower the temperature at night</span>
+        </label>
+        <div id="night-setback-controls">
+          <div class="homey-form-row">
+            <div class="homey-form-col">
+              <label class="homey-form-label" for="night_start_hour">Night starts (hour 0–23)</label>
+              <input class="homey-form-input" id="night_start_hour" type="number" min="0" max="23" step="1" value="22" />
+            </div>
+            <div class="homey-form-col">
+              <label class="homey-form-label" for="night_end_hour">Night ends (hour 0–23)</label>
+              <input class="homey-form-input" id="night_end_hour" type="number" min="0" max="23" step="1" value="6" />
+            </div>
+          </div>
+        </div>
       </div>
     </details>
 
-
     <details class="homey-form-fieldset">
-      <summary class="homey-form-legend">Electricity Price Source</summary>
-      <div class="homey-form-group">
-        <p class="homey-form-helper">Choose which provider supplies hourly electricity prices. Tibber requires your own API token, while ENTSO-E uses the bundled token and zone settings.</p>
-      </div>
-      <div class="homey-form-group">
-        <label class="homey-form-checkbox">
-          <input type="radio" name="price_source" id="price_source_tibber" value="tibber" />
-          <span>Use Tibber API (personal token required)</span>
-        </label>
-      </div>
+      <summary class="homey-form-legend">Electricity Prices</summary>
       <div class="homey-form-group">
         <label class="homey-form-checkbox">
           <input type="radio" name="price_source" id="price_source_entsoe" value="entsoe" checked />
-          <span>Use ENTSO-E day-ahead prices (bundled token)</span>
+          <span>ENTSO-E day-ahead prices (no account needed)</span>
         </label>
-      </div>
-      <div class="homey-form-group">
+        <label class="homey-form-checkbox">
+          <input type="radio" name="price_source" id="price_source_tibber" value="tibber" />
+          <span>Tibber (your own API token)</span>
+        </label>
         <span class="homey-form-helper" id="price_source_status"></span>
       </div>
-    </details>
 
-    <details class="homey-form-fieldset" id="entsoe_quick_settings">
-      <summary class="homey-form-legend">ENTSO-E Zone (Quick)</summary>
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="entsoe_zone_input">ISO or EIC</label>
-        <input class="homey-form-input" id="entsoe_zone_input" type="text" placeholder="SE3 or 10Y1001A1001A46L" autocomplete="off" value="SE3" />
-        <p class="homey-form-helper">This value is stored as <code>entsoe_area_eic</code>. Use ISO (country/area) or a full EIC. For the full selector and map editor open the ENTSO-E Pricing section below.</p>
-      </div>
-      <div class="homey-form-group">
-        <button type="button" class="homey-button-secondary" id="entsoe_auto_detect">Auto-detect from locale</button>
-        <button type="button" class="homey-button-secondary" id="entsoe_open_full" aria-expanded="false">Open full ENTSO-E settings</button>
-      </div>
-      <div class="homey-form-group" id="entsoe_full_container" hidden>
-        <iframe
-          id="entsoe_full_frame"
-          title="ENTSO-E detailed settings"
-          style="width: 100%; min-height: 600px; border: 1px solid var(--homey-border-color, #d0d7e2); border-radius: 8px;"
-        ></iframe>
-      </div>
-      <div class="homey-form-group">
-        <span class="homey-form-helper" id="entsoe_zone_status" aria-live="polite"></span>
-      </div>
-    </details>
-
-    <details class="homey-form-fieldset">
-      <summary class="homey-form-legend">Connection: Tibber API</summary>
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="tibber_token">API Token</label>
-        <input class="homey-form-input" id="tibber_token" type="password" value="" />
-        <p class="homey-form-helper">Get your token from <a href="https://developer.tibber.com/" target="_blank">https://developer.tibber.com/</a></p>
-      </div>
-      <div class="homey-form-group" id="tibber_home_group">
-        <label class="homey-form-label" for="tibber_home_id">Select Home</label>
-        <div style="display: flex; gap: 8px; align-items: center;">
-          <select class="homey-form-input" id="tibber_home_id" style="flex: 1;">
-            <option value="">-- Fetch homes to select --</option>
-          </select>
-          <button type="button" class="homey-button-secondary" id="refresh_tibber_homes">Refresh Homes</button>
+      <div id="tibber_connection_group">
+        <div class="homey-form-group">
+          <label class="homey-form-label" for="tibber_token">Tibber API Token</label>
+          <input class="homey-form-input" id="tibber_token" type="password" value="" />
+          <p class="homey-form-helper">Get your token from <a href="https://developer.tibber.com/" target="_blank">https://developer.tibber.com/</a></p>
         </div>
-        <p class="homey-form-helper">If you have multiple homes in Tibber, select which one to use for electricity prices. Click "Refresh Homes" after entering your API token.</p>
-        <span id="tibber_home_status" class="homey-form-helper" aria-live="polite"></span>
+        <div class="homey-form-group" id="tibber_home_group">
+          <label class="homey-form-label" for="tibber_home_id">Tibber Home</label>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <select class="homey-form-input" id="tibber_home_id" style="flex: 1;">
+              <option value="">-- Fetch homes to select --</option>
+            </select>
+            <button type="button" class="homey-button-secondary" id="refresh_tibber_homes">Refresh Homes</button>
+          </div>
+          <p class="homey-form-helper">Only needed with more than one home in Tibber. Click "Refresh Homes" after entering your token.</p>
+          <span id="tibber_home_status" class="homey-form-helper" aria-live="polite"></span>
+        </div>
+      </div>
+
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="grid_fee_per_kwh">Grid Fee (per kWh, optional)</label>
+        <input class="homey-form-input" id="grid_fee_per_kwh" type="number" min="0" step="0.01" placeholder="e.g., 1.04" />
+        <p class="homey-form-helper">Your network fee per kWh, as on your bill. Savings count it for every kWh the heat pump did not need to buy. With ENTSO-E prices it replaces the typical grid fee in the consumer price.</p>
       </div>
     </details>
 
-
+    <details class="homey-form-fieldset" id="tank_fieldset">
+      <summary class="homey-form-legend">Hot Water Tank</summary>
+      <div class="homey-form-group">
+        <label class="homey-form-checkbox">
+          <input type="checkbox" id="enable_tank_control" checked />
+          <span>Optimize hot water tank temperature</span>
+        </label>
+        <p class="homey-form-helper">Heats the tank in cheap hours, staying between the minimum and maximum below.</p>
+        <p id="tank_capability_warning" class="homey-form-helper" style="display:none;color:#b00;">This device may not support tank water temperature control. If unsupported, these settings have no effect.</p>
+      </div>
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="min_tank_temp">Minimum Tank Temperature (°C)</label>
+        <input class="homey-form-input" id="min_tank_temp" type="number" min="30" max="45" step="1" value="40" />
+        <p class="homey-form-helper">Below this (for example after showers) the app starts a reheat straight away, whatever the price. Suggested: 41°C.</p>
+      </div>
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="max_tank_temp">Maximum Tank Temperature (°C)</label>
+        <input class="homey-form-input" id="max_tank_temp" type="number" min="40" max="60" step="1" value="50" />
+        <p class="homey-form-helper">Upper limit when storing heat in cheap hours. Suggested: 53°C; check your heat pump's recommended maximum.</p>
+      </div>
+    </details>
 
     <details class="homey-form-fieldset" id="zone2_fieldset">
-      <summary class="homey-form-legend">Device: Zone 2 Temperature</summary>
+      <summary class="homey-form-legend">Zone 2</summary>
       <div class="homey-form-group">
-        <label class="homey-form-label" for="enable_zone2">Enable Zone 2 Control</label>
-        <label class="homey-form-checkbox">
+        <label class="homey-form-checkbox" for="enable_zone2">
           <input type="checkbox" id="enable_zone2" />
-          <span>Enable optimization of Zone 2 temperature</span>
+          <span>Optimize Zone 2 temperature</span>
         </label>
-        <p class="homey-form-helper">Enable separate temperature control for Zone 2 (if your device supports it)</p>
+        <p class="homey-form-helper">Only for heat pumps with a second heating zone.</p>
       </div>
 
       <div id="zone2_settings" style="display: none;">
@@ -404,161 +384,16 @@
           <label class="homey-form-label" for="max_temp_zone2">Maximum Temperature Zone 2 (°C)</label>
           <input class="homey-form-input" id="max_temp_zone2" type="number" min="20" max="26" step="0.5" value="24" />
         </div>
-        <div class="homey-form-group">
-          <label class="homey-form-label" for="temp_step_zone2">Maximum Temperature Step Zone 2 (°C)</label>
-          <input class="homey-form-input" id="temp_step_zone2" type="number" min="0.1" max="2.0" step="0.1" value="0.5" />
-          <p class="homey-form-helper">Controls how much the Zone 2 temperature can change in one step.</p>
-        </div>
       </div>
-    </details>
-
-    <!-- Comfort & Safety Settings -->
-    <details class="homey-form-fieldset" id="engine_fieldset" open>
-      <summary class="homey-form-legend">Comfort</summary>
-
-      <div class="homey-form-group">
-        <div style="background:#f7fbff;border:1px solid #dbe9ff;border-radius:6px;padding:10px;">
-          <div style="font-weight:600;margin-bottom:6px;">How optimisation saves money</div>
-          <div class="homey-form-helper" style="margin:0;">
-            • Shifts heating to cheap hours (preheat), coasts in expensive hours.<br>
-            • Keeps comfort within a band (occupied vs away).<br>
-            • Reduces compressor cycling with a deadband and a minimum interval between changes.<br>
-            • Applies weather context (for example, warm trend → smaller targets).
-          </div>
-        </div>
-      </div>
-
-      <div class="homey-form-group">
-        <p class="homey-form-helper">The optimizer always stays inside the comfort band in force (occupied, away or night). The middle of that band is also the "normal heat pump" that savings are measured against.</p>
-      </div>
-
-      <div class="homey-form-group">
-        <label class="homey-form-label">Comfort Bands</label>
-        <div class="homey-form-row">
-          <div class="homey-form-col">
-            <label class="homey-form-checkbox">
-              <input type="checkbox" id="occupied" checked />
-              <span>Home is occupied</span>
-            </label>
-            <p class="homey-form-helper">Use occupied band; turn off for away band. Can be automated via Flows. Suggested default: <b>Enabled</b>.</p>
-          </div>
-        </div>
-        <div class="homey-form-row">
-          <div class="homey-form-col">
-            <label class="homey-form-label" for="comfort_lower_occupied">Occupied Lower (°C)</label>
-            <input class="homey-form-input" id="comfort_lower_occupied" type="number" min="18" max="23" step="0.5" value="20" />
-            <p class="homey-form-helper">Suggested default: <b>20.0°C</b>.</p>
-            <p class="homey-form-helper">Impact: This is the floor heating pauses down to in expensive hours; it is never undercut. Lower values allow longer pauses (more savings) but feel cooler.</p>
-          </div>
-          <div class="homey-form-col">
-            <label class="homey-form-label" for="comfort_upper_occupied">Occupied Upper (°C)</label>
-            <input class="homey-form-input" id="comfort_upper_occupied" type="number" min="19" max="24" step="0.5" value="21" />
-            <p class="homey-form-helper">Suggested default: <b>21.0°C</b>.</p>
-            <p class="homey-form-helper">Impact: This is the ceiling for preheating in cheap hours. Higher values allow more stored heat before a price spike, at the cost of slightly higher heat loss.</p>
-          </div>
-        </div>
-        <div class="homey-form-row">
-          <div class="homey-form-col">
-            <label class="homey-form-label" for="comfort_lower_away">Away Lower (°C)</label>
-            <input class="homey-form-input" id="comfort_lower_away" type="number" min="17" max="22" step="0.5" value="19" />
-            <p class="homey-form-helper">Suggested default: <b>19.0°C</b>.</p>
-            <p class="homey-form-helper">Impact: Away band reduces cost when nobody’s home; keep within safe bounds for building/frost protection.</p>
-          </div>
-          <div class="homey-form-col">
-            <label class="homey-form-label" for="comfort_upper_away">Away Upper (°C)</label>
-            <input class="homey-form-input" id="comfort_upper_away" type="number" min="18" max="23" step="0.5" value="20.5" />
-            <p class="homey-form-helper">Suggested default: <b>20.5°C</b>.</p>
-            <p class="homey-form-helper">Tip: Keep a 0.8–1.5°C spread between lower/upper for stable control.</p>
-          </div>
-        </div>
-      </div>
-
-      <div class="homey-form-group">
-        <label class="homey-form-label">Night Setback</label>
-        <div class="homey-form-row">
-          <div class="homey-form-col">
-            <label class="homey-form-checkbox">
-              <input type="checkbox" id="night_setback_enabled" />
-              <span>Enable night setback</span>
-            </label>
-            <p class="homey-form-helper">Lower the heating target during sleeping hours. Only applies when home is occupied. Suggested default: <b>Disabled</b>.</p>
-          </div>
-        </div>
-        <div id="night-setback-controls">
-          <div class="homey-form-row">
-            <div class="homey-form-col">
-              <label class="homey-form-label" for="night_start_hour">Night start hour (0–23)</label>
-              <input class="homey-form-input" id="night_start_hour" type="number" min="0" max="23" step="1" value="22" />
-              <p class="homey-form-helper">Hour when night setback begins. Suggested default: <b>22</b> (10 PM).</p>
-            </div>
-            <div class="homey-form-col">
-              <label class="homey-form-label" for="night_end_hour">Night end hour (0–23)</label>
-              <input class="homey-form-input" id="night_end_hour" type="number" min="0" max="23" step="1" value="6" />
-              <p class="homey-form-helper">Hour when daytime band resumes. Suggested default: <b>6</b> (6 AM).</p>
-            </div>
-          </div>
-          <div class="homey-form-row">
-            <div class="homey-form-col">
-              <label class="homey-form-label" for="comfort_lower_night">Night Lower (°C)</label>
-              <input class="homey-form-input" id="comfort_lower_night" type="number" min="14" max="22" step="0.5" value="17" />
-              <p class="homey-form-helper">Suggested default: <b>17.0°C</b>.</p>
-            </div>
-            <div class="homey-form-col">
-              <label class="homey-form-label" for="comfort_upper_night">Night Upper (°C)</label>
-              <input class="homey-form-input" id="comfort_upper_night" type="number" min="15" max="23" step="0.5" value="19" />
-              <p class="homey-form-helper">Suggested default: <b>19.0°C</b>. Keep 1–2°C below daytime upper.</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-    </details>
-
-    <details class="homey-form-fieldset" id="tank_fieldset">
-      <summary class="homey-form-legend">Hot Water Tank</summary>
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="enable_tank_control">Enable Hot Water Tank Control</label>
-        <label class="homey-form-checkbox">
-          <input type="checkbox" id="enable_tank_control" checked />
-          <span>Enable optimization of hot water tank temperature</span>
-        </label>
-        <p class="homey-form-helper">Enable optimization of hot water tank temperature based on electricity prices. Suggested default: Enabled - allows the system to store hot water as thermal energy when electricity is cheap.</p>
-        <p class="homey-form-helper">Impact: Shifts DHW heating to cheap hours (with whole degree steps for stability). Min/Max protect comfort and legionella schedules.</p>
-        <p id="tank_capability_warning" class="homey-form-helper" style="display:none;color:#b00;">This device may not support tank water temperature control. If unsupported, these settings have no effect.</p>
-      </div>
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="min_tank_temp">Minimum Tank Temperature (°C)</label>
-        <input class="homey-form-input" id="min_tank_temp" type="number" min="30" max="45" step="1" value="40" />
-        <p class="homey-form-helper">Minimum allowed temperature for the hot water tank. If the tank falls below it (for example after showers), the app starts a reheat straight away, whatever the price. Suggested default: 41°C - ensures sufficient hot water is always available while allowing for price optimization.</p>
-      </div>
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="max_tank_temp">Maximum Tank Temperature (°C)</label>
-        <input class="homey-form-input" id="max_tank_temp" type="number" min="40" max="60" step="1" value="50" />
-        <p class="homey-form-helper">Maximum allowed temperature for the hot water tank. Suggested default: 53°C - provides good thermal storage capacity without excessive energy use. Check your heat pump's maximum recommended tank temperature.</p>
-      </div>
-    </details>
-
-    <details class="homey-form-fieldset">
-      <summary class="homey-form-legend">Hot Water Usage Patterns</summary>
-      <div class="button-container">
-        <button id="view_patterns" class="homey-button" onclick="viewHotWaterPatterns()">View Usage Patterns</button>
-        <button id="reset_patterns" class="homey-button" onclick="resetHotWaterPatterns()">Reset Usage Patterns</button>
-        <button id="clear_keep_patterns" class="homey-button-warning" onclick="clearHotWaterData(true)">Clear Data (Keep Patterns)</button>
-        <button id="clear_all_data" class="homey-button-danger" onclick="clearHotWaterData(false)">Clear All Data</button>
-      </div>
-      <p class="homey-form-helper">View Usage Patterns: Dumps current learned patterns to the terminal/logs.<br>Reset Usage Patterns: Resets learned patterns to default values.<br>Clear Data (Keep Patterns): Removes detailed data points but keeps aggregated usage patterns.<br>Clear All Data: Removes all collected usage data and resets patterns.</p>
-      <p id="hot_water_action_result" class="result-message"></p>
     </details>
 
     <details class="homey-form-fieldset">
       <summary class="homey-form-legend">Notifications</summary>
       <div class="homey-form-group">
-        <label class="homey-form-label" for="notify_on_success">Notify On Success</label>
         <label class="homey-form-checkbox">
           <input type="checkbox" id="notify_on_success" />
-          <span>Send a notification when optimization/calibration succeeds</span>
+          <span>Notify when optimization or calibration succeeds</span>
         </label>
-        <p class="homey-form-helper">When enabled, you will receive a Homey notification for successful hourly optimization and weekly calibration.</p>
       </div>
 
       <div class="homey-form-group">
@@ -569,202 +404,198 @@
           <option value="detailed">Detailed - All hourly actions + parameters</option>
           <option value="debug" id="timeline_debug_option" style="display: none;">Developer debug - Raw engine text for troubleshooting</option>
         </select>
-        <p class="homey-form-helper">Controls how much detail appears in timeline posts. Standard is recommended for most users.</p>
       </div>
     </details>
-
-    <details class="homey-form-fieldset">
-      <summary class="homey-form-legend">Localization</summary>
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="currency_code">Currency (ISO 4217)</label>
-        <input class="homey-form-input" id="currency_code" type="text" placeholder="e.g., NOK, SEK, EUR" value="EUR" />
-        <p class="homey-form-helper">Optional. Overrides automatic currency detection for timeline messages. Use a 3-letter code (e.g., NOK, SEK, EUR, DKK, USD).</p>
-      </div>
-    </details>
-
-    <details class="homey-form-fieldset">
-      <summary class="homey-form-legend">Costs & Consumption</summary>
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="grid_fee_per_kwh">Grid Fee (per kWh)</label>
-        <input class="homey-form-input" id="grid_fee_per_kwh" type="number" min="0" step="0.01" placeholder="e.g., 1.04" />
-        <p class="homey-form-helper">Optional. Your per-kWh grid (network) fee. Savings count it for every kWh the heat pump did not need to buy; it does not change the value of moving heating to cheaper hours, since you pay it in every hour. Not added when ENTSO-E prices already include it via the consumer markup. Example: 1.04 SEK/kWh.</p>
-      </div>
-
-      <div class="homey-form-group" id="consumer_markup_section" style="display: none;">
-        <label class="homey-form-label">
-          <input type="checkbox" id="enable_consumer_markup" />
-          <span>Convert ENTSO-E wholesale to consumer prices</span>
-        </label>
-        <p class="homey-form-helper">Add taxes, grid fees, and markup to ENTSO-E wholesale prices to approximate consumer prices.</p>
-      </div>
-
-      <div class="homey-form-group" id="consumer_markup_config_section" style="display: none;">
-        <label class="homey-form-label" for="consumer_markup_config">Consumer Price Components (JSON)</label>
-        <textarea class="homey-form-input" id="consumer_markup_config" rows="12" placeholder="Consumer markup configuration..."></textarea>
-        <p class="homey-form-helper">Configure grid fees, taxes, and markup by country. Includes defaults for 33+ European markets. <button type="button" class="homey-button-secondary" id="load_markup_defaults">Load Defaults</button></p>
-        <div id="consumer_markup_status" class="homey-form-helper" style="color: #666; font-style: italic;"></div>
-      </div>
-
-      <div class="homey-form-group" id="markup_currency_section" style="display: none;">
-        <label class="homey-form-label" for="markup_currency_unit">Markup Values Currency</label>
-        <select class="homey-form-input" id="markup_currency_unit">
-          <option value="LOCAL">Auto-detect from Homey settings</option>
-          <option value="EUR">Euro (EUR)</option>
-          <option value="SEK">Swedish Krona (SEK)</option>
-          <option value="NOK">Norwegian Krone (NOK)</option>
-          <option value="DKK">Danish Krone (DKK)</option>
-          <option value="PLN">Polish Złoty (PLN)</option>
-          <option value="CZK">Czech Koruna (CZK)</option>
-          <option value="HUF">Hungarian Forint (HUF)</option>
-          <option value="RON">Romanian Leu (RON)</option>
-          <option value="BGN">Bulgarian Lev (BGN)</option>
-          <option value="HRK">Croatian Kuna (HRK)</option>
-          <option value="CHF">Swiss Franc (CHF)</option>
-          <option value="GBP">British Pound (GBP)</option>
-        </select>
-        <p class="homey-form-helper">Currency used for grid fees, taxes, and markup values in the JSON configuration above. If values are in different currencies, they'll be converted to your Homey currency automatically.</p>
-      </div>
-    </details>
-
-    <details class="homey-form-fieldset">
-      <summary class="homey-form-legend">Weather & Location</summary>
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="use_weather_data">Use Weather Data</label>
-        <label class="homey-form-checkbox">
-          <input type="checkbox" id="use_weather_data" checked />
-          <span>Enable weather data integration (Met.no API)</span>
-        </label>
-        <p class="homey-form-helper">Uses weather data to improve temperature optimization based on outdoor conditions</p>
-      </div>
-
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="weather_location">Your Location</label>
-        <div class="homey-form-row">
-          <div class="homey-form-col">
-            <label class="homey-form-label" for="latitude">Latitude</label>
-            <input class="homey-form-input" id="latitude" type="number" step="0.000001" placeholder="e.g., 51.5074" />
-            <p class="homey-form-helper">Decimal degrees (e.g., 51.5074 for London)</p>
-          </div>
-          <div class="homey-form-col">
-            <label class="homey-form-label" for="longitude">Longitude</label>
-            <input class="homey-form-input" id="longitude" type="number" step="0.000001" placeholder="e.g., -0.1278" />
-            <p class="homey-form-helper">Decimal degrees (e.g., -0.1278 for London)</p>
-          </div>
-        </div>
-        <button id="detect-location" class="homey-button-primary">Detect My Location</button>
-        <p class="homey-form-helper">You can find your coordinates using <a href="https://www.latlong.net/" target="_blank">LatLong.net</a> or similar services</p>
-        <p id="weather_location_warning" class="homey-form-helper" style="display:none;color:#b00;">Weather is enabled but coordinates are missing. Set latitude and longitude for accurate weather optimization.</p>
-      </div>
-    </details>
-
-    <details class="homey-form-fieldset">
-      <summary class="homey-form-legend">Schedule & Time</summary>
-      <details class="homey-form-fieldset" style="margin-top: 20px;">
-        <summary class="homey-form-legend">⚙️ Advanced: Manual Timezone (deprecated)</summary>
-        <div class="homey-form-group" style="background: #fff8dc; padding: 12px; border-radius: 6px; margin: 12px 0;">
-          <p style="margin: 0; color: #b8860b; font-weight: 500;">
-            ⚠️ <strong>Deprecated:</strong> Manual timezone settings are less accurate than IANA timezones. 
-            We recommend using the automatic timezone setting above for better DST handling.
-          </p>
-        </div>
-        
-        <div class="homey-form-group">
-          <label class="homey-form-label">Manual Time Zone Override</label>
-          <div class="homey-form-row">
-            <div class="homey-form-col">
-              <label class="homey-form-label" for="time_zone_offset">UTC Offset</label>
-              <select class="homey-form-input" id="time_zone_offset">
-                <option value="-12">UTC-12:00</option>
-                <option value="-11">UTC-11:00</option>
-                <option value="-10">UTC-10:00</option>
-                <option value="-9">UTC-09:00</option>
-                <option value="-8">UTC-08:00</option>
-                <option value="-7">UTC-07:00</option>
-                <option value="-6">UTC-06:00</option>
-                <option value="-5">UTC-05:00</option>
-                <option value="-4">UTC-04:00</option>
-                <option value="-3">UTC-03:00</option>
-                <option value="-2">UTC-02:00</option>
-                <option value="-1">UTC-01:00</option>
-                <option value="0">UTC+00:00</option>
-                <option value="1" selected>UTC+01:00</option>
-                <option value="2">UTC+02:00</option>
-                <option value="3">UTC+03:00</option>
-                <option value="4">UTC+04:00</option>
-                <option value="5">UTC+05:00</option>
-                <option value="5.5">UTC+05:30</option>
-                <option value="6">UTC+06:00</option>
-                <option value="7">UTC+07:00</option>
-                <option value="8">UTC+08:00</option>
-                <option value="9">UTC+09:00</option>
-                <option value="9.5">UTC+09:30</option>
-                <option value="10">UTC+10:00</option>
-                <option value="11">UTC+11:00</option>
-                <option value="12">UTC+12:00</option>
-                <option value="13">UTC+13:00</option>
-              </select>
-              <p class="homey-form-helper">Only used if IANA timezone above is empty</p>
-            </div>
-            <div class="homey-form-col">
-              <label class="homey-form-label" for="use_dst">Daylight Saving Time</label>
-              <label class="homey-form-checkbox">
-                <input type="checkbox" id="use_dst" checked />
-                <span>Manually adjust for DST</span>
-              </label>
-              <p class="homey-form-helper">Manual DST adjustment (less accurate than IANA)</p>
-            </div>
-          </div>
-        </div>
-      </details>
-    </details>
-
 
     <details class="homey-form-fieldset" id="fine_tuning_fieldset">
       <summary class="homey-form-legend">Fine-tuning (optional)</summary>
       <div class="homey-form-group">
-        <p class="homey-form-helper">Everything in this section runs on <b>Automatic</b>: the app uses its own tested values, and improves them in updates. Change a value only if you want something different; "use automatic" returns it to the app's value.</p>
+        <p class="homey-form-helper">Everything in this section runs on <b>Automatic</b>: the app uses its own tested values, or what it reads from Homey (time zone, location, currency). Change a value only if you want something different; "use automatic" returns it to the app's value.</p>
         <p class="homey-form-helper" id="fine_tuning_migration_note" style="display:none;"></p>
       </div>
+
+      <details class="homey-form-group" id="custom_bands_group">
+        <summary class="homey-form-label">Comfort ranges in detail</summary>
+        <p class="homey-form-helper">Set by the comfort temperature above. Away and night follow it automatically, a little lower, unless you enter your own values.</p>
+        <div class="homey-form-row">
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="comfort_lower_occupied">Occupied Lower (°C)</label>
+            <input class="homey-form-input" id="comfort_lower_occupied" type="number" min="18" max="23" step="0.5" value="20" />
+            <p class="homey-form-helper">Heating pauses down to this in expensive hours; never undercut.</p>
+          </div>
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="comfort_upper_occupied">Occupied Upper (°C)</label>
+            <input class="homey-form-input" id="comfort_upper_occupied" type="number" min="19" max="24" step="0.5" value="21" />
+            <p class="homey-form-helper">Ceiling for preheating in cheap hours.</p>
+          </div>
+        </div>
+        <div class="homey-form-row">
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="comfort_lower_away">Away Lower (°C)</label>
+            <input class="homey-form-input" id="comfort_lower_away" type="number" min="17" max="22" step="0.5" value="19" />
+          </div>
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="comfort_upper_away">Away Upper (°C)</label>
+            <input class="homey-form-input" id="comfort_upper_away" type="number" min="18" max="23" step="0.5" value="20.5" />
+          </div>
+        </div>
+        <p class="homey-form-helper" data-band-for="away"></p>
+        <div class="homey-form-row">
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="comfort_lower_night">Night Lower (°C)</label>
+            <input class="homey-form-input" id="comfort_lower_night" type="number" min="14" max="22" step="0.5" value="17" />
+          </div>
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="comfort_upper_night">Night Upper (°C)</label>
+            <input class="homey-form-input" id="comfort_upper_night" type="number" min="15" max="23" step="0.5" value="19" />
+          </div>
+        </div>
+        <p class="homey-form-helper" data-band-for="night"></p>
+      </details>
+
       <div class="homey-form-group">
         <label class="homey-form-label">Stability</label>
         <div class="homey-form-row">
           <div class="homey-form-col">
             <label class="homey-form-label" for="deadband_c">Deadband (°C)</label>
             <input class="homey-form-input" id="deadband_c" type="number" min="0.1" max="2.0" step="0.1" value="0.3" />
-            <p class="homey-form-helper">Small window around target to avoid jitter.</p>
-            <p class="homey-form-helper">Impact: Larger deadband = fewer changes and less cycling (smoother), but slower fine‑tuning. Typical range 0.3–0.5°C.</p>
+            <p class="homey-form-helper">Small window around target to avoid jitter. Larger = fewer changes, slower fine-tuning.</p>
           </div>
           <div class="homey-form-col">
             <label class="homey-form-label" for="min_setpoint_change_minutes">Min Setpoint Interval (min)</label>
             <input class="homey-form-input" id="min_setpoint_change_minutes" type="number" min="5" max="180" step="5" value="30" />
-            <p class="homey-form-helper">Anti–short‑cycling lockout between changes. The optimizer runs once an hour, so values below 60 only matter for extra runs.</p>
-            <p class="homey-form-helper">Impact: Higher values reduce compressor starts and avoid fighting defrost cycles; too high can slow reactions to big price swings.</p>
+            <p class="homey-form-helper">Anti-short-cycling lockout between changes. The optimizer runs once an hour, so values below 60 only matter for extra runs.</p>
           </div>
           <div class="homey-form-col">
             <label class="homey-form-label" for="temp_step_max">Temperature Step (°C)</label>
             <input class="homey-form-input" id="temp_step_max" type="number" min="0.5" max="1.0" step="0.5" value="0.5" />
-            <p class="homey-form-helper">Max temperature change per optimization step, and the rounding step for room targets.</p>
-            <p class="homey-form-helper">Impact: 1.0°C means fewer, larger changes. In Curve mode the room target switches heating on and off, so a finer step mostly changes when that happens, not how much heat is given.</p>
+            <p class="homey-form-helper">Max change per optimization step, and the rounding step for room targets.</p>
           </div>
         </div>
       </div>
       <div class="homey-form-group">
-        <label class="homey-form-label">Price‑Aware Preheating and Pausing</label>
-        <div class="homey-form-row">
-          <div class="homey-form-col">
-            <label class="homey-form-label" for="preheat_cheap_percentile">Cheap percentile (0–1)</label>
-            <input class="homey-form-input" id="preheat_cheap_percentile" type="number" min="0.05" max="0.5" step="0.05" value="0.25" />
-            <p class="homey-form-helper">Hours in the cheapest share of the coming day count as cheap (preheating allowed); hours in the most expensive share of the same size count as expensive (heating pauses while the room is above your comfort minimum).</p>
-            <p class="homey-form-helper">Impact: Lower values act only on the most extreme hours. Higher values preheat and pause more often.</p>
-          </div>
-        </div>
-        <p class="homey-form-helper">Note: In Curve (weather compensation) mode with a room sensor, the room target switches heating on and off; the curve decides how much heat it gives. Pausing therefore works fully, while preheating can only store as much heat as the curve delivers at the current outdoor temperature (learned over time).</p>
+        <label class="homey-form-label" for="preheat_cheap_percentile">Cheap percentile (0–1)</label>
+        <input class="homey-form-input" id="preheat_cheap_percentile" type="number" min="0.05" max="0.5" step="0.05" value="0.25" />
+        <p class="homey-form-helper">Hours in the cheapest share of the coming day count as cheap (preheating allowed); the same share of the most expensive hours count as expensive (heating pauses while the room is above your comfort minimum). In Curve mode, preheating can only store as much heat as the curve gives at the current outdoor temperature (learned over time).</p>
       </div>
       <div class="homey-form-group">
         <label class="homey-form-label" for="tank_temp_step">Tank Temperature Step (°C)</label>
         <input class="homey-form-input" id="tank_temp_step" type="number" min="1.0" max="5.0" step="1.0" value="1.0" />
-        <p class="homey-form-helper">Rounding step for tank targets (whole degrees). A single change can move the target by up to 4°C, or by this step if larger; that full amount is also used to start a reheat when the tank is below the minimum.</p>
+        <p class="homey-form-helper">Rounding step for tank targets. A single change can move the target by up to 4°C, or by this step if larger.</p>
       </div>
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="temp_step_zone2">Zone 2 Temperature Step (°C)</label>
+        <input class="homey-form-input" id="temp_step_zone2" type="number" min="0.1" max="2.0" step="0.1" value="0.5" />
+      </div>
+
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="time_zone_name">Time Zone</label>
+        <div class="timezone-input-container">
+          <input
+            class="homey-form-input"
+            id="time_zone_name"
+            type="text"
+            list="time_zone_name_list"
+            placeholder="Automatic"
+            autocomplete="off"
+          />
+          <button type="button" class="homey-button-secondary" id="detect_time_zone_name">Use this device's zone</button>
+        </div>
+        <datalist id="time_zone_name_list"></datalist>
+        <div id="timezone_preview" class="timezone-preview" style="display: none;">
+          <p class="homey-form-helper" style="color: #007acc; font-weight: 500;">
+            Current time in selected zone: <span id="timezone_preview_time"></span>
+          </p>
+        </div>
+        <span id="time_zone_name_status" class="homey-form-helper" aria-live="polite"></span>
+        <style>
+          .timezone-input-container { display: flex; align-items: center; gap: 8px; }
+          .timezone-input-container input { flex: 1; margin: 0; }
+          .timezone-preview { background: #f8fffe; border-left: 3px solid #00cc88; padding: 8px 12px; margin: 8px 0; border-radius: 4px; }
+        </style>
+      </div>
+
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="currency_code">Currency (ISO 4217)</label>
+        <input class="homey-form-input" id="currency_code" type="text" placeholder="Automatic" value="" />
+        <p class="homey-form-helper" id="currency_auto_status">Leave empty for automatic (from your home's country). Use a 3-letter code (e.g., NOK, SEK, EUR) to override.</p>
+      </div>
+
+      <div class="homey-form-group">
+        <label class="homey-form-checkbox">
+          <input type="checkbox" id="use_weather_data" checked />
+          <span>Use weather forecast (Met.no)</span>
+        </label>
+        <div class="homey-form-row">
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="latitude">Latitude</label>
+            <input class="homey-form-input" id="latitude" type="number" step="0.000001" placeholder="Automatic" />
+          </div>
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="longitude">Longitude</label>
+            <input class="homey-form-input" id="longitude" type="number" step="0.000001" placeholder="Automatic" />
+          </div>
+        </div>
+        <button id="detect-location" class="homey-button-secondary">Use this device's location</button>
+        <p class="homey-form-helper" id="location_auto_status">Leave empty to use the location set in Homey.</p>
+        <p id="weather_location_warning" class="homey-form-helper" style="display:none;color:#b00;">Weather is enabled but no location is known. Set a location in Homey or enter coordinates here.</p>
+      </div>
+
+      <details class="homey-form-group" id="entsoe_quick_settings">
+        <summary class="homey-form-label">ENTSO-E price zone</summary>
+        <div class="homey-form-group">
+          <label class="homey-form-label" for="entsoe_zone_input">ISO or EIC</label>
+          <input class="homey-form-input" id="entsoe_zone_input" type="text" placeholder="SE3 or 10Y1001A1001A46L" autocomplete="off" value="" />
+          <p class="homey-form-helper">Picked from your home's country when first opened. Countries with several zones (Sweden, Norway, Denmark, Italy) should check it.</p>
+        </div>
+        <div class="homey-form-group">
+          <button type="button" class="homey-button-secondary" id="entsoe_auto_detect">Detect again</button>
+          <button type="button" class="homey-button-secondary" id="entsoe_open_full" aria-expanded="false">Open zone map</button>
+        </div>
+        <div class="homey-form-group" id="entsoe_full_container" hidden>
+          <iframe
+            id="entsoe_full_frame"
+            title="ENTSO-E detailed settings"
+            style="width: 100%; min-height: 600px; border: 1px solid var(--homey-border-color, #d0d7e2); border-radius: 8px;"
+          ></iframe>
+        </div>
+        <span class="homey-form-helper" id="entsoe_zone_status" aria-live="polite"></span>
+      </details>
+
+      <details class="homey-form-group" id="consumer_markup_section">
+        <summary class="homey-form-label">ENTSO-E consumer price</summary>
+        <label class="homey-form-checkbox">
+          <input type="checkbox" id="enable_consumer_markup" checked />
+          <span>Add taxes, fees and VAT to ENTSO-E wholesale prices</span>
+        </label>
+        <p class="homey-form-helper">On by default, with typical values for your country, so the app plans with prices close to what you pay.</p>
+        <div id="consumer_markup_config_section">
+          <label class="homey-form-label" for="consumer_markup_config">Your own price components (JSON, optional)</label>
+          <textarea class="homey-form-input" id="consumer_markup_config" rows="8" placeholder="Empty = built-in typical values (EUR)"></textarea>
+          <p class="homey-form-helper"><button type="button" class="homey-button-secondary" id="load_markup_defaults">Show built-in values</button> Edit them to make your own table; empty uses the built-in values.</p>
+          <div id="consumer_markup_status" class="homey-form-helper" style="color: #666; font-style: italic;"></div>
+        </div>
+        <div id="markup_currency_section">
+          <label class="homey-form-label" for="markup_currency_unit">Currency of your own values</label>
+          <select class="homey-form-input" id="markup_currency_unit">
+            <option value="LOCAL">Same as prices</option>
+            <option value="EUR">Euro (EUR)</option>
+            <option value="SEK">Swedish Krona (SEK)</option>
+            <option value="NOK">Norwegian Krone (NOK)</option>
+            <option value="DKK">Danish Krone (DKK)</option>
+            <option value="PLN">Polish Złoty (PLN)</option>
+            <option value="CZK">Czech Koruna (CZK)</option>
+            <option value="HUF">Hungarian Forint (HUF)</option>
+            <option value="RON">Romanian Leu (RON)</option>
+            <option value="BGN">Bulgarian Lev (BGN)</option>
+            <option value="HRK">Croatian Kuna (HRK)</option>
+            <option value="CHF">Swiss Franc (CHF)</option>
+            <option value="GBP">British Pound (GBP)</option>
+          </select>
+          <p class="homey-form-helper">Only used for your own table; the built-in values are in EUR and converted automatically.</p>
+        </div>
+      </details>
+
       <div class="homey-form-group">
         <label class="homey-form-label" for="log_level">Log Level</label>
         <select class="homey-form-input" id="log_level">
@@ -773,14 +604,13 @@
           <option value="2">Warning (Minimal)</option>
           <option value="3">Error (Only Errors)</option>
         </select>
-        <p class="homey-form-helper">Controls the amount of information logged. Debug provides the most detailed logs.</p>
       </div>
     </details>
 
-    <details class="homey-form-fieldset">
-      <summary class="homey-form-legend">Tools: Manual Triggers</summary>
+    <details class="homey-form-fieldset" id="diagnostics_fieldset">
+      <summary class="homey-form-legend">Diagnostics</summary>
       <div class="homey-form-group">
-        <p class="homey-form-helper">Use these buttons to manually trigger operations.</p>
+        <label class="homey-form-label">Manual runs</label>
         <div class="button-container">
           <button id="run_hourly" class="homey-button-primary" onclick="runHourlyOptimization()">Run Hourly Optimization</button>
           <button id="run_weekly" class="homey-button-primary" onclick="runWeeklyCalibration()">Run Weekly Calibration</button>
@@ -788,6 +618,17 @@
           <button id="view_thermal_data" class="homey-button" onclick="viewThermalModelData()">View Thermal Model Data</button>
         </div>
         <p id="trigger_result" class="result-message"></p>
+      </div>
+      <div class="homey-form-group">
+        <label class="homey-form-label">Hot water usage patterns</label>
+        <div class="button-container">
+          <button id="view_patterns" class="homey-button" onclick="viewHotWaterPatterns()">View Usage Patterns</button>
+          <button id="reset_patterns" class="homey-button" onclick="resetHotWaterPatterns()">Reset Usage Patterns</button>
+          <button id="clear_keep_patterns" class="homey-button-warning" onclick="clearHotWaterData(true)">Clear Data (Keep Patterns)</button>
+          <button id="clear_all_data" class="homey-button-danger" onclick="clearHotWaterData(false)">Clear All Data</button>
+        </div>
+        <p class="homey-form-helper">View dumps the learned patterns to the logs. Reset returns them to defaults. Clear Data removes detailed samples (optionally keeping the patterns).</p>
+        <p id="hot_water_action_result" class="result-message"></p>
       </div>
     </details>
 
@@ -1069,6 +910,12 @@
           { key: 'log_level', id: 'log_level' }
         ];
         const state = {};
+        const listeners = [];
+
+        /** Called with the whole /getSettingDefaults response (defaults, detected values). */
+        function onDefaults(fn) {
+          listeners.push(fn);
+        }
 
         function statusElement(field, input) {
           let el = document.querySelector('[data-auto-for="' + field.key + '"]');
@@ -1112,8 +959,10 @@
             if (err || !res || !res.defaults) {
               // Without defaults the page behaves as before: every field is saved as entered.
               console.warn('Could not load setting defaults', err);
+              listeners.forEach(function (fn) { try { fn(null); } catch (e) { console.warn(e); } });
               return;
             }
+            listeners.forEach(function (fn) { try { fn(res); } catch (e) { console.warn(e); } });
             let pending = FIELDS.length;
             let migrated = 0;
             const done = function () {
@@ -1166,7 +1015,172 @@
           });
         }
 
-        return { init: init, isAuto: isAuto, clearAutoKeys: clearAutoKeys };
+        return { init: init, isAuto: isAuto, clearAutoKeys: clearAutoKeys, onDefaults: onDefaults };
+      })();
+
+      /**
+       * Comfort temperature and allowed variation (main page) write the occupied range. Away and
+       * night follow it at the app's standard offsets (from /getSettingDefaults) unless the user
+       * entered their own values; stored values equal to the derived ones count as following.
+       * Save keeps writing the raw range fields, so the app side is unchanged.
+       */
+      const comfortBands = (function () {
+        const ids = {
+          target: 'comfort_target_c', variation: 'comfort_variation_c',
+          occupied: ['comfort_lower_occupied', 'comfort_upper_occupied'],
+          away: ['comfort_lower_away', 'comfort_upper_away'],
+          night: ['comfort_lower_night', 'comfort_upper_night']
+        };
+        // Validation limits of the range inputs (same as the save checks).
+        const LIMITS = { occupied: [18, 24], away: [17, 23], night: [14, 23] };
+        const offsets = { away: null, night: null };
+        const follows = { away: false, night: false };
+        let stored = null;
+        let loaded = null;
+
+        const el = function (id) { return document.getElementById(id); };
+        const num = function (id) { const e = el(id); return e ? parseFloat(e.value) : NaN; };
+        const half = function (v) { return Math.round(v * 2) / 2; };
+        const fmt = function (pair) {
+          const lo = num(pair[0]); const hi = num(pair[1]);
+          return isFinite(lo) && isFinite(hi) ? lo + '–' + hi + ' °C' : '–';
+        };
+
+        function clampRange(kind, lower, upper) {
+          const lim = LIMITS[kind];
+          const lo = Math.max(lim[0], half(lower));
+          const hi = Math.min(lim[1], Math.max(lo + 0.5, half(upper)));
+          return [lo, hi];
+        }
+
+        function derived(kind, occLower, occUpper) {
+          const off = offsets[kind];
+          if (typeof off !== 'number' || !isFinite(occLower) || !isFinite(occUpper)) return null;
+          return clampRange(kind, occLower - off, occUpper - off);
+        }
+
+        function applyFollow(kind) {
+          if (!follows[kind]) return;
+          const d = derived(kind, num(ids.occupied[0]), num(ids.occupied[1]));
+          if (!d) return;
+          el(ids[kind][0]).value = String(d[0]);
+          el(ids[kind][1]).value = String(d[1]);
+        }
+
+        function renderStatus(kind) {
+          const p = document.querySelector('[data-band-for="' + kind + '"]');
+          if (!p) return;
+          p.textContent = '';
+          if (typeof offsets[kind] !== 'number') return;
+          const label = kind === 'away' ? 'Away' : 'Night';
+          if (follows[kind]) {
+            const b = document.createElement('b');
+            b.textContent = 'Automatic';
+            p.appendChild(b);
+            p.appendChild(document.createTextNode(': ' + label.toLowerCase() + ' range is ' + offsets[kind] + ' °C below the occupied range.'));
+          } else {
+            p.appendChild(document.createTextNode(label + ': your own values. '));
+            const a = document.createElement('a');
+            a.href = '#';
+            a.textContent = 'Use automatic (' + offsets[kind] + ' °C below occupied)';
+            a.addEventListener('click', function (e) {
+              e.preventDefault();
+              follows[kind] = true;
+              applyFollow(kind);
+              render();
+            });
+            p.appendChild(a);
+          }
+        }
+
+        function render() {
+          renderStatus('away');
+          renderStatus('night');
+          const summary = el('comfort_band_summary');
+          if (summary) {
+            summary.textContent = 'Home ' + fmt(ids.occupied) + ' · Away ' + fmt(ids.away) + ' · Night ' + fmt(ids.night) +
+              '. Details under Fine-tuning.';
+          }
+        }
+
+        function targetFromOccupied() {
+          const lo = num(ids.occupied[0]);
+          const hi = num(ids.occupied[1]);
+          if (!isFinite(lo) || !isFinite(hi)) return;
+          el(ids.target).value = String((lo + hi) / 2);
+          el(ids.variation).value = String((hi - lo) / 2);
+        }
+
+        function occupiedFromTarget() {
+          const t = num(ids.target);
+          const v = num(ids.variation);
+          if (!isFinite(t) || !isFinite(v) || v <= 0) return;
+          const r = clampRange('occupied', t - v, t + v);
+          el(ids.occupied[0]).value = String(r[0]);
+          el(ids.occupied[1]).value = String(r[1]);
+        }
+
+        function afterOccupiedChange() {
+          applyFollow('away');
+          applyFollow('night');
+          render();
+        }
+
+        function start(Homey) {
+          const keys = ids.occupied.concat(ids.away, ids.night);
+          loaded = Promise.all(keys.map(function (key) {
+            return new Promise(function (resolve) {
+              Homey.get(key, function (err, value) {
+                const n = err || value === undefined || value === null || value === '' ? NaN : Number(value);
+                resolve([key, n]);
+              });
+            });
+          })).then(function (pairs) {
+            stored = {};
+            pairs.forEach(function (pair) {
+              stored[pair[0]] = pair[1];
+              if (isFinite(pair[1]) && el(pair[0])) el(pair[0]).value = String(pair[1]);
+            });
+            targetFromOccupied();
+            render();
+          });
+
+          [ids.target, ids.variation].forEach(function (id) {
+            const e = el(id);
+            if (e) e.addEventListener('input', function () { occupiedFromTarget(); afterOccupiedChange(); });
+          });
+          ids.occupied.forEach(function (id) {
+            const e = el(id);
+            if (e) e.addEventListener('input', function () { targetFromOccupied(); afterOccupiedChange(); });
+          });
+          ['away', 'night'].forEach(function (kind) {
+            ids[kind].forEach(function (id) {
+              const e = el(id);
+              if (e) e.addEventListener('input', function () { follows[kind] = false; render(); });
+            });
+          });
+        }
+
+        function setOffsets(defaults) {
+          if (!defaults || !loaded) return;
+          offsets.away = typeof defaults.comfort_away_offset_c === 'number' ? defaults.comfort_away_offset_c : null;
+          offsets.night = typeof defaults.comfort_night_offset_c === 'number' ? defaults.comfort_night_offset_c : null;
+          loaded.then(function () {
+            const occLower = isFinite(stored[ids.occupied[0]]) ? stored[ids.occupied[0]] : num(ids.occupied[0]);
+            const occUpper = isFinite(stored[ids.occupied[1]]) ? stored[ids.occupied[1]] : num(ids.occupied[1]);
+            ['away', 'night'].forEach(function (kind) {
+              const lo = stored[ids[kind][0]];
+              const hi = stored[ids[kind][1]];
+              const d = derived(kind, occLower, occUpper);
+              const unset = !isFinite(lo) && !isFinite(hi);
+              follows[kind] = !!d && (unset || (lo === d[0] && hi === d[1]));
+              applyFollow(kind);
+            });
+            render();
+          });
+        }
+
+        return { start: start, setOffsets: setOffsets };
       })();
 
       function onHomeyReady(Homey) {
@@ -1183,6 +1197,15 @@
         function hasValidValue(err, value) {
           return !err && value !== undefined && value !== null && value !== "";
         }
+
+        // What the app detects by itself (/getSettingDefaults): Homey's location and country,
+        // and the built-in consumer price table.
+        let detectedLocation = null;
+        let detectedDefaultsLoaded = false;
+        let builtInMarkupTable = null;
+        let resolveDetected;
+        const detectedReady = new Promise(function (resolve) { resolveDetected = resolve; });
+        setTimeout(function () { resolveDetected(null); }, 5000);
 
         // Get elements
         const melcloudUserElement = document.getElementById("melcloud_user");
@@ -1215,8 +1238,6 @@
         const latitudeElement = document.getElementById("latitude");
         const longitudeElement = document.getElementById("longitude");
         const detectLocationButton = document.getElementById("detect-location");
-        const timeZoneOffsetElement = document.getElementById("time_zone_offset");
-        const useDstElement = document.getElementById("use_dst");
         const timeZoneNameElement = document.getElementById("time_zone_name");
         const timeZoneNameListElement = document.getElementById("time_zone_name_list");
         const detectTimeZoneNameButton = document.getElementById("detect_time_zone_name");
@@ -1278,10 +1299,10 @@
         }
 
         // Enhanced timezone detection with preview
+        // Homey's own time zone, filled in from /getSettingDefaults (shown while the field is empty).
+        let detectedTimeZoneName = '';
         const timezonePreviewElement = document.getElementById("timezone_preview");
         const timezonePreviewTimeElement = document.getElementById("timezone_preview_time");
-        const migrationNoticeElement = document.getElementById("migration_notice");
-        const convertToAutoButton = document.getElementById("convert_to_auto");
 
         function updateTimezonePreview(timezone) {
           if (!timezone || !timezonePreviewElement || !timezonePreviewTimeElement) return;
@@ -1347,7 +1368,8 @@
             const value = (timeZoneNameElement.value || '').trim();
             
             if (!value) {
-              timeZoneNameStatusElement.textContent = 'Will use manual UTC offset if configured';
+              timeZoneNameStatusElement.textContent = 'Automatic: uses the time zone set in Homey' +
+                (detectedTimeZoneName ? ' (' + detectedTimeZoneName + ')' : '') + '.';
               timeZoneNameStatusElement.style.color = '#888';
               timezonePreviewElement.style.display = 'none';
               return;
@@ -1371,50 +1393,6 @@
           }
         }
 
-        // Check for migration opportunity and show notice
-        function checkMigrationOpportunity() {
-          Homey.get('time_zone_name', function (nameErr, currentTimezone) {
-            if (nameErr) return;
-            Homey.get('time_zone_offset', function (offsetErr, currentOffset) {
-              if (offsetErr) return;
-              if (!currentTimezone && currentOffset !== null && currentOffset !== undefined) {
-                // User has manual settings but no IANA timezone
-                if (migrationNoticeElement) {
-                  migrationNoticeElement.style.display = 'block';
-                }
-              }
-            });
-          });
-        }
-
-        if (convertToAutoButton) {
-          convertToAutoButton.addEventListener('click', () => {
-            try {
-              const resolved = Intl.DateTimeFormat().resolvedOptions().timeZone;
-              if (resolved && timeZoneNameElement) {
-                timeZoneNameElement.value = resolved;
-                timeZoneNameElement.dispatchEvent(new Event('input'));
-                Homey.set('time_zone_name', resolved, function (err) { if (err) console.error('Error saving time_zone_name:', err); });
-                
-                if (migrationNoticeElement) {
-                  migrationNoticeElement.innerHTML = `
-                    <p style="margin: 0; color: #00aa44;">
-                      ✅ <strong>Converted Successfully:</strong> Now using automatic timezone: ${resolved}
-                    </p>
-                  `;
-                  setTimeout(() => {
-                    migrationNoticeElement.style.display = 'none';
-                  }, 5000);
-                }
-              }
-            } catch (error) {
-              console.warn('Failed to convert to automatic timezone', error);
-            }
-          });
-        }
-
-        // Check migration opportunity on page load
-        setTimeout(checkMigrationOpportunity, 500);
 
         
 
@@ -1605,9 +1583,13 @@
               return null;
             }
 
+            // The home's country as the app sees it (Homey's time zone and location); the browser
+            // language only when that is unknown.
+            const detected = await detectedReady;
             const language = navigator.language || navigator.userLanguage || '';
             const parts = language.split('-');
-            const iso = parts.length > 1 ? parts[1].toUpperCase() : parts[0]?.toUpperCase() || '';
+            const languageIso = parts.length > 1 ? parts[1].toUpperCase() : parts[0]?.toUpperCase() || '';
+            const iso = (detected && detected.country) || languageIso;
             const list = iso && map[iso] ? map[iso] : null;
             if (!list || list.length === 0) {
               if (priceSourceStatusElement && !priceSourceStatusElement.textContent) {
@@ -1637,8 +1619,12 @@
           if (priceSourceEntsoeElement) {
             priceSourceEntsoeElement.checked = selection === 'entsoe';
           }
+          const tibberConnectionGroup = document.getElementById('tibber_connection_group');
+          if (tibberConnectionGroup) {
+            tibberConnectionGroup.style.display = selection === 'tibber' ? '' : 'none';
+          }
           if (entsoeQuickDetails) {
-            entsoeQuickDetails.open = selection === 'entsoe';
+            entsoeQuickDetails.style.display = selection === 'entsoe' ? '' : 'none';
           }
           const enableTibberInputs = selection === 'tibber';
           if (tibberTokenElement) {
@@ -1682,256 +1668,47 @@
           }
         }
 
-        function loadDefaultConsumerMarkupConfig() {
-          const defaultConfig = {
-            "SE": {
-              "gridFee": 0.030,
-              "energyTax": 0.036,
-              "retailMarkup": 0.010,
-              "vatRate": 1.25,
-              "description": "Sweden - typical residential"
-            },
-            "DE": {
-              "gridFee": 0.070,
-              "energyTax": 0.025,
-              "retailMarkup": 0.015,
-              "vatRate": 1.19,
-              "description": "Germany - typical residential"
-            },
-            "NO": {
-              "gridFee": 0.035,
-              "energyTax": 0.017,
-              "retailMarkup": 0.008,
-              "vatRate": 1.25,
-              "description": "Norway - typical residential"
-            },
-            "DK": {
-              "gridFee": 0.045,
-              "energyTax": 0.089,
-              "retailMarkup": 0.012,
-              "vatRate": 1.25,
-              "description": "Denmark - typical residential"
-            },
-            "FR": {
-              "gridFee": 0.045,
-              "energyTax": 0.022,
-              "retailMarkup": 0.012,
-              "vatRate": 1.20,
-              "description": "France - typical residential"
-            },
-            "NL": {
-              "gridFee": 0.055,
-              "energyTax": 0.030,
-              "retailMarkup": 0.018,
-              "vatRate": 1.21,
-              "description": "Netherlands - typical residential"
-            },
-            "BE": {
-              "gridFee": 0.048,
-              "energyTax": 0.028,
-              "retailMarkup": 0.015,
-              "vatRate": 1.21,
-              "description": "Belgium - typical residential"
-            },
-            "AT": {
-              "gridFee": 0.038,
-              "energyTax": 0.015,
-              "retailMarkup": 0.012,
-              "vatRate": 1.20,
-              "description": "Austria - typical residential"
-            },
-            "CH": {
-              "gridFee": 0.065,
-              "energyTax": 0.023,
-              "retailMarkup": 0.020,
-              "vatRate": 1.077,
-              "description": "Switzerland - typical residential"
-            },
-            "FI": {
-              "gridFee": 0.042,
-              "energyTax": 0.027,
-              "retailMarkup": 0.015,
-              "vatRate": 1.24,
-              "description": "Finland - typical residential"
-            },
-            "PL": {
-              "gridFee": 0.025,
-              "energyTax": 0.012,
-              "retailMarkup": 0.008,
-              "vatRate": 1.23,
-              "description": "Poland - typical residential"
-            },
-            "CZ": {
-              "gridFee": 0.030,
-              "energyTax": 0.018,
-              "retailMarkup": 0.010,
-              "vatRate": 1.21,
-              "description": "Czech Republic - typical residential"
-            },
-            "IT": {
-              "gridFee": 0.055,
-              "energyTax": 0.035,
-              "retailMarkup": 0.018,
-              "vatRate": 1.22,
-              "description": "Italy - typical residential"
-            },
-            "ES": {
-              "gridFee": 0.045,
-              "energyTax": 0.051,
-              "retailMarkup": 0.015,
-              "vatRate": 1.21,
-              "description": "Spain - typical residential"
-            },
-            "PT": {
-              "gridFee": 0.042,
-              "energyTax": 0.034,
-              "retailMarkup": 0.013,
-              "vatRate": 1.23,
-              "description": "Portugal - typical residential"
-            },
-            "GB": {
-              "gridFee": 0.050,
-              "energyTax": 0.006,
-              "retailMarkup": 0.020,
-              "vatRate": 1.05,
-              "description": "United Kingdom - typical residential"
-            },
-            "EE": {
-              "gridFee": 0.035,
-              "energyTax": 0.007,
-              "retailMarkup": 0.012,
-              "vatRate": 1.20,
-              "description": "Estonia - typical residential"
-            },
-            "LV": {
-              "gridFee": 0.038,
-              "energyTax": 0.009,
-              "retailMarkup": 0.014,
-              "vatRate": 1.21,
-              "description": "Latvia - typical residential"
-            },
-            "LT": {
-              "gridFee": 0.040,
-              "energyTax": 0.011,
-              "retailMarkup": 0.016,
-              "vatRate": 1.21,
-              "description": "Lithuania - typical residential"
-            },
-            "SK": {
-              "gridFee": 0.028,
-              "energyTax": 0.015,
-              "retailMarkup": 0.009,
-              "vatRate": 1.20,
-              "description": "Slovakia - typical residential"
-            },
-            "SI": {
-              "gridFee": 0.045,
-              "energyTax": 0.030,
-              "retailMarkup": 0.012,
-              "vatRate": 1.22,
-              "description": "Slovenia - typical residential"
-            },
-            "HU": {
-              "gridFee": 0.022,
-              "energyTax": 0.008,
-              "retailMarkup": 0.007,
-              "vatRate": 1.27,
-              "description": "Hungary - typical residential"
-            },
-            "IE": {
-              "gridFee": 0.048,
-              "energyTax": 0.009,
-              "retailMarkup": 0.018,
-              "vatRate": 1.135,
-              "description": "Ireland - typical residential"
-            },
-            "RO": {
-              "gridFee": 0.028,
-              "energyTax": 0.012,
-              "retailMarkup": 0.010,
-              "vatRate": 1.19,
-              "description": "Romania - typical residential"
-            },
-            "BG": {
-              "gridFee": 0.025,
-              "energyTax": 0.008,
-              "retailMarkup": 0.008,
-              "vatRate": 1.20,
-              "description": "Bulgaria - typical residential"
-            },
-            "HR": {
-              "gridFee": 0.032,
-              "energyTax": 0.014,
-              "retailMarkup": 0.012,
-              "vatRate": 1.25,
-              "description": "Croatia - typical residential"
-            },
-            "GR": {
-              "gridFee": 0.038,
-              "energyTax": 0.025,
-              "retailMarkup": 0.015,
-              "vatRate": 1.24,
-              "description": "Greece - typical residential"
-            },
-            "RS": {
-              "gridFee": 0.020,
-              "energyTax": 0.006,
-              "retailMarkup": 0.008,
-              "vatRate": 1.20,
-              "description": "Serbia - typical residential"
-            },
-            "BA": {
-              "gridFee": 0.022,
-              "energyTax": 0.008,
-              "retailMarkup": 0.009,
-              "vatRate": 1.17,
-              "description": "Bosnia and Herzegovina - typical residential"
-            },
-            "ME": {
-              "gridFee": 0.025,
-              "energyTax": 0.005,
-              "retailMarkup": 0.010,
-              "vatRate": 1.21,
-              "description": "Montenegro - typical residential"
-            },
-            "MK": {
-              "gridFee": 0.018,
-              "energyTax": 0.004,
-              "retailMarkup": 0.007,
-              "vatRate": 1.18,
-              "description": "North Macedonia - typical residential"
-            },
-            "AL": {
-              "gridFee": 0.015,
-              "energyTax": 0.003,
-              "retailMarkup": 0.006,
-              "vatRate": 1.20,
-              "description": "Albania - typical residential"
-            },
-            "TR": {
-              "gridFee": 0.012,
-              "energyTax": 0.005,
-              "retailMarkup": 0.008,
-              "vatRate": 1.18,
-              "description": "Turkey - typical residential"
-            },
-            "default": {
-              "gridFee": 0.040,
-              "energyTax": 0.020,
-              "retailMarkup": 0.010,
-              "vatRate": 1.20,
-              "description": "EU average approximation"
-            }
-          };
-
-          const configJson = JSON.stringify(defaultConfig, null, 2);
-          if (consumerMarkupConfigElement) {
-            consumerMarkupConfigElement.value = configJson;
-            Homey.set("consumer_markup_config", configJson, function (err) {
-              if (err) console.error('Error saving default consumer_markup_config:', err);
+        // The built-in table lives in the app (/getSettingDefaults). Nothing stored = built-in.
+        function isBuiltInMarkupCopy(text) {
+          if (!builtInMarkupTable || !text) return false;
+          try {
+            const config = JSON.parse(text);
+            const keys = Object.keys(config);
+            if (keys.length !== Object.keys(builtInMarkupTable).length) return false;
+            return keys.every(function (key) {
+              const a = config[key];
+              const b = builtInMarkupTable[key];
+              return !!a && !!b && ['gridFee', 'energyTax', 'retailMarkup', 'vatRate'].every(function (f) {
+                return Number(a[f]) === b[f];
+              });
             });
+          } catch (_) {
+            return false;
+          }
+        }
+
+        function unsetSetting(key) {
+          const cb = function (err) { if (err) console.error('Error resetting ' + key + ':', err); };
+          if (typeof Homey.unset === 'function') Homey.unset(key, cb);
+          else Homey.set(key, null, cb);
+        }
+
+        // Older pages saved a copy of the built-in table on first open; drop it so the
+        // app's built-in values (and their EUR conversion) apply.
+        function migrateBuiltInMarkupCopy() {
+          if (!consumerMarkupConfigElement) return;
+          if (isBuiltInMarkupCopy(consumerMarkupConfigElement.value.trim())) {
+            consumerMarkupConfigElement.value = '';
+            unsetSetting('consumer_markup_config');
             validateConsumerMarkupConfig();
           }
+        }
+
+        function loadDefaultConsumerMarkupConfig() {
+          if (!consumerMarkupConfigElement || !builtInMarkupTable) return;
+          // Shown for editing only; it is stored once it differs from the built-in values.
+          consumerMarkupConfigElement.value = JSON.stringify(builtInMarkupTable, null, 2);
+          validateConsumerMarkupConfig();
         }
 
         function validateConsumerMarkupConfig() {
@@ -1939,7 +1716,7 @@
           
           const value = consumerMarkupConfigElement.value.trim();
           if (!value) {
-            consumerMarkupStatus.textContent = 'Configuration is empty. Click "Load Defaults" to get started.';
+            consumerMarkupStatus.textContent = 'Empty: the built-in typical values for your country are used.';
             consumerMarkupStatus.style.color = '#999';
             return;
           }
@@ -2027,9 +1804,13 @@
         if (consumerMarkupConfigElement) {
           consumerMarkupConfigElement.addEventListener('change', function () {
             const value = consumerMarkupConfigElement.value.trim();
-            Homey.set("consumer_markup_config", value, function (err) {
-              if (err) console.error('Error saving consumer_markup_config:', err);
-            });
+            if (!value || isBuiltInMarkupCopy(value)) {
+              unsetSetting('consumer_markup_config');
+            } else {
+              Homey.set("consumer_markup_config", value, function (err) {
+                if (err) console.error('Error saving consumer_markup_config:', err);
+              });
+            }
             validateConsumerMarkupConfig();
           });
         }
@@ -2115,7 +1896,9 @@
           const enabled = useWeatherDataElement.checked;
           const latOk = latitudeElement.value !== '' && !isNaN(parseFloat(latitudeElement.value));
           const lonOk = longitudeElement.value !== '' && !isNaN(parseFloat(longitudeElement.value));
-          warn.style.display = enabled && (!latOk || !lonOk) ? 'block' : 'none';
+          // Empty fields are fine when Homey knows the location.
+          const missing = !(latOk && lonOk) && detectedDefaultsLoaded && !detectedLocation;
+          warn.style.display = enabled && missing ? 'block' : 'none';
         }
         useWeatherDataElement.addEventListener('change', updateWeatherLocationWarning);
         latitudeElement.addEventListener('input', updateWeatherLocationWarning);
@@ -2336,10 +2119,9 @@
         Homey.get("consumer_markup_config", function (err, value) {
           if (!err && typeof value === 'string' && value.trim()) {
             consumerMarkupConfigElement.value = value;
-            validateConsumerMarkupConfig();
-          } else {
-            loadDefaultConsumerMarkupConfig();
+            migrateBuiltInMarkupCopy();
           }
+          validateConsumerMarkupConfig();
         });
 
         Homey.get("markup_currency_unit", function (err, value) {
@@ -2373,6 +2155,31 @@
           if (value !== undefined && value !== null && value !== "") logLevelElement.value = value;
         });
 
+        autoSettings.onDefaults(function (res) {
+          const detected = (res && res.detected) || {};
+          detectedTimeZoneName = detected.time_zone_name || '';
+          if (timeZoneNameElement) {
+            timeZoneNameElement.placeholder = detectedTimeZoneName ? 'Automatic (' + detectedTimeZoneName + ')' : 'Automatic';
+            timeZoneNameElement.dispatchEvent(new Event('input'));
+          }
+          if (currencyCodeElement && detected.currency) {
+            currencyCodeElement.placeholder = 'Automatic (' + detected.currency + ')';
+          }
+          detectedLocation = detected.location || null;
+          const locationStatus = document.getElementById('location_auto_status');
+          if (locationStatus) {
+            locationStatus.textContent = detectedLocation && detectedLocation.source === 'homey'
+              ? 'Empty: uses the location set in Homey (' + detectedLocation.latitude.toFixed(2) + ', ' + detectedLocation.longitude.toFixed(2) + ').'
+              : 'Leave empty to use the location set in Homey.';
+          }
+          detectedDefaultsLoaded = true;
+          updateWeatherLocationWarning();
+          builtInMarkupTable = (res && res.consumer_markup_table) || null;
+          migrateBuiltInMarkupCopy();
+          comfortBands.setOffsets(res && res.defaults);
+          resolveDetected(res ? detected : null);
+        });
+        comfortBands.start(Homey);
         autoSettings.init(Homey);
 
         Homey.get("notify_on_success", function (err, value) {
@@ -2435,56 +2242,12 @@
           updateWeatherLocationWarning();
         });
 
-        // Load time zone settings
-        Homey.get("time_zone_offset", function (err, value) {
-          if (err) return Homey.alert(err);
-          if (value !== undefined && value !== null && value !== "") timeZoneOffsetElement.value = value;
-        });
-
-        Homey.get("use_dst", function (err, value) {
-          if (err) return Homey.alert(err);
-          if (value !== undefined && value !== null && value !== "") useDstElement.checked = !!value;
-        });
-
+        // Load time zone: empty means Automatic (the app uses the zone set in Homey)
         Homey.get("time_zone_name", function (err, value) {
           if (err) return Homey.alert(err);
           if (timeZoneNameElement) {
-            const tzName = typeof value === 'string' ? value : '';
-            
-            // Auto-detect timezone for new users
-            if (!tzName) {
-              try {
-                const autoDetected = Intl.DateTimeFormat().resolvedOptions().timeZone;
-                if (autoDetected) {
-                  timeZoneNameElement.value = autoDetected;
-                  updateTimezonePreview(autoDetected);
-                  if (timeZoneNameStatusElement) {
-                    timeZoneNameStatusElement.textContent = `✅ Auto-detected: ${autoDetected}`;
-                    timeZoneNameStatusElement.style.color = '#00aa44';
-                  }
-                  // Save the auto-detected timezone
-                  Homey.set('time_zone_name', autoDetected, function (err) { if (err) console.error('Error saving time_zone_name:', err); });
-                  console.log('Auto-detected and saved timezone:', autoDetected);
-                  return;
-                }
-              } catch (error) {
-                console.warn('Failed to auto-detect timezone:', error);
-              }
-            }
-            
-            timeZoneNameElement.value = tzName;
-            if (tzName) {
-              updateTimezonePreview(tzName);
-              if (timeZoneNameStatusElement) {
-                timeZoneNameStatusElement.textContent = `✅ Using timezone: ${tzName}`;
-                timeZoneNameStatusElement.style.color = '#00aa44';
-              }
-            } else {
-              if (timeZoneNameStatusElement) {
-                timeZoneNameStatusElement.textContent = 'Will use manual UTC offset if configured';
-                timeZoneNameStatusElement.style.color = '#888';
-              }
-            }
+            timeZoneNameElement.value = typeof value === 'string' ? value : '';
+            timeZoneNameElement.dispatchEvent(new Event('input'));
           }
         });
 
@@ -2683,7 +2446,16 @@
               }
             });
 
-            if (normalized.devices.length > 0) {
+            // One heat pump on the account and none chosen yet: choose it.
+            const autoSelectDevice = !savedDeviceIdStr && deviceIdElement.options.length === 2;
+            if (autoSelectDevice) {
+              deviceIdElement.selectedIndex = 1;
+              deviceIdElement.dispatchEvent(new Event('change'));
+            }
+
+            if (autoSelectDevice) {
+              deviceRefreshStatus.textContent = 'Found your heat pump and selected it. Press Save to use it.';
+            } else if (normalized.devices.length > 0) {
               deviceRefreshStatus.textContent = `Found ${normalized.devices.length} device${normalized.devices.length === 1 ? '' : 's'}`;
             } else if (normalized.success) {
               deviceRefreshStatus.textContent = "No devices found";
@@ -2965,22 +2737,7 @@
             }
           }
 
-          // Save time zone settings
-          if (timeZoneOffsetElement) {
-            const timeZoneOffset = parseFloat(timeZoneOffsetElement.value);
-            if (!isNaN(timeZoneOffset) && timeZoneOffset >= -12 && timeZoneOffset <= 14) {
-              Homey.set("time_zone_offset", timeZoneOffset, function (err) {
-                if (err) console.error('Error saving time_zone_offset:', err);
-              });
-            }
-          }
-
-          if (useDstElement) {
-            Homey.set("use_dst", useDstElement.checked, function (err) {
-              if (err) console.error('Error saving use_dst:', err);
-            });
-          }
-
+          // Save time zone (empty = Automatic)
           if (timeZoneNameElement) {
             const tzName = (timeZoneNameElement.value || '').trim();
             Homey.set("time_zone_name", tzName || null, function (err) {
@@ -3238,8 +2995,9 @@
         function validateWeather(useEl, latEl, lonEl) {
           if (!useEl || !latEl || !lonEl) return true;
           if (!useEl.checked) { clearError(latEl); clearError(lonEl); return true; }
-          const ok = latEl.value !== '' && lonEl.value !== '';
-          if (!ok) setError(lonEl, 'Latitude and longitude required when weather is enabled');
+          // Both empty = Homey's location; otherwise both are needed.
+          const ok = (latEl.value === '') === (lonEl.value === '');
+          if (!ok) setError(lonEl, 'Enter both latitude and longitude, or leave both empty');
           else { clearError(latEl); clearError(lonEl); }
           return ok;
         }

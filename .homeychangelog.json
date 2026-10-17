@@ -337,5 +337,8 @@
   },
   "14.0.80": {
     "en": "Simpler settings: technical options (stability, price thresholds, tank step, log level) are now grouped under Fine-tuning and run on Automatic, so the app uses its own tested values and keeps them up to date. Values you have set yourself are kept, and you can return any of them to Automatic."
+  },
+  "14.0.81": {
+    "en": "Much shorter settings page. Set one comfort temperature and how far it may drift; away and night follow it automatically. Time zone, location, currency and the ENTSO-E price zone now come from your Homey, so new users only enter their MELCloud login. ENTSO-E prices now include typical taxes, fees and VAT by default (your own grid fee replaces the typical one). With one heat pump on the account it is selected for you. Diagnostics tools moved to the bottom."
   }
 }

@@ -3,6 +3,31 @@ import { COMFORT_CONSTANTS, PRICE_CONSTANTS } from '../constants';
 import { HomeyApp } from '../types';
 import { validateNumber } from '../util/validation';
 import { NightSetbackSettings } from '../util/night-setback';
+import { getTimeZoneName } from '../util/time-zone-helper';
+import { CurrencyDetector } from '../util/currency-detector';
+
+type SettingsReader = { get(key: string): any };
+
+/**
+ * True when the hourly prices already include the ENTSO-E consumer markup (grid fee, energy tax,
+ * VAT). The markup is on unless the user turned it off; Tibber prices are consumer prices anyway.
+ * Unset price source means ENTSO-E, matching the service initialisation.
+ */
+export function consumerMarkupInPrices(settings: SettingsReader): boolean {
+    const priceSource = String(settings.get('price_data_source') || 'entsoe').toLowerCase();
+    return priceSource === 'entsoe' && settings.get('enable_consumer_markup') !== false;
+}
+
+/**
+ * The user's per-kWh grid fee that is not already part of the prices. Zero when the ENTSO-E
+ * consumer markup is applied, since that markup carries its own grid fee; adding the setting
+ * as well would count it twice.
+ */
+export function gridFeeOnTopOfPrices(settings: SettingsReader): number {
+    if (consumerMarkupInPrices(settings)) return 0;
+    const gridFee = settings.get('grid_fee_per_kwh');
+    return typeof gridFee === 'number' && Number.isFinite(gridFee) ? gridFee : 0;
+}
 
 /**
  * COP (Coefficient of Performance) settings
@@ -133,7 +158,7 @@ export class SettingsLoader {
     loadTimezoneSettings(): TimezoneSettings {
         const offset = this.getNumber('time_zone_offset', 1, { min: -12, max: 14 });
         const useDST = this.getBoolean('use_dst', false);
-        const name = this.getString('time_zone_name', '');
+        const name = getTimeZoneName(this.homey as any) || '';
 
         this.logger.log(`Timezone settings loaded - Offset: UTC${offset >= 0 ? '+' : ''}${offset}, DST: ${useDST}${name ? `, Name: ${name}` : ''}`);
 
@@ -250,16 +275,14 @@ export class SettingsLoader {
      * Get currency code setting
      */
     getCurrency(): string {
-        const currency = this.homey.settings.get('currency') || this.homey.settings.get('currency_code');
-        return typeof currency === 'string' && currency.length > 0 ? currency : 'EUR';
+        return CurrencyDetector.getCurrencyWithFallback(this.homey as any);
     }
 
     /**
-     * Get grid fee per kWh
+     * Grid fee per kWh to add to the prices (zero when the consumer markup already includes it)
      */
     getGridFee(): number {
-        const gridFee = this.homey.settings.get('grid_fee_per_kwh');
-        return typeof gridFee === 'number' && Number.isFinite(gridFee) ? gridFee : 0;
+        return gridFeeOnTopOfPrices(this.homey.settings);
     }
 
     /**
