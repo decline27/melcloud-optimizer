@@ -1201,6 +1201,7 @@
         // and the built-in consumer price table.
         let detectedLocation = null;
         let detectedDefaultsLoaded = false;
+        let detectedAnyoneHome;
         let builtInMarkupTable = null;
         let resolveDetected;
         const detectedReady = new Promise(function (resolve) { resolveDetected = resolve; });
@@ -2097,8 +2098,12 @@
         function updateOccupancyHelp() {
           const help = document.getElementById('occupancy_help');
           if (!help || !occupancySourceElement) return;
+          const now = detectedAnyoneHome === true ? ' Homey says: someone is home now.'
+            : detectedAnyoneHome === false ? ' Homey says: everyone is away now.'
+              : detectedAnyoneHome === null ? ' Homey has no presence information yet; set up presence for your users in the Homey app.'
+                : '';
           help.textContent = occupancySourceElement.value === 'presence'
-            ? 'Away when everyone in Homey has left, home when someone arrives. A Flow or this switch can still override until the next arrival or departure.'
+            ? 'Away when everyone in Homey has left, home when someone arrives. A Flow or this switch can still override until the next arrival or departure.' + now
             : 'Set by your Flows ("Set occupied"), the device switch or this switch. Use this for home-day and away-day schedules.';
         }
         if (occupancySourceElement) {
@@ -2150,6 +2155,8 @@
               : 'Leave empty to use the location set in Homey.';
           }
           detectedDefaultsLoaded = true;
+          detectedAnyoneHome = detected.anyone_home;
+          if (typeof updateOccupancyHelp === 'function') updateOccupancyHelp();
           updateWeatherLocationWarning();
           builtInMarkupTable = (res && res.consumer_markup_table) || null;
           migrateBuiltInMarkupCopy();

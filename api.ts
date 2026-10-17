@@ -72,6 +72,7 @@ import { getPriceSource, gridFeeOnTopOfPrices } from './src/services/settings-lo
 import { CurrencyDetector } from './src/util/currency-detector';
 import { getHomeLocation } from './src/util/home-location';
 import { automaticZone } from './src/entsoe';
+import { PresenceService } from './src/services/presence-service';
 import { DEFAULT_CONSUMER_MARKUP } from './src/services/consumer-markup-defaults';
 import {
   computeRunPriceSavings,
@@ -2065,7 +2066,12 @@ const apiHandlers: ApiHandlers = {
       currency: CurrencyDetector.getCurrencyWithFallback(homey as any),
       location: home ? { latitude: home.latitude, longitude: home.longitude, source: home.source } : null,
       // Price zone used while the user has not chosen one (area key, e.g. 'SE4')
-      entsoe_zone: automaticZone(homey as any)
+      entsoe_zone: automaticZone(homey as any),
+      // What Homey presence says now (true/false), null without presence info, 'unavailable' on error
+      anyone_home: await new PresenceService(homey).anyoneHome().catch((error: unknown) => {
+        homey.app.error('Reading Homey presence failed', error as Error);
+        return 'unavailable';
+      })
     };
     return {
       success: true,
