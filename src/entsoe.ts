@@ -4,6 +4,9 @@ import moment from 'moment-timezone';
 import type { App } from 'homey';
 import Homey from 'homey';
 import defaultAreaMap from '../entsoe_area_map.json';
+import { CurrencyDetector } from './util/currency-detector';
+import { getHomeLocation } from './util/home-location';
+import { zoneAreaForLocation } from './util/entsoe-zone-locator';
 
 type HomeyLike = App['homey'];
 
@@ -186,9 +189,9 @@ function loadAreaMap(homey: HomeyLike, override?: AreaMap): AreaMap {
  * entsoe_area_map may provide multiple EIC codes per ISO; we pick the first entry as default.
  */
 export function resolveZoneToEic(homey: HomeyLike, zoneInput?: string, options?: { areaMapOverride?: AreaMap }): string {
-  const candidate = (zoneInput || homey.settings.get('entsoe_area_eic') || 'SE3').toString().trim();
+  const candidate = (zoneInput || homey.settings.get('entsoe_area_eic') || automaticZone(homey) || '').toString().trim();
   if (!candidate) {
-    throw new Error('No ENTSO-E price area specified. Provide an ISO country code or an EIC code.');
+    throw new Error('No ENTSO-E price area: set the location in Homey, or choose a price zone in the app settings.');
   }
 
   if (isLikelyEic(candidate)) {
@@ -203,6 +206,21 @@ export function resolveZoneToEic(homey: HomeyLike, zoneInput?: string, options?:
   }
 
   return eics[0];
+}
+
+/**
+ * The price zone for a user who has not chosen one: the home's country (Homey's time zone and
+ * location) and, for countries with several zones, the zone nearest the home. Returns an area
+ * key of the area map (e.g. 'SE4', 'DE'), or null when the country or its zones are unknown.
+ */
+export function automaticZone(homey: { settings: { get(key: string): any } }): string | null {
+  const country = CurrencyDetector.detectHomeCountry(homey as any);
+  if (!country) return null;
+  const home = getHomeLocation(homey as any);
+  const area = home ? zoneAreaForLocation(country, home.latitude, home.longitude) : country;
+  const map = loadAreaMap(homey as HomeyLike);
+  if (map[area]?.length) return area;
+  return map[country]?.length ? country : null;
 }
 
 /**

@@ -2,7 +2,8 @@ import { getHomeLocation } from '../../src/util/home-location';
 import { getTimeZoneName } from '../../src/util/time-zone-helper';
 import { CurrencyDetector } from '../../src/util/currency-detector';
 import { consumerMarkupInPrices, gridFeeOnTopOfPrices } from '../../src/services/settings-loader';
-import { countryForZone } from '../../src/entsoe';
+import { automaticZone, countryForZone, resolveZoneToEic } from '../../src/entsoe';
+import { zoneAreaForLocation } from '../../src/util/entsoe-zone-locator';
 import { DEFAULT_CONSUMER_MARKUP, isBuiltInMarkupTable } from '../../src/services/consumer-markup-defaults';
 import { EntsoePriceService } from '../../src/services/entsoe-price-service';
 
@@ -113,3 +114,31 @@ describe('consumer markup', () => {
     expect(markup({ enable_consumer_markup: false }, 1, 'SE', 11)).toBe(1);
   });
 });
+
+describe('automatic ENTSO-E zone', () => {
+  test.each([
+    ['SE', 55.6, 13.0, 'SE4'], ['SE', 56.88, 14.81, 'SE4'], ['SE', 59.33, 18.07, 'SE3'],
+    ['SE', 57.71, 11.97, 'SE3'], ['SE', 62.39, 17.31, 'SE2'], ['SE', 65.58, 22.15, 'SE1'],
+    ['NO', 59.91, 10.75, 'NO1'], ['NO', 58.97, 5.73, 'NO2'], ['NO', 63.43, 10.4, 'NO3'],
+    ['NO', 69.65, 18.96, 'NO4'], ['NO', 60.39, 5.32, 'NO5'],
+    ['DK', 55.68, 12.57, 'DK2'], ['DK', 56.16, 10.2, 'DK1'], ['DK', 55.4, 10.39, 'DK1'],
+    ['IT', 45.46, 9.19, 'IT_NORD'], ['IT', 41.9, 12.5, 'IT_CSUD'], ['IT', 38.12, 13.36, 'IT_SICI'],
+    ['DE', 52.52, 13.4, 'DE']
+  ])('%s %f,%f is %s', (country, lat, lon, area) => {
+    expect(zoneAreaForLocation(country as string, lat as number, lon as number)).toBe(area);
+  });
+
+  test('no stored zone: the zone of the home is used', () => {
+    const h = homey({}, { geolocation: malmo, clock: { getTimezone: () => 'Europe/Stockholm' } });
+    expect(automaticZone(h)).toBe('SE4');
+    expect(resolveZoneToEic(h)).toBe('10Y1001A1001A47J');
+    // A chosen zone still wins.
+    expect(resolveZoneToEic(homey({ entsoe_area_eic: 'SE3' }, { geolocation: malmo }))).toBe('10Y1001A1001A46L');
+  });
+
+  test('no zone and no known home: a clear error instead of another country\'s prices', () => {
+    expect(automaticZone(homey({}))).toBeNull();
+    expect(() => resolveZoneToEic(homey({}))).toThrow(/location in Homey/);
+  });
+});
+

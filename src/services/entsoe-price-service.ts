@@ -1,5 +1,5 @@
 import moment from 'moment-timezone';
-import { countryForZone, fetchPrices } from '../entsoe';
+import { automaticZone, countryForZone, fetchPrices } from '../entsoe';
 import { PricePoint, PriceProvider, TibberPriceInfo } from '../types';
 import FxRateService from './fx-rate-service';
 import { CurrencyDetector } from '../util/currency-detector';
@@ -118,7 +118,9 @@ export class EntsoePriceService implements PriceProvider {
   }
 
   private getCountryFromEic(): string {
-    const eic = this.homey.settings.get('entsoe_area_eic');
+    const stored = this.homey.settings.get('entsoe_area_eic');
+    // No zone chosen: the automatic zone the prices are fetched for.
+    const eic = typeof stored === 'string' && stored.trim() ? stored : automaticZone(this.homey);
     if (typeof eic !== 'string' || !eic.trim()) {
       return 'default';
     }

@@ -545,8 +545,8 @@
         <summary class="homey-form-label">ENTSO-E price zone</summary>
         <div class="homey-form-group">
           <label class="homey-form-label" for="entsoe_zone_input">ISO or EIC</label>
-          <input class="homey-form-input" id="entsoe_zone_input" type="text" placeholder="SE3 or 10Y1001A1001A46L" autocomplete="off" value="" />
-          <p class="homey-form-helper">Picked from your home's country when first opened. Countries with several zones (Sweden, Norway, Denmark, Italy) should check it.</p>
+          <input class="homey-form-input" id="entsoe_zone_input" type="text" placeholder="Automatic" autocomplete="off" value="" />
+          <p class="homey-form-helper">Leave empty for automatic: the app picks the zone from your Homey's location, including the right zone in Sweden, Norway, Denmark and Italy. Homes close to a zone border may want to check it.</p>
         </div>
         <div class="homey-form-group">
           <button type="button" class="homey-button-secondary" id="entsoe_auto_detect">Detect again</button>
@@ -1415,7 +1415,6 @@
         const tempStepZone2Element = document.getElementById("temp_step_zone2");
 
 
-        let entsoeAreaMap = null;
         let entsoeAutoSelectionDone = false;
 
         function updateEntsoeZoneInput(value, message) {
@@ -1534,26 +1533,6 @@
           handleEntsoeZoneSelected(event.data);
         });
 
-        async function loadEntsoeMap() {
-          if (entsoeAreaMap) {
-            return entsoeAreaMap;
-          }
-          try {
-            const response = await fetch('../assets/entsoe_area_map.json', { cache: 'no-cache' });
-            if (!response.ok) {
-              throw new Error('Failed to load entsoe_area_map.json');
-            }
-            entsoeAreaMap = await response.json();
-            return entsoeAreaMap;
-          } catch (error) {
-            console.error('Failed to load entsoe_area_map.json', error);
-            if (priceSourceStatusElement && !priceSourceStatusElement.textContent) {
-              priceSourceStatusElement.textContent = 'Could not auto-detect ENTSO-E zone. Please set it manually in the ENTSO-E section.';
-            }
-            return null;
-          }
-        }
-
         async function ensureEntsoeDefaultZone(force = false) {
           if (entsoeAutoSelectionDone && !force) {
             return null;
@@ -1563,45 +1542,37 @@
           }
           entsoeAutoSelectionDone = true;
           try {
-            const stored = await new Promise((resolve) => {
-              Homey.get('entsoe_area_eic', function(err, value) {
-                if (err) {
-                  console.warn('Failed to read entsoe_area_eic', err);
-                  resolve(null);
-                  return;
-                }
-                resolve(value);
+            if (force) {
+              // "Detect again": forget the chosen zone; the app then picks it from the location.
+              saveEntsoeZone('', { silent: true });
+            } else {
+              const stored = await new Promise((resolve) => {
+                Homey.get('entsoe_area_eic', function(err, value) {
+                  if (err) {
+                    console.warn('Failed to read entsoe_area_eic', err);
+                    resolve(null);
+                    return;
+                  }
+                  resolve(value);
+                });
               });
-            });
-            if (typeof stored === 'string' && stored.trim().length > 0) {
-              updateEntsoeZoneInput(stored.trim(), 'Using stored ENTSO-E zone.');
-              return stored.trim();
-            }
-
-            const map = await loadEntsoeMap();
-            if (!map) {
-              return null;
-            }
-
-            // The home's country as the app sees it (Homey's time zone and location); the browser
-            // language only when that is unknown.
-            const detected = await detectedReady;
-            const language = navigator.language || navigator.userLanguage || '';
-            const parts = language.split('-');
-            const languageIso = parts.length > 1 ? parts[1].toUpperCase() : parts[0]?.toUpperCase() || '';
-            const iso = (detected && detected.country) || languageIso;
-            const list = iso && map[iso] ? map[iso] : null;
-            if (!list || list.length === 0) {
-              if (priceSourceStatusElement && !priceSourceStatusElement.textContent) {
-                priceSourceStatusElement.textContent = 'Select your ENTSO-E zone in the ENTSO-E pricing section.';
+              if (typeof stored === 'string' && stored.trim().length > 0) {
+                updateEntsoeZoneInput(stored.trim(), 'Your chosen zone. "Detect again" returns to automatic.');
+                return stored.trim();
               }
-              return null;
             }
 
-            const eic = list[0];
-            saveEntsoeZone(eic, { silent: true });
-            updateEntsoeZoneInput(eic, `ENTSO-E zone set to ${iso} (${eic}). Adjust if needed.`);
-            return eic;
+            // Nothing stored = automatic: the app picks the zone from Homey's location and keeps
+            // picking it, so nothing is saved here.
+            const detected = await detectedReady;
+            const zone = detected && detected.entsoe_zone;
+            if (entsoeZoneInput) {
+              entsoeZoneInput.placeholder = zone ? `Automatic (${zone})` : 'SE3 or 10Y1001A1001A46L';
+            }
+            updateEntsoeZoneInput('', zone
+              ? `Automatic: ${zone}, from your home's location.`
+              : 'Could not work out your price zone. Set the location in Homey, or enter a zone (e.g. SE3).');
+            return zone || null;
           } catch (error) {
             console.error('Failed to auto-select ENTSO-E zone', error);
             if (entsoeZoneStatus && !entsoeZoneStatus.textContent) {

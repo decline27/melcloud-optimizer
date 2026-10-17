@@ -34,7 +34,7 @@ returns what it detected (`detected`) so the page can show it.
 | `latitude` / `longitude` | Location set in Homey (`homey:manager:geolocation`) | `getHomeLocation` (`src/util/home-location.ts`) |
 | `time_zone_name` | Homey clock zone (`homey.clock.getTimezone()`); the manual offset only if neither exists | `getTimeZoneName` (`src/util/time-zone-helper.ts`) |
 | `currency` | Home country's currency (time zone, then coordinates), else EUR | `CurrencyDetector.getCurrencyWithFallback` (`src/util/currency-detector.ts`) |
-| `entsoe_area_eic` | Page picks the first zone of the home country on first open | `ensureEntsoeDefaultZone` (settings page) |
+| `entsoe_area_eic` | Zone of the home: country, then nearest reference town for SE/NO/DK/IT; error (no prices) if unknown | `automaticZone` (`src/entsoe.ts`), `zoneAreaForLocation` (`src/util/entsoe-zone-locator.ts`) |
 | `enable_consumer_markup` | **On** for ENTSO-E (only an explicit `false` turns it off) | `consumerMarkupInPrices` (`src/services/settings-loader.ts`) |
 | `consumer_markup_config` | Built-in table, in EUR, converted at the price FX rate | `DEFAULT_CONSUMER_MARKUP` (`src/services/consumer-markup-defaults.ts`) |
 

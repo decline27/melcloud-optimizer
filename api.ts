@@ -71,6 +71,7 @@ import { LogLevel } from './src/util/logger';
 import { gridFeeOnTopOfPrices } from './src/services/settings-loader';
 import { CurrencyDetector } from './src/util/currency-detector';
 import { getHomeLocation } from './src/util/home-location';
+import { automaticZone } from './src/entsoe';
 import { DEFAULT_CONSUMER_MARKUP } from './src/services/consumer-markup-defaults';
 import {
   computeRunPriceSavings,
@@ -2058,7 +2059,9 @@ const apiHandlers: ApiHandlers = {
       time_zone_name: getTimeZoneName(homey as any) ?? null,
       country: CurrencyDetector.detectHomeCountry(homey as any),
       currency: CurrencyDetector.getCurrencyWithFallback(homey as any),
-      location: home ? { latitude: home.latitude, longitude: home.longitude, source: home.source } : null
+      location: home ? { latitude: home.latitude, longitude: home.longitude, source: home.source } : null,
+      // Price zone used while the user has not chosen one (area key, e.g. 'SE4')
+      entsoe_zone: automaticZone(homey as any)
     };
     return {
       success: true,

@@ -29,7 +29,8 @@ const DETECTED = {
   time_zone_name: 'Europe/Stockholm',
   country: 'SE',
   currency: 'SEK',
-  location: { latitude: 55.58, longitude: 12.95, source: 'homey' }
+  location: { latitude: 55.58, longitude: 12.95, source: 'homey' },
+  entsoe_zone: 'SE4'
 };
 
 let deviceList: any = { success: true, devices: [], buildings: [] };
@@ -188,6 +189,15 @@ describe('settings page automatic detection', () => {
     expect(sets.map(([k]) => k)).not.toContain('time_zone_name');
     expect((doc.getElementById('currency_code') as HTMLInputElement).placeholder).toBe('Automatic (SEK)');
     expect(doc.getElementById('weather_location_warning')?.style.display).toBe('none');
+  });
+
+  test('an empty ENTSO-E zone stays automatic and is not saved on open', async () => {
+    const { doc, sets } = await loadPage({ price_data_source: 'entsoe' });
+    await new Promise(r => setTimeout(r, 30));
+    expect(val(doc, 'entsoe_zone_input')).toBe('');
+    expect((doc.getElementById('entsoe_zone_input') as HTMLInputElement).placeholder).toBe('Automatic (SE4)');
+    expect(doc.getElementById('entsoe_zone_status')?.textContent).toMatch(/Automatic: SE4/);
+    expect(sets.map(([k]) => k)).not.toContain('entsoe_area_eic');
   });
 
   test('a stored copy of the built-in markup table is cleared; nothing is saved on open', async () => {
