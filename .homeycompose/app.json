@@ -1,6 +1,6 @@
 {
   "id": "com.melcloud.optimize",
-  "version": "14.0.79",
+  "version": "14.0.80",
   "compatibility": ">=12.2.0",
   "sdk": 3,
   "platforms": [
@@ -234,6 +234,10 @@
     "updateOptimizerSettings": {
       "method": "GET",
       "path": "/updateOptimizerSettings"
+    },
+    "getSettingDefaults": {
+      "method": "GET",
+      "path": "/getSettingDefaults"
     },
     "getMelCloudStatus": {
       "method": "GET",

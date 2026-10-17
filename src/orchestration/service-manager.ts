@@ -7,7 +7,7 @@ import { Optimizer } from '../services/optimizer';
 import { COPHelper } from '../services/cop-helper';
 import type { PriceProvider } from '../types';
 import { DefaultComfortConfig } from '../config/comfort-defaults';
-import { COMFORT_CONSTANTS } from '../constants';
+import { COMFORT_CONSTANTS, PRICE_CONSTANTS } from '../constants';
 import { HomeyLogger } from '../util/logger';
 
 export interface HomeyLikeSettings {
@@ -499,6 +499,8 @@ export async function updateOptimizerSettings(homey: HomeyLike): Promise<void> {
   }
 
   const toNumber = (value: unknown): number | null => {
+    // Unset, null and empty all mean 'automatic': Number(null) would otherwise read as 0.
+    if (value === null || value === undefined || value === '') return null;
     const numeric = Number(value);
     return Number.isFinite(numeric) ? numeric : null;
   };
@@ -550,7 +552,7 @@ export async function updateOptimizerSettings(homey: HomeyLike): Promise<void> {
     maxTemp = minTemp + 0.5;
   }
 
-  const tempStep = toNumber(homey.settings.get('temp_step_max')) ?? 0.5;
+  const tempStep = toNumber(homey.settings.get('temp_step_max')) ?? COMFORT_CONSTANTS.DEFAULT_TEMP_STEP;
   const kFactor = toNumber(homey.settings.get('initial_k')) ?? 0.5;
 
   const deadbandC = clampNumber(
@@ -567,14 +569,14 @@ export async function updateOptimizerSettings(homey: HomeyLike): Promise<void> {
   );
 
   const enableZone2 = homey.settings.get('enable_zone2') === true;
-  const minTempZone2 = homey.settings.get('min_temp_zone2') || 18;
-  const maxTempZone2 = homey.settings.get('max_temp_zone2') || 22;
-  const tempStepZone2 = homey.settings.get('temp_step_zone2') || 0.5;
+  const minTempZone2 = toNumber(homey.settings.get('min_temp_zone2')) ?? COMFORT_CONSTANTS.DEFAULT_MIN_TEMP_ZONE2;
+  const maxTempZone2 = toNumber(homey.settings.get('max_temp_zone2')) ?? COMFORT_CONSTANTS.DEFAULT_MAX_TEMP_ZONE2;
+  const tempStepZone2 = toNumber(homey.settings.get('temp_step_zone2')) ?? COMFORT_CONSTANTS.DEFAULT_TEMP_STEP_ZONE2;
 
   const enableTankControl = homey.settings.get('enable_tank_control') === true;
-  const minTankTemp = homey.settings.get('min_tank_temp') || 40;
-  const maxTankTemp = homey.settings.get('max_tank_temp') || 50;
-  const tankTempStep = homey.settings.get('tank_temp_step') || 1.0;
+  const minTankTemp = toNumber(homey.settings.get('min_tank_temp')) ?? COMFORT_CONSTANTS.DEFAULT_MIN_TANK_TEMP;
+  const maxTankTemp = toNumber(homey.settings.get('max_tank_temp')) ?? COMFORT_CONSTANTS.DEFAULT_MAX_TANK_TEMP;
+  const tankTempStep = toNumber(homey.settings.get('tank_temp_step')) ?? COMFORT_CONSTANTS.DEFAULT_TANK_TEMP_STEP;
 
   homey.app.log('Optimizer settings:');
   homey.app.log('- Derived Min Target:', minTemp, '°C');
@@ -610,7 +612,7 @@ export async function updateOptimizerSettings(homey: HomeyLike): Promise<void> {
   homey.app.log('- Summer Mode:', summerMode ? 'Enabled' : 'Disabled');
 
   // Load price threshold settings
-  const preheatCheapPercentile = toNumber(homey.settings.get('preheat_cheap_percentile')) ?? 0.25;
+  const preheatCheapPercentile = toNumber(homey.settings.get('preheat_cheap_percentile')) ?? PRICE_CONSTANTS.DEFAULT_CHEAP_PERCENTILE;
 
   homey.app.log('Price threshold settings:');
   homey.app.log('- Cheap Percentile:', preheatCheapPercentile, `(${(preheatCheapPercentile * 100).toFixed(1)}th percentile)`);

@@ -334,5 +334,8 @@
   },
   "14.0.79": {
     "en": "Hot water recovers faster after heavy use: when the tank drops below your minimum, the app raises the tank target more firmly so the heat pump starts reheating, and it no longer lowers the target in the middle of that reheat."
+  },
+  "14.0.80": {
+    "en": "Simpler settings: technical options (stability, price thresholds, tank step, log level) are now grouped under Fine-tuning and run on Automatic, so the app uses its own tested values and keeps them up to date. Values you have set yourself are kept, and you can return any of them to Automatic."
   }
 }

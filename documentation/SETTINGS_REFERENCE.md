@@ -9,6 +9,21 @@
 
 ---
 
+## Automatic fine-tuning (14.0.80)
+
+These settings live under **Fine-tuning (optional)** on the settings page and default to
+**Automatic**: `deadband_c`, `min_setpoint_change_minutes`, `temp_step_max`,
+`preheat_cheap_percentile`, `tank_temp_step`, `temp_step_zone2`, `log_level`.
+
+- Automatic means the key is **unset**; the app then uses the default from `src/constants.ts`
+  (`COMFORT_CONSTANTS`, `PRICE_CONSTANTS`, `LogLevel.INFO`), read via `SettingsLoader` /
+  service-manager. The page gets the same values from `GET /getSettingDefaults`; never copy
+  defaults into the page.
+- The page stores a value only when the user changes it, and clears it on "Use automatic".
+  A stored value equal to the default is treated as Automatic (migration for users whose page
+  previously saved every field).
+- Readers must treat `undefined`, `null` and `""` as unset (`Number(null)` is 0).
+
 ## Temperature Zone Settings
 
 ### Zone 1 (Primary Heating)

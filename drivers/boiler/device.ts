@@ -6,6 +6,7 @@ import { ErrorHandler } from '../../src/util/error-handler';
 import { HomeyLogger, LogLevel } from '../../src/util/logger';
 import { MelCloudDevice } from '../../src/types';
 import { isRunningOperationMode, recordRunSample } from '../../src/util/run-price-ledger';
+import { COMFORT_CONSTANTS } from '../../src/constants';
 // Circuit breaker protection is handled by the API service layer (base-api-service.ts)
 
 /**
@@ -360,7 +361,8 @@ module.exports = class BoilerDevice extends Homey.Device {
           // Clamp to configured constraints for tank temperature (align with optimizer)
           const minTank = (this.homey.settings.get('min_tank_temp') as number) ?? 40;
           const maxTank = (this.homey.settings.get('max_tank_temp') as number) ?? 60;
-          const step = (this.homey.settings.get('tank_temp_step') as number) ?? 1.0;
+          const storedStep = Number(this.homey.settings.get('tank_temp_step'));
+          const step = Number.isFinite(storedStep) && storedStep > 0 ? storedStep : COMFORT_CONSTANTS.DEFAULT_TANK_TEMP_STEP;
           const roundToStep = (v: number, s: number) => Math.round(v / s) * s;
           let target = roundToStep(value, step);
           if (target < minTank) target = minTank;

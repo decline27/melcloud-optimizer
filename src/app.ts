@@ -294,7 +294,10 @@ export default class HeatOptimizerApp extends App {
   private initializeLogger() {
     // Get log level from settings or use INFO as default
     const logLevelSetting = this.homey.settings.get('log_level');
-    const logLevel = logLevelSetting !== undefined ? Number(logLevelSetting) : LogLevel.INFO;
+    // Unset or null means automatic (INFO); Number(null) would otherwise select DEBUG.
+    const logLevel = logLevelSetting !== undefined && logLevelSetting !== null && logLevelSetting !== ''
+      ? Number(logLevelSetting)
+      : LogLevel.INFO;
 
     // Get timeline logging setting or use false as default
     const logToTimeline = this.homey.settings.get('log_to_timeline') === true;
@@ -451,8 +454,10 @@ export default class HeatOptimizerApp extends App {
 
     // Handle log level changes
     if (key === 'log_level') {
-      const logLevel = this.homey.settings.get('log_level') as number;
-      if (logLevel !== undefined) {
+      const stored = this.homey.settings.get('log_level');
+      // Unset (back to automatic) means INFO.
+      const logLevel = stored !== undefined && stored !== null && stored !== '' ? Number(stored) : LogLevel.INFO;
+      if (Number.isFinite(logLevel)) {
         this.logger.setLogLevel(logLevel);
         this.logger.info(`Log level changed to ${LogLevel[logLevel]}`);
       }

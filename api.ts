@@ -66,6 +66,8 @@ import {
 } from './src/orchestration/service-manager';
 import { buildDecisionFromOptimization, buildPlaceholderDecision } from './src/util/decision-helper';
 import { TimeZoneHelper } from './src/util/time-zone-helper';
+import { COMFORT_CONSTANTS, PRICE_CONSTANTS } from './src/constants';
+import { LogLevel } from './src/util/logger';
 import {
   computeRunPriceSavings,
   localDateString,
@@ -2041,6 +2043,26 @@ const apiHandlers: ApiHandlers = {
       console.error('Error in getWeeklyAverageCOP:', err);
       return { success: false, error: err.message };
     }
+  },
+
+  /**
+   * Defaults the app uses when a fine-tuning setting is unset ("automatic"). The settings page
+   * reads these instead of keeping its own copies, so a default changed in code reaches every
+   * user who has not overridden it.
+   */
+  getSettingDefaults: async () => {
+    return {
+      success: true,
+      defaults: {
+        deadband_c: COMFORT_CONSTANTS.DEFAULT_DEADBAND,
+        min_setpoint_change_minutes: COMFORT_CONSTANTS.DEFAULT_MIN_SETPOINT_CHANGE_MINUTES,
+        temp_step_max: COMFORT_CONSTANTS.DEFAULT_TEMP_STEP,
+        preheat_cheap_percentile: PRICE_CONSTANTS.DEFAULT_CHEAP_PERCENTILE,
+        tank_temp_step: COMFORT_CONSTANTS.DEFAULT_TANK_TEMP_STEP,
+        temp_step_zone2: COMFORT_CONSTANTS.DEFAULT_TEMP_STEP_ZONE2,
+        log_level: LogLevel.INFO
+      }
+    };
   },
 
   getMelCloudStatus: async ({ homey }: ApiHandlerContext) => {

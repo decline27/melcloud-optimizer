@@ -40,6 +40,11 @@ export const COMFORT_CONSTANTS = {
     DEFAULT_MIN_SETPOINT_CHANGE_MINUTES: 30,
 };
 
+export const PRICE_CONSTANTS = {
+    /** Share of the coming day counted as cheap (preheat) and, mirrored, as expensive (pause). */
+    DEFAULT_CHEAP_PERCENTILE: 0.25,
+};
+
 export const OPTIMIZATION_CONSTANTS = {
     MIN_SAVINGS_FOR_LEARNING: 0.05, // NOK/EUR etc
     MAX_RECONNECT_ATTEMPTS: 3,

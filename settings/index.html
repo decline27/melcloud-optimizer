@@ -414,7 +414,7 @@
 
     <!-- Comfort & Safety Settings -->
     <details class="homey-form-fieldset" id="engine_fieldset" open>
-      <summary class="homey-form-legend">Comfort & Stability</summary>
+      <summary class="homey-form-legend">Comfort</summary>
 
       <div class="homey-form-group">
         <div style="background:#f7fbff;border:1px solid #dbe9ff;border-radius:6px;padding:10px;">
@@ -429,27 +429,6 @@
       </div>
 
       <div class="homey-form-group">
-        <label class="homey-form-label">Safety & Stability</label>
-        <div class="homey-form-row">
-          <div class="homey-form-col">
-            <label class="homey-form-label" for="deadband_c">Deadband (°C)</label>
-            <input class="homey-form-input" id="deadband_c" type="number" min="0.1" max="2.0" step="0.1" value="0.3" />
-            <p class="homey-form-helper">Small window around target to avoid jitter. Suggested default: <b>0.5°C</b>.</p>
-            <p class="homey-form-helper">Impact: Larger deadband = fewer changes and less cycling (smoother), but slower fine‑tuning. Typical range 0.3–0.5°C.</p>
-          </div>
-          <div class="homey-form-col">
-            <label class="homey-form-label" for="min_setpoint_change_minutes">Min Setpoint Interval (min)</label>
-            <input class="homey-form-input" id="min_setpoint_change_minutes" type="number" min="5" max="180" step="5" value="30" />
-            <p class="homey-form-helper">Anti–short‑cycling lockout between changes. Suggested default: <b>30 minutes</b>. The optimizer runs once an hour, so values below 60 only matter for extra runs.</p>
-            <p class="homey-form-helper">Impact: Higher values reduce compressor starts and avoid fighting defrost cycles; too high can slow reactions to big price swings.</p>
-          </div>
-          <div class="homey-form-col">
-            <label class="homey-form-label" for="temp_step_max">Temperature Step (°C)</label>
-            <input class="homey-form-input" id="temp_step_max" type="number" min="0.5" max="1.0" step="0.5" value="0.5" />
-            <p class="homey-form-helper">Max temperature change per optimization step, and the rounding step for room targets. Suggested default: <b>0.5°C</b>.</p>
-            <p class="homey-form-helper">Impact: 1.0°C means fewer, larger changes. In Curve mode the room target switches heating on and off, so a finer step mostly changes when that happens, not how much heat is given.</p>
-          </div>
-        </div>
         <p class="homey-form-helper">The optimizer always stays inside the comfort band in force (occupied, away or night). The middle of that band is also the "normal heat pump" that savings are measured against.</p>
       </div>
 
@@ -533,18 +512,6 @@
         </div>
       </div>
 
-      <div class="homey-form-group">
-        <label class="homey-form-label">Price‑Aware Preheating and Pausing</label>
-        <div class="homey-form-row">
-          <div class="homey-form-col">
-            <label class="homey-form-label" for="preheat_cheap_percentile">Cheap percentile (0–1)</label>
-            <input class="homey-form-input" id="preheat_cheap_percentile" type="number" min="0.05" max="0.5" step="0.05" value="0.25" />
-            <p class="homey-form-helper">Hours in the cheapest share of the coming day count as cheap (preheating allowed); hours in the most expensive share of the same size count as expensive (heating pauses while the room is above your comfort minimum). Suggested default: <b>0.25</b> (cheapest and most expensive 25%).</p>
-            <p class="homey-form-helper">Impact: Lower values act only on the most extreme hours. Higher values preheat and pause more often.</p>
-          </div>
-        </div>
-        <p class="homey-form-helper">Note: In Curve (weather compensation) mode with a room sensor, the room target switches heating on and off; the curve decides how much heat it gives. Pausing therefore works fully, while preheating can only store as much heat as the curve delivers at the current outdoor temperature (learned over time).</p>
-      </div>
     </details>
 
     <details class="homey-form-fieldset" id="tank_fieldset">
@@ -568,11 +535,6 @@
         <label class="homey-form-label" for="max_tank_temp">Maximum Tank Temperature (°C)</label>
         <input class="homey-form-input" id="max_tank_temp" type="number" min="40" max="60" step="1" value="50" />
         <p class="homey-form-helper">Maximum allowed temperature for the hot water tank. Suggested default: 53°C - provides good thermal storage capacity without excessive energy use. Check your heat pump's maximum recommended tank temperature.</p>
-      </div>
-      <div class="homey-form-group">
-        <label class="homey-form-label" for="tank_temp_step">Tank Temperature Step (°C)</label>
-        <input class="homey-form-input" id="tank_temp_step" type="number" min="1.0" max="5.0" step="1.0" value="1.0" />
-        <p class="homey-form-helper">Rounding step for tank targets (whole degrees). A single change can move the target by up to 4°C, or by this step if larger; that full amount is also used to start a reheat when the tank is below the minimum. Suggested default: 2°C.</p>
       </div>
     </details>
 
@@ -757,8 +719,52 @@
     </details>
 
 
-    <details class="homey-form-fieldset">
-      <summary class="homey-form-legend">Advanced</summary>
+    <details class="homey-form-fieldset" id="fine_tuning_fieldset">
+      <summary class="homey-form-legend">Fine-tuning (optional)</summary>
+      <div class="homey-form-group">
+        <p class="homey-form-helper">Everything in this section runs on <b>Automatic</b>: the app uses its own tested values, and improves them in updates. Change a value only if you want something different; "use automatic" returns it to the app's value.</p>
+        <p class="homey-form-helper" id="fine_tuning_migration_note" style="display:none;"></p>
+      </div>
+      <div class="homey-form-group">
+        <label class="homey-form-label">Stability</label>
+        <div class="homey-form-row">
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="deadband_c">Deadband (°C)</label>
+            <input class="homey-form-input" id="deadband_c" type="number" min="0.1" max="2.0" step="0.1" value="0.3" />
+            <p class="homey-form-helper">Small window around target to avoid jitter.</p>
+            <p class="homey-form-helper">Impact: Larger deadband = fewer changes and less cycling (smoother), but slower fine‑tuning. Typical range 0.3–0.5°C.</p>
+          </div>
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="min_setpoint_change_minutes">Min Setpoint Interval (min)</label>
+            <input class="homey-form-input" id="min_setpoint_change_minutes" type="number" min="5" max="180" step="5" value="30" />
+            <p class="homey-form-helper">Anti–short‑cycling lockout between changes. The optimizer runs once an hour, so values below 60 only matter for extra runs.</p>
+            <p class="homey-form-helper">Impact: Higher values reduce compressor starts and avoid fighting defrost cycles; too high can slow reactions to big price swings.</p>
+          </div>
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="temp_step_max">Temperature Step (°C)</label>
+            <input class="homey-form-input" id="temp_step_max" type="number" min="0.5" max="1.0" step="0.5" value="0.5" />
+            <p class="homey-form-helper">Max temperature change per optimization step, and the rounding step for room targets.</p>
+            <p class="homey-form-helper">Impact: 1.0°C means fewer, larger changes. In Curve mode the room target switches heating on and off, so a finer step mostly changes when that happens, not how much heat is given.</p>
+          </div>
+        </div>
+      </div>
+      <div class="homey-form-group">
+        <label class="homey-form-label">Price‑Aware Preheating and Pausing</label>
+        <div class="homey-form-row">
+          <div class="homey-form-col">
+            <label class="homey-form-label" for="preheat_cheap_percentile">Cheap percentile (0–1)</label>
+            <input class="homey-form-input" id="preheat_cheap_percentile" type="number" min="0.05" max="0.5" step="0.05" value="0.25" />
+            <p class="homey-form-helper">Hours in the cheapest share of the coming day count as cheap (preheating allowed); hours in the most expensive share of the same size count as expensive (heating pauses while the room is above your comfort minimum).</p>
+            <p class="homey-form-helper">Impact: Lower values act only on the most extreme hours. Higher values preheat and pause more often.</p>
+          </div>
+        </div>
+        <p class="homey-form-helper">Note: In Curve (weather compensation) mode with a room sensor, the room target switches heating on and off; the curve decides how much heat it gives. Pausing therefore works fully, while preheating can only store as much heat as the curve delivers at the current outdoor temperature (learned over time).</p>
+      </div>
+      <div class="homey-form-group">
+        <label class="homey-form-label" for="tank_temp_step">Tank Temperature Step (°C)</label>
+        <input class="homey-form-input" id="tank_temp_step" type="number" min="1.0" max="5.0" step="1.0" value="1.0" />
+        <p class="homey-form-helper">Rounding step for tank targets (whole degrees). A single change can move the target by up to 4°C, or by this step if larger; that full amount is also used to start a reheat when the tank is below the minimum.</p>
+      </div>
       <div class="homey-form-group">
         <label class="homey-form-label" for="log_level">Log Level</label>
         <select class="homey-form-input" id="log_level">
@@ -1045,6 +1051,123 @@
           }
         });
       }
+
+      /**
+       * Fine-tuning settings run on "Automatic" unless the user overrides them. Automatic means
+       * nothing is stored, so the app's own default applies (fetched from /getSettingDefaults, the
+       * single source in code) and later improvements to it reach the user. Values that equal the
+       * default are treated as Automatic, which also migrates users whose page saved every field.
+       */
+      const autoSettings = (function () {
+        const FIELDS = [
+          { key: 'deadband_c', id: 'deadband_c' },
+          { key: 'min_setpoint_change_minutes', id: 'min_setpoint_change_minutes' },
+          { key: 'temp_step_max', id: 'temp_step_max' },
+          { key: 'preheat_cheap_percentile', id: 'preheat_cheap_percentile' },
+          { key: 'tank_temp_step', id: 'tank_temp_step' },
+          { key: 'temp_step_zone2', id: 'temp_step_zone2' },
+          { key: 'log_level', id: 'log_level' }
+        ];
+        const state = {};
+
+        function statusElement(field, input) {
+          let el = document.querySelector('[data-auto-for="' + field.key + '"]');
+          if (!el) {
+            el = document.createElement('p');
+            el.className = 'homey-form-helper';
+            el.setAttribute('data-auto-for', field.key);
+            input.insertAdjacentElement('afterend', el);
+          }
+          return el;
+        }
+
+        function render(field) {
+          const input = document.getElementById(field.id);
+          const st = state[field.key];
+          if (!input || !st) return;
+          const el = statusElement(field, input);
+          el.textContent = '';
+          if (st.auto) {
+            const strong = document.createElement('b');
+            strong.textContent = 'Automatic';
+            el.appendChild(strong);
+            el.appendChild(document.createTextNode(' (app value ' + st.def + ')'));
+          } else {
+            el.appendChild(document.createTextNode('Custom value. '));
+            const link = document.createElement('a');
+            link.href = '#';
+            link.textContent = 'Use automatic (' + st.def + ')';
+            link.addEventListener('click', function (e) {
+              e.preventDefault();
+              input.value = String(st.def);
+              st.auto = true;
+              render(field);
+            });
+            el.appendChild(link);
+          }
+        }
+
+        function init(Homey) {
+          Homey.api('GET', '/getSettingDefaults', {}, function (err, res) {
+            if (err || !res || !res.defaults) {
+              // Without defaults the page behaves as before: every field is saved as entered.
+              console.warn('Could not load setting defaults', err);
+              return;
+            }
+            let pending = FIELDS.length;
+            let migrated = 0;
+            const done = function () {
+              if (--pending > 0) return;
+              const note = document.getElementById('fine_tuning_migration_note');
+              if (note && migrated > 0) {
+                note.textContent = migrated + ' setting' + (migrated === 1 ? '' : 's') +
+                  ' matched the app value and now follow Automatic (stored when you press Save).';
+                note.style.display = 'block';
+              }
+            };
+            FIELDS.forEach(function (field) {
+              const input = document.getElementById(field.id);
+              const def = res.defaults[field.key];
+              if (!input || typeof def !== 'number') { done(); return; }
+              Homey.get(field.key, function (getErr, value) {
+                const unset = !!getErr || value === undefined || value === null || value === '';
+                const equalsDefault = !unset && Number(value) === def;
+                if (equalsDefault) migrated++;
+                state[field.key] = { auto: unset || equalsDefault, def: def };
+                if (state[field.key].auto) input.value = String(def);
+                const markCustom = function () {
+                  if (state[field.key] && state[field.key].auto) {
+                    state[field.key].auto = false;
+                    render(field);
+                  }
+                };
+                input.addEventListener('input', markCustom);
+                input.addEventListener('change', markCustom);
+                render(field);
+                done();
+              });
+            });
+          });
+        }
+
+        function isAuto(key) {
+          return !!(state[key] && state[key].auto);
+        }
+
+        function clearAutoKeys(Homey) {
+          Object.keys(state).forEach(function (key) {
+            if (!state[key].auto) return;
+            const cb = function (err) { if (err) console.error('Error resetting ' + key + ':', err); };
+            if (typeof Homey.unset === 'function') {
+              Homey.unset(key, cb);
+            } else {
+              Homey.set(key, null, cb);
+            }
+          });
+        }
+
+        return { init: init, isAuto: isAuto, clearAutoKeys: clearAutoKeys };
+      })();
 
       function onHomeyReady(Homey) {
         console.log('onHomeyReady called - Settings page initialized');
@@ -2250,6 +2373,8 @@
           if (value !== undefined && value !== null && value !== "") logLevelElement.value = value;
         });
 
+        autoSettings.init(Homey);
+
         Homey.get("notify_on_success", function (err, value) {
           if (err) return Homey.alert(err);
           if (value !== undefined && value !== null && value !== "") notifyOnSuccessElement.checked = !!value;
@@ -2762,7 +2887,7 @@
             })();
           }
 
-          if (tempStepMaxElement) {
+          if (tempStepMaxElement && !autoSettings.isAuto('temp_step_max')) {
             const tempStepMax = parseFloat(tempStepMaxElement.value);
             if (!isNaN(tempStepMax) && (tempStepMax === 0.5 || tempStepMax === 1.0)) {
               Homey.set("temp_step_max", tempStepMax, function (err) {
@@ -2774,7 +2899,7 @@
             }
           }
 
-          if (logLevelElement) {
+          if (logLevelElement && !autoSettings.isAuto('log_level')) {
             Homey.set("log_level", parseInt(logLevelElement.value), function (err) {
               if (err) console.error('Error saving log_level:', err);
             });
@@ -2863,14 +2988,14 @@
             });
           }
 
-          if (deadbandElement) {
+          if (deadbandElement && !autoSettings.isAuto('deadband_c')) {
             const deadband = parseFloat(deadbandElement.value);
             if (!isNaN(deadband) && deadband >= 0.1 && deadband <= 2.0) {
               Homey.set("deadband_c", deadband, function (err) { if (err) console.error('Error saving deadband_c:', err); });
             } else if (deadbandElement.value) { Homey.alert('Invalid Deadband. 0.1–2.0°C'); return; }
           }
 
-          if (minChangeMinutesElement) {
+          if (minChangeMinutesElement && !autoSettings.isAuto('min_setpoint_change_minutes')) {
             const minChange = parseInt(minChangeMinutesElement.value);
             if (!isNaN(minChange) && minChange >= 5 && minChange <= 180) {
               Homey.set("min_setpoint_change_minutes", minChange, function (err) { if (err) console.error('Error saving min_setpoint_change_minutes:', err); });
@@ -2922,7 +3047,7 @@
             }
           }
 
-          if (preheatPercentileElement) {
+          if (preheatPercentileElement && !autoSettings.isAuto('preheat_cheap_percentile')) {
             const pct = parseFloat(preheatPercentileElement.value);
             if (!isNaN(pct) && pct >= 0.05 && pct <= 0.5) {
               Homey.set("preheat_cheap_percentile", pct, function (err) { if (err) console.error('Error saving preheat_cheap_percentile:', err); });
@@ -2968,7 +3093,7 @@
             return;
           }
 
-          if (tankTempStepElement) {
+          if (tankTempStepElement && !autoSettings.isAuto('tank_temp_step')) {
             const tankTempStep = parseFloat(tankTempStepElement.value);
             if (!isNaN(tankTempStep) && tankTempStep >= 1.0 && tankTempStep <= 5.0 && tankTempStep === Math.round(tankTempStep)) {
               Homey.set("tank_temp_step", tankTempStep, function (err) {
@@ -3021,7 +3146,7 @@
             return;
           }
 
-          if (tempStepZone2Element) {
+          if (tempStepZone2Element && !autoSettings.isAuto('temp_step_zone2')) {
             const tempStepZone2 = parseFloat(tempStepZone2Element.value);
             if (!isNaN(tempStepZone2) && tempStepZone2 >= 0.1 && tempStepZone2 <= 2.0) {
               Homey.set("temp_step_zone2", tempStepZone2, function (err) {
@@ -3032,6 +3157,9 @@
               return;
             }
           }
+
+          // Fine-tuning fields left on Automatic are cleared, so the app default applies.
+          autoSettings.clearAutoKeys(Homey);
 
           // Show success message
           if (saveStatus) saveStatus.textContent = 'Saved successfully';

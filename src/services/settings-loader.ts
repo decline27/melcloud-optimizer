@@ -1,4 +1,5 @@
 import { HomeyLogger } from '../util/logger';
+import { COMFORT_CONSTANTS, PRICE_CONSTANTS } from '../constants';
 import { HomeyApp } from '../types';
 import { validateNumber } from '../util/validation';
 import { NightSetbackSettings } from '../util/night-setback';
@@ -97,9 +98,9 @@ export class SettingsLoader {
      * Load safety constraint settings
      */
     loadConstraintSettings(): ConstraintSettings {
-        const minSetpointChangeMinutes = this.getNumber('min_setpoint_change_minutes', 30, { min: 1, max: 180 });
-        let deadband = this.getNumber('deadband_c', 0.5, { min: 0.1, max: 2 });
-        const tempStepMax = this.getNumber('temp_step_max', 0.5, { min: 0.5, max: 1.0 });
+        const minSetpointChangeMinutes = this.getNumber('min_setpoint_change_minutes', COMFORT_CONSTANTS.DEFAULT_MIN_SETPOINT_CHANGE_MINUTES, { min: 1, max: 180 });
+        let deadband = this.getNumber('deadband_c', COMFORT_CONSTANTS.DEFAULT_DEADBAND, { min: 0.1, max: 2 });
+        const tempStepMax = this.getNumber('temp_step_max', COMFORT_CONSTANTS.DEFAULT_TEMP_STEP, { min: 0.5, max: 1.0 });
 
         // Cross-field guard: the setpoint ramp limiter caps every change at tempStepMax before
         // the deadband is tested, so a deadband larger than the step can never be satisfied and
@@ -119,7 +120,7 @@ export class SettingsLoader {
      * Load price threshold settings
      */
     loadPriceSettings(): PriceSettings {
-        const cheapPercentile = this.getNumber('preheat_cheap_percentile', 0.25, { min: 0.05, max: 0.5 });
+        const cheapPercentile = this.getNumber('preheat_cheap_percentile', PRICE_CONSTANTS.DEFAULT_CHEAP_PERCENTILE, { min: 0.05, max: 0.5 });
 
         this.logger.log(`Price settings loaded - Cheap percentile: ${(cheapPercentile * 100).toFixed(1)}%`);
 
