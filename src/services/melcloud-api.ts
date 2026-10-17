@@ -1183,6 +1183,28 @@ export class MelCloudApi extends BaseApiService {
    * @param to End date (ISO date string, optional)
    * @returns Energy data
    */
+  /**
+   * Today's energy use so far (kWh, heating + hot water + cooling) from MELCloud's per-day
+   * counters in the device list. They restart at midnight; null when the device is not listed.
+   */
+  public async getTodayEnergyConsumed(deviceId: string): Promise<number | null> {
+    const devices = await this.getDevices();
+    const entry = devices.find(device => String(device.id) === String(deviceId));
+    const state = (entry as any)?.data?.Device;
+    if (!state) return null;
+    const keys = ['DailyHeatingEnergyConsumed', 'DailyHotWaterEnergyConsumed', 'DailyCoolingEnergyConsumed'];
+    return keys.reduce((sum, key) => sum + (Number.isFinite(state[key]) ? state[key] : 0), 0);
+  }
+
+  /** One day's final energy use (kWh, heating + hot water + cooling) from the energy report. */
+  public async getDayEnergyConsumed(deviceId: string, buildingId: number, date: string): Promise<number | null> {
+    const data: any = await this.getEnergyData(deviceId, buildingId, date, date);
+    if (!data) return null;
+    const total = ['TotalHeatingConsumed', 'TotalHotWaterConsumed', 'TotalCoolingConsumed']
+      .reduce((sum, key) => sum + (Number(data[key]) || 0), 0);
+    return Number.isFinite(total) ? total : null;
+  }
+
   public async getEnergyData(
     deviceId: string, 
     buildingId: number, 
