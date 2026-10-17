@@ -340,5 +340,8 @@
   },
   "14.0.81": {
     "en": "Much shorter settings page. Set one comfort temperature and how far it may drift; away and night follow it automatically. Home/away can now follow who is home in Homey; your Flows and the switch keep working (existing installs stay on Flows). Prices come from Tibber when you enter a token, otherwise ENTSO-E; with several Tibber homes the one nearest your Homey is suggested. Time zone, location, currency and the ENTSO-E price zone (including the right zone in Sweden, Norway, Denmark and Italy) now come from your Homey. ENTSO-E prices include typical taxes, fees and VAT by default (your own grid fee replaces the typical one). Zone 2 is optimized automatically on heat pumps that have one, the tank maximum follows your heat pump's limit, and a single heat pump is selected for you."
+  },
+  "14.0.82": {
+    "en": "The heat pump now reports its energy use to Homey Energy (new \"Energy Used (total)\" meter). Clearer device page: old duplicate energy rows are removed, the daily energy rows say they are 7-day averages, hot water and legionella runs are shown as such, and the legionella row shows its status instead of looking like a button. Energy figures are never estimated any more when MELCloud is unreachable."
   }
 }

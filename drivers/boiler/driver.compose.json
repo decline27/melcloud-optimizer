@@ -3,6 +3,9 @@
     "en": "MELCloud Boiler"
   },
   "class": "heatpump",
+  "energy": {
+    "meterPowerImportedCapability": "meter_power"
+  },
   "capabilities": [
     "onoff",
     "hot_water_mode",
@@ -19,6 +22,7 @@
     "operational_state.hot_water",
     "operational_state.zone1",
     "operational_state.zone2",
+    "meter_power",
     "meter_power.heating_consumed",
     "meter_power.heating_produced",
     "meter_power.hotwater_consumed", 
@@ -96,9 +100,17 @@
         "en": "°C"
       }
     },
+    "meter_power": {
+      "title": {
+        "en": "Energy Used (total)"
+      },
+      "units": {
+        "en": "kWh"
+      }
+    },
     "meter_power.heating_consumed": {
       "title": {
-        "en": "Daily Heating Energy Consumed"
+        "en": "Heating Energy Used per Day (7-day avg)"
       },
       "units": {
         "en": "kWh"
@@ -106,7 +118,7 @@
     },
     "meter_power.heating_produced": {
       "title": {
-        "en": "Daily Heating Energy Produced"
+        "en": "Heating Energy Produced per Day (7-day avg)"
       },
       "units": {
         "en": "kWh"
@@ -114,7 +126,7 @@
     },
     "meter_power.hotwater_consumed": {
       "title": {
-        "en": "Daily Hot Water Energy Consumed"
+        "en": "Hot Water Energy Used per Day (7-day avg)"
       },
       "units": {
         "en": "kWh"
@@ -122,7 +134,7 @@
     },
     "meter_power.hotwater_produced": {
       "title": {
-        "en": "Daily Hot Water Energy Produced"
+        "en": "Hot Water Energy Produced per Day (7-day avg)"
       },
       "units": {
         "en": "kWh"
@@ -224,6 +236,18 @@
           "id": "heating",
           "title": {
             "en": "Heating"
+          }
+        },
+        {
+          "id": "hot_water",
+          "title": {
+            "en": "Hot water"
+          }
+        },
+        {
+          "id": "legionella",
+          "title": {
+            "en": "Legionella"
           }
         },
         {
@@ -364,9 +388,8 @@
       "type": "boolean"
     },
     "legionella_now": {
-      "title": { "en": "Start Legionella Cycle" },
-      "type": "boolean",
-      "hint": { "en": "Toggle on to start; will auto reset" }
+      "title": { "en": "Legionella Cycle Running" },
+      "type": "boolean"
     }
   },
   "platforms": [

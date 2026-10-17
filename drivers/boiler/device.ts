@@ -7,6 +7,9 @@ import { HomeyLogger, LogLevel } from '../../src/util/logger';
 import { MelCloudDevice } from '../../src/types';
 import { isRunningOperationMode, recordRunSample } from '../../src/util/run-price-ledger';
 import { PresenceService, syncOccupancyFromPresence } from '../../src/services/presence-service';
+import { advanceEnergyMeter, dayBefore, EnergyMeterState } from '../../src/util/energy-meter';
+import { getTimeZoneName } from '../../src/util/time-zone-helper';
+import moment from 'moment-timezone';
 import { COMFORT_CONSTANTS } from '../../src/constants';
 // Circuit breaker protection is handled by the API service layer (base-api-service.ts)
 
@@ -161,6 +164,7 @@ module.exports = class BoilerDevice extends Homey.Device {
       'operational_state',
       'operational_state.hot_water',
       'operational_state.zone1',
+      'meter_power',
       'heating_cop',
       'hotwater_cop',
       'alarm_generic.offline',
@@ -178,6 +182,25 @@ module.exports = class BoilerDevice extends Homey.Device {
     ];
 
     this.logger.log('Checking required capabilities...');
+
+    // Energy rows from before 14.0.39. Devices added back then still carry them, frozen at old
+    // values next to the current ones, so remove them.
+    const legacyCapabilities = [
+      'meter_power.heating',
+      'meter_power.produced_heating',
+      'meter_power.hotwater',
+      'meter_power.produced_hotwater'
+    ];
+    for (const capability of legacyCapabilities) {
+      if (this.hasCapability(capability)) {
+        try {
+          await this.removeCapability(capability);
+          this.logger.log(`Removed legacy capability: ${capability}`);
+        } catch (error) {
+          this.logger.error(`Failed to remove legacy capability ${capability}:`, error);
+        }
+      }
+    }
     
     for (const capability of requiredCapabilities) {
       if (!this.hasCapability(capability)) {
@@ -957,51 +980,12 @@ module.exports = class BoilerDevice extends Homey.Device {
    */
   private async updateEnergyData(deviceState: MelCloudDevice) {
     try {
-      // Check if device state has energy data
-      if (deviceState.DailyHeatingEnergyConsumed !== undefined || 
-          deviceState.DailyHeatingEnergyProduced !== undefined ||
-          deviceState.DailyHotWaterEnergyConsumed !== undefined ||
-          deviceState.DailyHotWaterEnergyProduced !== undefined) {
-        
-        this.logger.log('Using energy data from device state');
-        
-        // Update energy capabilities from device state
-        if (this.hasCapability('heating_cop')) {
-          const heatingCOP = this.calculateCOP(
-            deviceState.DailyHeatingEnergyProduced || 0,
-            deviceState.DailyHeatingEnergyConsumed || 0
-          );
-          await this.setCapabilityValue('heating_cop', heatingCOP);
-        }
-
-        if (this.hasCapability('hotwater_cop')) {
-          const hotWaterCOP = this.calculateCOP(
-            deviceState.DailyHotWaterEnergyProduced || 0,
-            deviceState.DailyHotWaterEnergyConsumed || 0
-          );
-          await this.setCapabilityValue('hotwater_cop', hotWaterCOP);
-        }
-
-        // Update meter capabilities with actual values (support legacy + future IDs)
-        const heatingConsumedKwh = (deviceState.DailyHeatingEnergyConsumed || 0) / 1000;
-        const heatingProducedKwh = (deviceState.DailyHeatingEnergyProduced || 0) / 1000;
-        const hotWaterConsumedKwh = (deviceState.DailyHotWaterEnergyConsumed || 0) / 1000;
-        const hotWaterProducedKwh = (deviceState.DailyHotWaterEnergyProduced || 0) / 1000;
-
-        await this.updateEnergyCapability('meter_power.heating_consumed', heatingConsumedKwh);
-        await this.updateEnergyCapability('meter_power.heating_produced', heatingProducedKwh);
-        await this.updateEnergyCapability('meter_power.hotwater_consumed', hotWaterConsumedKwh);
-        await this.updateEnergyCapability('meter_power.hotwater_produced', hotWaterProducedKwh);
-        
-        return; // Exit early since we have real data
-      }
-
-      // Fallback: try to get energy data from API (throttled to prevent excessive calls)
+      // Energy comes from MELCloud's energy report (7-day daily average) and its per-day
+      // counters (the cumulative meter); Device/Get carries neither. Throttled.
       const timeSinceLastEnergyFetch = Date.now() - this.lastEnergyFetchTime;
       const energyFetchThrottleMs = this.currentEnergyInterval; // Use configured energy interval as throttle
       
       if (timeSinceLastEnergyFetch >= energyFetchThrottleMs) {
-        this.logger.log('No energy data in device state, trying API');
         await this.fetchEnergyDataFromApi();
         this.lastEnergyFetchTime = Date.now();
       } else {
@@ -1014,51 +998,8 @@ module.exports = class BoilerDevice extends Homey.Device {
       }
 
     } catch (error) {
+      // Keep the last real values; never show estimates as measurements.
       this.logger.error('Error updating energy data:', error);
-      
-      // Fallback to estimation if API fails
-      this.logger.log('Falling back to energy estimation');
-      await this.estimateEnergyData(deviceState);
-    }
-  }
-
-  /**
-   * Estimate energy data based on device state (fallback method)
-   */
-  private async estimateEnergyData(deviceState: MelCloudDevice) {
-    try {
-      // Use device demand and operation data to estimate energy consumption
-      const demandPercentage = deviceState.DemandPercentage || 0;
-      const powerOn = deviceState.Power || false;
-      const isHeating = deviceState.OperationModeZone1 === 1; // Heat mode
-      const isHotWater = deviceState.ForcedHotWaterMode || false;
-      
-      // Estimate energy consumption based on system state and typical COP values
-      // This is a simplified estimation until proper energy API is available
-      const baseConsumption = powerOn ? (demandPercentage / 100) * 3000 : 0; // 3kW typical max
-      
-      if (isHeating) {
-        const estimatedHeatingConsumed = baseConsumption * 0.7; // 70% for heating
-        const estimatedHeatingProduced = estimatedHeatingConsumed * 2.5; // COP of 2.5
-        
-        await this.updateEnergyCapability('meter_power.heating_consumed', estimatedHeatingConsumed);
-        await this.updateEnergyCapability('meter_power.heating_produced', estimatedHeatingProduced);
-        await this.updateEnergyCapability('heating_cop', estimatedHeatingProduced / (estimatedHeatingConsumed || 1));
-      }
-      
-      if (isHotWater) {
-        const estimatedHotWaterConsumed = baseConsumption * 0.3; // 30% for hot water
-        const estimatedHotWaterProduced = estimatedHotWaterConsumed * 3.0; // COP of 3.0 for hot water
-        
-        await this.updateEnergyCapability('meter_power.hotwater_consumed', estimatedHotWaterConsumed);
-        await this.updateEnergyCapability('meter_power.hotwater_produced', estimatedHotWaterProduced);
-        await this.updateEnergyCapability('hotwater_cop', estimatedHotWaterProduced / (estimatedHotWaterConsumed || 1));
-      }
-
-      this.logger.debug('Energy capabilities updated with estimates');
-
-    } catch (error) {
-      this.logger.error('Error estimating energy data:', error);
     }
   }
 
@@ -1072,6 +1013,34 @@ module.exports = class BoilerDevice extends Homey.Device {
         await this.setCapabilityValue(capability, Math.round(value * 100) / 100); // Round to 2 decimal places
         this.logger.log(`Updated ${capability}: ${value.toFixed(2)}`);
       }
+    }
+  }
+
+  /**
+   * Cumulative energy meter for Homey Energy (`meter_power`, kWh, only goes up), from
+   * MELCloud's per-day counters. State is kept in the device store so it survives restarts.
+   */
+  private async updateEnergyMeter() {
+    if (!this.melCloudApi || !this.hasCapability('meter_power')) return;
+    try {
+      const todayKWh = await this.melCloudApi.getTodayEnergyConsumed(this.deviceId);
+      if (todayKWh === null) return;
+      const zone = getTimeZoneName(this.homey) || 'UTC';
+      const date = moment.tz(zone).format('YYYY-MM-DD');
+      const state = (this.getStoreValue('energy_meter') as EnergyMeterState | null) || null;
+      let yesterdayFinal: number | null = null;
+      if (state && state.date !== date && state.date === dayBefore(date)) {
+        yesterdayFinal = await this.melCloudApi.getDayEnergyConsumed(this.deviceId, this.buildingId, state.date)
+          .catch(() => null);
+      }
+      const next = advanceEnergyMeter(state, date, todayKWh, yesterdayFinal);
+      await this.setStoreValue('energy_meter', next);
+      const rounded = Math.round(next.totalKWh * 1000) / 1000;
+      if (this.getCapabilityValue('meter_power') !== rounded) {
+        await this.setCapabilityValue('meter_power', rounded);
+      }
+    } catch (error) {
+      this.logger.error('Failed to update energy meter:', error as Error);
     }
   }
 
@@ -1178,6 +1147,8 @@ module.exports = class BoilerDevice extends Homey.Device {
         await this.setCapabilityValue('hotwater_cop', hotWaterCOP);
         this.logger.log(`Hot Water COP set: ${hotWaterCOP} ${((energyTotals as any).hotWaterCOP || energyTotals.AverageHotWaterCOP) ? '(from API)' : '(calculated)'}`);
       }
+
+      await this.updateEnergyMeter();
 
     } catch (error) {
       this.logger.warn('Failed to update energy data:', {
@@ -1381,8 +1352,15 @@ module.exports = class BoilerDevice extends Homey.Device {
       return 'idle';
     }
 
-    // Treat DHW/legionella/heating variants as heating for the main state capability
-    if ([1, 2, 4, 6, 7, 11].includes(operationMode)) {
+    if (operationMode === 1 || operationMode === 4) {
+      return 'hot_water';
+    }
+
+    if (operationMode === 6) {
+      return 'legionella';
+    }
+
+    if ([2, 7, 11].includes(operationMode)) {
       return 'heating';
     }
 

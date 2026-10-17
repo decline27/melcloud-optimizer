@@ -1,6 +1,6 @@
 {
   "id": "com.melcloud.optimize",
-  "version": "14.0.81",
+  "version": "14.0.82",
   "compatibility": ">=12.2.0",
   "sdk": 3,
   "platforms": [
@@ -134,15 +134,6 @@
       "type": "boolean",
       "title": {
         "en": "Prohibit Cooling - Zone 2"
-      },
-      "getable": true,
-      "setable": true,
-      "uiComponent": "toggle"
-    },
-    "legionella_now": {
-      "type": "boolean",
-      "title": {
-        "en": "Start Legionella Cycle"
       },
       "getable": true,
       "setable": true,
