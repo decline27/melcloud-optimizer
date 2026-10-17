@@ -10,7 +10,8 @@ import { HotWaterOptimizer } from './hot-water-optimizer';
 import { ZoneOptimizer } from './zone-optimizer';
 import { ConstraintManager } from './constraint-manager';
 import { StateManager } from './state-manager';
-import { SettingsLoader } from './settings-loader';
+import { SettingsLoader, getZone2Settings, gridFeeOnTopOfPrices } from './settings-loader';
+import { CurrencyDetector } from '../util/currency-detector';
 import { TimeZoneHelper } from '../util/time-zone-helper';
 import { CopNormalizer } from './cop-normalizer';
 import { HotWaterUsageLearner, HotWaterLearnerLogger } from './hot-water-usage-learner';
@@ -456,9 +457,10 @@ export class Optimizer {
     this.constraintManager.setZone1Constraints(zone1Min, zone1Max, settings.constraints.tempStepMax);
 
     // Load and apply Zone 2 constraints
-    const enableZone2 = this.settingsLoader.getBoolean('enable_zone2', false);
-    const zone2Min = this.settingsLoader.getNumber('min_temp_zone2', COMFORT_CONSTANTS.DEFAULT_MIN_TEMP_ZONE2, { min: 10, max: 30 });
-    const zone2Max = this.settingsLoader.getNumber('max_temp_zone2', COMFORT_CONSTANTS.DEFAULT_MAX_TEMP_ZONE2, { min: 10, max: 30 });
+    const zone2 = getZone2Settings(this.homey.settings);
+    const enableZone2 = zone2.enabled;
+    const zone2Min = Math.min(Math.max(zone2.min, 10), 30);
+    const zone2Max = Math.min(Math.max(zone2.max, 10), 30);
     const zone2Step = this.settingsLoader.getNumber('temp_step_zone2', COMFORT_CONSTANTS.DEFAULT_TEMP_STEP_ZONE2, { min: 0.1, max: 2 });
     this.constraintManager.setZone2Constraints(enableZone2, zone2Min, zone2Max, zone2Step);
 
@@ -620,10 +622,7 @@ export class Optimizer {
       return 'EUR';
     }
 
-    const currency = this.homey.settings.get('currency') ||
-      this.homey.settings.get('currency_code');
-
-    return typeof currency === 'string' ? currency : 'EUR';
+    return CurrencyDetector.getCurrencyWithFallback(this.homey as any);
   }
 
   /**
@@ -638,8 +637,7 @@ export class Optimizer {
       return 0;
     }
 
-    const gridFee = this.homey.settings.get('grid_fee_per_kwh');
-    return typeof gridFee === 'number' && Number.isFinite(gridFee) ? gridFee : 0;
+    return gridFeeOnTopOfPrices(this.homey.settings);
   }
 
   /**
@@ -1951,12 +1949,9 @@ export class Optimizer {
     zone1Result: Zone1OptimizationResult,
     logger: DecisionLogger
   ): Promise<SecondaryZoneResult | null> {
+    // Zone 2 is on by default; units without a Zone 2 simply skip it.
     const deviceSupportsZone2 = inputs.deviceState.SetTemperatureZone2 !== undefined;
-    if (this.getZone2Constraints().enabled && !deviceSupportsZone2) {
-      this.logger.log('WARNING: Zone2 temperature optimization enabled in settings, but device does not expose Zone2');
-    }
-
-    if (!this.getZone2Constraints().enabled) {
+    if (!this.getZone2Constraints().enabled || !deviceSupportsZone2) {
       return null;
     }
 

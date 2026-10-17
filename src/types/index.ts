@@ -714,6 +714,8 @@ export interface TibberHomeInfo {
 export type GetTibberHomesResponse = ApiResult<{
   homes: TibberHomeInfo[];
   selectedHomeId: string | null;
+  /** Nearest home to the Homey when several exist and none is chosen */
+  suggestedHomeId?: string | null;
 }>;
 
 export interface ApiHandlers {
@@ -731,6 +733,7 @@ export interface ApiHandlers {
   getCheckCronStatus(context: ApiHandlerContext): Promise<GetCheckCronStatusResponse>;
   getCOPData(context: ApiHandlerContext): Promise<GetCopDataResponse>;
   getWeeklyAverageCOP(context: ApiHandlerContext): Promise<GetWeeklyAverageCopResponse>;
+  getSettingDefaults(context: ApiHandlerContext): Promise<{ success: true; defaults: Record<string, number> }>;
   getMelCloudStatus(context: ApiHandlerContext): Promise<ConnectionStatusResponse>;
   getTibberStatus(context: ApiHandlerContext): Promise<ConnectionStatusResponse>;
   getTibberHomes(context: ApiHandlerContext): Promise<GetTibberHomesResponse>;

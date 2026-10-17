@@ -1,6 +1,29 @@
 import { Logger } from './logger';
 
 /**
+ * The IANA time zone to use: the one typed in the settings, else the zone set in Homey itself.
+ * Undefined only when neither is available (the manual offset then applies).
+ */
+export function getTimeZoneName(homey: {
+  settings?: { get(key: string): any };
+  clock?: { getTimezone?(): string };
+} | null | undefined): string | undefined {
+  try {
+    const configured = homey?.settings?.get('time_zone_name');
+    if (typeof configured === 'string' && configured.trim()) return configured.trim();
+  } catch (_) {
+    // fall through to Homey's clock
+  }
+  try {
+    const homeyZone = homey?.clock?.getTimezone?.();
+    if (typeof homeyZone === 'string' && homeyZone.trim()) return homeyZone.trim();
+  } catch (_) {
+    // clock unavailable (tests, older firmware)
+  }
+  return undefined;
+}
+
+/**
  * UTC offset to IANA timezone mapping for common offsets
  */
 const OFFSET_TO_IANA_MAP: Record<number, string> = {

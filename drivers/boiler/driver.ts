@@ -2,7 +2,8 @@ import Homey from 'homey';
 import { CronJob } from 'cron';
 import { MelCloudApi } from '../../src/services/melcloud-api';
 import { HomeyLogger, LogLevel } from '../../src/util/logger';
-import { TimeZoneHelper } from '../../src/util/time-zone-helper';
+import { TimeZoneHelper, getTimeZoneName } from '../../src/util/time-zone-helper';
+import { getPriceSource } from '../../src/services/settings-loader';
 
 module.exports = class BoilerDriver extends Homey.Driver {
   private melCloudApi?: MelCloudApi;
@@ -49,8 +50,8 @@ module.exports = class BoilerDriver extends Homey.Driver {
   private getUserTimezone(): string {
     try {
       // Prefer IANA timezone name if set by user
-      const timeZoneName = this.homey.settings.get('time_zone_name');
-      if (timeZoneName && typeof timeZoneName === 'string' && TimeZoneHelper.validateTimezone(timeZoneName)) {
+      const timeZoneName = getTimeZoneName(this.homey);
+      if (timeZoneName && TimeZoneHelper.validateTimezone(timeZoneName)) {
         this.logger.log(`Using configured timezone: ${timeZoneName}`);
         return timeZoneName;
       }
@@ -145,7 +146,7 @@ module.exports = class BoilerDriver extends Homey.Driver {
       const melcloudPass = this.homey.settings.get('melcloud_pass');
       const tibberToken = this.homey.settings.get('tibber_token');
       const deviceId = this.homey.settings.get('device_id');
-      const priceDataSource = this.homey.settings.get('price_data_source') || 'entsoe';
+      const priceDataSource = getPriceSource(this.homey.settings);
 
       // Check for missing required settings
       const missingSettings = [];

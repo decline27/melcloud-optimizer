@@ -1,7 +1,9 @@
 import moment from 'moment-timezone';
-import { fetchPrices } from '../entsoe';
+import { automaticZone, countryForZone, fetchPrices } from '../entsoe';
 import { PricePoint, PriceProvider, TibberPriceInfo } from '../types';
 import FxRateService from './fx-rate-service';
+import { CurrencyDetector } from '../util/currency-detector';
+import { DEFAULT_CONSUMER_MARKUP, isBuiltInMarkupTable } from './consumer-markup-defaults';
 
 type HomeyLike = {
   settings: {
@@ -37,24 +39,10 @@ export class EntsoePriceService implements PriceProvider {
   }
 
   private getLocalCurrency(): string {
-    try {
-      const code = this.homey.settings.get('currency') || this.homey.settings.get('currency_code');
-      if (typeof code === 'string' && code.trim()) {
-        return code.trim().toUpperCase();
-      }
-    } catch (_error) {
-      // Ignore setting lookup errors
-    }
-    try {
-      const i18nCode = this.homey.i18n?.getCurrency?.();
-      if (typeof i18nCode === 'string' && i18nCode.trim()) {
-        return i18nCode.trim().toUpperCase();
-      }
-    } catch (_error) {
-      // Ignore i18n errors
-    }
-    return 'EUR';
+    // Same chain as the rest of the app: the user's currency, else the home country's.
+    return CurrencyDetector.getCurrencyWithFallback(this.homey as any);
   }
+
 
   private getNumericSetting(key: string): number | null {
     try {
@@ -130,10 +118,15 @@ export class EntsoePriceService implements PriceProvider {
   }
 
   private getCountryFromEic(): string {
-    const eic = this.homey.settings.get('entsoe_area_eic');
+    const stored = this.homey.settings.get('entsoe_area_eic');
+    // No zone chosen: the automatic zone the prices are fetched for.
+    const eic = typeof stored === 'string' && stored.trim() ? stored : automaticZone(this.homey);
     if (typeof eic !== 'string' || !eic.trim()) {
       return 'default';
     }
+
+    const mapped = countryForZone(this.homey, eic);
+    if (mapped) return mapped;
 
     // Try to extract country from common EIC patterns or area codes
     const trimmed = eic.trim().toUpperCase();
@@ -157,76 +150,60 @@ export class EntsoePriceService implements PriceProvider {
     return 'default';
   }
 
-  private parseConsumerMarkupConfig(): Record<string, any> {
+  /**
+   * The user's own markup table, or null when the built-in one applies (nothing stored, a copy of
+   * the built-in table saved by an older settings page, or unreadable JSON).
+   */
+  private parseConsumerMarkupConfig(): Record<string, any> | null {
     try {
       const configRaw = this.homey.settings.get('consumer_markup_config');
       if (typeof configRaw === 'string' && configRaw.trim()) {
-        return JSON.parse(configRaw.trim());
+        const parsed = JSON.parse(configRaw.trim());
+        return parsed && typeof parsed === 'object' && !isBuiltInMarkupTable(parsed) ? parsed : null;
       }
     } catch (error) {
       this.homey.app?.warn?.('Failed to parse consumer markup configuration, using defaults', error);
     }
-    
-    // Default configuration with major European markets
-    return {
-      SE: { gridFee: 0.030, energyTax: 0.036, retailMarkup: 0.010, vatRate: 1.25 },
-      DE: { gridFee: 0.070, energyTax: 0.025, retailMarkup: 0.015, vatRate: 1.19 },
-      NO: { gridFee: 0.035, energyTax: 0.017, retailMarkup: 0.008, vatRate: 1.25 },
-      DK: { gridFee: 0.045, energyTax: 0.089, retailMarkup: 0.012, vatRate: 1.25 },
-      FR: { gridFee: 0.045, energyTax: 0.022, retailMarkup: 0.012, vatRate: 1.20 },
-      NL: { gridFee: 0.055, energyTax: 0.030, retailMarkup: 0.018, vatRate: 1.21 },
-      BE: { gridFee: 0.048, energyTax: 0.028, retailMarkup: 0.015, vatRate: 1.21 },
-      AT: { gridFee: 0.038, energyTax: 0.015, retailMarkup: 0.012, vatRate: 1.20 },
-      CH: { gridFee: 0.065, energyTax: 0.023, retailMarkup: 0.020, vatRate: 1.077 },
-      FI: { gridFee: 0.042, energyTax: 0.027, retailMarkup: 0.015, vatRate: 1.24 },
-      PL: { gridFee: 0.025, energyTax: 0.012, retailMarkup: 0.008, vatRate: 1.23 },
-      CZ: { gridFee: 0.030, energyTax: 0.018, retailMarkup: 0.010, vatRate: 1.21 },
-      IT: { gridFee: 0.055, energyTax: 0.035, retailMarkup: 0.018, vatRate: 1.22 },
-      ES: { gridFee: 0.045, energyTax: 0.051, retailMarkup: 0.015, vatRate: 1.21 },
-      PT: { gridFee: 0.042, energyTax: 0.034, retailMarkup: 0.013, vatRate: 1.23 },
-      GB: { gridFee: 0.050, energyTax: 0.006, retailMarkup: 0.020, vatRate: 1.05 },
-      EE: { gridFee: 0.035, energyTax: 0.007, retailMarkup: 0.012, vatRate: 1.20 },
-      LV: { gridFee: 0.038, energyTax: 0.009, retailMarkup: 0.014, vatRate: 1.21 },
-      LT: { gridFee: 0.040, energyTax: 0.011, retailMarkup: 0.016, vatRate: 1.21 },
-      SK: { gridFee: 0.028, energyTax: 0.015, retailMarkup: 0.009, vatRate: 1.20 },
-      SI: { gridFee: 0.045, energyTax: 0.030, retailMarkup: 0.012, vatRate: 1.22 },
-      HU: { gridFee: 0.022, energyTax: 0.008, retailMarkup: 0.007, vatRate: 1.27 },
-      default: { gridFee: 0.040, energyTax: 0.020, retailMarkup: 0.010, vatRate: 1.20 }
-    };
+    return null;
   }
 
-  private applyConsumerMarkup(wholesalePrice: number, country: string, targetCurrency: string): number {
-    const enableMarkup = this.homey.settings.get('enable_consumer_markup');
-    if (!enableMarkup) {
+  /**
+   * Adds grid fee, energy tax, retail markup and VAT to a wholesale price. On unless the user
+   * turned it off, so ENTSO-E prices are close to what the household pays.
+   * @param eurToTarget the EUR rate the wholesale prices were converted with (1 for EUR)
+   */
+  private applyConsumerMarkup(wholesalePrice: number, country: string, eurToTarget: number): number {
+    if (this.homey.settings.get('enable_consumer_markup') === false) {
       return wholesalePrice;
     }
 
-    const config = this.parseConsumerMarkupConfig();
+    const customConfig = this.parseConsumerMarkupConfig();
+    const config: Record<string, any> = customConfig ?? DEFAULT_CONSUMER_MARKUP;
     const countryConfig = config[country] || config['default'] || {};
-    
+
     const gridFee = Number(countryConfig.gridFee) || 0;
     const energyTax = Number(countryConfig.energyTax) || 0;
     const retailMarkup = Number(countryConfig.retailMarkup) || 0;
     const vatRate = Number(countryConfig.vatRate) || 1.0;
 
-    // Check if markup values need currency conversion
-    const markupCurrency = this.homey.settings.get('markup_currency_unit') || 'LOCAL';
-    let markupMultiplier = 1.0;
-    
-    if (markupCurrency === 'EUR' && targetCurrency !== 'EUR') {
-      // Convert EUR-denominated markup to target currency
-      const fxRate = this.getStoredFxRate(targetCurrency);
-      if (fxRate && fxRate > 0) {
-        markupMultiplier = fxRate;
-      }
-    }
+    // The built-in table is in EUR. A custom table is in the currency the user chose
+    // (LOCAL = the price currency, unless set).
+    const markupCurrency = customConfig ? (this.homey.settings.get('markup_currency_unit') || 'LOCAL') : 'EUR';
+    const markupMultiplier = markupCurrency === 'EUR' && Number.isFinite(eurToTarget) && eurToTarget > 0
+      ? eurToTarget
+      : 1.0;
 
-    const adjustedGridFee = gridFee * markupMultiplier;
+    // The user's own grid fee, as on their bill (price currency, VAT included), replaces the
+    // table's typical one.
+    const userGridFee = this.homey.settings.get('grid_fee_per_kwh');
+    const hasUserGridFee = typeof userGridFee === 'number' && Number.isFinite(userGridFee) && userGridFee > 0;
+
+    const adjustedGridFee = hasUserGridFee ? 0 : gridFee * markupMultiplier;
     const adjustedEnergyTax = energyTax * markupMultiplier;
     const adjustedRetailMarkup = retailMarkup * markupMultiplier;
 
     const preTaxPrice = wholesalePrice + adjustedGridFee + adjustedEnergyTax + adjustedRetailMarkup;
-    const finalPrice = preTaxPrice * vatRate;
+    const finalPrice = preTaxPrice * vatRate + (hasUserGridFee ? userGridFee : 0);
 
     return Number.isFinite(finalPrice) ? Number(finalPrice.toFixed(6)) : wholesalePrice;
   }
@@ -306,7 +283,7 @@ export class EntsoePriceService implements PriceProvider {
       }
       
       // Then apply consumer markup
-      const finalPrice = this.applyConsumerMarkup(convertedPrice, country, appliedCurrency);
+      const finalPrice = this.applyConsumerMarkup(convertedPrice, country, convert ? (fxRate as number) : 1);
       
       // Clamp to reasonable precision to avoid floating noise
       return Number.isFinite(finalPrice) ? Number(finalPrice.toFixed(6)) : value;
@@ -342,7 +319,7 @@ export class EntsoePriceService implements PriceProvider {
     };
 
     if (this.homey.app?.log) {
-      const enableMarkup = this.homey.settings.get('enable_consumer_markup');
+      const enableMarkup = this.homey.settings.get('enable_consumer_markup') !== false;
       this.homey.app.log(
         `[ENTSO-E] Loaded prices: hourly=${hourlyPrices.length}, quarterHourly=${quarterHourlyPrices.length}, current ${current.price.toFixed(4)} ${appliedCurrency}/kWh${enableMarkup ? ' (with consumer markup)' : ' (wholesale)'}`
       );

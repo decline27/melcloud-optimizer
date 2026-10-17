@@ -38,6 +38,15 @@ export const COMFORT_CONSTANTS = {
     DEFAULT_TANK_MAX_DELTA_PER_CHANGE: 4.0,
     DEFAULT_DEADBAND: 0.5,
     DEFAULT_MIN_SETPOINT_CHANGE_MINUTES: 30,
+    /** Standard away band: the occupied band moved down by this much (settings page "standard"). */
+    DEFAULT_AWAY_OFFSET_C: 2,
+    /** Standard night band: the occupied band moved down by this much. */
+    DEFAULT_NIGHT_OFFSET_C: 1,
+};
+
+export const PRICE_CONSTANTS = {
+    /** Share of the coming day counted as cheap (preheat) and, mirrored, as expensive (pause). */
+    DEFAULT_CHEAP_PERCENTILE: 0.25,
 };
 
 export const OPTIMIZATION_CONSTANTS = {

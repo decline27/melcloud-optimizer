@@ -65,7 +65,15 @@ import {
   saveHistoricalData
 } from './src/orchestration/service-manager';
 import { buildDecisionFromOptimization, buildPlaceholderDecision } from './src/util/decision-helper';
-import { TimeZoneHelper } from './src/util/time-zone-helper';
+import { TimeZoneHelper, getTimeZoneName } from './src/util/time-zone-helper';
+import { COMFORT_CONSTANTS, PRICE_CONSTANTS } from './src/constants';
+import { LogLevel } from './src/util/logger';
+import { getPriceSource, gridFeeOnTopOfPrices } from './src/services/settings-loader';
+import { CurrencyDetector } from './src/util/currency-detector';
+import { getHomeLocation } from './src/util/home-location';
+import { automaticZone } from './src/entsoe';
+import { PresenceService } from './src/services/presence-service';
+import { DEFAULT_CONSUMER_MARKUP } from './src/services/consumer-markup-defaults';
 import {
   computeRunPriceSavings,
   localDateString,
@@ -258,7 +266,7 @@ const SAVINGS_ENTRY_SCHEMA_VERSION = 3;
  * the manual offset with a crude March-October DST rule even when a time zone name was set.
  */
 function getLocalOffsetHours(homey: HomeyLike): number {
-  const name = homey.settings.get('time_zone_name');
+  const name = getTimeZoneName(homey as any);
   const silent = { debug() {}, warn() {}, info() {}, log() {}, error() {} } as any;
   const helper = new TimeZoneHelper(
     silent,
@@ -808,7 +816,11 @@ const apiHandlers: ApiHandlers = {
           currentTemperatureZone1: device.data && device.data.RoomTemperatureZone1,
           currentTemperatureZone2: device.data && device.data.RoomTemperatureZone2,
           currentSetTemperatureZone1: device.data && device.data.SetTemperatureZone1,
-          currentSetTemperatureZone2: device.data && device.data.SetTemperatureZone2
+          currentSetTemperatureZone2: device.data && device.data.SetTemperatureZone2,
+          // The unit's highest tank setpoint (MELCloud Device.MaxTankTemperature); no minimum is reported
+          maxTankTemperature: device.data && device.data.Device && Number.isFinite(device.data.Device.MaxTankTemperature)
+            ? device.data.Device.MaxTankTemperature
+            : undefined
         }));
 
         // Group devices by building
@@ -901,11 +913,8 @@ const apiHandlers: ApiHandlers = {
           // The user's per-kWh grid fee: cancels when the same kWh is retimed, counts in full for
           // every kWh a normal pump would have bought and this one did not.
           // With ENTSO-E prices and the consumer markup on, the recorded prices already contain the
-          // markup's grid fee; adding the setting as well would count it twice.
-          // Same normalisation as the service initialisation (unset means ENTSO-E).
-          const priceSource = String(homey.settings.get('price_data_source') || 'entsoe').toLowerCase();
-          const markupInPrices = priceSource === 'entsoe' && homey.settings.get('enable_consumer_markup') === true;
-          const gridFee = markupInPrices ? 0 : (Number(homey.settings.get('grid_fee_per_kwh')) || 0);
+          // markup's grid fee; gridFeeOnTopOfPrices then returns 0 so it is not counted twice.
+          const gridFee = gridFeeOnTopOfPrices(homey.settings);
           measuredSavings = computeRunPriceSavings(ledger, dayStartMs, nowMs + 1, dailyEnergy, dailyHeating, gridFee);
           measuredYesterday = computeRunPriceSavings(ledger, dayStartMs - 24 * 3600000, dayStartMs, dailyEnergy, dailyHeating, gridFee);
           if (measuredSavings) {
@@ -1132,7 +1141,7 @@ const apiHandlers: ApiHandlers = {
           }
 
           try {
-            const currencyCode = homey.settings.get('currency') || homey.settings.get('currency_code') || 'EUR';
+            const currencyCode = CurrencyDetector.getCurrencyWithFallback(homey as any);
             homey.app.log(`Daily savings (single source): ${finalDailySavings.toFixed(2)} ${currencyCode}/day`);
           } catch (_: any) {
             homey.app.log(`Daily savings (single source): ${finalDailySavings.toFixed(2)} /day`);
@@ -1195,7 +1204,7 @@ const apiHandlers: ApiHandlers = {
             let todayEntry = arr.find(h => h && h.date === todayStr);
 
             // Determine currency/decimals for minor units
-            const currencyCode = homey.settings.get('currency') || homey.settings.get('currency_code') || '';
+            const currencyCode = CurrencyDetector.getCurrencyWithFallback(homey as any);
             const decimalsMap: Record<string, number> = { JPY: 0, KWD: 3 };
             const decimals = decimalsMap[String(currencyCode).toUpperCase()] ?? 2;
             const toMinor = (amt: number): number => Math.round((Number(amt) || 0) * Math.pow(10, decimals));
@@ -1602,9 +1611,9 @@ const apiHandlers: ApiHandlers = {
 
         const resolveCronTimezone = (): string => {
           try {
-            const tzName = homey.settings.get('time_zone_name');
-            if (typeof tzName === 'string' && tzName.trim().length > 0) {
-              return tzName.trim();
+            const tzName = getTimeZoneName(homey as any);
+            if (tzName) {
+              return tzName;
             }
           } catch (err) {
             homey.app.warn?.('Failed to read time_zone_name setting, falling back to default', err);
@@ -2043,6 +2052,45 @@ const apiHandlers: ApiHandlers = {
     }
   },
 
+  /**
+   * Defaults the app uses when a fine-tuning setting is unset ("automatic"). The settings page
+   * reads these instead of keeping its own copies, so a default changed in code reaches every
+   * user who has not overridden it.
+   */
+  getSettingDefaults: async ({ homey }: ApiHandlerContext) => {
+    // What the app works out by itself when the user leaves a setting empty.
+    const home = getHomeLocation(homey as any);
+    const detected = {
+      time_zone_name: getTimeZoneName(homey as any) ?? null,
+      country: CurrencyDetector.detectHomeCountry(homey as any),
+      currency: CurrencyDetector.getCurrencyWithFallback(homey as any),
+      location: home ? { latitude: home.latitude, longitude: home.longitude, source: home.source } : null,
+      // Price zone used while the user has not chosen one (area key, e.g. 'SE4')
+      entsoe_zone: automaticZone(homey as any),
+      // What Homey presence says now (true/false), null without presence info, 'unavailable' on error
+      anyone_home: await new PresenceService(homey).anyoneHome().catch((error: unknown) => {
+        homey.app.error('Reading Homey presence failed', error as Error);
+        return 'unavailable';
+      })
+    };
+    return {
+      success: true,
+      detected,
+      consumer_markup_table: DEFAULT_CONSUMER_MARKUP,
+      defaults: {
+        comfort_away_offset_c: COMFORT_CONSTANTS.DEFAULT_AWAY_OFFSET_C,
+        comfort_night_offset_c: COMFORT_CONSTANTS.DEFAULT_NIGHT_OFFSET_C,
+        deadband_c: COMFORT_CONSTANTS.DEFAULT_DEADBAND,
+        min_setpoint_change_minutes: COMFORT_CONSTANTS.DEFAULT_MIN_SETPOINT_CHANGE_MINUTES,
+        temp_step_max: COMFORT_CONSTANTS.DEFAULT_TEMP_STEP,
+        preheat_cheap_percentile: PRICE_CONSTANTS.DEFAULT_CHEAP_PERCENTILE,
+        tank_temp_step: COMFORT_CONSTANTS.DEFAULT_TANK_TEMP_STEP,
+        temp_step_zone2: COMFORT_CONSTANTS.DEFAULT_TEMP_STEP_ZONE2,
+        log_level: LogLevel.INFO
+      }
+    };
+  },
+
   getMelCloudStatus: async ({ homey }: ApiHandlerContext) => {
     try {
       console.log('API method getMelCloudStatus called');
@@ -2242,10 +2290,31 @@ const apiHandlers: ApiHandlers = {
 
         homey.app.log(`Found ${formattedHomes.length} Tibber home(s)`);
 
+        // Several homes and none chosen: suggest the one nearest the Homey. The user confirms it;
+        // until then prices come from Tibber's first home.
+        let suggestedHomeId: string | null = null;
+        const here = getHomeLocation(homey as any);
+        if (!selectedHomeId && homes.length > 1 && here) {
+          let best = Infinity;
+          for (const home of homes) {
+            const lat = home.address?.latitude;
+            const lon = home.address?.longitude;
+            if (typeof lat !== 'number' || typeof lon !== 'number') continue;
+            const dLat = lat - here.latitude;
+            const dLon = (lon - here.longitude) * Math.cos((here.latitude * Math.PI) / 180);
+            const distance = dLat * dLat + dLon * dLon;
+            if (distance < best) {
+              best = distance;
+              suggestedHomeId = home.id;
+            }
+          }
+        }
+
         return {
           success: true,
           homes: formattedHomes,
-          selectedHomeId
+          selectedHomeId,
+          suggestedHomeId
         };
       } catch (error: any) {
         homey.app.error('Error fetching Tibber homes:', error);
@@ -2476,7 +2545,7 @@ const apiHandlers: ApiHandlers = {
         const melcloudPass = homey.settings.get('melcloud_pass');
         const tibberToken = homey.settings.get('tibber_token');
         const deviceId = homey.settings.get('device_id');
-        const priceDataSource = homey.settings.get('price_data_source') || 'entsoe';
+        const priceDataSource = getPriceSource(homey.settings);
 
         // Check for missing required settings
         const missingSettings = [];
@@ -2691,7 +2760,7 @@ const apiHandlers: ApiHandlers = {
       const metricsRaw = homey.settings.get(metricsKey);
       const savingsHistoryRaw = homey.settings.get('savings_history');
       const displaySavingsHistoryRaw = homey.settings.get('display_savings_history');
-      const currency = homey.settings.get('currency') || homey.settings.get('currency_code') || 'EUR';
+      const currency = CurrencyDetector.getCurrencyWithFallback(homey as any);
       const currencySymbol = homey.settings.get('currency_symbol') || currency;
 
       let savingsMetrics = {

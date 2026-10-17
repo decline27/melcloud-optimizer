@@ -7,7 +7,7 @@
 
 import { HotWaterDataCollector, HotWaterUsageDataPoint } from './hot-water-data-collector';
 import { HotWaterAnalyzer } from './hot-water-analyzer';
-import { TimeZoneHelper } from '../../util/time-zone-helper';
+import { TimeZoneHelper, getTimeZoneName } from '../../util/time-zone-helper';
 import { HomeyLogger } from '../../util/logger';
 
 export class HotWaterService {
@@ -26,7 +26,7 @@ export class HotWaterService {
     // Initialize TimeZoneHelper with user settings
     const timeZoneOffset = homey.settings?.get('time_zone_offset') || 2;
     const useDST = homey.settings?.get('use_dst') || false;
-    const timeZoneName = homey.settings?.get('time_zone_name');
+    const timeZoneName = getTimeZoneName(homey);
     
     // Create a minimal logger for TimeZoneHelper
     const logger = new HomeyLogger(homey, { level: 1, logToTimeline: false, prefix: 'HotWater' });
