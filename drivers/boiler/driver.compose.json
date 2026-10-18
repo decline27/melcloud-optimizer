@@ -22,6 +22,7 @@
     "operational_state.hot_water",
     "operational_state.zone1",
     "operational_state.zone2",
+    "measure_power",
     "meter_power",
     "meter_power.heating_consumed",
     "meter_power.heating_produced",
@@ -99,6 +100,12 @@
       "units": {
         "en": "°C"
       }
+    },
+    "measure_power": {
+      "title": {
+        "en": "Power (estimated)"
+      },
+      "approximated": true
     },
     "meter_power": {
       "title": {

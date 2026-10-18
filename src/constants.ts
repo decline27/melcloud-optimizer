@@ -36,6 +36,14 @@ export const COMFORT_CONSTANTS = {
      * one or two runs while staying a modest step for the compressor.
      */
     DEFAULT_TANK_MAX_DELTA_PER_CHANGE: 4.0,
+    /**
+     * Below the tank minimum, how long a setpoint raise gets to start a reheat before the app
+     * switches to forced hot water, minutes (just under the hourly optimizer interval).
+     * Live 2026-10-18: target already at max 53 °C, tank fell 48 -> 40 °C overnight, no reheat.
+     */
+    LOW_TANK_RAISE_WAIT_MINUTES: 50,
+    /** Forced hot water started by the app is switched back to auto after this long at most, hours. */
+    LOW_TANK_FORCED_MAX_HOURS: 3,
     DEFAULT_DEADBAND: 0.5,
     DEFAULT_MIN_SETPOINT_CHANGE_MINUTES: 30,
     /** Standard away band: the occupied band moved down by this much (settings page "standard"). */
@@ -47,6 +55,22 @@ export const COMFORT_CONSTANTS = {
 export const PRICE_CONSTANTS = {
     /** Share of the coming day counted as cheap (preheat) and, mirrored, as expensive (pause). */
     DEFAULT_CHEAP_PERCENTILE: 0.25,
+};
+
+/**
+ * Heat pump energy meter for Homey Energy. MELCloud only reports a total per finished day for
+ * most units, so the day is followed through the compressor frequency and corrected to that
+ * total once it is published.
+ */
+export const ENERGY_METER_CONSTANTS = {
+    /** Longest gap between two compressor samples that is still integrated, minutes. */
+    MAX_SAMPLE_GAP_MINUTES: 15,
+    /** Finished days used to learn kWh per compressor Hz-hour. */
+    CALIBRATION_DAYS: 14,
+    /** A day needs this many sampled hours to calibrate (part days would bias the rate). */
+    MIN_SAMPLED_HOURS_FOR_CALIBRATION: 20,
+    /** Days to wait for MELCloud's day total before the estimate is taken as final. */
+    MAX_DAYS_WAITING_FOR_TOTAL: 3,
 };
 
 export const OPTIMIZATION_CONSTANTS = {

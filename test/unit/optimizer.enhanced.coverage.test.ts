@@ -560,3 +560,78 @@ describe('Low-tank kick', () => {
     expect(result.toTemp).toBeLessThanOrEqual(53);
   });
 });
+
+describe('Low-tank forced hot water', () => {
+  const logger = createMockLogger();
+  const delay = { hotWaterAction: { action: 'delay', reason: 'price high' } };
+
+  function makeHomey(initial: Record<string, any> = {}) {
+    const store: Record<string, any> = { ...initial };
+    return {
+      settings: {
+        get: jest.fn((k: string) => store[k]),
+        set: jest.fn((k: string, v: any) => { store[k] = v; }),
+        unset: jest.fn((k: string) => { delete store[k]; })
+      },
+      __store: store
+    } as any;
+  }
+
+  function makeOptimizer(homey: any) {
+    const opt: any = new Optimizer(mockMel, mockTibber, 'device-1', 1, logger as any, undefined, homey);
+    opt.setTankTemperatureConstraints(true, 42, 53, 2);
+    return opt;
+  }
+
+  const inputs = (deviceState: Record<string, any>) => ({
+    deviceState: { SetTankWaterTemperature: 53, ...deviceState },
+    priceStats: { currentPrice: 3.5, priceLevel: 'VERY_EXPENSIVE', pricePercentile: 95 },
+    priceClassification: { thresholds: {} }
+  });
+
+  test('target already at the maximum: forced hot water instead of a raise', async () => {
+    // Live 2026-10-18: target 53 = max, tank 48 -> 40 °C overnight, no reheat.
+    const result = await makeOptimizer(makeHomey()).optimizeTank(
+      inputs({ TankWaterTemperature: 40, OperationMode: 2, ForcedHotWaterMode: false }), delay, jest.fn());
+    expect(result.hotWaterMode).toBe('forced');
+    expect(result.reason).toContain('forced hot water');
+  });
+
+  test('a fresh raise gets its chance first; after it fails, forced hot water', async () => {
+    const homey = makeHomey();
+    const fresh = await makeOptimizer(homey).optimizeTank(
+      inputs({ SetTankWaterTemperature: 44, TankWaterTemperature: 38, OperationMode: 0, ForcedHotWaterMode: false }), delay, jest.fn());
+    expect(fresh.toTemp).toBe(48);
+    expect(fresh.hotWaterMode).toBeUndefined();
+
+    const later = makeHomey({ low_tank_kick_at: Date.now() - 55 * 60000 });
+    const retry = await makeOptimizer(later).optimizeTank(
+      inputs({ SetTankWaterTemperature: 48, TankWaterTemperature: 37, OperationMode: 0, ForcedHotWaterMode: false }), delay, jest.fn());
+    expect(retry.hotWaterMode).toBe('forced');
+  });
+
+  test('never while a reheat runs, and never twice', async () => {
+    const opt = makeOptimizer(makeHomey());
+    const running = await opt.optimizeTank(inputs({ TankWaterTemperature: 40, OperationMode: 1, ForcedHotWaterMode: false }), delay, jest.fn());
+    expect(running.hotWaterMode).toBeUndefined();
+    const alreadyForced = await opt.optimizeTank(inputs({ TankWaterTemperature: 40, OperationMode: 2, ForcedHotWaterMode: true }), delay, jest.fn());
+    expect(alreadyForced.hotWaterMode).toBeUndefined();
+  });
+
+  test('a forced run the app started returns to auto near the target; one the user started is left alone', async () => {
+    const appStarted = await makeOptimizer(makeHomey({ low_tank_forced_at: Date.now() - 40 * 60000 })).optimizeTank(
+      inputs({ TankWaterTemperature: 52.5, OperationMode: 0, ForcedHotWaterMode: true }), delay, jest.fn());
+    expect(appStarted.hotWaterMode).toBe('auto');
+
+    const userStarted = await makeOptimizer(makeHomey()).optimizeTank(
+      inputs({ TankWaterTemperature: 52.5, OperationMode: 0, ForcedHotWaterMode: true }), delay, jest.fn());
+    expect(userStarted.hotWaterMode).toBeUndefined();
+  });
+
+  test('no forced hot water when the tank is above the minimum', async () => {
+    const result = await makeOptimizer(makeHomey()).optimizeTank(
+      inputs({ TankWaterTemperature: 45, OperationMode: 0, ForcedHotWaterMode: false }), delay, jest.fn());
+    expect(result.hotWaterMode).toBeUndefined();
+  });
+});
+
