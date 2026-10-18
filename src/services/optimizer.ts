@@ -2499,7 +2499,8 @@ export class Optimizer {
         }
         if (tankResult.hotWaterMode) {
           const forced = tankResult.hotWaterMode === 'forced';
-          await this.melCloud.setHotWaterMode(this.deviceId, this.buildingId, forced);
+          const accepted = await this.melCloud.setHotWaterMode(this.deviceId, this.buildingId, forced);
+          if (!accepted) throw new Error(`MELCloud did not confirm hot water mode ${tankResult.hotWaterMode}`);
           if (forced) {
             this.homey.settings.set('low_tank_forced_at', Date.now());
           } else {

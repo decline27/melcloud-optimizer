@@ -18,6 +18,16 @@ declare global {
  * Handles communication with the MELCloud API
  * Uses Node.js built-in https module for better compatibility with Homey
  */
+/**
+ * EffectiveFlags bits for Device/SetAtw. MELCloud applies only the fields named in the flags;
+ * a write without its bit is accepted and does nothing. Forced hot water was verified live
+ * 2026-10-18; power and zone operation mode follow pymelcloud (not yet verified live).
+ */
+export const EFFECTIVE_FLAG_ATW_FORCED_HOT_WATER = 0x10000;
+export const EFFECTIVE_FLAG_ATW_POWER = 0x1;
+export const EFFECTIVE_FLAG_ATW_OPERATION_MODE_ZONE1 = 0x8;
+export const EFFECTIVE_FLAG_ATW_OPERATION_MODE_ZONE2 = 0x10;
+
 export class MelCloudApi extends BaseApiService {
   private baseUrl = 'https://app.melcloud.com/Mitsubishi.Wifi.Client/';
   private contextKey: string | null = null;
@@ -1080,59 +1090,16 @@ export class MelCloudApi extends BaseApiService {
         // First get current state
         const currentState = await this.getDeviceState(deviceId, buildingId);
 
-        // If device exposes zone-based temperatures, delegate to zone handler
-        if (currentState && (currentState as any).SetTemperatureZone1 !== undefined) {
-          this.logger.debug('Device exposes SetTemperatureZone1; delegating to setZoneTemperature API');
-          return this.setZoneTemperature(deviceId, buildingId, temperature, 1, currentState);
+        // Air-to-water heat pumps (the only kind this app supports) take the room target per
+        // zone through Device/SetAtw. There is no air-to-air (Device/SetAta) path any more: a
+        // unit without a Zone 1 room target is not one this app can control.
+        if (!currentState || (currentState as any).SetTemperatureZone1 === undefined) {
+          throw new Error(
+            `Device ${deviceId} reports no Zone 1 room target (SetTemperatureZone1); ` +
+            'only Mitsubishi air-to-water heat pumps are supported'
+          );
         }
-
-        // Diagnostic: log active operation mode to help users understand which target applies
-        const activeMode = (currentState as any).OperationModeZone1;
-        if (activeMode === 1) {
-          this.logger.debug('Device Zone 1 is in Flow mode; room target may be ignored by unit');
-        } else if (activeMode === 2) {
-          this.logger.debug('Device Zone 1 is in Curve mode; room/flow targets may be ignored by unit');
-        }
-
-        // Build payload explicitly and mark as pending command
-        const payload: any = { ...currentState };
-        payload.DeviceID = parseInt(deviceId, 10);
-        payload.HasPendingCommand = true;
-        payload.Power = true; // ensure unit is considered on when issuing command
-
-        // Update temperature fields for zone 1 explicitly
-        payload.SetTemperature = temperature;
-        payload.SetTemperatureZone1 = temperature;
-        if ('IdleZone1' in payload) {
-          payload.IdleZone1 = false;
-        }
-
-        // Ensure EffectiveFlags include the zone-1 temperature bit mask used by working SetAtw path
-        const existingFlags = typeof payload.EffectiveFlags === 'number' ? payload.EffectiveFlags : 0;
-        payload.EffectiveFlags = existingFlags | 0x200000080;
-
-        this.logApiCall('POST', 'Device/SetAta', { deviceId, temperature });
-
-        // Send update with retry
-        const data = await this.retryableRequest(
-          () => this.throttledApiCall<any>('POST', 'Device/SetAta', {
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(payload),
-          })
-        );
-
-        const success = data !== null;
-
-        if (success) {
-          this.logger.log(`Successfully set temperature for device ${deviceId} to ${temperature}°C`);
-          this.invalidateDeviceStateCache(deviceId, buildingId);
-        } else {
-          this.logger.error(`Failed to set temperature for device ${deviceId}`);
-        }
-
-        return success;
+        return this.setZoneTemperature(deviceId, buildingId, temperature, 1, currentState);
       } catch (error) {
         // Create a standardized error with context
         const appError = this.createApiError(error, {
@@ -1458,8 +1425,11 @@ export class MelCloudApi extends BaseApiService {
         const payload: any = { ...currentState };
         payload.DeviceID = parseInt(deviceId, 10);
         payload.HasPendingCommand = true;
-        // Update hot water mode
+        // Update hot water mode. MELCloud applies only the fields named in EffectiveFlags; without
+        // the forced-hot-water bit it accepted the request and changed nothing (seen live
+        // 2026-10-18). Only this bit, so no other setpoint is rewritten from the read state.
         payload.ForcedHotWaterMode = forced;
+        payload.EffectiveFlags = EFFECTIVE_FLAG_ATW_FORCED_HOT_WATER;
 
         this.logApiCall('POST', 'Device/SetAtw', { deviceId, forcedHotWaterMode: forced });
 
@@ -1473,7 +1443,9 @@ export class MelCloudApi extends BaseApiService {
           })
         );
 
-        const success = data !== null;
+        // MELCloud answers with the device state; trust it over "the request did not fail".
+        const reported = data && typeof data.ForcedHotWaterMode === 'boolean' ? data.ForcedHotWaterMode : null;
+        const success = data !== null && (reported === null || reported === forced);
 
         if (success) {
           this.logger.log(`Successfully set hot water mode for device ${deviceId} to ${forced ? 'forced' : 'auto'}`);
@@ -1546,8 +1518,10 @@ export class MelCloudApi extends BaseApiService {
         // Update operation mode for the specified zone
         if (zone === 1) {
           payload.OperationModeZone1 = mode;
+          payload.EffectiveFlags = EFFECTIVE_FLAG_ATW_OPERATION_MODE_ZONE1;
         } else if (zone === 2) {
           payload.OperationModeZone2 = mode;
+          payload.EffectiveFlags = EFFECTIVE_FLAG_ATW_OPERATION_MODE_ZONE2;
         } else {
           throw new Error(`Invalid zone: ${zone}. Must be 1 or 2.`);
         }
@@ -1564,7 +1538,9 @@ export class MelCloudApi extends BaseApiService {
           })
         );
 
-        const success = data !== null;
+        const modeField = zone === 1 ? 'OperationModeZone1' : 'OperationModeZone2';
+        const reportedMode = data && typeof data[modeField] === 'number' ? data[modeField] : null;
+        const success = data !== null && (reportedMode === null || reportedMode === mode);
 
         if (success) {
           this.logger.log(`Successfully set operation mode for device ${deviceId} zone ${zone} to ${modeName}`);
@@ -1637,6 +1613,7 @@ export class MelCloudApi extends BaseApiService {
         payload.HasPendingCommand = true;
         // Update power state
         payload.Power = power;
+        payload.EffectiveFlags = EFFECTIVE_FLAG_ATW_POWER;
 
         this.logApiCall('POST', 'Device/SetAtw', { deviceId, power });
 
@@ -1650,7 +1627,8 @@ export class MelCloudApi extends BaseApiService {
           })
         );
 
-        const success = data !== null;
+        const reportedPower = data && typeof data.Power === 'boolean' ? data.Power : null;
+        const success = data !== null && (reportedPower === null || reportedPower === power);
 
         if (success) {
           this.logger.log(`Successfully set power for device ${deviceId} to ${power ? 'on' : 'off'}`);

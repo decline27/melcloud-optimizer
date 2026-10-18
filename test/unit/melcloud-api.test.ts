@@ -301,19 +301,24 @@ describe('MelCloudApi', () => {
   });
 
   describe('setDeviceTemperature', () => {
-    test('should update temperature', async () => {
+    test('should update the zone 1 room target of an air-to-water unit via SetAtw', async () => {
       // First login to set context key
       await api.login('test@example.com', 'password');
+      (api as any).getDeviceState = jest.fn().mockResolvedValue({ DeviceID: 1, SetTemperatureZone1: 21, EffectiveFlags: 0 });
 
       const result = await api.setDeviceTemperature('device-1', 1, 23);
 
       expect(result).toBe(true);
-      expect((api as any).throttledApiCall).toHaveBeenCalledWith(
-        'POST',
-        'Device/SetAta',
-        expect.anything()
-      );
-      expect(mockLogger.log).toHaveBeenCalled();
+      expect((api as any).throttledApiCall).toHaveBeenCalledWith('POST', 'Device/SetAtw', expect.anything());
+      expect((api as any).throttledApiCall).not.toHaveBeenCalledWith('POST', 'Device/SetAta', expect.anything());
+    });
+
+    test('a unit without a zone 1 room target is rejected (no air-to-air path)', async () => {
+      await api.login('test@example.com', 'password');
+      (api as any).getDeviceState = jest.fn().mockResolvedValue({ DeviceID: 1, SetTemperature: 21 });
+
+      await expect(api.setDeviceTemperature('device-1', 1, 23)).rejects.toThrow('air-to-water');
+      expect((api as any).throttledApiCall).not.toHaveBeenCalledWith('POST', 'Device/SetAta', expect.anything());
     });
 
     test('should handle errors when not logged in', async () => {
