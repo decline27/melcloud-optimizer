@@ -186,6 +186,10 @@ interface TankOptimizationPlan extends TankOptimizationResult {
   duplicateTarget?: boolean;
   evaluatedAtMs?: number;
   holdReason?: string;
+  /** Hot water mode to set: 'forced' starts a reheat now, 'auto' ends a forced run the app began. */
+  hotWaterMode?: 'forced' | 'auto';
+  /** The tank is below the user's minimum (for remembering when a raise was tried). */
+  tankBelowMin?: boolean;
 }
 
 class OptimizationAbort extends Error {
@@ -2321,8 +2325,32 @@ export class Optimizer {
           ? `lockout ${this.minSetpointChangeMinutes} m`
           : `change ${tankChange.toFixed(2)}°C below deadband ${tankDeadband.toFixed(2)}°C`;
 
+      // Low tank and a raise cannot start the reheat: the target is already at the maximum, a
+      // lockout blocks it, or last hour's raise did not start it. Forced hot water starts it.
+      // Comfort first: no price check. A forced run the app started is switched back to auto
+      // once the tank is near its target (or after a time limit), never one the user started.
+      const forcedOn = inputs.deviceState.ForcedHotWaterMode === true;
+      const raising = changeApplied && tankTarget > currentTankTarget;
+      const kickAt = Number(this.homey?.settings.get('low_tank_kick_at')) || null;
+      const forcedAt = Number(this.homey?.settings.get('low_tank_forced_at')) || null;
+      const raiseHadItsChance = kickAt !== null &&
+        nowMs - kickAt >= COMFORT_CONSTANTS.LOW_TANK_RAISE_WAIT_MINUTES * 60000;
+      let hotWaterMode: 'forced' | 'auto' | undefined;
+      if (tankBelowMin && !dhwRunning && !forcedOn && (!raising || raiseHadItsChance)) {
+        hotWaterMode = 'forced';
+        tankReason += ` | tank ${tankWaterTemp}°C below minimum ${tankCons.minTemp}°C and not reheating: ` +
+          (raising ? 'the last raise did not start it, starting forced hot water' : 'setpoint cannot go higher, starting forced hot water');
+      } else if (forcedOn && forcedAt !== null && (
+        (Number.isFinite(tankWaterTemp) && tankWaterTemp >= currentTankTarget - 1) ||
+        nowMs - forcedAt >= COMFORT_CONSTANTS.LOW_TANK_FORCED_MAX_HOURS * 3600000
+      )) {
+        hotWaterMode = 'auto';
+        tankReason += ' | forced hot water done, back to auto';
+      }
+
       logger('tank.optimized', {
         changed: tankConstraints.changed,
+        hotWaterMode: hotWaterMode ?? null,
         fromTemp: currentTankTarget,
         toTemp: tankTarget,
         lockout: tankLockout,
@@ -2340,7 +2368,9 @@ export class Optimizer {
         lockoutActive: tankLockout,
         duplicateTarget: tankDuplicate,
         evaluatedAtMs: tankConstraints.evaluatedAtMs,
-        holdReason: changeApplied ? undefined : tankHoldReason
+        holdReason: changeApplied ? undefined : tankHoldReason,
+        hotWaterMode,
+        tankBelowMin
       };
     } catch (error) {
       logger('tank.error', { message: error instanceof Error ? error.message : String(error) });
@@ -2456,6 +2486,32 @@ export class Optimizer {
     }
     if (tankResult && !tankResult.needsApply && tankResult.holdReason && !changes.tankApplied) {
       changes.tankError = tankResult.holdReason;
+    }
+
+    // Low-tank bookkeeping: when a raise was tried (so forced hot water follows if it does not
+    // start a reheat), and forced hot water on/off.
+    if (tankResult && this.homey) {
+      try {
+        if (!tankResult.tankBelowMin) {
+          this.homey.settings.unset('low_tank_kick_at');
+        } else if (changes.tankApplied && tankResult.toTemp > tankResult.fromTemp && !this.homey.settings.get('low_tank_kick_at')) {
+          this.homey.settings.set('low_tank_kick_at', Date.now());
+        }
+        if (tankResult.hotWaterMode) {
+          const forced = tankResult.hotWaterMode === 'forced';
+          await this.melCloud.setHotWaterMode(this.deviceId, this.buildingId, forced);
+          if (forced) {
+            this.homey.settings.set('low_tank_forced_at', Date.now());
+          } else {
+            this.homey.settings.unset('low_tank_forced_at');
+          }
+          this.homey.settings.unset('low_tank_kick_at');
+          logger('tank.hot_water_mode', { mode: tankResult.hotWaterMode });
+          this.logger.log(`Hot water mode set to ${tankResult.hotWaterMode}: ${tankResult.reason}`);
+        }
+      } catch (error) {
+        this.logger.error('Failed to set hot water mode', error);
+      }
     }
 
     return changes;
