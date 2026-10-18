@@ -343,5 +343,8 @@
   },
   "14.0.82": {
     "en": "The heat pump now reports its energy use to Homey Energy (new \"Energy Used (total)\" meter). Clearer device page: old duplicate energy rows are removed, the daily energy rows say they are 7-day averages, hot water and legionella runs are shown as such, and the legionella row shows its status instead of looking like a button. Energy figures are never estimated any more when MELCloud is unreachable."
+  },
+  "14.0.83": {
+    "en": "Hot water fix: when the tank drops below your minimum and raising the setpoint cannot start a reheat, the app now uses forced hot water, which starts it right away. Forced hot water (also the device's Hot Water Mode switch), power and operation mode commands were silently ignored by MELCloud before; they now work, and every command is checked against MELCloud's reply. Homey Energy: the heat pump's usage now follows the compressor through the day and is corrected to MELCloud's measured day total each night. Savings now count only the time the compressor really ran."
   }
 }
