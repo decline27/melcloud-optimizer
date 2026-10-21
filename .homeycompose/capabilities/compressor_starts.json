@@ -1,0 +1,19 @@
+{
+  "type": "number",
+  "title": {
+    "en": "Compressor starts (24 h)"
+  },
+  "desc": {
+    "en": "Compressor starts in the last 24 hours, from the compressor frequency sampled every poll. A lower bound: a run shorter than one poll interval can be missed."
+  },
+  "units": {
+    "en": "starts"
+  },
+  "decimals": 0,
+  "min": 0,
+  "max": 1000,
+  "getable": true,
+  "setable": false,
+  "uiComponent": "sensor",
+  "insights": true
+}

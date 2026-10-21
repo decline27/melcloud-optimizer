@@ -18,7 +18,12 @@ import {
   meterReading,
   recordCompressorSample
 } from '../../src/util/energy-meter';
-import { ENERGY_METER_CONSTANTS } from '../../src/constants';
+import {
+  initCompressorCycles,
+  recordCycleSample,
+  summarizeCycles
+} from '../../src/util/compressor-cycles';
+import { COMPRESSOR_CYCLE_CONSTANTS, ENERGY_METER_CONSTANTS } from '../../src/constants';
 import { getTimeZoneName } from '../../src/util/time-zone-helper';
 import moment from 'moment-timezone';
 import { COMFORT_CONSTANTS } from '../../src/constants';
@@ -180,6 +185,9 @@ module.exports = class BoilerDevice extends Homey.Device {
       'meter_power',
       'heating_cop',
       'hotwater_cop',
+      'compressor_starts',
+      'compressor_avg_run',
+      'compressor_run_share',
       'alarm_generic.offline',
       'holiday_mode',
       'legionella_now',
@@ -1058,8 +1066,8 @@ module.exports = class BoilerDevice extends Homey.Device {
   }
 
   /**
-   * One compressor sample per poll: feeds the energy meter. Returns the frequency (Hz), or null
-   * when MELCloud did not report it.
+   * One compressor sample per poll: feeds the energy meter and the cycle tracker. Returns the
+   * frequency (Hz), or null when MELCloud did not report it.
    */
   private async sampleCompressor(): Promise<number | null> {
     if (!this.melCloudApi) return null;
@@ -1069,10 +1077,45 @@ module.exports = class BoilerDevice extends Homey.Device {
       const now = Date.now();
       const state = recordCompressorSample(this.loadEnergyMeter(), now, this.localDate(now), hz);
       await this.publishEnergyMeter(state, hz);
+      await this.publishCompressorCycles(now, hz);
       return hz;
     } catch (error) {
       this.logger.error('Failed to read compressor frequency:', error as Error);
       return null;
+    }
+  }
+
+  /**
+   * Records the sample in the cycle tracker and publishes starts, average run length and run
+   * share over the last 24 h. Nothing is published until an hour has been sampled, so a restart
+   * does not show a misleading zero. A failure here must not stop the energy meter or the poll.
+   */
+  private async publishCompressorCycles(nowMs: number, hz: number) {
+    try {
+      const state = recordCycleSample(initCompressorCycles(this.getStoreValue('compressor_cycles')), nowMs, hz);
+      await this.setStoreValue('compressor_cycles', state);
+
+      const summary = summarizeCycles(state, nowMs);
+      if (summary.coverageHours < COMPRESSOR_CYCLE_CONSTANTS.MIN_COVERAGE_HOURS) return;
+
+      await this.updateCycleCapability('compressor_starts', summary.starts);
+      await this.updateCycleCapability('compressor_run_share', Math.round(summary.runSharePct * 10) / 10);
+      if (summary.avgRunMinutes !== null) {
+        await this.updateCycleCapability('compressor_avg_run', Math.round(summary.avgRunMinutes * 10) / 10);
+      }
+      this.logger.debug(
+        `Compressor cycles (${summary.coverageHours.toFixed(1)} h sampled): ${summary.starts} starts, ` +
+        `${summary.startsPerHour.toFixed(2)}/h, avg run ${summary.avgRunMinutes === null ? 'n/a' : `${summary.avgRunMinutes.toFixed(1)} min`}, ` +
+        `run share ${summary.runSharePct.toFixed(1)}%`
+      );
+    } catch (error) {
+      this.logger.error('Failed to update compressor cycle tracker:', error as Error);
+    }
+  }
+
+  private async updateCycleCapability(capability: string, value: number) {
+    if (this.hasCapability(capability) && this.getCapabilityValue(capability) !== value) {
+      await this.setCapabilityValue(capability, value);
     }
   }
 

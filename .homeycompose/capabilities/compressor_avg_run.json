@@ -1,0 +1,19 @@
+{
+  "type": "number",
+  "title": {
+    "en": "Average compressor run (24 h)"
+  },
+  "desc": {
+    "en": "Mean length of the compressor runs that started and ended in the last 24 hours, accurate to about one poll interval."
+  },
+  "units": {
+    "en": "min"
+  },
+  "decimals": 1,
+  "min": 0,
+  "max": 1440,
+  "getable": true,
+  "setable": false,
+  "uiComponent": "sensor",
+  "insights": true
+}

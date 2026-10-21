@@ -432,6 +432,9 @@
         "meter_power.hotwater_produced",
         "heating_cop",
         "hotwater_cop",
+        "compressor_starts",
+        "compressor_avg_run",
+        "compressor_run_share",
         "alarm_generic.offline",
         "holiday_mode",
         "legionella_now",
@@ -857,6 +860,63 @@
     }
   ],
   "capabilities": {
+    "compressor_avg_run": {
+      "type": "number",
+      "title": {
+        "en": "Average compressor run (24 h)"
+      },
+      "desc": {
+        "en": "Mean length of the compressor runs that started and ended in the last 24 hours, accurate to about one poll interval."
+      },
+      "units": {
+        "en": "min"
+      },
+      "decimals": 1,
+      "min": 0,
+      "max": 1440,
+      "getable": true,
+      "setable": false,
+      "uiComponent": "sensor",
+      "insights": true
+    },
+    "compressor_run_share": {
+      "type": "number",
+      "title": {
+        "en": "Compressor run share (24 h)"
+      },
+      "desc": {
+        "en": "Share of the sampled time in the last 24 hours that the compressor was running."
+      },
+      "units": {
+        "en": "%"
+      },
+      "decimals": 1,
+      "min": 0,
+      "max": 100,
+      "getable": true,
+      "setable": false,
+      "uiComponent": "sensor",
+      "insights": true
+    },
+    "compressor_starts": {
+      "type": "number",
+      "title": {
+        "en": "Compressor starts (24 h)"
+      },
+      "desc": {
+        "en": "Compressor starts in the last 24 hours, from the compressor frequency sampled every poll. A lower bound: a run shorter than one poll interval can be missed."
+      },
+      "units": {
+        "en": "starts"
+      },
+      "decimals": 0,
+      "min": 0,
+      "max": 1000,
+      "getable": true,
+      "setable": false,
+      "uiComponent": "sensor",
+      "insights": true
+    },
     "heating_cop": {
       "type": "number",
       "title": {
