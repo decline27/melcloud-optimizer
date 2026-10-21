@@ -596,6 +596,15 @@
       </details>
 
       <div class="homey-form-group">
+        <label class="homey-form-label" for="house_meter_device_id">House power meter</label>
+        <select class="homey-form-input" id="house_meter_device_id">
+          <option value="">Automatic</option>
+          <option value="none">None</option>
+        </select>
+        <p class="homey-form-helper" id="house_meter_help">Your whole-home meter (Tibber Pulse, P1 reader). The app measures the compressor's real power from the jumps in house power when it starts and stops.</p>
+      </div>
+
+      <div class="homey-form-group">
         <label class="homey-form-label" for="log_level">Log Level</label>
         <select class="homey-form-input" id="log_level">
           <option value="0">Debug (Verbose)</option>
@@ -2137,6 +2146,28 @@
           if (value !== undefined && value !== null && value !== "") logLevelElement.value = value;
         });
 
+        // House power meter: the stored choice, then the meters Homey offers (from the defaults call).
+        const houseMeterElement = document.getElementById("house_meter_device_id");
+        let storedHouseMeter = "";
+        Homey.get("house_meter_device_id", function (err, value) {
+          if (!err && typeof value === "string") storedHouseMeter = value;
+          if (houseMeterElement) houseMeterElement.value = storedHouseMeter;
+        });
+        function fillHouseMeterOptions(info) {
+          if (!houseMeterElement || !info || info === "unavailable") return;
+          const automatic = info.automatic;
+          houseMeterElement.options[0].textContent = automatic ? "Automatic (" + automatic.name + ")" : "Automatic (none found)";
+          (info.candidates || []).forEach(function (meter) {
+            if (Array.prototype.some.call(houseMeterElement.options, function (o) { return o.value === meter.id; })) return;
+            const option = document.createElement("option");
+            option.value = meter.id;
+            option.textContent = meter.name;
+            houseMeterElement.appendChild(option);
+          });
+          houseMeterElement.value = storedHouseMeter;
+          if (houseMeterElement.value !== storedHouseMeter) houseMeterElement.value = "";
+        }
+
         autoSettings.onDefaults(function (res) {
           const detected = (res && res.detected) || {};
           detectedTimeZoneName = detected.time_zone_name || '';
@@ -2156,6 +2187,7 @@
           }
           detectedDefaultsLoaded = true;
           detectedAnyoneHome = detected.anyone_home;
+          fillHouseMeterOptions(detected.house_meter);
           if (typeof updateOccupancyHelp === 'function') updateOccupancyHelp();
           updateWeatherLocationWarning();
           builtInMarkupTable = (res && res.consumer_markup_table) || null;
@@ -2749,6 +2781,10 @@
 
           if (occupiedElement) {
             Homey.set("occupied", occupiedElement.checked, function (err) { if (err) console.error('Error saving occupied:', err); });
+          }
+          const houseMeterSelect = document.getElementById("house_meter_device_id");
+          if (houseMeterSelect && houseMeterSelect.selectedIndex >= 0) {
+            Homey.set("house_meter_device_id", houseMeterSelect.value, function (err) { if (err) console.error('Error saving house_meter_device_id:', err); });
           }
           const occupancySourceSelect = document.getElementById("occupancy_source");
           if (occupancySourceSelect) {

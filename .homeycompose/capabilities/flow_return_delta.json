@@ -1,0 +1,19 @@
+{
+  "type": "number",
+  "title": {
+    "en": "Flow − return"
+  },
+  "desc": {
+    "en": "Flow water temperature minus return water temperature at the unit."
+  },
+  "units": {
+    "en": "°C"
+  },
+  "decimals": 1,
+  "min": -20,
+  "max": 40,
+  "getable": true,
+  "setable": false,
+  "uiComponent": "sensor",
+  "insights": true
+}

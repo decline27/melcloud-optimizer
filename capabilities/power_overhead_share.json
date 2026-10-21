@@ -1,0 +1,19 @@
+{
+  "type": "number",
+  "title": {
+    "en": "Energy outside compressor"
+  },
+  "desc": {
+    "en": "Share of MELCloud's daily energy not explained by the compressor draw measured with the house meter: standby, circulation pump while the compressor rests, defrost, or MELCloud overstating."
+  },
+  "units": {
+    "en": "%"
+  },
+  "decimals": 0,
+  "min": -100,
+  "max": 100,
+  "getable": true,
+  "setable": false,
+  "uiComponent": "sensor",
+  "insights": true
+}

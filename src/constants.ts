@@ -93,6 +93,31 @@ export const COMPRESSOR_CYCLE_CONSTANTS = {
     MIN_COVERAGE_HOURS: 1,
 };
 
+/**
+ * Compressor power from the house meter (Tibber Pulse, P1 reader and similar). Each time the
+ * compressor starts or stops between two polls, the change in house power is one measurement
+ * of the compressor's draw. Other loads switching at the same moment add noise in both
+ * directions, so the figure used is the median of many steps, never a single one.
+ */
+export const POWER_CALIBRATION_CONSTANTS = {
+    /** Longest gap between the two polls around a start or stop that still counts, minutes. */
+    MAX_PAIR_GAP_MINUTES: 10,
+    /** House meter readings older than this are not used, minutes. */
+    MAX_READING_AGE_MINUTES: 5,
+    /**
+     * Plausible compressor draw per Hz (W/Hz). Steps outside are another load switching at the
+     * same moment (a kettle, an EV charger) and are dropped before the median.
+     */
+    MIN_W_PER_HZ: 2,
+    MAX_W_PER_HZ: 60,
+    /** Steps needed before the measured figure replaces the estimate. */
+    MIN_STEPS: 12,
+    /** Steps kept: the most recent ones, so the figure follows the season. */
+    MAX_STEPS: 120,
+    /** Steps older than this are dropped, days. */
+    RETENTION_DAYS: 21,
+};
+
 export const OPTIMIZATION_CONSTANTS = {
     MIN_SAVINGS_FOR_LEARNING: 0.05, // NOK/EUR etc
     MAX_RECONNECT_ATTEMPTS: 3,

@@ -1156,10 +1156,26 @@ export class MelCloudApi extends BaseApiService {
    * The operation mode is no substitute: it stays "heating zones" while the compressor cycles.
    */
   public async getCompressorFrequency(deviceId: string): Promise<number | null> {
+    return (await this.getUnitReadings(deviceId)).hz;
+  }
+
+  /**
+   * Live unit readings from the device list (`User/ListDevices`), the only place MELCloud
+   * reports them: compressor frequency and the water temperatures leaving and returning to the
+   * unit. Device/Get carries none of these. Each is null when not reported.
+   */
+  public async getUnitReadings(deviceId: string): Promise<{ hz: number | null; flowC: number | null; returnC: number | null }> {
     const devices = await this.getDevices();
     const entry = devices.find(device => String(device.id) === String(deviceId));
-    const hz = (entry as any)?.data?.Device?.HeatPumpFrequency;
-    return typeof hz === 'number' && Number.isFinite(hz) ? hz : null;
+    const unit = (entry as any)?.data?.Device ?? {};
+    const num = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+    // MELCloud reports -39 (or lower) for a sensor it does not have.
+    const temp = (value: unknown) => { const v = num(value); return v !== null && v > -39 ? v : null; };
+    return {
+      hz: num(unit.HeatPumpFrequency),
+      flowC: temp(unit.FlowTemperature),
+      returnC: temp(unit.ReturnTemperature)
+    };
   }
 
   /** One day's final energy use (kWh, heating + hot water + cooling) from the energy report. */

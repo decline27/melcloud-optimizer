@@ -15,6 +15,7 @@ import {
   estimatedPowerW,
   expireOpenDays,
   initEnergyMeter,
+  kWhPerHzHour,
   meterReading,
   recordCompressorSample
 } from '../../src/util/energy-meter';
@@ -23,6 +24,13 @@ import {
   recordCycleSample,
   summarizeCycles
 } from '../../src/util/compressor-cycles';
+import {
+  initPowerCalibration,
+  overheadSharePct,
+  recordPowerSample,
+  summarizePowerCalibration
+} from '../../src/util/power-calibration';
+import { HouseMeterService } from '../../src/services/house-meter-service';
 import { COMPRESSOR_CYCLE_CONSTANTS, ENERGY_METER_CONSTANTS } from '../../src/constants';
 import { getTimeZoneName } from '../../src/util/time-zone-helper';
 import moment from 'moment-timezone';
@@ -47,6 +55,9 @@ interface EnergyData {
 
 module.exports = class BoilerDevice extends Homey.Device {
   private presenceService?: PresenceService;
+  private houseMeterService?: HouseMeterService;
+  /** Compressor W/Hz measured with the house meter, once enough starts and stops were seen. */
+  private measuredWPerHz: number | null = null;
   private averageDailyKWh: number | null = null;
   private melCloudApi?: MelCloudApi;
   private logger!: HomeyLogger;
@@ -188,6 +199,10 @@ module.exports = class BoilerDevice extends Homey.Device {
       'compressor_starts',
       'compressor_avg_run',
       'compressor_run_share',
+      'measure_temperature.flow',
+      'measure_temperature.return',
+      'flow_return_delta',
+      'power_overhead_share',
       'alarm_generic.offline',
       'holiday_mode',
       'legionella_now',
@@ -1049,7 +1064,10 @@ module.exports = class BoilerDevice extends Homey.Device {
     return initEnergyMeter(stored, carriedThrough);
   }
 
-  /** Writes the meter (kWh, never lower) and, once a rate is learned, the estimated power. */
+  /**
+   * Writes the meter (kWh, never lower) and the live power: from the compressor draw measured
+   * with the house meter when known, else from the rate learned from MELCloud's day totals.
+   */
   private async publishEnergyMeter(state: EnergyMeterState, hz: number | null) {
     const next = meterReading(state, this.averageDailyKWh);
     await this.setStoreValue('energy_meter', next);
@@ -1058,7 +1076,9 @@ module.exports = class BoilerDevice extends Homey.Device {
       await this.setCapabilityValue('meter_power', kWh);
     }
     if (hz !== null && this.hasCapability('measure_power')) {
-      const watts = estimatedPowerW(next, hz);
+      const watts = this.measuredWPerHz !== null
+        ? Math.round(this.measuredWPerHz * Math.max(0, hz))
+        : estimatedPowerW(next, hz);
       if (watts !== null && this.getCapabilityValue('measure_power') !== watts) {
         await this.setCapabilityValue('measure_power', watts);
       }
@@ -1066,16 +1086,20 @@ module.exports = class BoilerDevice extends Homey.Device {
   }
 
   /**
-   * One compressor sample per poll: feeds the energy meter and the cycle tracker. Returns the
-   * frequency (Hz), or null when MELCloud did not report it.
+   * One compressor sample per poll: feeds the power calibration, the energy meter and the cycle
+   * tracker, and publishes the water temperatures. Returns the frequency (Hz), or null when
+   * MELCloud did not report it.
    */
   private async sampleCompressor(): Promise<number | null> {
     if (!this.melCloudApi) return null;
     try {
-      const hz = await this.melCloudApi.getCompressorFrequency(this.deviceId);
+      const readings = await this.melCloudApi.getUnitReadings(this.deviceId);
+      await this.publishWaterTemperatures(readings.flowC, readings.returnC);
+      const hz = readings.hz;
       if (hz === null) return null;
       const now = Date.now();
       const state = recordCompressorSample(this.loadEnergyMeter(), now, this.localDate(now), hz);
+      await this.calibrateCompressorPower(now, hz, state);
       await this.publishEnergyMeter(state, hz);
       await this.publishCompressorCycles(now, hz);
       return hz;
@@ -1098,10 +1122,10 @@ module.exports = class BoilerDevice extends Homey.Device {
       const summary = summarizeCycles(state, nowMs);
       if (summary.coverageHours < COMPRESSOR_CYCLE_CONSTANTS.MIN_COVERAGE_HOURS) return;
 
-      await this.updateCycleCapability('compressor_starts', summary.starts);
-      await this.updateCycleCapability('compressor_run_share', Math.round(summary.runSharePct * 10) / 10);
+      await this.updateNumberCapability('compressor_starts', summary.starts);
+      await this.updateNumberCapability('compressor_run_share', Math.round(summary.runSharePct * 10) / 10);
       if (summary.avgRunMinutes !== null) {
-        await this.updateCycleCapability('compressor_avg_run', Math.round(summary.avgRunMinutes * 10) / 10);
+        await this.updateNumberCapability('compressor_avg_run', Math.round(summary.avgRunMinutes * 10) / 10);
       }
       this.logger.debug(
         `Compressor cycles (${summary.coverageHours.toFixed(1)} h sampled): ${summary.starts} starts, ` +
@@ -1113,7 +1137,55 @@ module.exports = class BoilerDevice extends Homey.Device {
     }
   }
 
-  private async updateCycleCapability(capability: string, value: number) {
+  /**
+   * Flow and return water temperature at the unit, and the difference. A run that stops while
+   * the room still calls for heat, with flow far above its usual level, points at the water
+   * temperature limit; a small difference at full output points at too much pump flow.
+   */
+  private async publishWaterTemperatures(flowC: number | null, returnC: number | null) {
+    try {
+      if (flowC !== null) await this.updateNumberCapability('measure_temperature.flow', flowC);
+      if (returnC !== null) await this.updateNumberCapability('measure_temperature.return', returnC);
+      if (flowC !== null && returnC !== null) {
+        await this.updateNumberCapability('flow_return_delta', Math.round((flowC - returnC) * 10) / 10);
+      }
+    } catch (error) {
+      this.logger.error('Failed to update water temperatures:', error as Error);
+    }
+  }
+
+  /**
+   * Reads house power with the compressor sample and learns the compressor's draw from the
+   * steps at each start and stop. Without a house meter nothing changes. A failure here must
+   * not stop the energy meter or the poll.
+   */
+  private async calibrateCompressorPower(nowMs: number, hz: number, meter: EnergyMeterState) {
+    try {
+      if (!this.houseMeterService) this.houseMeterService = new HouseMeterService(this.homey);
+      const houseW = await this.houseMeterService.powerW(nowMs).catch((error: unknown) => {
+        this.logger.debug('House meter not readable:', error as Error);
+        return null;
+      });
+      const state = recordPowerSample(initPowerCalibration(this.getStoreValue('power_calibration')), nowMs, hz, houseW);
+      await this.setStoreValue('power_calibration', state);
+
+      const summary = summarizePowerCalibration(state, nowMs);
+      this.measuredWPerHz = summary.wPerHz;
+      if (summary.wPerHz === null) return;
+
+      const rate = kWhPerHzHour(meter);
+      const overhead = overheadSharePct(rate === null ? null : rate * 1000, summary.wPerHz);
+      if (overhead !== null) await this.updateNumberCapability('power_overhead_share', Math.round(overhead));
+      this.logger.debug(
+        `Compressor draw from house meter: ${summary.wPerHz.toFixed(1)} W/Hz over ${summary.steps} starts/stops` +
+        (rate === null ? '' : `; MELCloud day totals give ${(rate * 1000).toFixed(1)} W/Hz`)
+      );
+    } catch (error) {
+      this.logger.error('Failed to calibrate compressor power:', error as Error);
+    }
+  }
+
+  private async updateNumberCapability(capability: string, value: number) {
     if (this.hasCapability(capability) && this.getCapabilityValue(capability) !== value) {
       await this.setCapabilityValue(capability, value);
     }
