@@ -104,6 +104,8 @@ export const POWER_CALIBRATION_CONSTANTS = {
     MAX_PAIR_GAP_MINUTES: 10,
     /** House meter readings older than this are not used, minutes. */
     MAX_READING_AGE_MINUTES: 5,
+    /** With no house meter found, how often the device list is searched again, minutes. */
+    RESCAN_MINUTES: 30,
     /**
      * Plausible compressor draw per Hz (W/Hz). Steps outside are another load switching at the
      * same moment (a kettle, an EV charger) and are dropped before the median.

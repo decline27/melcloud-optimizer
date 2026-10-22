@@ -2149,23 +2149,32 @@
         // House power meter: the stored choice, then the meters Homey offers (from the defaults call).
         const houseMeterElement = document.getElementById("house_meter_device_id");
         let storedHouseMeter = "";
+        // Adds a meter option, or renames it when it is already there.
+        function addHouseMeterOption(id, name) {
+          const existing = Array.prototype.find.call(houseMeterElement.options, function (o) { return o.value === id; });
+          if (existing) { existing.textContent = name; return; }
+          const option = document.createElement("option");
+          option.value = id;
+          option.textContent = name;
+          houseMeterElement.appendChild(option);
+        }
         Homey.get("house_meter_device_id", function (err, value) {
           if (!err && typeof value === "string") storedHouseMeter = value;
-          if (houseMeterElement) houseMeterElement.value = storedHouseMeter;
+          if (!houseMeterElement) return;
+          // Keep a chosen meter selectable even before (or without) the meter list, so saving the
+          // page never quietly switches it back to Automatic.
+          if (storedHouseMeter !== "" && storedHouseMeter !== "none") {
+            const known = Array.prototype.some.call(houseMeterElement.options, function (o) { return o.value === storedHouseMeter; });
+            if (!known) addHouseMeterOption(storedHouseMeter, "Chosen meter (" + storedHouseMeter + ")");
+          }
+          houseMeterElement.value = storedHouseMeter;
         });
         function fillHouseMeterOptions(info) {
           if (!houseMeterElement || !info || info === "unavailable") return;
           const automatic = info.automatic;
           houseMeterElement.options[0].textContent = automatic ? "Automatic (" + automatic.name + ")" : "Automatic (none found)";
-          (info.candidates || []).forEach(function (meter) {
-            if (Array.prototype.some.call(houseMeterElement.options, function (o) { return o.value === meter.id; })) return;
-            const option = document.createElement("option");
-            option.value = meter.id;
-            option.textContent = meter.name;
-            houseMeterElement.appendChild(option);
-          });
+          (info.candidates || []).forEach(function (meter) { addHouseMeterOption(meter.id, meter.name); });
           houseMeterElement.value = storedHouseMeter;
-          if (houseMeterElement.value !== storedHouseMeter) houseMeterElement.value = "";
         }
 
         autoSettings.onDefaults(function (res) {

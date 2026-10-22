@@ -13,6 +13,7 @@ import {
 import {
   houseMeterCandidates,
   MeterDeviceLike,
+  HouseMeterService,
   pickHouseMeter,
   readPowerW
 } from '../../src/services/house-meter-service';
@@ -206,6 +207,32 @@ describe('house meter selection', () => {
     expect(readPowerW(with_(null, now), now)).toBeNull();
     expect(readPowerW(with_('1234', now), now)).toBeNull();
     expect(readPowerW({ id: 'x' }, now)).toBeNull();
+  });
+});
+
+describe('HouseMeterService without a meter', () => {
+  test('searches the device list again at most once per RESCAN_MINUTES', async () => {
+    const getDevices = jest.fn().mockResolvedValue({});
+    const service = new HouseMeterService({ settings: { get: () => undefined } });
+    (service as any).api = { devices: { getDevices } };
+
+    expect(await service.powerW(T0)).toBeNull();
+    expect(await service.powerW(T0 + 5 * MIN)).toBeNull();
+    expect(getDevices).toHaveBeenCalledTimes(1);
+    expect(await service.powerW(T0 + C.RESCAN_MINUTES * MIN)).toBeNull();
+    expect(getDevices).toHaveBeenCalledTimes(2);
+  });
+
+  test('a changed choice is searched right away', async () => {
+    let setting: string | undefined;
+    const getDevices = jest.fn().mockResolvedValue({});
+    const service = new HouseMeterService({ settings: { get: () => setting } });
+    (service as any).api = { devices: { getDevices } };
+
+    await service.powerW(T0);
+    setting = 'meter-1';
+    await service.powerW(T0 + MIN);
+    expect(getDevices).toHaveBeenCalledTimes(2);
   });
 });
 

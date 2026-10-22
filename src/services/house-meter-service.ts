@@ -69,6 +69,8 @@ export class HouseMeterService {
   private api: any = null;
   private resolvedId: string | null = null;
   private resolvedFor: unknown = undefined;
+  /** When the device list was last searched without finding a meter (ms), to space out retries. */
+  private lastMissMs: number | null = null;
 
   constructor(private readonly homey: any) {}
 
@@ -100,11 +102,18 @@ export class HouseMeterService {
     const setting = this.homey.settings.get(HOUSE_METER_SETTING_KEY);
     if (setting === HOUSE_METER_NONE) return null;
 
-    // The device list is only searched when the choice changes or the device went away.
+    // The device list is only searched when the choice changes or the device went away, and
+    // without a meter at most once per RESCAN_MINUTES rather than on every poll.
     if (this.resolvedId === null || this.resolvedFor !== setting) {
+      const sameChoice = this.resolvedFor === setting;
+      if (sameChoice && this.lastMissMs !== null
+        && nowMs - this.lastMissMs < POWER_CALIBRATION_CONSTANTS.RESCAN_MINUTES * 60_000) {
+        return null;
+      }
       const meter = pickHouseMeter(await this.allDevices(), setting);
       this.resolvedFor = setting;
       this.resolvedId = meter ? meter.id : null;
+      this.lastMissMs = meter ? null : nowMs;
       if (!meter) return null;
       return readPowerW(meter, nowMs);
     }
