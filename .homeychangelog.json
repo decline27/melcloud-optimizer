@@ -346,5 +346,8 @@
   },
   "14.0.83": {
     "en": "Hot water fix: when the tank drops below your minimum and raising the setpoint cannot start a reheat, the app now uses forced hot water, which starts it right away. Forced hot water (also the device's Hot Water Mode switch), power and operation mode commands were silently ignored by MELCloud before; they now work, and every command is checked against MELCloud's reply. Homey Energy: the heat pump's usage now follows the compressor through the day and is corrected to MELCloud's measured day total each night. Savings now count only the time the compressor really ran."
+  },
+  "14.0.84": {
+    "en": "New on the heat pump page: compressor starts, average run length and run share over the last 24 hours, flow and return water temperatures, and how much of the unit's energy goes outside the compressor. With a whole-home meter (Tibber Pulse, P1 reader) the live power now comes from the compressor's real draw measured at the meter; pick the meter on the settings page, or leave it on Automatic."
   }
 }

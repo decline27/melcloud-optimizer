@@ -73,6 +73,7 @@ import { CurrencyDetector } from './src/util/currency-detector';
 import { getHomeLocation } from './src/util/home-location';
 import { automaticZone } from './src/entsoe';
 import { PresenceService } from './src/services/presence-service';
+import { HouseMeterService } from './src/services/house-meter-service';
 import { DEFAULT_CONSUMER_MARKUP } from './src/services/consumer-markup-defaults';
 import {
   computeRunPriceSavings,
@@ -2070,6 +2071,11 @@ const apiHandlers: ApiHandlers = {
       // What Homey presence says now (true/false), null without presence info, 'unavailable' on error
       anyone_home: await new PresenceService(homey).anyoneHome().catch((error: unknown) => {
         homey.app.error('Reading Homey presence failed', error as Error);
+        return 'unavailable';
+      }),
+      // Whole-home power meters Homey has, and the one picked automatically
+      house_meter: await new HouseMeterService(homey).candidates().catch((error: unknown) => {
+        homey.app.error('Listing house power meters failed', error as Error);
         return 'unavailable';
       })
     };

@@ -1,7 +1,7 @@
 {
   "_comment": "This file is generated. Please edit .homeycompose/app.json instead.",
   "id": "com.melcloud.optimize",
-  "version": "14.0.83",
+  "version": "14.0.84",
   "compatibility": ">=12.2.0",
   "sdk": 3,
   "platforms": [
@@ -435,6 +435,10 @@
         "compressor_starts",
         "compressor_avg_run",
         "compressor_run_share",
+        "measure_temperature.flow",
+        "measure_temperature.return",
+        "flow_return_delta",
+        "power_overhead_share",
         "alarm_generic.offline",
         "holiday_mode",
         "legionella_now",
@@ -468,6 +472,22 @@
         "measure_temperature.tank": {
           "title": {
             "en": "Hot Water Tank Temperature"
+          },
+          "units": {
+            "en": "°C"
+          }
+        },
+        "measure_temperature.flow": {
+          "title": {
+            "en": "Flow Temperature"
+          },
+          "units": {
+            "en": "°C"
+          }
+        },
+        "measure_temperature.return": {
+          "title": {
+            "en": "Return Temperature"
           },
           "units": {
             "en": "°C"
@@ -917,6 +937,25 @@
       "uiComponent": "sensor",
       "insights": true
     },
+    "flow_return_delta": {
+      "type": "number",
+      "title": {
+        "en": "Flow − return"
+      },
+      "desc": {
+        "en": "Flow water temperature minus return water temperature at the unit."
+      },
+      "units": {
+        "en": "°C"
+      },
+      "decimals": 1,
+      "min": -20,
+      "max": 40,
+      "getable": true,
+      "setable": false,
+      "uiComponent": "sensor",
+      "insights": true
+    },
     "heating_cop": {
       "type": "number",
       "title": {
@@ -977,6 +1016,25 @@
       "getable": true,
       "setable": true,
       "uiComponent": "toggle"
+    },
+    "power_overhead_share": {
+      "type": "number",
+      "title": {
+        "en": "Energy outside compressor"
+      },
+      "desc": {
+        "en": "Share of MELCloud's daily energy not explained by the compressor draw measured with the house meter: standby, circulation pump while the compressor rests, defrost, or MELCloud overstating."
+      },
+      "units": {
+        "en": "%"
+      },
+      "decimals": 0,
+      "min": -100,
+      "max": 100,
+      "getable": true,
+      "setable": false,
+      "uiComponent": "sensor",
+      "insights": true
     }
   }
 }
