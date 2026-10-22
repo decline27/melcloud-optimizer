@@ -1,0 +1,19 @@
+{
+  "type": "number",
+  "title": {
+    "en": "Compressor run share (24 h)"
+  },
+  "desc": {
+    "en": "Share of the sampled time in the last 24 hours that the compressor was running."
+  },
+  "units": {
+    "en": "%"
+  },
+  "decimals": 1,
+  "min": 0,
+  "max": 100,
+  "getable": true,
+  "setable": false,
+  "uiComponent": "sensor",
+  "insights": true
+}

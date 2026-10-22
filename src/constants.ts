@@ -73,6 +73,26 @@ export const ENERGY_METER_CONSTANTS = {
     MAX_DAYS_WAITING_FOR_TOTAL: 3,
 };
 
+/**
+ * Compressor cycle tracker: starts, run length and run share over a rolling window, from the
+ * same `HeatPumpFrequency` samples the energy meter uses.
+ */
+export const COMPRESSOR_CYCLE_CONSTANTS = {
+    /** Window the published figures cover, hours. */
+    WINDOW_HOURS: 24,
+    /** Samples kept, hours: a little over the window so a full window is always available. */
+    RETENTION_HOURS: 26,
+    /** Hard cap on stored samples, in case the poll interval is set very short. */
+    MAX_SAMPLES: 2000,
+    /**
+     * Longest gap between two samples still treated as continuous, minutes. Across a longer gap
+     * (restart, MELCloud outage) a start or stop is unknown, so nothing is counted.
+     */
+    MAX_SAMPLE_GAP_MINUTES: 15,
+    /** Sampled time needed before the figures are published, hours. */
+    MIN_COVERAGE_HOURS: 1,
+};
+
 export const OPTIMIZATION_CONSTANTS = {
     MIN_SAVINGS_FOR_LEARNING: 0.05, // NOK/EUR etc
     MAX_RECONNECT_ATTEMPTS: 3,
