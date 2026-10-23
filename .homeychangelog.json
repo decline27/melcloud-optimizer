@@ -349,5 +349,8 @@
   },
   "14.0.84": {
     "en": "New on the heat pump page: compressor starts, average run length and run share over the last 24 hours, flow and return water temperatures, and how much of the unit's energy goes outside the compressor. With a whole-home meter (Tibber Pulse, P1 reader) the live power now comes from the compressor's real draw measured at the meter; pick the meter on the settings page, or leave it on Automatic."
+  },
+  "14.0.85": {
+    "en": "Fix: the heat pump's Zone 1 status now shows Heating while the unit heats the house. It used to stay on Idle all the time. During hot water runs the zone still shows Idle, because the heat goes to the tank."
   }
 }
