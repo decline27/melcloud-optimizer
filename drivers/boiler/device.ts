@@ -5,6 +5,7 @@ import { HotWaterService } from '../../src/services/hot-water/hot-water-service'
 import { ErrorHandler } from '../../src/util/error-handler';
 import { HomeyLogger, LogLevel } from '../../src/util/logger';
 import { MelCloudDevice } from '../../src/types';
+import { getZoneOperationalState } from '../../src/util/zone-mode';
 import { isRunningOperationMode, recordRunSample } from '../../src/util/run-price-ledger';
 import { PresenceService, syncOccupancyFromPresence } from '../../src/services/presence-service';
 import {
@@ -1478,7 +1479,7 @@ module.exports = class BoilerDevice extends Homey.Device {
 
       // Zone 1 operational state
       if (this.hasCapability('operational_state.zone1')) {
-        const zone1State = this.getZoneOperationalState(deviceState, 'Zone1');
+        const zone1State = getZoneOperationalState(deviceState, 'Zone1');
         const currentZone1State = this.getCapabilityValue('operational_state.zone1');
         if (currentZone1State !== zone1State) {
           await this.setCapabilityValue('operational_state.zone1', zone1State);
@@ -1488,7 +1489,7 @@ module.exports = class BoilerDevice extends Homey.Device {
 
       // Zone 2 operational state
       if (this.hasCapability('operational_state.zone2')) {
-        const zone2State = this.getZoneOperationalState(deviceState, 'Zone2');
+        const zone2State = getZoneOperationalState(deviceState, 'Zone2');
         const currentZone2State = this.getCapabilityValue('operational_state.zone2');
         if (currentZone2State !== zone2State) {
           await this.setCapabilityValue('operational_state.zone2', zone2State);
@@ -1567,38 +1568,6 @@ module.exports = class BoilerDevice extends Homey.Device {
       return 'legionella';
     }
     
-    return 'idle';
-  }
-
-  /**
-   * Get zone operational state
-   */
-  private getZoneOperationalState(deviceState: MelCloudDevice, zone: 'Zone1' | 'Zone2'): string {
-    const zoneInCoolMode = deviceState[`${zone}InCoolMode` as keyof MelCloudDevice];
-    const zoneInHeatMode = deviceState[`${zone}InHeatMode` as keyof MelCloudDevice];
-    const prohibitCooling = deviceState[`ProhibitCooling${zone}` as keyof MelCloudDevice];
-    const prohibitHeating = deviceState[`ProhibitHeating${zone}` as keyof MelCloudDevice];
-    const idle = deviceState[`Idle${zone}` as keyof MelCloudDevice];
-
-    // Check for prohibited states
-    if ((zoneInCoolMode && prohibitCooling) || (zoneInHeatMode && prohibitHeating)) {
-      return 'prohibited';
-    }
-
-    // Check for defrost mode
-    if (deviceState.DefrostMode) {
-      return 'defrost';
-    }
-
-    // Check for cooling/heating
-    if (zoneInCoolMode && !idle) {
-      return 'cooling';
-    }
-    
-    if (zoneInHeatMode && !idle) {
-      return 'heating';
-    }
-
     return 'idle';
   }
 

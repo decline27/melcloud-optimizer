@@ -54,3 +54,53 @@ export function describeZoneMode(operationMode: number | undefined | null): stri
       return `unknown(${operationMode})`;
   }
 }
+
+/** Unit `OperationMode` values that mean the compressor is delivering heat to the zones. */
+const SPACE_HEATING_UNIT_MODES = new Set([2, 7, 11]);
+const COOLING_UNIT_MODE = 3;
+
+export type ZoneOperationalState = 'heating' | 'cooling' | 'defrost' | 'prohibited' | 'idle';
+
+/**
+ * Operational state of one zone.
+ *
+ * Device/Get does not send `ZoneNInHeatMode` / `ZoneNInCoolMode`, so reading only those left the
+ * zone stuck on idle while the unit was heating. When they are missing, heat mode comes from
+ * `OperationModeZoneN` (Room/Flow/Curve are all heating modes) and cool mode from the unit mode.
+ * A zone is active only while the unit itself is space heating (or cooling) and `IdleZoneN` is
+ * false; during a hot-water run the valve feeds the tank, so the zone reads idle.
+ */
+export function getZoneOperationalState(
+  deviceState: Record<string, unknown>,
+  zone: 'Zone1' | 'Zone2'
+): ZoneOperationalState {
+  const unitMode = deviceState.OperationMode;
+  const zoneMode = deviceState[`OperationMode${zone}`];
+  const explicitHeat = deviceState[`${zone}InHeatMode`];
+  const explicitCool = deviceState[`${zone}InCoolMode`];
+
+  const inHeatMode = typeof explicitHeat === 'boolean'
+    ? explicitHeat
+    : zoneMode === ZoneOperationMode.Room || zoneMode === ZoneOperationMode.Flow || zoneMode === ZoneOperationMode.Curve;
+  const inCoolMode = typeof explicitCool === 'boolean' ? explicitCool : unitMode === COOLING_UNIT_MODE;
+
+  if ((inCoolMode && deviceState[`ProhibitCooling${zone}`]) || (inHeatMode && deviceState[`ProhibitHeating${zone}`])) {
+    return 'prohibited';
+  }
+
+  if (deviceState.DefrostMode) {
+    return 'defrost';
+  }
+
+  const zoneIdle = deviceState[`Idle${zone}`] === true;
+
+  if (inCoolMode && !zoneIdle && unitMode === COOLING_UNIT_MODE) {
+    return 'cooling';
+  }
+
+  if (inHeatMode && !zoneIdle && typeof unitMode === 'number' && SPACE_HEATING_UNIT_MODES.has(unitMode)) {
+    return 'heating';
+  }
+
+  return 'idle';
+}

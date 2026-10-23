@@ -345,8 +345,10 @@ EffectiveFlags:      SetTemperatureZone1  0x200000080   (= 0x200000000 | 0x80)
   01–04 raise to 23 °C on a 3 °C night added nothing because heating was already on).
   So **coasting works; preheating is "keep the curve running", not "more power"**. The owner keeps
   Curve mode on purpose (cheaper to run than Room mode) — do not propose switching.
-  Note: the Homey `operational_state.zone1` capability always reads idle (Device/Get lacks
-  `Zone1InHeatMode`); use the unit `operational_state` / `IdleZone1`.
+  Note: Device/Get lacks `Zone1InHeatMode`, which left the Homey `operational_state.zone1`
+  capability stuck on idle. Fixed 2026-10-23: `getZoneOperationalState` (`src/util/zone-mode.ts`)
+  takes heat mode from `OperationModeZone1` when the flag is missing, and reads heating only
+  while the unit space-heats and `IdleZone1` is false.
 
 ---
 
