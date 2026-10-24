@@ -104,3 +104,26 @@ export function getZoneOperationalState(
 
   return 'idle';
 }
+
+/**
+ * True when changing the zone setpoint from `fromC` to `toC` cannot change what the unit does.
+ *
+ * Outside Room mode the setpoint is only an on/off gate: below it the curve runs, at or above it
+ * the zone is thermo-off. With the room clearly below both targets the zone heats either way; with
+ * it clearly above both it stays off either way, so the write is a no-op (live 2026-10-24: target
+ * 23 <-> 24 all night with the room at 21.5). `marginC` keeps writes that may matter within the
+ * hour. In Room mode the setpoint also sets the flow temperature, so a change is never inert.
+ */
+export function isThermostatChangeInert(params: {
+  operationMode: number | undefined | null;
+  roomC: number;
+  fromC: number;
+  toC: number;
+  marginC: number;
+}): boolean {
+  const { operationMode, roomC, fromC, toC, marginC } = params;
+  if (isRoomTargetMode(operationMode) || ![roomC, fromC, toC, marginC].every(Number.isFinite)) {
+    return false;
+  }
+  return roomC < Math.min(fromC, toC) - marginC || roomC > Math.max(fromC, toC) + marginC;
+}

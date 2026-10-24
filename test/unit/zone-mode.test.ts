@@ -1,5 +1,5 @@
 import { describe, expect, test } from '@jest/globals';
-import { isRoomTargetMode, describeZoneMode, getZoneOperationalState, ZoneOperationMode } from '../../src/util/zone-mode';
+import { isRoomTargetMode, describeZoneMode, getZoneOperationalState, isThermostatChangeInert, ZoneOperationMode } from '../../src/util/zone-mode';
 
 describe('isRoomTargetMode', () => {
   test('Room mode (0) yields a genuine room target', () => {
@@ -81,5 +81,47 @@ describe('getZoneOperationalState', () => {
     const state = { OperationMode: 2, OperationModeZone1: 2, OperationModeZone2: 0, IdleZone1: false, IdleZone2: true };
     expect(getZoneOperationalState(state, 'Zone1')).toBe('heating');
     expect(getZoneOperationalState(state, 'Zone2')).toBe('idle');
+  });
+});
+
+describe('isThermostatChangeInert', () => {
+  const curve = (roomC: number, fromC: number, toC: number) =>
+    isThermostatChangeInert({ operationMode: ZoneOperationMode.Curve, roomC, fromC, toC, marginC: 0.3 });
+
+  // Live 2026-10-24 01:00-06:00: room 21.5 °C the whole night while the target went
+  // 23 -> 24 -> 23 -> 24 -> 23. Both targets keep the thermostat calling for heat; the curve sets
+  // the power, so none of those writes changed anything.
+  test('room clearly below both targets: the thermostat stays on either way', () => {
+    expect(curve(21.5, 23, 24)).toBe(true);
+    expect(curve(21.5, 24, 23)).toBe(true);
+  });
+
+  test('room clearly above both targets: the thermostat stays off either way', () => {
+    expect(curve(23, 21, 22)).toBe(true);
+  });
+
+  test('a target that reaches the room changes the gate and is written', () => {
+    // Live 2026-10-23 22:00: room 22, 23 -> 22 closed the gate.
+    expect(curve(22, 23, 22)).toBe(false);
+    expect(curve(22, 22, 23)).toBe(false);
+  });
+
+  test('within the margin of the lower target the change is written', () => {
+    expect(curve(22.7, 23, 24)).toBe(false);
+    expect(curve(22.8, 24, 23)).toBe(false);
+    expect(curve(22.5, 23, 24)).toBe(true);
+  });
+
+  test('Flow mode gates the same way', () => {
+    expect(isThermostatChangeInert({ operationMode: ZoneOperationMode.Flow, roomC: 21.5, fromC: 23, toC: 24, marginC: 0.3 })).toBe(true);
+  });
+
+  test('never in Room mode: there the setpoint also sets the power', () => {
+    expect(isThermostatChangeInert({ operationMode: ZoneOperationMode.Room, roomC: 21.5, fromC: 23, toC: 24, marginC: 0.3 })).toBe(false);
+    expect(isThermostatChangeInert({ operationMode: undefined, roomC: 21.5, fromC: 23, toC: 24, marginC: 0.3 })).toBe(false);
+  });
+
+  test('no room reading: never inert', () => {
+    expect(curve(Number.NaN, 23, 24)).toBe(false);
   });
 });

@@ -189,6 +189,40 @@ describe('Optimizer hotwater & enhanced edge cases', () => {
 
       expect(mockMel.setDeviceTemperature).toHaveBeenCalled();
     });
+
+    // Curve mode: the setpoint only switches the curve on or off. With the room well below both
+    // the old and the new target, the raise changes nothing (live 2026-10-24: 23 <-> 24 all night
+    // with the room at 21.5).
+    const curveState = (operationModeZone1: number) => ({
+      RoomTemperature: 18.5,
+      RoomTemperatureZone1: 18.5,
+      SetTemperature: 20,
+      SetTemperatureZone1: 20,
+      OutdoorTemperature: 5,
+      OperationModeZone1: operationModeZone1,
+      IdleZone1: false
+    });
+
+    test('Curve mode: holds a raise that leaves the thermostat on anyway', async () => {
+      optimizer.setTemperatureConstraints(18, 22, 0.5);
+      mockTibber.getPrices.mockResolvedValue(preheatPrices());
+      mockMel.getDeviceState.mockResolvedValue(curveState(2));
+
+      const result = await optimizer.runOptimization();
+
+      expect(mockMel.setDeviceTemperature).not.toHaveBeenCalled();
+      expect(result.reason).toMatch(/thermostat stays on either way/i);
+    });
+
+    test('control: the same raise is written in Room mode', async () => {
+      optimizer.setTemperatureConstraints(18, 22, 0.5);
+      mockTibber.getPrices.mockResolvedValue(preheatPrices());
+      mockMel.getDeviceState.mockResolvedValue(curveState(0));
+
+      await optimizer.runOptimization();
+
+      expect(mockMel.setDeviceTemperature).toHaveBeenCalled();
+    });
   });
 
   test('persists tank lockout timestamp on a tank-only apply (zone1 not applied)', async () => {
@@ -632,6 +666,75 @@ describe('Low-tank forced hot water', () => {
     const result = await makeOptimizer(makeHomey()).optimizeTank(
       inputs({ TankWaterTemperature: 45, OperationMode: 0, ForcedHotWaterMode: false }), delay, jest.fn());
     expect(result.hotWaterMode).toBeUndefined();
+  });
+
+  const noZoneChange: any = {
+    needsApply: false, lockoutActive: false, duplicateTarget: true, changed: false,
+    targetTemp: 23, safeCurrentTarget: 23, tempDifference: 0
+  };
+
+  test('the record of an app-started forced run is cleared once the unit has ended it', async () => {
+    // Live 2026-10-24: forced at 00:00, reheat done by 00:55, record still set at 18:00. A forced
+    // run the user starts later must not be mistaken for the app's and switched back to auto.
+    const homey = makeHomey({ low_tank_forced_at: Date.now() - 60 * 60000 });
+    const opt = makeOptimizer(homey);
+    const ended = await opt.optimizeTank(
+      inputs({ TankWaterTemperature: 51.5, OperationMode: 0, ForcedHotWaterMode: false }), delay, jest.fn());
+    await opt.applySetpointChanges(noZoneChange, null, ended, jest.fn());
+    expect(homey.__store.low_tank_forced_at).toBeUndefined();
+
+    const userStarted = await opt.optimizeTank(
+      inputs({ TankWaterTemperature: 52.5, OperationMode: 1, ForcedHotWaterMode: true }), delay, jest.fn());
+    expect(userStarted.hotWaterMode).toBeUndefined();
+  });
+
+  test('the record is kept while the request is fresh (MELCloud may not show it yet)', async () => {
+    const homey = makeHomey({ low_tank_forced_at: Date.now() - 10 * 60000 });
+    const opt = makeOptimizer(homey);
+    const result = await opt.optimizeTank(
+      inputs({ TankWaterTemperature: 51.5, OperationMode: 0, ForcedHotWaterMode: false }), delay, jest.fn());
+    await opt.applySetpointChanges(noZoneChange, null, result, jest.fn());
+    expect(homey.__store.low_tank_forced_at).toBeDefined();
+  });
+
+  test('forced hot water that did not start a reheat is reported with the unit state', async () => {
+    // Live 2026-10-23: forced at 21:00, 22:00 and 23:00 with the tank at 27 °C; no reheat until
+    // 00:10, ten minutes after the room target dropped to the room temperature.
+    const requestedAt = Date.now() - 60 * 60000;
+    const homey = makeHomey({ low_tank_forced_at: requestedAt });
+    homey.notifications = { createNotification: jest.fn().mockResolvedValue(undefined) };
+    const opt = makeOptimizer(homey);
+    mockMel.setHotWaterMode = jest.fn().mockResolvedValue(true);
+
+    const result = await opt.optimizeTank(inputs({
+      TankWaterTemperature: 27, OperationMode: 2, ForcedHotWaterMode: false,
+      RoomTemperatureZone1: 22, SetTemperatureZone1: 23, IdleZone1: false
+    }), delay, jest.fn());
+
+    expect(result.hotWaterMode).toBe('forced');
+    expect(result.forcedNotStarted).toEqual({
+      requestedAtMs: requestedAt, tankC: 27, minC: 42, forcedFlag: false, unitMode: 2,
+      roomC: 22, zoneTargetC: 23, zoneIdle: false
+    });
+    expect(result.reason).toContain('did not start a reheat');
+
+    await opt.applySetpointChanges(noZoneChange, null, result, jest.fn());
+    expect(homey.notifications.createNotification).toHaveBeenCalledTimes(1);
+    const excerpt = homey.notifications.createNotification.mock.calls[0][0].excerpt;
+    expect(excerpt).toContain('27');
+    expect(excerpt).toMatch(/room 22.*target 23/);
+    expect(mockMel.setHotWaterMode).toHaveBeenCalledWith('device-1', 1, true);
+  });
+
+  test('no report while a reheat is running or before the request has had its chance', async () => {
+    const opt = makeOptimizer(makeHomey({ low_tank_forced_at: Date.now() - 60 * 60000 }));
+    const running = await opt.optimizeTank(
+      inputs({ TankWaterTemperature: 30, OperationMode: 1, ForcedHotWaterMode: false }), delay, jest.fn());
+    expect(running.forcedNotStarted).toBeUndefined();
+
+    const fresh = await makeOptimizer(makeHomey({ low_tank_forced_at: Date.now() - 10 * 60000 })).optimizeTank(
+      inputs({ TankWaterTemperature: 30, OperationMode: 2, ForcedHotWaterMode: false }), delay, jest.fn());
+    expect(fresh.forcedNotStarted).toBeUndefined();
   });
 });
 

@@ -39,6 +39,15 @@ describe('setHotWaterMode', () => {
     const api = makeApi({ ForcedHotWaterMode: false });
     expect(await api.setHotWaterMode('59132691', 513523, true)).toBe(false);
   });
+
+  test('logs what MELCloud replied, so a forced run that never starts can be traced', async () => {
+    const api = makeApi({ ForcedHotWaterMode: true, OperationMode: 2, IdleZone1: false, TankWaterTemperature: 27, HasPendingCommand: true });
+    await api.setHotWaterMode('59132691', 513523, true);
+    const logged = JSON.stringify(api.logger.log.mock.calls);
+    expect(logged).toContain('"ForcedHotWaterMode":true');
+    expect(logged).toContain('"OperationMode":2');
+    expect(logged).toContain('"HasPendingCommand":true');
+  });
 });
 
 describe('other SetAtw writes name their field in EffectiveFlags', () => {

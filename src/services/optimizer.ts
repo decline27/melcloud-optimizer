@@ -45,7 +45,7 @@ import { isNightHour } from '../util/night-setback';
 import { AdaptiveParametersLearner, LearnedControlParameters } from './adaptive-parameters';
 import { COMFORT_CONSTANTS } from '../constants';
 import { resolvePriceThresholds } from './price-classifier';
-import { isRoomTargetMode, describeZoneMode } from '../util/zone-mode';
+import { isRoomTargetMode, describeZoneMode, isThermostatChangeInert } from '../util/zone-mode';
 
 // Removed: DEFAULT_HOT_WATER_PEAK_HOURS now comes from HotWaterUsageLearner
 const MIN_SAVINGS_FOR_LEARNING = 0.05; // Minimum savings (SEK-equivalent) to trigger learning on no-change path
@@ -153,6 +153,8 @@ interface Zone1OptimizationResult {
   needsApply: boolean;
   /** True when the write was suppressed because the room is above the comfort band (no heat possible). */
   heatDemandHold?: boolean;
+  /** True when the write was suppressed because the zone thermostat would stay on (or off) either way. */
+  thermostatHold?: boolean;
   priceNormalized: number;
   weatherInfo?: WeatherInfo | null;
   planningBias?: number;
@@ -190,6 +192,22 @@ interface TankOptimizationPlan extends TankOptimizationResult {
   hotWaterMode?: 'forced' | 'auto';
   /** The tank is below the user's minimum (for remembering when a raise was tried). */
   tankBelowMin?: boolean;
+  /** Forced hot water the app requested earlier has lapsed (the unit no longer reports it). */
+  clearForcedRecord?: boolean;
+  /** Forced hot water was requested, yet the tank is still below the minimum and not reheating. */
+  forcedNotStarted?: ForcedHotWaterNotStarted;
+}
+
+/** Unit state when an earlier forced hot water request has not started a reheat. */
+interface ForcedHotWaterNotStarted {
+  requestedAtMs: number;
+  tankC: number;
+  minC: number;
+  forcedFlag: boolean;
+  unitMode: number | null;
+  roomC: number | null;
+  zoneTargetC: number | null;
+  zoneIdle: boolean | null;
 }
 
 class OptimizationAbort extends Error {
@@ -1803,6 +1821,22 @@ export class Optimizer {
       adjustmentReason += ` | Room ${(currentTemp as number).toFixed(1)}°C above comfort band ${constraintsBand.maxTemp}°C${idleNote} — setpoint has no effect, holding`;
     }
 
+    // Outside Room mode the setpoint only gates the curve on/off. With the room clearly below (or
+    // above) both the current and the new target, the write changes nothing the unit does.
+    const thermostatHold = !roomAboveBand && zone1FinalConstraints.changed && isThermostatChangeInert({
+      operationMode: operationModeZone1,
+      roomC: currentTemp as number,
+      fromC: safeCurrentTarget,
+      toC: targetTemp,
+      marginC: this.getZone1Constraints().deadband
+    });
+    if (thermostatHold) {
+      const heating = (currentTemp as number) < targetTemp;
+      adjustmentReason += ` | Room ${(currentTemp as number).toFixed(1)}°C ${heating ? 'below' : 'above'} both ` +
+        `${safeCurrentTarget}°C and ${targetTemp}°C (${describeZoneMode(operationModeZone1)} mode) — ` +
+        `thermostat stays ${heating ? 'on' : 'off'} either way, holding`;
+    }
+
     return {
       targetTemp,
       reason: adjustmentReason,
@@ -1815,8 +1849,10 @@ export class Optimizer {
       duplicateTarget,
       lockoutActive,
       changed: zone1FinalConstraints.changed,
-      needsApply: zone1FinalConstraints.changed && !zone1FinalConstraints.lockoutActive && !duplicateTarget && !roomAboveBand,
+      needsApply: zone1FinalConstraints.changed && !zone1FinalConstraints.lockoutActive && !duplicateTarget &&
+        !roomAboveBand && !thermostatHold,
       heatDemandHold: roomAboveBand,
+      thermostatHold,
       priceNormalized: priceNormalizedValue,
       weatherInfo,
       planningBias: scaledPlanningBias,
@@ -2335,6 +2371,31 @@ export class Optimizer {
       const forcedAt = Number(this.homey?.settings.get('low_tank_forced_at')) || null;
       const raiseHadItsChance = kickAt !== null &&
         nowMs - kickAt >= COMFORT_CONSTANTS.LOW_TANK_RAISE_WAIT_MINUTES * 60000;
+      // The unit ends a forced run by itself once the tank is hot. A record left behind would make
+      // a later forced run the user starts look like the app's, and get it switched back to auto.
+      const forcedRequestLapsed = forcedAt !== null && !forcedOn &&
+        nowMs - forcedAt >= COMFORT_CONSTANTS.LOW_TANK_RAISE_WAIT_MINUTES * 60000;
+      // Live 2026-10-23: forced hot water was requested three hours running with the tank at 27 °C
+      // and nothing happened. Record the unit state each time, to find out what blocks it.
+      let forcedNotStarted: ForcedHotWaterNotStarted | undefined;
+      if (forcedRequestLapsed && tankBelowMin && !dhwRunning) {
+        const ds = inputs.deviceState;
+        const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+        forcedNotStarted = {
+          requestedAtMs: forcedAt as number,
+          tankC: tankWaterTemp,
+          minC: tankCons.minTemp,
+          forcedFlag: ds.ForcedHotWaterMode === true,
+          unitMode: num(ds.OperationMode),
+          roomC: num(ds.RoomTemperatureZone1 ?? ds.RoomTemperature),
+          zoneTargetC: num(ds.SetTemperatureZone1),
+          zoneIdle: typeof ds.IdleZone1 === 'boolean' ? ds.IdleZone1 : null
+        };
+        tankReason += ` | forced hot water requested ${Math.round((nowMs - (forcedAt as number)) / 60000)} min ago ` +
+          `did not start a reheat (unit mode ${forcedNotStarted.unitMode}, room ${forcedNotStarted.roomC}°C / ` +
+          `target ${forcedNotStarted.zoneTargetC}°C, zone idle ${forcedNotStarted.zoneIdle})`;
+        logger('tank.forced_not_started', { ...forcedNotStarted });
+      }
       let hotWaterMode: 'forced' | 'auto' | undefined;
       if (tankBelowMin && !dhwRunning && !forcedOn && (!raising || raiseHadItsChance)) {
         hotWaterMode = 'forced';
@@ -2370,7 +2431,9 @@ export class Optimizer {
         evaluatedAtMs: tankConstraints.evaluatedAtMs,
         holdReason: changeApplied ? undefined : tankHoldReason,
         hotWaterMode,
-        tankBelowMin
+        tankBelowMin,
+        clearForcedRecord: forcedRequestLapsed,
+        forcedNotStarted
       };
     } catch (error) {
       logger('tank.error', { message: error instanceof Error ? error.message : String(error) });
@@ -2452,7 +2515,10 @@ export class Optimizer {
             ? 'Duplicate target – already applied recently'
             : zone1Result.heatDemandHold
               ? 'Room above comfort band — setpoint has no effect (no heat demand)'
-              : `Temperature difference ${zone1Result.tempDifference.toFixed(1)}°C below deadband ${this.getZone1Constraints().deadband}°C`;
+              : zone1Result.thermostatHold
+                ? `Zone thermostat stays ${Number(zone1Result.indoorTemp) < zone1Result.targetTemp ? 'on' : 'off'} ` +
+                  `either way (room ${zone1Result.indoorTemp}°C, ${zone1Result.safeCurrentTarget} → ${zone1Result.targetTemp}°C) — holding`
+                : `Temperature difference ${zone1Result.tempDifference.toFixed(1)}°C below deadband ${this.getZone1Constraints().deadband}°C`;
     }
 
     if (!changes.zone1Applied && changes.zone1HoldReason) {
@@ -2497,6 +2563,12 @@ export class Optimizer {
         } else if (changes.tankApplied && tankResult.toTemp > tankResult.fromTemp && !this.homey.settings.get('low_tank_kick_at')) {
           this.homey.settings.set('low_tank_kick_at', Date.now());
         }
+        if (tankResult.clearForcedRecord) {
+          this.homey.settings.unset('low_tank_forced_at');
+        }
+        if (tankResult.forcedNotStarted) {
+          await this.notifyForcedHotWaterNotStarted(tankResult.forcedNotStarted);
+        }
         if (tankResult.hotWaterMode) {
           const forced = tankResult.hotWaterMode === 'forced';
           const accepted = await this.melCloud.setHotWaterMode(this.deviceId, this.buildingId, forced);
@@ -2516,6 +2588,22 @@ export class Optimizer {
     }
 
     return changes;
+  }
+
+  /** Timeline notice for a forced hot water request that did not start a reheat. Never throws. */
+  private async notifyForcedHotWaterNotStarted(info: ForcedHotWaterNotStarted): Promise<void> {
+    const minutesAgo = Math.round((Date.now() - info.requestedAtMs) / 60000);
+    const zone = info.zoneIdle === null ? 'zone state unknown' : info.zoneIdle ? 'zone idle' : 'zone calling for heat';
+    const excerpt = `Hot water: tank ${info.tankC}°C is below the ${info.minC}°C minimum. Forced hot water ` +
+      `requested ${minutesAgo} min ago did not start a reheat (unit mode ${info.unitMode}, forced ` +
+      `${info.forcedFlag ? 'on' : 'off'}, room ${info.roomC}°C / target ${info.zoneTargetC}°C, ${zone}). Trying again.`;
+    try {
+      await this.homey?.notifications?.createNotification({ excerpt });
+    } catch (error) {
+      this.logger.warn('Could not post the forced hot water notice', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
 
   private async calculateCombinedSavings(

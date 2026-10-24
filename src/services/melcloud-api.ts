@@ -1462,6 +1462,14 @@ export class MelCloudApi extends BaseApiService {
         // MELCloud answers with the device state; trust it over "the request did not fail".
         const reported = data && typeof data.ForcedHotWaterMode === 'boolean' ? data.ForcedHotWaterMode : null;
         const success = data !== null && (reported === null || reported === forced);
+        // Kept in the log so a forced run that never starts can be traced (live 2026-10-23).
+        this.logger.log('SetAtw hot water mode reply', {
+          ForcedHotWaterMode: data?.ForcedHotWaterMode,
+          OperationMode: data?.OperationMode,
+          IdleZone1: data?.IdleZone1,
+          TankWaterTemperature: data?.TankWaterTemperature,
+          HasPendingCommand: data?.HasPendingCommand
+        });
 
         if (success) {
           this.logger.log(`Successfully set hot water mode for device ${deviceId} to ${forced ? 'forced' : 'auto'}`);

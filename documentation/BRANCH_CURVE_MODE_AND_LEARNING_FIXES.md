@@ -522,6 +522,19 @@ coasting. **Never switch a user's mode silently.**
   preheat gate caps the storable heat at one hour of learned warming and blocks preheat when the
   curve only holds the room; with no data within ±2 °C it keeps the old estimate.
 
+**2026-10-24:**
+- Zone writes that cannot change the gate are held (`isThermostatChangeInert`, `src/util/zone-mode.ts`):
+  outside Room mode, a room more than the deadband below (or above) both the old and the new target
+  keeps the thermostat on (or off) either way. Live the night before: 23 ↔ 24 °C four times with the
+  room at 21.5 °C.
+- Forced hot water was requested at 21:00, 22:00 and 23:00 with the tank at 27 °C and did nothing;
+  the 00:00 request worked, ten minutes after the zone target dropped to the room temperature.
+  Unexplained. Each failed request now logs `tank.forced_not_started` and posts a timeline notice with
+  the unit mode, forced flag, room vs zone target and `IdleZone1`; `setHotWaterMode` logs MELCloud's
+  reply. Use these to test whether open space-heating demand blocks forced DHW.
+- `low_tank_forced_at` is cleared once the unit no longer reports forced mode (≥ 50 min after the
+  request). Before, it stayed set forever and a later user-started forced run was switched to auto.
+
 **Phase 5 — COP weighting.** `delivered_price / COP(forecast_ambient)`. A curve already exists at
 `data/cop_curve.csv` (keyed by `temp_out_c, delta_c`) with a bilinear interpolator in
 `simulate.ts`, but it is never loaded at runtime. Guard the division — EMHASS has a live COP
