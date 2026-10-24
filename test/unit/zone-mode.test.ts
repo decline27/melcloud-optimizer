@@ -112,8 +112,8 @@ describe('isThermostatChangeInert', () => {
     expect(curve(22.5, 23, 24)).toBe(true);
   });
 
-  test('Flow mode gates the same way', () => {
-    expect(isThermostatChangeInert({ operationMode: ZoneOperationMode.Flow, roomC: 21.5, fromC: 23, toC: 24, marginC: 0.3 })).toBe(true);
+  test('not in Flow mode: only Curve mode was measured to gate on the room setpoint', () => {
+    expect(isThermostatChangeInert({ operationMode: ZoneOperationMode.Flow, roomC: 21.5, fromC: 23, toC: 24, marginC: 0.3 })).toBe(false);
   });
 
   test('never in Room mode: there the setpoint also sets the power', () => {

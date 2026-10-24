@@ -524,14 +524,18 @@ coasting. **Never switch a user's mode silently.**
 
 **2026-10-24:**
 - Zone writes that cannot change the gate are held (`isThermostatChangeInert`, `src/util/zone-mode.ts`):
-  outside Room mode, a room more than the deadband below (or above) both the old and the new target
-  keeps the thermostat on (or off) either way. Live the night before: 23 ↔ 24 °C four times with the
-  room at 21.5 °C.
+  Curve mode only (Flow was never measured). The room must be more than the margin below (or above)
+  the current target, this run's ramp step *and* the target the optimizer wants before the ramp, or a
+  multi-step ramp across the room would be held forever. Margin = max(deadband, learned curve warming
+  per hour). No baseline saving is booked while held with the thermostat on. Live the night before:
+  23 ↔ 24 °C four times with the room at 21.5 °C.
 - Forced hot water was requested at 21:00, 22:00 and 23:00 with the tank at 27 °C and did nothing;
   the 00:00 request worked, ten minutes after the zone target dropped to the room temperature.
-  Unexplained. Each failed request now logs `tank.forced_not_started` and posts a timeline notice with
-  the unit mode, forced flag, room vs zone target and `IdleZone1`; `setHotWaterMode` logs MELCloud's
-  reply. Use these to test whether open space-heating demand blocks forced DHW.
+  Unexplained. A request 50 min–3 h old with the tank still below the minimum and no reheat logs
+  `tank.forced_not_started` (whether MELCloud shows forced on or off) and posts one timeline notice
+  per low-tank episode (`low_tank_notice_at`) with the unit mode, forced flag, room vs zone target and
+  `IdleZone1`; `setHotWaterMode` logs MELCloud's reply. Use these to test whether open space-heating
+  demand blocks forced DHW.
 - `low_tank_forced_at` is cleared once the unit no longer reports forced mode (≥ 50 min after the
   request). Before, it stayed set forever and a later user-started forced run was switched to auto.
 

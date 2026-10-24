@@ -108,11 +108,12 @@ export function getZoneOperationalState(
 /**
  * True when changing the zone setpoint from `fromC` to `toC` cannot change what the unit does.
  *
- * Outside Room mode the setpoint is only an on/off gate: below it the curve runs, at or above it
- * the zone is thermo-off. With the room clearly below both targets the zone heats either way; with
- * it clearly above both it stays off either way, so the write is a no-op (live 2026-10-24: target
- * 23 <-> 24 all night with the room at 21.5). `marginC` keeps writes that may matter within the
- * hour. In Room mode the setpoint also sets the flow temperature, so a change is never inert.
+ * In Curve mode the setpoint is only an on/off gate: below it the curve runs, at or above it the
+ * zone is thermo-off (measured live 2026-10-13). With the room clearly below both targets the zone
+ * heats either way; with it clearly above both it stays off either way, so the write is a no-op
+ * (live 2026-10-24: target 23 <-> 24 all night with the room at 21.5). `marginC` keeps writes that
+ * may matter before the next run. Room mode also sets the flow temperature from the setpoint, and
+ * Flow mode was never measured, so neither is ever treated as inert.
  */
 export function isThermostatChangeInert(params: {
   operationMode: number | undefined | null;
@@ -122,7 +123,7 @@ export function isThermostatChangeInert(params: {
   marginC: number;
 }): boolean {
   const { operationMode, roomC, fromC, toC, marginC } = params;
-  if (isRoomTargetMode(operationMode) || ![roomC, fromC, toC, marginC].every(Number.isFinite)) {
+  if (operationMode !== ZoneOperationMode.Curve || ![roomC, fromC, toC, marginC].every(Number.isFinite)) {
     return false;
   }
   return roomC < Math.min(fromC, toC) - marginC || roomC > Math.max(fromC, toC) + marginC;
