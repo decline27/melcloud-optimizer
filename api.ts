@@ -994,26 +994,10 @@ const apiHandlers: ApiHandlers = {
         // ledger has data for today the honest figure is zero, not a guess.
         const finalDailySavings: number = measuredSavings ? measuredSavings.savings : 0;
 
-        // Quick-win DHW scheduling: toggle forced hot-water when cheap
-        try {
-          const enableTank = homey.settings.get('enable_tank_control') === true;
-          if (enableTank && result && result.hotWaterAction && result.hotWaterAction.action) {
-            const action = result.hotWaterAction.action;
-            const deviceId = homey.settings.get('device_id') || 'Boiler';
-            const buildingIdSetting = homey.settings.get('building_id');
-            const parsedBuildingId = Number.parseInt(String(buildingIdSetting ?? ''), 10);
-            const buildingId = Number.isFinite(parsedBuildingId) ? parsedBuildingId : 0;
-            if (action === 'heat_now') {
-              await melCloudService.setHotWaterMode(deviceId, buildingId, true);
-              homey.app.log('DHW action: Forced hot water mode (cheap price window)');
-            } else if (action === 'delay') {
-              await melCloudService.setHotWaterMode(deviceId, buildingId, false);
-              homey.app.log('DHW action: Auto mode (delaying in expensive window)');
-            }
-          }
-        } catch (dhwErr: any) {
-          homey.app.error('DHW scheduling toggle failed:', dhwErr && dhwErr.message ? dhwErr.message : String(dhwErr));
-        }
+        // Forced hot water is the optimizer's job alone (low tank only, see optimizer.ts). This
+        // used to force a reheat on every heat_now and switch forced off on every delay. Live
+        // 2026-10-29: a reheat about 20 min after most heat_now runs, at 5 SEK/kWh with the tank
+        // at 50.5 °C, and a forced run the user starts would be cancelled by the next delay.
 
         // Log the enhanced optimization result
         homey.app.log('Enhanced optimization result:', JSON.stringify(result, null, 2));
