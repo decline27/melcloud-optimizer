@@ -358,5 +358,8 @@
   },
   "14.0.87": {
     "en": "Fewer pointless heat pump commands: in Curve mode the app no longer changes the room target when the change cannot switch heating on or off (for example 23 to 24 °C with the room at 21.5 °C), while gradual changes toward a target on the other side of the room temperature still go through. Hot water: if forced hot water does not start a reheat while the tank is below your minimum, the timeline says so once and the app tries again. A forced hot water run you start yourself is no longer switched back to automatic by the app."
+  },
+  "14.0.88": {
+    "en": "Hot water: the app no longer starts forced hot water every time prices look favourable, and no longer switches a forced run you started back to automatic. Forced hot water is now only used when the tank is below your minimum and not reheating. Cheap-hour preheating still works by raising the tank target."
   }
 }
