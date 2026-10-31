@@ -361,5 +361,8 @@
   },
   "14.0.88": {
     "en": "Hot water: the app no longer starts forced hot water every time prices look favourable, and no longer switches a forced run you started back to automatic. Forced hot water is now only used when the tank is below your minimum and not reheating. Cheap-hour preheating still works by raising the tank target."
+  },
+  "14.0.89": {
+    "en": "Hot water: when the tank drops below your minimum, the app now starts forced hot water straight away instead of first waiting an hour to see whether a higher tank target starts the reheat. Fewer cold showers after heavy hot water use."
   }
 }
