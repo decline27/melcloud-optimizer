@@ -37,11 +37,10 @@ export const COMFORT_CONSTANTS = {
      */
     DEFAULT_TANK_MAX_DELTA_PER_CHANGE: 4.0,
     /**
-     * Below the tank minimum, how long a setpoint raise gets to start a reheat before the app
-     * switches to forced hot water, minutes (just under the hourly optimizer interval).
-     * Live 2026-10-18: target already at max 53 °C, tank fell 48 -> 40 °C overnight, no reheat.
+     * How long a forced hot water request gets to start a reheat before it counts as not started
+     * (reported, record cleared), minutes (just under the hourly optimizer interval).
      */
-    LOW_TANK_RAISE_WAIT_MINUTES: 50,
+    LOW_TANK_FORCED_WAIT_MINUTES: 50,
     /** Forced hot water started by the app is switched back to auto after this long at most, hours. */
     LOW_TANK_FORCED_MAX_HOURS: 3,
     DEFAULT_DEADBAND: 0.5,

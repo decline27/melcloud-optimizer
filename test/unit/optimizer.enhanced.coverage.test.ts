@@ -673,17 +673,13 @@ describe('Low-tank forced hot water', () => {
     expect(result.reason).toContain('forced hot water');
   });
 
-  test('a fresh raise gets its chance first; after it fails, forced hot water', async () => {
-    const homey = makeHomey();
-    const fresh = await makeOptimizer(homey).optimizeTank(
+  test('raise and forced hot water in the same run, without waiting for the raise', async () => {
+    // Live 2026-10-30 18:00: raise 48 -> 50 with the tank at 40.5 °C did nothing for an hour.
+    const result = await makeOptimizer(makeHomey()).optimizeTank(
       inputs({ SetTankWaterTemperature: 44, TankWaterTemperature: 38, OperationMode: 0, ForcedHotWaterMode: false }), delay, jest.fn());
-    expect(fresh.toTemp).toBe(48);
-    expect(fresh.hotWaterMode).toBeUndefined();
-
-    const later = makeHomey({ low_tank_kick_at: Date.now() - 55 * 60000 });
-    const retry = await makeOptimizer(later).optimizeTank(
-      inputs({ SetTankWaterTemperature: 48, TankWaterTemperature: 37, OperationMode: 0, ForcedHotWaterMode: false }), delay, jest.fn());
-    expect(retry.hotWaterMode).toBe('forced');
+    expect(result.toTemp).toBe(48);
+    expect(result.needsApply).toBe(true);
+    expect(result.hotWaterMode).toBe('forced');
   });
 
   test('never while a reheat runs, and never twice', async () => {

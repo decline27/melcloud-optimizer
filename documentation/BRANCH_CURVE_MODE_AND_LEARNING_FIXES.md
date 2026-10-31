@@ -539,6 +539,20 @@ coasting. **Never switch a user's mode silently.**
 - `low_tank_forced_at` is cleared once the unit no longer reports forced mode (≥ 50 min after the
   request). Before, it stayed set forever and a later user-started forced run was switched to auto.
 
+**2026-10-29 (14.0.88):**
+- Removed the "quick-win DHW" block in `api.ts` `getRunHourlyOptimizer`. It forced hot water on every
+  `heat_now` from the hot water planner and switched it to auto on every `delay`, beside the tank
+  logic and without `low_tank_forced_at`. Live: forced mode at 09:01 with the tank at 50.5 °C and
+  5 SEK/kWh, not started by the user; reheats began about 20 min after most `heat_now` runs. Forced
+  hot water now comes only from `optimizeTank`.
+
+**2026-10-31:**
+- Below the tank minimum and not reheating, forced hot water goes out in the same run as the setpoint
+  raise. The raise used to get an hour first (`low_tank_kick_at`, removed). Live record of what
+  started a reheat: 2 °C raises 0 of 3, 4 °C raises 2 of 4, forced 4 of 5 (the failure: 23 Oct, open
+  space-heating demand). 30 Oct 18:00 a 48 → 50 °C raise with the tank at 40.5 °C did nothing and the
+  tank fell to 37 °C before the next run's forced request started the reheat.
+
 **Phase 5 — COP weighting.** `delivered_price / COP(forecast_ambient)`. A curve already exists at
 `data/cop_curve.csv` (keyed by `temp_out_c, delta_c`) with a bilinear interpolator in
 `simulate.ts`, but it is never loaded at runtime. Guard the division — EMHASS has a live COP
